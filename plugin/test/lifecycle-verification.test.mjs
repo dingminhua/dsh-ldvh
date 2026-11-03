@@ -24,6 +24,19 @@ function realFormed(uid = "pitfall-0000-0000-0000-000000000001") {
   return { entry_id: "entry-1", object_uid: uid, file: `/tmp/${uid}.md` };
 }
 
+/** 运行期配置快照（与 lifecycle.js 的 readConfigSnapshot 同形）。 */
+function configSnapshot(over = {}) {
+  return {
+    riskLayer: 2,
+    fastPath: false,
+    precheckSource: "configured",
+    semanticGapsDeclared: true,
+    silenceMs: 900000,
+    at: "2026-11-03T00:00:00.000Z",
+    ...over,
+  };
+}
+
 /** 一次「全部正常、本轮成文」的审核结局。 */
 function healthyOutcome(over = {}) {
   return {
@@ -43,7 +56,7 @@ function healthyOutcome(over = {}) {
 }
 
 test("healthy 运行（成文、无未判、无转写失败）→ verification landed", () => {
-  const v = verifyReviewRun(healthyOutcome());
+  const v = verifyReviewRun(healthyOutcome(), null, configSnapshot());
   assert.notEqual(v, null);
   assert.equal(v.stage, "landed", `fail=${JSON.stringify(v.fail)} undeclared=${JSON.stringify(v.undeclared)} missing=${JSON.stringify(v.missing)}`);
 });
@@ -51,13 +64,13 @@ test("healthy 运行（成文、无未判、无转写失败）→ verification l
 test("成文但 formed 元素只有 entry_id/object_uid/file 时不得被判「缺七段」", () => {
   // 第二轮回核 A 项的直接回归：初版读 item.body，真实形状没有 body，
   // 于是任何成文运行都被判 fail「缺七段」。
-  const v = verifyReviewRun(healthyOutcome());
+  const v = verifyReviewRun(healthyOutcome(), null, configSnapshot());
   assert.deepEqual(v.fail, []);
   assert.equal(v.misreported.length, 0);
 });
 
 test("本轮未成文也不得判失败（不适用 ≠ 失败）", () => {
-  const v = verifyReviewRun(healthyOutcome({ formed: null, formed_all: [] }));
+  const v = verifyReviewRun(healthyOutcome({ formed: null, formed_all: [] }), null, configSnapshot());
   assert.equal(v.stage, "landed");
 });
 
@@ -84,21 +97,24 @@ test("null / 非对象输入返回 null 而不是抛错", () => {
 });
 
 test("产出覆盖 §18 全表：每一条 mechanical / 声明 / 缺口行都出现", () => {
-  const v = verifyReviewRun(healthyOutcome());
+  const v = verifyReviewRun(healthyOutcome(), null, configSnapshot());
   const reported = new Set(v.rows.map((r) => r.id));
   for (const id of MECHANICAL_ROWS) assert.ok(reported.has(id), `缺行：${id}`);
   for (const id of Object.keys(NOT_CHECKABLE_ROWS)) assert.ok(reported.has(id), `缺声明行：${id}`);
   assert.deepEqual(v.missing, [], "不应有缺席行");
 });
 
-test("已知缺口随结果带出（deferredRows 非空），使「没真核对」在跑绿时也读得见", () => {
-  const v = verifyReviewRun(healthyOutcome());
-  assert.ok(v.deferredRows.length > 0);
-  assert.equal(v.deferredRows.length, Object.keys(DEFERRED_ROWS).length);
+test("已知缺口随结果带出（deferredRows），使「没真核对」在跑绿时也读得见", () => {
+  // 无计时/配置证据时，那些「条件式」行落缺口并被列出；有证据时应缩短。
+  const noEvidence = verifyReviewRun(healthyOutcome(), null, null);
+  assert.ok(noEvidence.deferredRows.length > 0, "无条件证据时必须列出缺口，不能静默");
+  const withEvidence = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching" }, configSnapshot());
+  assert.ok(withEvidence.deferredRows.length < noEvidence.deferredRows.length,
+    "补上采集点后缺口数应减少——这正是「清掉一项删一行」的可观察形态");
 });
 
 test("不得把有采集点的行错报成 not-checkable（否则等于自废核对）", () => {
-  const v = verifyReviewRun(healthyOutcome());
+  const v = verifyReviewRun(healthyOutcome(), null, configSnapshot());
   const collected = v.rows.filter((r) => r.verdict !== "not-checkable");
   assert.ok(collected.length >= 5, `至少应有 5 条有采集点的行给出真结论，实际 ${collected.length}`);
 });

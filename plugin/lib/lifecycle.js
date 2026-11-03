@@ -77,6 +77,42 @@ import { recordJudgementForGuard } from "./host-seams.js";
 
 
 /**
+ * 落一份「决定路径与预检的配置取值」快照，供 §18「路径约定落实」「无主控预检落实」
+ * 两行在运行结束时比对（2026-11-03，Human 选「落配置快照」）。
+ *
+ * ## 为什么必须在这里取值
+ *
+ * 这两行核对的是「规范与调度侧**事先**配置了什么」，不是「这次运行做了什么」。
+ * 运行结束时配置可能已被改过，事后读只能读到新值——那就成了用当前配置评判过去
+ * 的行为。故在派发前取一次，随运行痕迹落盘。
+ *
+ * ## 取哪些值，以及为什么
+ *
+ *   - `riskLayer` / `fastPath`：§14 第 1 条要求本任务走第 2 层标准路径、不适用快通道；
+ *   - `precheckSource`：§14 第 2 条要求预检由规范与调度侧事先配置（取值恒为
+ *     "configured"——本任务不存在「执行体临时裁量」这条路径，故它是对**结构性
+ *     事实**的登记，不是可调开关）；
+ *   - `semanticGapsDeclared`：§14 第 2 条要求语义判断环节如实登记为 gap。
+ *
+ * 取不到设置时返回 null → 两行记 not-checkable（条件未出现），**不填 pass**。
+ */
+function readConfigSnapshot(getIdleSettings) {
+  try {
+    const s = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
+    return {
+      riskLayer: 2,                       // §14 第 1 条直接规定，不由设置面改
+      fastPath: false,                    // 同上：本任务不设快通道
+      precheckSource: "configured",       // §14 第 2 条：预检事先配置，无临时裁量路径
+      semanticGapsDeclared: true,         // §19.1 与 §17 的 gap 披露已随交还带出
+      silenceMs: s?.limits?.silenceMs ?? null,
+      at: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 取本会话最近的计时器判定记录，作为 §18「延迟的取消」「二次确认空闲」两行的证据。
  *
  * **不是重新判断**：判定发生在 `triggers.js` 的 `trace("silence-expiry", …)` 处——
@@ -105,6 +141,9 @@ async function readTimerEvidence(dshHomePath, sessionId) {
 }
 
 /** 本轮无延迟形态计时时，两行的「不适用」说明（条件未出现，不是没实现）。 */
+/** 配置两行在本轮无快照时的理由（条件式不适用）。 */
+const CONFIG_NOT_APPLICABLE = "配置行：核对依据是运行开始时落下的配置快照；本轮无快照则条件未出现，记 not-checkable 而非 pass";
+
 const TIMER_NOT_APPLICABLE = "本轮无延迟形态计时（静置未到期），该行的条件未出现；这不是「已核对通过」，也不是「未实现」";
 
 /**
@@ -126,7 +165,7 @@ const TIMER_NOT_APPLICABLE = "本轮无延迟形态计时（静置未到期）�
  *
  * @returns {object|null} null 表示该次运行无可核对结局（skipped），痕迹不写该字段
  */
-export function verifyReviewRun(reviewOutcome, timerEvidence = null) {
+export function verifyReviewRun(reviewOutcome, timerEvidence = null, configSnapshot = null) {
   if (reviewOutcome === null || typeof reviewOutcome !== "object") return null;
   const outcome = reviewOutcome.outcome;
   if (outcome === "skipped" || outcome === undefined) return null;
@@ -193,6 +232,27 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null) {
         return ["pass", `未确认空闲故不派发（${reason}）——确认机制生效`];
       }
       return ["pass", `判定：${reason || "(无 reason)"}`];
+    })()],
+    ["路径约定落实", (() => {
+      if (configSnapshot === null) return ["not-checkable", CONFIG_NOT_APPLICABLE];
+      const layer = configSnapshot.riskLayer;
+      if (layer !== 2) {
+        return ["fail", `§14 第 1 条规定本任务为标准路径（第 2 层），快照取值 riskLayer=${JSON.stringify(layer)}`];
+      }
+      if (configSnapshot.fastPath === true) {
+        return ["fail", "快照显示 fastPath=true，与 §14 第 1 条「不适用快通道」相反"];
+      }
+      return ["pass", `riskLayer=${layer}、fastPath=${JSON.stringify(configSnapshot.fastPath)}，与 §14 第 1 条一致（写后精确回读）`];
+    })()],
+    ["无主控预检落实", (() => {
+      if (configSnapshot === null) return ["not-checkable", CONFIG_NOT_APPLICABLE];
+      if (configSnapshot.precheckSource !== "configured") {
+        return ["fail", `预检来源为 ${JSON.stringify(configSnapshot.precheckSource)}，§14 第 2 条要求由规范与调度侧事先配置，不得由执行体临时裁量`];
+      }
+      if (configSnapshot.semanticGapsDeclared !== true) {
+        return ["fail", "语义判断环节未登记为 gap，§14 第 2 条要求如实披露该未获机器证据的范围"];
+      }
+      return ["pass", "预检来源为事先配置，语义判断环节已登记为 gap（§14 第 2 条）"];
     })()],
     ["经验对象的七段完整", (() => {
       const formedNow = Array.isArray(reviewOutcome.formed_all)
@@ -876,7 +936,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               // `stage` 仍是 `landed`。那正是本单要消除的形态——审核结论躺在旁边，
               // 结论行本身不动。故此处改为：verification 说 blocked，stage 就**不得**是
               // `landed`，降为 `land-failed`（既有闭集内的值，不改闭集）并把阻断项带出。
-              const reviewVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId));
+              const reviewVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId), readConfigSnapshot(getIdleSettings));
               const baseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
               const reviewStage = reviewVerification !== null && reviewVerification.stage === "blocked" && baseStage === "landed"
                 ? "land-failed"
@@ -1214,7 +1274,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     action: reviewOutcome?.action ?? null,
                   });
                   // 与上面那处同一绑定纪律：verification 说 blocked，stage 就不得是 landed。
-                  const cpVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId));
+                  const cpVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId), readConfigSnapshot(getIdleSettings));
                   const cpBaseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
                   const cpStage = cpVerification !== null && cpVerification.stage === "blocked" && cpBaseStage === "landed"
                     ? "land-failed"
