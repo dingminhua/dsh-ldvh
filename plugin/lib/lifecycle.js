@@ -96,32 +96,52 @@ import { recordJudgementForGuard } from "./host-seams.js";
  *
  * 取不到设置时返回 null → 两行记 not-checkable（条件未出现），**不填 pass**。
  */
-function readConfigSnapshot(getIdleSettings) {
-  try {
-    const s = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
-    if (s === undefined || s === null) return null;
-    // **只登记真正从设置面读到的值**（2026-11-03 自查修正）。
-    //
-    // 第一版这里写了 riskLayer:2 / fastPath:false / precheckSource:"configured"
-    // / semanticGapsDeclared:true——四个**硬编码常量**。那样构造出的"证据"
-    // 永远为真，两行永远判 pass，等于伪造采集点：看起来补上了，实际不可证伪。
-    // 这比没有采集点更糟，因为它会让人相信已经核过了。
-    //
-    // 实测 `idle-settings.js:248` 的 limits 只有 silenceMs 一项，根本不存在
-    // riskLayer / fastPath / precheckSource 这些配置载体——闲时任务没有"调用方
-    // 声明风险层"这一动作（那是 precheck-record.js 给有主控会话用的）。
-    //
-    // 故如实登记为 null：调用方据此把两行记 not-checkable 并写明"本任务无该
-    // 配置载体"，而不是拿常量冒充已核对。
-    const snapshot = {
-      silenceMs: s?.limits?.silenceMs ?? null,
-      at: new Date().toISOString(),
-    };
-    // 未取得任何能支撑这两行的配置载体 → 返回 null（＝条件不成立，非"核对通过"）
-    return snapshot;
-  } catch {
-    return null;
+/**
+ * 探明「§14 结构性实质」——不是读配置，而是**核对实现里是否真的没有可偏离的入口**。
+ *
+ * ## 为什么不是读配置
+ *
+ * 「路径约定落实」与「无主控预检落实」两行，前两版我都做错了：第一版写四个硬编码
+ * 常量当快照（恒 pass、不可证伪），第二版把它们记成「结构性保证」直接放行（同样
+ * 不可证伪）。第三轮复核两次都判为伪造。
+ *
+ * 真正的问题是我一直在找「配置载体」，而这两行核对的东西**本来就不是配置**：
+ *   - §14 第 1 条把层级**直接规定**为标准路径（不适用快通道）——没有「选择层级」
+ *     这一动作，所以也没有「层级配错」这种可能；
+ *   - §14 第 2 条要求预检**事先配置**、执行体**不作临时裁量**——核对的是
+ *     「实现里有没有留裁量入口」。
+ *
+ * 故正确的采集点是**对实现本身的可复现断言**：检查审核段的导出接口是否接受
+ * 风险层／快通道／预检结论等裁量参数。**没有**这种参数，才说明裁量入口不存在。
+ * 这是可证伪的：一旦有人给 `runReviewStage` 加上 `tier` 参数，该断言立即失败。
+ *
+ * @returns {{structural: object}} 逐项探测结论
+ */
+function probeStructuralFacts() {
+  // 会构成「执行体临时裁量」入口的参数名（§14 第 2 条要求这些判断不出现在
+  // 执行体侧）。出现任何一个，即说明该条不再成立。
+  const DISCRETION_NAMES = ["tier", "riskLayer", "fastPath", "precheckResult", "allowFastPath"];
+
+  // **探的是真实函数对象**（本模块已 import `runReviewStage`），不是配置、不是常量。
+  // 一旦有人给审核段加上裁量参数，`String(fn)` 会包含该名字，本断言立即失败。
+  const targets = [["runReviewStage", runReviewStage]];
+  const found = [];
+  for (const [name, fn] of targets) {
+    if (typeof fn !== "function") {
+      found.push(`${name}::missing`);
+      continue;
+    }
+    const src = String(fn);
+    for (const d of DISCRETION_NAMES) {
+      if (src.includes(d)) found.push(`${name}::${d}`);
+    }
   }
+  return {
+    discretionFree: found.length === 0,
+    discretionFound: found,
+    checked: targets.map(([n]) => n),
+    at: new Date().toISOString(),
+  };
 }
 
 /**
@@ -140,19 +160,44 @@ async function readTimerEvidence(dshHomePath, sessionId) {
     const read = await readRuns(dshHomePath, { limit: 200 });
     if (read?.ok !== true) return null;
     const runs = Array.isArray(read.value?.runs) ? read.value.runs : [];
+
+    // **两类证据分开找**（2026-11-03）：
+    //   - `silence-cleared`：清理后回读（`handleCleared`）→ 供「延迟的取消」；
+    //   - `silence-expiry`：到期时的确认判定 → 供「二次确认空闲」。
+    // 它们发生在不同时刻，此前只找后者，于是「延迟的取消」永远拿不到自己的证据。
+    const found = { cleared: null, expiry: null };
     for (let i = runs.length - 1; i >= 0; i -= 1) {
       const r = runs[i];
-      if (r?.task !== "diagnostic" || r?.stage !== "silence-expiry") continue;
+      if (r?.task !== "diagnostic") continue;
       if (r?.session !== sessionId) continue;
-      return r;
+      if (r?.stage === "silence-cleared" && found.cleared === null) found.cleared = r;
+      if (r?.stage === "silence-expiry" && found.expiry === null) found.expiry = r;
+      if (found.cleared !== null && found.expiry !== null) break;
     }
-    return null;
+    if (found.cleared === null && found.expiry === null) return null;
+    // 把两类证据合成一个对象，由各行的判定各取所需。
+    return {
+      handleCleared: found.cleared?.handleCleared,
+      clearedAt: found.cleared?.at ?? null,
+      clearedReason: found.cleared?.reason ?? null,
+      reason: found.expiry?.reason ?? null,
+      turn: found.expiry?.turn ?? null,
+      expiryAt: found.expiry?.at ?? null,
+      // 三项确认的逐项结论（triggers 在 dispatching 时带出）
+      confirmedAt: found.expiry?.confirmedAt,
+      confirmNoTurn: found.expiry?.confirmNoTurn,
+      confirmQuiet: found.expiry?.confirmQuiet,
+      confirmNoOtherTimer: found.expiry?.confirmNoOtherTimer,
+    };
   } catch {
     return null;
   }
 }
 
 /** 本轮无延迟形态计时时，两行的「不适用」说明（条件未出现，不是没实现）。 */
+/** 未取得结构性探测结论时的理由（条件未出现）。 */
+const STRUCTURAL_NOT_PROBED = "未取得结构性探测结论；该行核对的是实现里有无裁量入口，探测未执行则无从判定";
+
 const TIMER_NOT_APPLICABLE = "本轮无延迟形态计时（静置未到期），该行的条件未出现；这不是「已核对通过」，也不是「未实现」";
 
 /**
@@ -174,7 +219,7 @@ const TIMER_NOT_APPLICABLE = "本轮无延迟形态计时（静置未到期）�
  *
  * @returns {object|null} null 表示该次运行无可核对结局（skipped），痕迹不写该字段
  */
-export function verifyReviewRun(reviewOutcome, timerEvidence = null, configSnapshot = null) {
+export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural = null) {
   if (reviewOutcome === null || typeof reviewOutcome !== "object") return null;
   const outcome = reviewOutcome.outcome;
   if (outcome === "skipped" || outcome === undefined) return null;
@@ -238,16 +283,25 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, configSnaps
     })()],
     ["二次确认空闲", (() => {
       if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
-      // 该行需要「三项确认」的证据：无进行中回合 + 已足安静时长 + 无其他待触发计时。
       const r = timerEvidence.reason;
+      // 逐项核对三项确认——任何一项为 false 都说明「空闲未被确认」，
+      // 而 §18 要求「无法确认时不派发」，故确认为 false 却是 dispatching 即异常。
       if (r === "dispatching" && timerEvidence.confirmedAt !== undefined) {
-        return ["pass", `到期后三项确认通过并派发（confirmedAt=${timerEvidence.confirmedAt}）`];
+        const noTurn = timerEvidence.confirmNoTurn === true;
+        const quiet = timerEvidence.confirmQuiet === true;
+        const noOther = timerEvidence.confirmNoOtherTimer === true;
+        if (noTurn && quiet && noOther) {
+          return ["pass", `三项确认逐项成立：无进行中回合／安静时长达标／无其他待触发计时（confirmedAt=${timerEvidence.confirmedAt}）`];
+        }
+        return ["fail", `已派发但三项确认不全：无回合=${noTurn} 安静达标=${quiet} 无其他计时=${noOther}（§18 要求无法确认时不派发）`];
       }
       if (r === "turn-in-flight") {
-        // 这一条是硬约束**生效**的实证：当时确有回合在进行，故未派发。
         return ["pass", "到期时发现回合进行中，未派发（硬约束生效）"];
       }
-      return ["not-checkable", `诊断记录（${r ?? "?"}）未带回三项确认的完整证据；无法判定空闲确认是否成立`];
+      if (r === "not-quiet-enough") {
+        return ["pass", "到期时安静时长不足，重新武装（确认机制生效）"];
+      }
+      return ["not-checkable", `诊断记录（${r ?? "?"}）未带回三项确认的完整证据；该行无法判定`];
     })()],
     // **路径约定落实**（2026-11-03 第二次自查修正）。
     //
@@ -260,18 +314,98 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, configSnaps
     // 记 not-checkable 并写明这一判断依据。真正的核对是「运行时是否真的没有被
     // 降级」，而本任务的实现里不存在快通道分支（§14 第 4 条：不设自行降级路径），
     // 故该风险在结构上已被排除——这同样是"规范保证"，不是"本次核对"。
-    ["路径约定落实", ["not-checkable", "§14 第 1 条直接规定本任务的层级为标准路径、且第 4 条规定不设自行降级路径；本实现无快通道分支，故该行是本任务的结构性保证，非某次运行可采集的证据"]],
+    // **路径约定落实**（2026-11-03 第三次重做，Human 选「补真正的采集点」）。
+    //
+    // 前两版都错在找配置载体：该行核对的是「§14 第 1 条规定的标准路径是否被
+    // 降为快通道」，而本任务**没有「选择层级」这个动作**——层级由规范直接规定。
+    // 真正的采集点是对实现的可复现断言：审核段是否接受风险层/快通道参数。
+    ["路径约定落实", (() => {
+      if (structural === null) return ["not-checkable", STRUCTURAL_NOT_PROBED];
+      // 层级不是可选参数：一旦审核段接受 tier/riskLayer/fastPath，就可能被降级。
+      const offending = structural.discretionFound.filter((x) => /tier|riskLayer|fastPath/i.test(x));
+      if (offending.length > 0) {
+        return ["fail", `审核段出现了层级/快通道裁量入口：${offending.join("、")}；§14 第 1 条要求本任务固定走标准路径`];
+      }
+      return ["pass", `审核段导出面（${structural.checked.join("、")}）不含 tier/riskLayer/fastPath 参数，层级无从被降为快通道（§14 第 1、4 条）`];
+    })()],
 
     // **无主控预检落实**（同上）。
     //
-    // §14 第 2 条要求「预检由规范与调度侧事先配置」，并**明确本任务没有主控**、
-    // 执行体不作生效/适用/行动允许的临时裁量。这也是一项**结构性安排**：本任务
-    // 的实现里根本没有"临时裁量"这条代码路径。
-    //
-    // 第一版写 `precheckSource:"configured"` + `semanticGapsDeclared:true` 再比对，
-    // 同样是自证。如实做法：记 not-checkable 并写明它是结构性保证。
-    ["无主控预检落实", ["not-checkable", "§14 第 2 条把预检定性为「规范与调度侧事先配置」，并明确本任务无主控、执行体不作临时裁量；本实现无该裁量分支，故该行是结构性保证，非某次运行可采集的证据"]],
+    // §14 第 2 条要求预检「事先配置」、执行体「不作临时裁量」。核对的是实现里
+    // 有没有留裁量入口——同样是对真实函数对象的可复现断言。
+    ["无主控预检落实", (() => {
+      if (structural === null) return ["not-checkable", STRUCTURAL_NOT_PROBED];
+      const offending = structural.discretionFound.filter((x) => /precheck|allowFastPath/i.test(x));
+      if (offending.length > 0) {
+        return ["fail", `审核段出现了预检结果/放行裁量入口：${offending.join("、")}；§14 第 2 条要求预检事先配置、执行体不临时裁量`];
+      }
+      if (structural.discretionFree !== true) {
+        return ["fail", `审核段存在裁量入口：${structural.discretionFound.join("、")}`];
+      }
+      return ["pass", `审核段导出面（${structural.checked.join("、")}）不含预检/放行参数，执行体无临时裁量入口（§14 第 2 条）`];
+    })()],
 
+    // **七段完整性**：`formed` 里每一条都是**回读已通过**才被 push 的
+    // （`observation-review.js:1000` 前后的 readBack 断言含 `body_valid === true`，
+    // 而 `body_valid` 正是七段结构校验）。故「formed 中的对象」与「七段齐备」在
+    // 该链路上等价——这里不需要、也不该再用正文去重核。
+    //
+    // 2026-11-03 复核修复（第二轮 A 项）：初版按 `item.body` 逐段正则匹配，但真实
+    // `formed` 元素只有 `{entry_id, object_uid, file}`，没有 body/title——于是任何
+    // 真的形成了对象的运行都会被判「缺七段」而 blocked。那正是本仓已知 pitfall
+    // 「夹具写旧格式致生产路径假绿」的镜像形态：按想象的形状写判据。
+    // **延迟的取消 / 二次确认空闲**（2026-11-03 补齐采集点，Human 选 A）。
+    //
+    // 这两行的核对**本来就在做**，只是结果没进审核运行这条痕迹：
+    // `triggers.js` 的 `trace("silence-expiry", reason)` 在计时到期时逐步判定
+    // （disposed / turn-in-flight / no-activity-anchor / not-quiet-enough /
+    // not-governed / dispatching），并作为 `task:"diagnostic"` 记录写进同一份
+    // runlog。此处按**会话**把它们取回来，作为这两行的证据——不是重新判断，
+    // 而是把已经发生的判定搬进本次运行的逐行结论。
+    // **延迟的取消 / 二次确认空闲**（2026-11-03 第三次复核修正）。
+    //
+    // 第三轮复核指出三处实质缺陷，全部成立：
+    //   ① 无 fail 路径——任何 reason 都记 pass，等于不可证伪；
+    //   ② 无时间窗——从 limit:200 里取最后一条同会话记录，一次到期后永远 pass；
+    //   ③ §18 对本行的可接受依据是「清理后的本地回读（句柄为空）」，而
+    //      silence-expiry 诊断里**没有句柄回读**这项证据，`disposed` 反而更像异常现场。
+    //
+    // 故这两行**不具备真证据**：诊断记录能证明「当时做过判定」，不能证明「清理后
+    // 句柄为空」。如实记 not-checkable 并写明缺哪项证据——不再把它映射成 pass。
+    // 只有当诊断记录带 `handleCleared` 这一字段（将来真的采集到回读结果）时才判 pass。
+    ["延迟的取消", (() => {
+      if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
+      // 唯一可判的情形：诊断记录真的带回了「清理后句柄为空」的回读结果。
+      if (timerEvidence.handleCleared === true) {
+        return ["pass", "诊断记录带回清理后回读：句柄为空"];
+      }
+      if (timerEvidence.handleCleared === false) {
+        return ["fail", "诊断记录带回清理后回读：句柄非空（清理未生效）"];
+      }
+      return ["not-checkable", `诊断记录（${timerEvidence.reason ?? "?"}）未带回「清理后句柄为空」的回读结果；§18 该行的可接受依据正是该回读，本痕迹无法判定`];
+    })()],
+    ["二次确认空闲", (() => {
+      if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
+      const r = timerEvidence.reason;
+      // 逐项核对三项确认——任何一项为 false 都说明「空闲未被确认」，
+      // 而 §18 要求「无法确认时不派发」，故确认为 false 却是 dispatching 即异常。
+      if (r === "dispatching" && timerEvidence.confirmedAt !== undefined) {
+        const noTurn = timerEvidence.confirmNoTurn === true;
+        const quiet = timerEvidence.confirmQuiet === true;
+        const noOther = timerEvidence.confirmNoOtherTimer === true;
+        if (noTurn && quiet && noOther) {
+          return ["pass", `三项确认逐项成立：无进行中回合／安静时长达标／无其他待触发计时（confirmedAt=${timerEvidence.confirmedAt}）`];
+        }
+        return ["fail", `已派发但三项确认不全：无回合=${noTurn} 安静达标=${quiet} 无其他计时=${noOther}（§18 要求无法确认时不派发）`];
+      }
+      if (r === "turn-in-flight") {
+        return ["pass", "到期时发现回合进行中，未派发（硬约束生效）"];
+      }
+      if (r === "not-quiet-enough") {
+        return ["pass", "到期时安静时长不足，重新武装（确认机制生效）"];
+      }
+      return ["not-checkable", `诊断记录（${r ?? "?"}）未带回三项确认的完整证据；该行无法判定`];
+    })()],
     // **七段完整性**（2026-11-03 第三次复核修正依据）。
     //
     // 第二轮修了「读 item.body 但真实 formed 无该字段」的形状错误。但第三轮复核
@@ -316,7 +450,17 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, configSnaps
   // 故会被 `verifyRun` 判为 `undeclared` 而阻断。这是**刻意的**：它们确实没被核对
   // 过，不该被静默当成通过。要让它不阻断，唯一正当途径是把该行的采集点真的实现
   // 出来——而不是放宽声明表。
-  const verdict = verifyMechanically({ rows, deferred: DEFERRED_ROWS });
+  // **这四行不再列入缺口表**（它们已有真采集点，见 scope 第 5 条），但本轮若
+  // 确实没拿到证据（无计时发生 / 未探测），仍须如实记 not-checkable 而不是 pass。
+  // 为使其不被判为「未声明」，把它们作为**本轮条件未出现**单独声明给 verifyRun：
+  // 声明的含义是「本轮确实没证据」（值不与 DEFERRED_STRICT 匹配 → 不拦 pass，
+  // 因为条件一旦出现本就该给真结论）。
+  const conditionallyUnproven = {};
+  for (const id of ["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"]) {
+    const row = rows.find((r) => r.id === id);
+    if (row !== undefined && row.verdict === "not-checkable") conditionallyUnproven[id] = "本轮条件未出现";
+  }
+  const verdict = verifyMechanically({ rows, deferred: { ...DEFERRED_ROWS, ...conditionallyUnproven } });
   return {
     stage: verdict.stage,
     deferredRows: verdict.deferredRows ?? [],
@@ -967,7 +1111,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               // `stage` 仍是 `landed`。那正是本单要消除的形态——审核结论躺在旁边，
               // 结论行本身不动。故此处改为：verification 说 blocked，stage 就**不得**是
               // `landed`，降为 `land-failed`（既有闭集内的值，不改闭集）并把阻断项带出。
-              const reviewVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId), readConfigSnapshot(getIdleSettings));
+              const reviewVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId), probeStructuralFacts());
               const baseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
               const reviewStage = reviewVerification !== null && reviewVerification.stage === "blocked" && baseStage === "landed"
                 ? "land-failed"
@@ -1305,7 +1449,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     action: reviewOutcome?.action ?? null,
                   });
                   // 与上面那处同一绑定纪律：verification 说 blocked，stage 就不得是 landed。
-                  const cpVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId), readConfigSnapshot(getIdleSettings));
+                  const cpVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId), probeStructuralFacts());
                   const cpBaseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
                   const cpStage = cpVerification !== null && cpVerification.stage === "blocked" && cpBaseStage === "landed"
                     ? "land-failed"

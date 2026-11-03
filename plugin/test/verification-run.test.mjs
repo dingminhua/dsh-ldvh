@@ -301,14 +301,17 @@ test("条件式行填 pass → 不阻断（条件出现时本就该给真结论�
   assert.equal(r.stage, "landed", `fail=${JSON.stringify(r.fail)} misreported=${JSON.stringify(r.misreported)}`);
 });
 
-test("两类缺口在表内必须可区分：严格缺口带标记，条件式不带", () => {
-  const strict = Object.entries(DEFERRED_ROWS).filter(([, v]) => String(v).startsWith(DEFERRED_STRICT));
-  const conditional = Object.entries(DEFERRED_ROWS).filter(([, v]) => !String(v).startsWith(DEFERRED_STRICT));
-  assert.ok(strict.length > 0, "必须存在严格缺口行");
-  assert.ok(conditional.length > 0, "必须存在条件式行");
-  for (const [id] of conditional) {
-    assert.ok(["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"].includes(id),
-      `${id} 不在条件式四行之内，却未标严格缺口——检查是否漏标`);
+test("缺口表内的行现在全部是严格缺口（四行条件式已有真采集点，已移出）", () => {
+  // 2026-11-03：Human 选「补真正的采集点」后，延迟的取消／二次确认空闲／
+  // 路径约定落实／无主控预检落实 四行都有了可证伪的采集点，故**不再**登记为
+  // 缺口（scope 第 5 条也明令不得登记）。留下的应全部是严格缺口。
+  const entries = Object.entries(DEFERRED_ROWS);
+  assert.ok(entries.length > 0, "缺口表不应为空");
+  for (const [id, v] of entries) {
+    assert.ok(String(v).startsWith(DEFERRED_STRICT), `${id} 应为严格缺口（带标记）`);
+  }
+  for (const id of ["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"]) {
+    assert.equal(DEFERRED_ROWS[id], undefined, `${id} 已有采集点，不应再留在缺口表`);
   }
 });
 

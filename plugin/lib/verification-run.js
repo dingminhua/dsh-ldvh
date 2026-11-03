@@ -84,10 +84,6 @@ function strictReason(reason) {
   return `${DEFERRED_STRICT}::${reason}`;
 }
 
-const CONFIG_ROW_REASON = "条件式行：核对依据是运行开始时落下的配置快照；本轮若无快照则条件未出现，记 not-checkable 而非 pass";
-
-const TIMER_ROW_REASON = "条件式行：核对发生在计时到期那一刻，由 triggers 的诊断记录承载；本轮若未发生静置到期则条件未出现，记 not-checkable 而非 pass";
-
 /**
  * §18 中**机械可核对、但运行结束时的痕迹不足以充当证据**的行：id → 缺口理由。
  *
@@ -109,10 +105,6 @@ export const DEFERRED_ROWS = Object.freeze({
   // 计时发生（静置未到期），条件未出现——此时记 `not-checkable` 并写明成因，
   // **不得记 pass**（那会把「没有计时」说成「清理已验证」）。
   // 有计时发生时，`verifyReviewRun` 会从诊断记录取回真判定，这两行随之给出真结论。
-  "延迟的取消": TIMER_ROW_REASON,
-  "二次确认空闲": TIMER_ROW_REASON,
-  "路径约定落实": CONFIG_ROW_REASON,
-  "无主控预检落实": CONFIG_ROW_REASON,
   "上下文供给的有界性": strictReason("需在运行前记录交付区间与水位取值；痕迹只留结果，未留切分依据"),
   "逐字引证": strictReason("需在每次判断执行时核对引文确在交付材料内；运行结束时材料窗口已推进"),
   "自动动作边界": strictReason("需在每次动作执行前比对 §9／§10 闭集；痕迹无逐动作的比对记录"),

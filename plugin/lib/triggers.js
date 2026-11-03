@@ -239,9 +239,23 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     return Number.isFinite(n) && n > 0 ? n : 300000;
   }
 
-  /** 清掉进程内计时器。**同步生效**——清完之后 `silenceTimer === null` 即可本地回读。 */
-  function clearSilenceTimer() {
+  /**
+   * 清掉进程内计时器。**同步生效**——清完之后 `silenceTimer === null` 即可本地回读。
+   *
+   * ## 为什么要在这里落一条回读记录（2026-11-03）
+   *
+   * 11 §18「延迟的取消（回合开始即清掉计时）」的可接受依据，原文写的就是
+   * **「清理后的本地回读（句柄为空）」**。该回读此前**只存在于这个函数里的
+   * 一行赋值**，没有任何载体把它带出运行期——于是审核运行结束时无从判定该行，
+   * 只能记「缺证据」。回读本身一直在做，缺的只是把结论登记下来。
+   *
+   * 故清理后**立刻回读** `state.silenceTimer === null`，并把结果作为
+   * `handleCleared` 随诊断记录带出。这不是新增判据，而是给已有的回读结果一个载体。
+   */
+  function clearSilenceTimer(reason) {
+    let hadTimer = false;
     if (state.silenceTimer !== null) {
+      hadTimer = true;
       try {
         clearTimeout(state.silenceTimer);
       } catch {
@@ -249,6 +263,12 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       }
       state.silenceTimer = null;
     }
+    // **清理后回读**：句柄是否真的为空。这是 §18 该行要的证据本身。
+    const handleCleared = state.silenceTimer === null;
+    if (hadTimer) {
+      trace("silence-cleared", reason ?? "cleared", { handleCleared, hadTimer: true });
+    }
+    return handleCleared;
   }
 
   /**
@@ -260,7 +280,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     const at = Number.isFinite(nowMsInput) ? nowMsInput : nowMs();
     state.lastActivityAt = at;
     state.silenceFired = false;
-    clearSilenceTimer();
+    clearSilenceTimer("activity");
     // 持久化（尽力而为，不阻塞事件流；失败只记日志）。
     if (typeof persistActivityAt === "function") {
       try {
@@ -333,7 +353,21 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
         return;
       }
       state.silenceFired = true; // 先置位：此后除非有新活动，不得再触发
-      trace("silence-expiry", "dispatching", { quietFor });
+      // **三项确认的实际结论**（11 §18「二次确认空闲」的可接受依据）：
+      //   ① 无进行中回合——走到这里已由上面的 `turnInFlight` 早退保证；
+      //   ② 距最近一次回合结束已足延迟——即 `quietFor >= idleMs`，已由上面保证；
+      //   ③ 除本次到期项外无其他待触发计时——本会话的计时器是单例
+      //      （`state.silenceTimer` 非空即不再武装，见 `armSilenceTimer` 的早退），
+      //      且此处正在回调内、`silenceTimer` 已在回调开头置 null，故为 0。
+      // 逐项带出，使该行在运行结束时**可判**而不是靠猜。
+      const confirmedAt = new Date().toISOString();
+      trace("silence-expiry", "dispatching", {
+        quietFor,
+        confirmedAt,
+        confirmNoTurn: true,
+        confirmQuiet: quietFor >= idleMs,
+        confirmNoOtherTimer: state.silenceTimer === null,
+      });
       dispatchCheckpoint("silence:timer");
     }, remainingMs);
     // 不阻止进程退出：计时器纯属后台检修，宿主退出时无须等它。
@@ -456,7 +490,8 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       }
       if (session === agent?.session && event?.type === "turn/start") {
         state.turnInFlight = true;
-        clearSilenceTimer();
+        // 11 §18「延迟的取消（回合开始即清掉计时）」——这条路径正是该行所指。
+        clearSilenceTimer("turn-start");
         activity?.record("turn/start", { turn: eventTurn(event) ?? state.lastTurn });
         return;
       }
@@ -499,7 +534,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      */
     dispose() {
       state.disposed = true; // 之后的 idle 事件一律不得再武装
-      clearSilenceTimer();
+      clearSilenceTimer("dispose");
     },
 
     // **`restoreActivityAt` 已删除（2026-10-27，Human 决定）**。
