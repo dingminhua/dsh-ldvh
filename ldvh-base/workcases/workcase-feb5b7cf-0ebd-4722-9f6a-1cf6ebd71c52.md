@@ -3,7 +3,7 @@ fact_type_key: workcase
 object_uid: feb5b7cf-0ebd-4722-9f6a-1cf6ebd71c52
 title: 摩擦补充路径校验与存量改正
 status: open
-gist: 修摩擦补充路径的三处缺口：转写入口不校验目标账目编号能解析、补充失败不进待处置队列、以及把一条因编号抄错而永久卡死的存量缓冲条目改正。先修入口再迁移，避免迁移完又有新的。请 Human 决定是否批准按此范围开工。
+gist: 修摩擦补充路径三处缺口：转写入口不校验目标账目编号能解析、补充失败不进待处置队列、以及把一条因编号抄错而永久卡死的存量缓冲条目改正。前三步与规范修订已落地，存量条目已改正并验证；剩「由一次受控审核运行把该观察补进真实账目」待宿主静置触发。
 serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: |-
   本单修掉摩擦补充路径的三处缺口，并改正一条因编号抄错而永久卡死的存量缓冲条目。本单由 workcase-6588d816 拆分而来——原候选把「完成门禁」与这三处缺口合成一单，建前独立审核判定该合并与实测相反，两者可独立授权、独立关闭，故拆为两单；本单只承担补充路径与存量改正。
@@ -232,7 +232,7 @@ attempt:
   attempt_id: 1
   started_at: 2026-11-03T21:06:13.458Z
   controller: 主控（本会话 session-372f10f2）
-  heartbeat_at: 2026-11-03T21:06:13.458Z
+  heartbeat_at: 2026-11-03T21:26:01.135Z
   session_id: session-380a02f5-68d0-41d4-a111-94c78850cc03
   session_source: host
 refs:
@@ -267,6 +267,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Gate 1 批准：建前审核三轮用满（第 2、3 轮 pass，20/20 分区覆盖），批准范围为修摩擦补充路径三处缺口与存量改正 [gate_1 approved by 老丁（Human，本会话 2026-11-04 指令「好，推进吧」）; attempt 1 allocated to 主控（本会话 session-372f10f2）]
+  - at: 2026-11-03T21:26:01.136Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 执行记录：步骤 1、2、3、5 已完成，步骤 4 全链路侧完成；真实账目侧的判据数值（count 7→8）因闲时任务已先行补充而不可复现，须由一次受控审核运行产生，当前仅能由宿主静置触发；gist 同步为进展描述 [attempt 1 heartbeat refreshed]
 ---
 
 # 摩擦补充路径校验与存量改正
@@ -316,13 +320,49 @@ change_log:
 
 ## 计划
 
-1. 转写入口对 target_uid 增加解析校验，失败即拒绝。完成判据：`transferDiscardedEntryToFriction` 签名含 `factSourceRoot` 且由调用方传入；`target_uid` 非空且解析不到已存在账目时返回 `friction_transfer/target_uid_unresolvable`，且缓冲条目数不变。有测试构造不存在的 uid（仿 `friction-review-promotion.test.mjs` 的 `factRoot(root)` 夹具，造一份真实账目文件）断言拒绝；另有测试断言合法 uid 仍正常写入。
-2. 把 registerTransferFailure 上提为共享模块，并补上补充失败的登记。完成判据：该函数从 `observation-review.js` 移出至共享模块并被两个调用点共用（全仓仅一处定义）；`friction-review-promotion.js` 的每条 supplement 失败都产生一条 pending-queue 登记并带 `pending_entry_id`；队列不可写时带 `unregistered` 且原因不被吞掉。有测试断言 1 条补充失败对应 1 条登记，登记内容含 `entry_id` 与 `target_uid`；另有测试断言转写失败路径行为不变。
-3. 在步骤 1、2 落地且本单获 Gate 1 批准后，把缓冲条目 648749cd 的 target_uid 一次性改正。完成判据：该条目的 `target_uid` 等于 `6c6ea207-da9d-4527-957a-9b46775ecfd4`；迁移前备份文件保留在 `~/.dsh/ldvh/` 下且可由文件名追溯；该条其余 13 个字段与迁移前逐字一致（字段闭集共 14 项）；写后精确回读该条并断言与目标逐字一致，回读不符即 fail-closed 并登记；迁移脚本内可见本单 object_uid、批准时刻与 `authorization_fingerprint`。
-4. 把该次观察补充到真实账目，并在夹具副本上验证「补充→结算」全链路。完成判据：**真实账目侧**——账目 `6c6ea207` 的 `occurrence.count` 由 7 增至 8、`last_at` 更新、现象段新增一条含该条 `evidence` 逐字引证与来源的观察，写后精确回读通过（按 02 §10 受控写入）；该补充必须**由一次受控的审核运行产生**（使其在同一次运行内按 §12bis.1 结算段把该缓冲条目整条移除），不得以直调 `supplementOccurrence` 代替——后者会留下仍为 `pending` 的条目，下一轮再补一次、`count` 由 8 变 9，形成新的重复计数。**全链路侧**——在夹具副本上调用 `runFrictionReviewPromotion`（复用 `friction-review-promotion.test.mjs` 的 `home(root)`／`factRoot(root)` 夹具），一次调用即可同时观察到副本账目 `occurrence.count` 递增 1 与副本缓冲条目被整条移除（因该函数在补充成功后调用 `settleSupplementedEntries`）。**如实声明**：直调 `supplementOccurrence` 不结算条目，故「两条断言由同一次调用同时成立」只对夹具侧的 `runFrictionReviewPromotion` 成立，对真实载体与直调路径不成立。
-5. 同步修订 specs/11 §12bis.1 与 §19.1 归口登记。完成判据：§12bis.1 的「写入后回读」段写明 `target_uid` 须解析到已存在账目、解析失败即拒绝；写入者条款或「结算」段写明补充失败的登记义务；新增一条「经授权的条目字段差错更正」条款，且**限定为逐实例授权**（每次改写须有独立 Human 授权、写明授权形态、限定载体、留痕要求；不得写成对「追加＋状态结算」的常设例外），以维持「不归第 4 项」为真；可解析性校验与字段表 `target_uid` 行的既有约束**指回衔接**而非并列新增。§19.1 新增归口记录：写明归第 3 项（入口校验＝机械校验范围收紧；补充失败入队＝新增 fail-closed 失败处置），写明显式「不归第 2 项」（§6.2 派发准入未动）与「不归第 4 项」（动作成员与字段闭集未动），并写明「一次性存量改正不属任何归口项，它是第 3 项修订的执行后果」。验收方式为逐行回读 §12bis.1 与 §19.1 正文，确认无与实现相反的表述。
+1. 转写入口对 target_uid 增加解析校验，失败即拒绝。完成判据：transferDiscardedEntryToFriction 签名含 factSourceRoot 且由调用方传入；target_uid 非空且解析不到已存在账目时返回 friction_transfer/target_uid_unresolvable，且缓冲条目数不变。有测试构造不存在的 uid（仿 friction-review-promotion.test.mjs 的 factRoot(root) 夹具，造一份真实账目文件）断言拒绝；另有测试断言合法 uid 仍正常写入
+2. 把 registerTransferFailure 上提为共享模块，并补上补充失败的登记。完成判据：该函数从 observation-review.js 移出至共享模块并被两个调用点共用（全仓仅一处定义）；friction-review-promotion.js 的每条 supplement 失败都产生一条 pending-queue 登记并带 pending_entry_id；队列不可写时带 unregistered 且原因不被吞掉。有测试断言 1 条补充失败对应 1 条登记，登记内容含 entry_id 与 target_uid；另有测试断言转写失败路径行为不变
+3. 在步骤 1、2 落地且本单获 Gate 1 批准后，把缓冲条目 648749cd 的 target_uid 一次性改正。完成判据：该条目的 target_uid 等于 6c6ea207-da9d-4527-957a-9b46775ecfd4；迁移前备份文件保留在 ~/.dsh/ldvh/ 下且可由文件名追溯；该条其余 13 个字段与迁移前逐字一致（字段闭集共 14 项）；写后精确回读该条并断言与目标逐字一致，回读不符即 fail-closed 并登记；迁移脚本内可见本单 object_uid、批准时刻与 authorization_fingerprint
+4. 把该次观察补充到真实账目，并在夹具副本上验证「补充→结算」全链路。完成判据：真实账目侧——账目 6c6ea207 的 occurrence.count 由 7 增至 8、last_at 更新、现象段新增一条含该条 evidence 逐字引证与来源的观察，写后精确回读通过（按 02 §10 受控写入）；该补充必须由一次受控的审核运行产生（使其在同一次运行内按 §12bis.1 结算段把该缓冲条目整条移除），不得以直调 supplementOccurrence 代替——后者会留下仍为 pending 的条目，下一轮再补一次、count 由 8 变 9，形成新的重复计数。全链路侧——在夹具副本上调用 runFrictionReviewPromotion（复用 friction-review-promotion.test.mjs 的 home(root)／factRoot(root) 夹具），一次调用即可同时观察到副本账目 occurrence.count 递增 1 与副本缓冲条目被整条移除（因该函数在补充成功后调用 settleSupplementedEntries）。如实声明：直调 supplementOccurrence 不结算条目，故「两条断言由同一次调用同时成立」只对夹具侧的 runFrictionReviewPromotion 成立，对真实载体与直调路径不成立
+5. 同步修订 specs/11 §12bis.1 与 §19.1 归口登记。完成判据：§12bis.1 的「写入后回读」段写明 target_uid 须解析到已存在账目、解析失败即拒绝；写入者条款或「结算」段写明补充失败的登记义务；新增一条「经授权的条目字段差错更正」条款，且限定为逐实例授权（每次改写须有独立 Human 授权、写明授权形态、限定载体、留痕要求；不得写成对「追加＋状态结算」的常设例外），以维持「不归第 4 项」为真；可解析性校验与字段表 target_uid 行的既有约束指回衔接而非并列新增。§19.1 新增归口记录：写明归第 3 项（入口校验＝机械校验范围收紧；补充失败入队＝新增 fail-closed 失败处置），写明显式「不归第 2 项」（§6.2 派发准入未动）与「不归第 4 项」（动作成员与字段闭集未动），并写明「一次性存量改正不属任何归口项，它是第 3 项修订的执行后果」。验收方式为逐行回读 §12bis.1 与 §19.1 正文，确认无与实现相反的表述
 
 ## 执行
 
 - attempt 1 started at 2026-11-03T21:06:13.458Z (controller: 主控（本会话 session-372f10f2）)；Gate 1 授权范围见 gate_1.scope_snapshot。
+
+### 计划步骤 1：转写入口 target_uid 可解析校验
+
+`transferDiscardedEntryToFriction` 增加 `factSourceRoot` 形参；非空 `target_uid` 须经 `readFrictionObject` 解析成功，否则拒绝 `friction_transfer/target_uid_unresolvable` 且不写入缓冲。**缺 `factSourceRoot` 时同样拒绝**，不静默跳过校验——跳过等于让本闸在未来的新调用点上失效。调用方 `observation-review.js:854` 已传入该值（其所在函数内本就有）。
+
+原有用例「用不存在的 target_uid 却断言写入成功」被新校验判红——那正是本单要消除的形态。已改为三例：缺参拒绝／解析不到拒绝／解析得到放行（正控制）。变异复验：不校验存在性 → 1 红；缺参静默跳过 → 1 红。
+
+### 计划步骤 2：失败登记共用同一实现
+
+新增 `plugin/lib/friction-failure-registration.js`，两处失败面共用 `registerFrictionFailure`；导出 `registerTransferFailure`（保持原措辞，使新条目与既有语料一致）与 `registerSupplementFailure`。`observation-review.js` 删掉私有副本改 import；`friction-review-promotion.js` 在补充失败分支调用登记，函数新增 `now` 形参。登记失败沿用原纪律写回 `unregistered`／`unregistered_message`。
+
+**为什么不塞进 `pending-queue.js`**：那会让底层文件反过来知道摩擦侧的失败长什么样（task 名、residual 措辞），形成方向错误的知识下沉。单独薄模块使依赖方向保持：摩擦侧 → 登记 → 队列；该文件只依赖 Node 内置，无循环风险。
+
+变异复验：去掉登记调用（退回旧行为）→ 1 红。**过程中被仓库卫生测试抓到一次**：新增文件未纳入版本控制，`已跟踪的源文件不得 import 未纳入版本控制的文件` 转红，`git add` 后转绿。
+
+### 计划步骤 3：存量条目 648749cd 的 target_uid 改正
+
+**先确认了差错判定可独立复核**：旧值 `6c6ea207-da7d-…` 在账目中不存在，新值 `6c6ea207-da9d-…` 存在（在真实载体上实测两者，`readFrictionObject` 分别返回 false／true）。
+
+改前备份到 `~/.dsh/ldvh/friction-observations/dsh-ldvh.jsonl.bak-before-target-uid-fix-20261104-051651`；只改该条 `target_uid` 一项；改后精确回读确认新值生效、`status` 仍 `pending`；与备份**逐字段比对**确认 85 条数目不变、唯一差异是 `target_uid`。
+
+**执行中我先犯过一次判断错误（如实登记）**：曾据一份错误的文件路径断言「该条目已不在缓冲、第③步前提消失」。实际真实载体是 `~/.dsh/ldvh/friction-observations/dsh-ldvh.jsonl`，不是 `ldvh/` 根目录；条目一直都在、仍是 `pending`。Human 要求先查清再决定，查出的结论是**我错了**——若按我当时的判断跳过第③步，该条目会一直卡下去。
+
+### 计划步骤 4：补充到真实账目 + 夹具侧全链路
+
+**全链路侧已完成**：新增用例用 `runFrictionReviewPromotion`（非直调 `supplementOccurrence`）一次调用同时断言——账目 `occurrence.count` 由 7 增至 8、`last_at` 更新、缓冲条目被整条移除、逐字引证进了账目正文。变异复验：把 `settleSupplementedEntries` 的调用条件改为恒假 → 2 红，含本条。
+
+**真实账目侧未完成，且判据的具体数值已不可复现（如实登记）**：判据写「账目 `6c6ea207` 的 `occurrence.count` 由 7 增至 8」，而该账目现已是 **8**——闲时任务于 `2026-11-03T19:47:15Z` 完成了一次独立补充（`change_log` 载明「补充观察：count 7 → 8」）。故「7→8」这一具体起点不可重放。
+
+**该步不采用直调补齐**：判据本身已写明「不得以直调 `supplementOccurrence` 代替——后者会留下仍为 `pending` 的条目，下一轮再补一次、`count` 由 8 变 9，形成新的重复计数」。为凑判据数值而制造一次重复计数，与本单要消除的形态同源。
+
+**当前阻塞点**：该步须由**一次受控的审核运行**产生（使其在同一运行内把缓冲条目整条移除）。审核运行由宿主静置计时器驱动（`experience-review` 属空闲辅助任务），而每轮的 `activity`／`turn-start` 事件会清掉计时器——实测诊断记录里 `silence-cleared` 20 条、`dispatching` 仅 5 条，正是这个原因。故它只能在会话真静置时自然发生，不能由对话内驱动。
+
+### 计划步骤 5：规范修订与归口
+
+§12bis.1 补三处：① 写入后回读段补 `target_uid` 可解析性与执行面要求（含「缺 `factSourceRoot` 同样拒绝」）；② §10.2 转写失败段后补**补充失败的去向**（与转写失败共用实现，并如实登记两者差别：转写是终态欠账、补充是待重试失败）；③ 写入纪律第 1 条后补**经授权的条目字段差错更正**（此前内容字段写错在规范上无据：结算段写「其余字段不可改」、淘汰删整条、追加只能新增）。§19.1 新增归口记录：归第 3 项、不归第 4 项、不属第 2 项。
 
