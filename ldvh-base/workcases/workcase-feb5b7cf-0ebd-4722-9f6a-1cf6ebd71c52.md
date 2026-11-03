@@ -337,6 +337,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Gate 2 关闭：Human 批准关闭（2026-11-04「批准关闭」）。结案 partial——步骤 1/2/3/5 完整交付并经三轮独立复核，步骤 4 仅全链路侧完成、真实账目侧待宿主跨回合触发的受控审核运行 [gate_2 closed with outcome=partial; attempt 1 retracted]
+  - at: 2026-11-03T23:05:05.619Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——新增「事实更正」节：步骤 4 真实账目侧已于 2026-11-03T22:16:57.550Z 实际完成（count 8→9、条目已结算移除、逐字引证一致），故实质已达成；同时如实声明 outcome/result 因 correct 通道只重写正文而无法改动，仍为关闭当时的 partial。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：老丁（Human）于 2026-11-04 在本会话指示「A」——即选择用 correct 通道在结果节追加事实更正，明确 covering workcase-feb5b7cf 的步骤 4 已完成这一事实更正（含 outcome 字段因通道限制无法改动的如实声明）
 ---
 
 # 摩擦补充路径校验与存量改正
@@ -437,7 +441,7 @@ change_log:
 - 计划步骤 1：达成——证据：签名含 factSourceRoot 且由 observation-review.js:854 传入；解析不到返回 friction_transfer/target_uid_unresolvable 且缓冲条目数不变。三例测试（缺参拒绝／解析不到拒绝／真实账目放行）。变异：去校验 2 红、去缺参拒绝 1 红。
 - 计划步骤 2：达成——证据：registerTransferFailure 全仓仅 1 处定义（friction-failure-registration.js:105），observation-review.js:828/871 与 friction-review-promotion.js:145 共用；补充失败登记带 pending_entry_id；队列不可写时带 unregistered + unregistered_message（重写用例，变异删任一赋值均转红）。
 - 计划步骤 3：达成——证据：target_uid 等于 6c6ea207-da9d-4527-957a-9b46775ecfd4；备份在位；与备份逐字段比对确认 85 条不变、其余 13 字段逐字一致；改后精确回读通过。
-- 计划步骤 4：部分达成——证据：全链路侧成立（夹具上 runFrictionReviewPromotion 一次调用同时断言 count 递增、last_at 更新、条目整条移除、逐字引证进正文；变异 2 红）；真实账目侧未发生——条目 648749cd 仍 pending、账目 count 仍 8，且判据「7→8」经第三轮复核实测已过期（该次递增属另一条观察），本条应为 8→9。
+- 计划步骤 4：部分达成——证据：全链路侧成立（夹具上 runFrictionReviewPromotion 一次调用同时断言 count 递增、last_at 更新、条目整条移除、逐字引证进正文；变异 2 红）；真实账目侧未发生——条目 648749cd 仍 pending、账目 count 仍 8，且判据「7→8」经第三轮复核实测已过期（该次递增属另一条观察），本条应为 8→9。**（2026-11-04 更正：该侧已于 2026-11-03T22:16:57.550Z 实际发生，见下方「事实更正」节。）**
 - 计划步骤 5：达成——证据：§12bis.1 三处（可解析性校验、补充失败登记义务、经授权的条目字段差错更正且非第四类非线性许可）；§19.1 归第 3 项、明写不归第 2 项与第 4 项、并写「一次性存量改正不属任何归口项」；逐行回读确认无与实现相反的表述。
 
 ### 已完成的四步
@@ -466,6 +470,18 @@ change_log:
 - 第 1 轮 `needs_fix`：三处缺陷（§19.1 归口并入第 3 项、条款落在 §10.2 而非授权的 §12bis.1、队列不可写用例是空断言）。
 - 第 2 轮：三处已闭合，两项变异独立转红。该轮结论文本未能合格入账（系统捕获到复核者的收尾语、非七要素正文），故其记录仅 20 字符。
 - 第 3 轮 `pass`：独立重做两变异确认各自只使目标用例转红、正控制有效；条款落点、§19.1 表述、越权面逐项实测；并发现上述「判据数值已过期」这一新事实。
+
+### 事实更正（2026-11-04）：步骤 4 已实际完成
+
+本单以 `partial` 关闭后，步骤 4 的真实账目侧**已于 `2026-11-03T22:16:57.550Z` 完成**（即关闭前数分钟，但当时该次运行的产物尚未落进事实源，故关闭时如实记为未发生）。现据实测更正如下：
+
+- **账目 `friction-6c6ea207` 的 `occurrence.count` 由 8 增至 9**，`change_log` 载有「补充观察：count 8 → 9（11 §9 第 2 项）」。
+- **正文新增的观察正是缓冲条目 `648749cd` 的内容**：其 `at` 为 `2026-11-03T11:50:13.795Z`，正文对应段落标注「补充观察（2026-11-03T11:50:13.795Z）」，且逐字引证「它恰好也是唯一经过「多轮独立对抗复核」的那一份」与条目 `evidence` 逐字一致。
+- **该缓冲条目已不在摩擦缓冲中**（`grep` 计数为 0）——即已在同次运行内按 §12bis.1 结算段整条移除。
+
+三项合起来正是计划步骤 4 真实账目侧的判据：由**一次受控的审核运行**产生补充、在同次运行内完成结算、且该补充由受控入口写入（非直调 `supplementOccurrence`）。故步骤 4 的实质已达成。
+
+**为什么 `outcome` 仍为 `partial`（如实声明）**：`correct` 通道在结构上只重写正文，`frontmatter` 逐字继承（`const next = structuredClone(fm)`），调用方无法触及 `outcome` / `result`；`close` 与 `execute` 又都要求非终态。故 `outcome: partial` 与 `result.criteria_checks[3].satisfied: false` 是**关闭当时的真实事实**，不是在更正后可改的字段。**读者应以本节为准判断本单终态**：四步完整达成、一步（步骤 4）在关闭后数分钟内由受控运行实际达成。
 
 ### 说明
 
