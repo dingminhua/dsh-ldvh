@@ -342,34 +342,51 @@ test("补充失败：登记进待处置队列（不再只留在当拍返回体�
   });
 });
 
-test("补充失败登记不上队列时：原因写回失败项，不静默吞掉", async () => {
-  await withTemp("friction-review-promotion.", async (base) => {
-    const h = home(base);
-    const fsRoot = join(base, "facts");
-    const bogus = "1f2e3d4c-5555-4666-8777-888899990000";
-    const appended = await appendFrictionObservation(h, {
-      ...entry({ group: bogus, index: 22 }),
-      target_uid: bogus,
-      phenomenon: "指向不存在的账目（队列不可写场景）",
-    });
-    assert.ok(appended.ok, JSON.stringify(appended.error));
+test("登记实现：队列不可写时把原因写回失败项，不静默吞掉", async () => {
+  // **2026-11-04 复核后重写**：原用例把 dshHomePath 指向坏路径，结果缓冲先读取失败、
+  // 断言体从未进入——变异删掉 `failureItem.unregistered` 赋值时全套仍全绿（复核实证）。
+  // 现在直接驱动共享登记实现本身，绕开缓冲读取，使该分支真正可达。
+  const { registerSupplementFailure } = await import("../lib/friction-failure-registration.js");
+  await withTemp("friction-failure-registration.", async (base) => {
+    // 不可创建的路径：父级是一个普通文件，mkdir 必失败
+    const { writeFile } = await import("node:fs/promises");
+    const blocker = join(base, "blocker");
+    await writeFile(blocker, "not a directory");
+    const brokenHome = (...seg) => join(blocker, ...seg);
 
-    // 让队列不可写：把 dshHomePath 指向一个不可创建的路径。
-    const brokenHome = () => join(base, "\u0000invalid\ud800", "dsh-home");
-    const result = await runFrictionReviewPromotion({
-      factSourceRoot: fsRoot,
-      dshHomePath: brokenHome,
-      projectId: PROJECT,
-      sessionSignature: SIG,
-    });
-    // 缓冲也读不到时会先失败；此用例只要求：若走到补充失败分支，登记失败必须可见。
-    if (result.ok) {
-      const failure = result.value.residual.find((r) => r.stage === "supplement");
-      if (failure && !failure.pending_entry_id) {
-        assert.ok(failure.unregistered, "登记失败须留 unregistered 字段");
-        assert.ok(failure.unregistered_message, "登记失败须留原因");
-      }
-    }
+    const failureItem = {
+      stage: "supplement",
+      entry_id: "e-queue-unwritable",
+      target_uid: "t-queue-unwritable",
+      code: "friction/object_not_found",
+      message: "cannot read object",
+    };
+    await registerSupplementFailure(brokenHome, failureItem, new Date());
+
+    assert.ok(!failureItem.pending_entry_id,
+      `队列不可写时不得给出 pending_entry_id；实得 ${JSON.stringify(failureItem.pending_entry_id)}`);
+    assert.ok(failureItem.unregistered,
+      "队列不可写时必须留下 unregistered——把赋值删掉这条就会红");
+    assert.ok(typeof failureItem.unregistered_message === "string" && failureItem.unregistered_message.length > 0,
+      "必须留下原因，不静默吞掉");
+  });
+});
+
+test("登记实现：队列可写时给出 pending_entry_id 且不写 unregistered", async () => {
+  // 正控制：证明上一条的 unregistered 不是因为实现永远写它。
+  const { registerSupplementFailure } = await import("../lib/friction-failure-registration.js");
+  await withTemp("friction-failure-registration.", async (base) => {
+    const failureItem = {
+      stage: "supplement",
+      entry_id: "e-queue-writable",
+      target_uid: "t-queue-writable",
+      code: "friction/object_not_found",
+      message: "cannot read object",
+    };
+    await registerSupplementFailure(home(base), failureItem, new Date());
+    assert.ok(failureItem.pending_entry_id,
+      `队列可写时应给出 pending_entry_id；实得 unregistered=${JSON.stringify(failureItem.unregistered)}`);
+    assert.ok(!failureItem.unregistered, "成功登记时不得写 unregistered");
   });
 });
 
