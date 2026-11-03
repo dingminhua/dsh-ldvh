@@ -151,7 +151,7 @@ export function parseVerificationRowIds(specText) {
  * @param {object} [args.notCheckable] - 声明为不可判的行（默认取 `NOT_CHECKABLE_ROWS`）
  * @returns {{ok:boolean, stage:"landed"|"blocked", rows:object[], fail:string[], undeclared:string[], declared:string[], misreported:string[], error?:object}}
  */
-export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS } = {}) {
+export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS, expectedMechanicalRows = MECHANICAL_ROWS } = {}) {
   if (!Array.isArray(rows)) {
     return {
       ok: false,
@@ -161,6 +161,7 @@ export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS } = {}) {
       undeclared: [],
       declared: [],
       misreported: [],
+      missing: [],
       error: { code: "verification/invalid_rows", message: "rows must be an array of per-row verdicts" },
     };
   }
@@ -210,6 +211,26 @@ export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS } = {}) {
     });
   }
 
+  // **完整性堵口**（2026-11-03 复核自查发现的第二版缺陷）：
+  //
+  // 前两版只检查「报上来的行里有没有问题」，于是**把所有行都删掉**也能拿到
+  // `landed`——一份空报告与一份全 pass 的报告在结论上无法区分，门禁形同虚设。
+  // 这正是「默认通过」的另一种形态：不是把某行填成 pass，而是干脆不报。
+  //
+  // 故：**未被报告的可核对行视为未核对**，一律按 fail 处置。缺席不是「没有
+  // 问题」，是「没有证据」。`missing` 带出具体缺了哪些行。
+  const reportedIds = new Set(normalized.map((r) => r.id));
+  const missing = expectedMechanicalRows.filter((id) => !reportedIds.has(id));
+  for (const id of missing) {
+    fail.push(id);
+    normalized.push({
+      id,
+      verdict: "fail",
+      evidence: null,
+      reason: "no verdict was reported for this mechanically-checkable row; absence is not evidence of passing",
+    });
+  }
+
   const ok = fail.length === 0 && undeclared.length === 0;
   return {
     ok,
@@ -219,6 +240,7 @@ export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS } = {}) {
     undeclared,
     declared,
     misreported,
+    missing,
   };
 }
 

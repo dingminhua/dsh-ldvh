@@ -196,3 +196,34 @@ test("改行名而数量不变也会失败：id 集合相等不是数量比较",
   const missing = renamed.filter((id) => !moduleIds.has(id));
   assert.equal(missing.length, 1, "改行名后数量不变，但集合相等判据必须发现它");
 });
+
+// ---------------------------------------------------------------------------
+// 完整性：缺席不是「没有问题」，是「没有证据」
+// ---------------------------------------------------------------------------
+
+test("空报告不得 landed（全不报 ≠ 全通过）", () => {
+  const r = verifyRun({ rows: [] });
+  assert.equal(r.ok, false);
+  assert.equal(r.stage, "blocked");
+  assert.equal(r.missing.length, MECHANICAL_ROWS.length, "所有机械可核对行都应被列为缺席");
+});
+
+test("少报一行可核对行即阻断", () => {
+  const rows = completeRows().filter((r) => r.id !== "逐字引证");
+  const r = verifyRun({ rows });
+  assert.equal(r.stage, "blocked");
+  assert.deepEqual(r.missing, ["逐字引证"]);
+});
+
+test("缺席行的 reason 明确说明「缺席不等于通过」", () => {
+  const r = verifyRun({ rows: [] });
+  const one = r.rows.find((x) => x.id === "逐字引证");
+  assert.equal(one.verdict, "fail");
+  assert.match(String(one.reason), /absence is not evidence of passing/);
+});
+
+test("完整报告仍 landed（完整性检查不误伤）", () => {
+  const r = verifyRun({ rows: completeRows() });
+  assert.equal(r.stage, "landed");
+  assert.deepEqual(r.missing, []);
+});
