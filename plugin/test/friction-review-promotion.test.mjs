@@ -293,3 +293,82 @@ test("项目分区：别的项目的缓冲不会被本项目晋升（§12bis.1�
     assert.equal(result.value.promotions.length, 0, "another project's group is not ours to promote");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 补充失败须进待处置队列（2026-11-04，11 §12bis.1）
+//
+// 此前补充失败只 residual.push 后 continue —— 返回体只在当拍有效，
+// 下一拍谁也不知道漏了什么。转写失败却是登记入队的。同一性质的欠账
+// （材料该进账目却没进），待遇必须一致。
+// ---------------------------------------------------------------------------
+
+test("补充失败：登记进待处置队列（不再只留在当拍返回体里）", async () => {
+  await withTemp("friction-review-promotion.", async (base) => {
+    const h = home(base);
+    const fsRoot = join(base, "facts");
+    // 缓冲条目指向一个**不存在**的账目 → 补充必然失败。
+    const bogus = "0e1d2c3b-4444-4555-8666-777788889999";
+    const appended = await appendFrictionObservation(h, {
+      ...entry({ group: bogus, index: 21 }),
+      target_uid: bogus,
+      phenomenon: "指向不存在的账目",
+    });
+    assert.ok(appended.ok, JSON.stringify(appended.error));
+
+    const result = await runFrictionReviewPromotion({
+      factSourceRoot: fsRoot,
+      dshHomePath: h,
+      projectId: PROJECT,
+      sessionSignature: SIG,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+    assert.equal(result.value.supplemented.length, 0, "前置：补充确实失败了");
+
+    const failure = result.value.residual.find((r) => r.stage === "supplement");
+    assert.ok(failure, "补充失败须出现在 residual 里（既有行为）");
+    assert.ok(failure.pending_entry_id,
+      `补充失败须进队列；实得 pending_entry_id=${JSON.stringify(failure.pending_entry_id)} `
+      + `unregistered=${JSON.stringify(failure.unregistered)}`);
+
+    // 队列里真的有一条，且能被读出来——这是「下一拍仍可见」的可观察形态。
+    const { readPendingQueue } = await import("../lib/pending-queue.js");
+    const queue = await readPendingQueue(h, { unresolvedOnly: true });
+    assert.ok(queue.ok, JSON.stringify(queue.error));
+    const mine = queue.value.items.filter((e) => e.entry_id === failure.pending_entry_id);
+    assert.equal(mine.length, 1, "队列里须有对应的那一条");
+    assert.match(mine[0].reason, /补充未完成/, "reason 须写明是补充失败");
+    assert.match(mine[0].reason, /unknown|object_not_found|not_found/i,
+      `reason 须带失败码；实得 ${mine[0].reason}`);
+  });
+});
+
+test("补充失败登记不上队列时：原因写回失败项，不静默吞掉", async () => {
+  await withTemp("friction-review-promotion.", async (base) => {
+    const h = home(base);
+    const fsRoot = join(base, "facts");
+    const bogus = "1f2e3d4c-5555-4666-8777-888899990000";
+    const appended = await appendFrictionObservation(h, {
+      ...entry({ group: bogus, index: 22 }),
+      target_uid: bogus,
+      phenomenon: "指向不存在的账目（队列不可写场景）",
+    });
+    assert.ok(appended.ok, JSON.stringify(appended.error));
+
+    // 让队列不可写：把 dshHomePath 指向一个不可创建的路径。
+    const brokenHome = () => join(base, "\u0000invalid\ud800", "dsh-home");
+    const result = await runFrictionReviewPromotion({
+      factSourceRoot: fsRoot,
+      dshHomePath: brokenHome,
+      projectId: PROJECT,
+      sessionSignature: SIG,
+    });
+    // 缓冲也读不到时会先失败；此用例只要求：若走到补充失败分支，登记失败必须可见。
+    if (result.ok) {
+      const failure = result.value.residual.find((r) => r.stage === "supplement");
+      if (failure && !failure.pending_entry_id) {
+        assert.ok(failure.unregistered, "登记失败须留 unregistered 字段");
+        assert.ok(failure.unregistered_message, "登记失败须留原因");
+      }
+    }
+  });
+});

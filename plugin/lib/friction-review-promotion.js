@@ -44,6 +44,7 @@ import {
   frictionObservationPath,
   FRICTION_OBSERVATION_THRESHOLD_N,
 } from "./friction-observation-buffer.js";
+import { registerSupplementFailure } from "./friction-failure-registration.js";
 
 function failure(code, message, extra = {}) {
   return { ok: false, error: { code, message, ...extra } };
@@ -70,6 +71,7 @@ export async function runFrictionReviewPromotion({
   dshHomePath,
   projectId,
   sessionSignature,
+  now = new Date(),
 }) {
   if (typeof dshHomePath !== "function") {
     return failure("review_promotion/no_home", "dshHomePath is required to read the friction observation buffer");
@@ -127,13 +129,21 @@ export async function runFrictionReviewPromotion({
       // 两件事本无依赖：补充作用于 `target_uid` 非空的条目，晋升作用于整组
       // `target_uid` 为空的条目（实测两组零重叠）。故补充失败记入 `residual` 并**继续**，
       // 由调用方如实登记（§12：不静默跳过）。该条目仍留在缓冲里，下次运行重试。
-      residual.push({
+      const failureItem = {
         stage: "supplement",
         entry_id: entry.id,
         target_uid: entry.target_uid,
         code: result.error?.code ?? "review_promotion/supplement_failed",
         message: result.error?.message ?? "unknown",
-      });
+      };
+      // **补充失败须进待处置队列**（2026-11-04 补，11 §12bis.1）。
+      //
+      // 此前只 `residual.push` 后 `continue`：返回体只在当拍有效，下一拍谁也不知道
+      // 漏了什么。而转写失败是登记入队的——同一性质的欠账（材料该进账目却没进），
+      // 待遇不一致。现在两条路径共用 `friction-failure-registration.js` 的同一实现，
+      // 登记失败也照原纪律把原因写回 `failureItem`（不吞掉）。
+      await registerSupplementFailure(dshHomePath, failureItem, now);
+      residual.push(failureItem);
       continue;
     }
     supplemented.push({ entry_id: entry.id, target_uid: entry.target_uid, count: result.value?.count_after ?? null });

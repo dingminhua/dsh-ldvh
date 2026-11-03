@@ -77,6 +77,7 @@ import {
   listPitfallObjects,
 } from "./pitfall-writer.js";
 import { transferDiscardedEntryToFriction } from "./friction-transfer.js";
+import { registerTransferFailure } from "./friction-failure-registration.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
 import { open as fsOpen, unlink as fsUnlink, mkdir as fsMkdir, stat as fsStat } from "node:fs/promises";
 import { join as pathJoin, dirname as pathDirname } from "node:path";
@@ -194,29 +195,6 @@ function failClosed(code, message, {
  * **登记失败不得吞掉**：队列不可用时把原因追加进同一条 `transfer_failed` 项，
  * 使「连登记都没做成」这件事本身可见（而不是变成静默）。
  */
-async function registerTransferFailure(dshHomePath, failureItem, now) {
-  try {
-    const { appendPendingEntry } = await import("./pending-queue.js");
-    const queued = await appendPendingEntry(dshHomePath, {
-      task: "experience-review",
-      reason: `转写未完成（${failureItem.code}）：${failureItem.message}`,
-      residual: [
-        `经验缓冲条目 ${failureItem.entry_id} 已结算为 discarded，其材料未能转写到摩擦观察缓冲`,
-      ],
-      at: now instanceof Date ? now.toISOString() : undefined,
-    });
-    if (!queued.ok) {
-      failureItem.unregistered = queued.error?.code ?? "pending_queue/unavailable";
-      failureItem.unregistered_message = queued.error?.message ?? "unknown";
-    } else {
-      failureItem.pending_entry_id = queued.value.entry_id;
-    }
-  } catch (error) {
-    failureItem.unregistered = "pending_queue/threw";
-    failureItem.unregistered_message = String(error?.message ?? error);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // 纯校验：正文结构 / 占位符 / 逐字引证复制
 // ---------------------------------------------------------------------------
