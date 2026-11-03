@@ -26,6 +26,13 @@
  * 9. **系统清单必须与规范源一一对应**：帮助页讲的「七大业务系统」是 `specs/03` §9.1–§9.7
  *    的七节，多一个是在讲不存在的系统，少一个是有一个系统没被解释。这条**读规范源**，
  *    不写死名单——规范改了，守卫跟着改，页面必须同步改。
+ * 10. **整页必须是单一 tab 容器**：先前是「上方两块常显概览 + 下方分区切换」的双层
+ *     结构，两套组织范式挤在一页，常显正文越长、切换区离得越远，tab「一次只呈现
+ *     一件事」的价值就被抵消。概览必须收进分区之内，声明必须在切换区之上。
+ * 11. **呈现件必须唯一**：页面上只允许一种卡片壳、一种行式列表、一个网格基准。此前
+ *     同一页有六种卡片形态、三个列宽基准，读起来像几套页面拼在一起。
+ * 12. **标题层级必须 h1 → h2 → h3**：h1 是页头，h2 是分区标题，h3 是条目标题。分组
+ *     标签是普通文本行，不占标题层级；不得出现 h4 及更深，也不得跳级。
  *
  * **保证边界（如实登记）**：本守卫是**源码级**的——它证明页面的结构与取用方式符合
  * 上述约定，不证明页面上每句话与规范源逐字一致（那句话由人工与规范评审承担）。
@@ -90,7 +97,6 @@ test('帮助页不得退回营销式英雄区：面板 + 语义排版类，不�
   assert.match(help, /ldvh-page-frame/, '帮助页须走 ldvh-page-frame 页面框架');
   assert.match(help, /ldvh-page-toolbar/, '帮助页须走 ldvh-page-toolbar 工具条');
   assert.match(help, /ldvh-section-grid/, '帮助页的卡片网格须走 ldvh-section-grid（容器宽度驱动列数）');
-  assert.match(help, /ldvh-subgrid/, '帮助页的主线格须走 ldvh-subgrid 网格 token');
   assert.match(help, /ldvh-tab-list/, '帮助页的分区切换须走 ldvh-tab-list');
   assert.match(help, /ldvh-tab-button-active/, '帮助页的分区切换须区分选中态与闲置态');
 });
@@ -213,13 +219,20 @@ test('帮助页的中英文案必须一一对应，且旧流程词条不得复�
   );
   assert.doesNotMatch(helpCode, /help\.(vibeSteps|step\.)/, '帮助页不得引用旧流程词条');
 
-  // 四个分区与页脚声明必须在两侧都在。
+  // 六个分区与页脚声明必须在两侧都在。
   for (const key of [
+    'help.tab.overview',
     'help.tab.objects',
+    'help.tab.systems',
     'help.tab.gates',
     'help.tab.entries',
-    'help.tab.systems',
     'help.tab.trust',
+    'help.panel.overview.title',
+    'help.panel.objects.title',
+    'help.panel.systems.title',
+    'help.panel.gates.title',
+    'help.panel.entries.title',
+    'help.panel.trust.title',
     'help.disclaimer',
   ]) {
     assert.ok(zhKeys.includes(key), `帮助页须有词条 ${key}`);
@@ -280,4 +293,79 @@ test('帮助页不得硬编码中文文案，且不发起任何数据请求', ()
     /fetch\(|axios|useQuery|XMLHttpRequest/,
     '帮助页是静态引导页，不读事实源、不发任何请求',
   );
+});
+
+test('帮助页必须是单一 tab 容器：概览不得常显，声明必须在切换区之上', () => {
+  // 切换区只能有一处。
+  const stickyCount = [...helpCode.matchAll(/sticky top-0/g)].length;
+  assert.equal(stickyCount, 1, `帮助页只允许一处 sticky 切换区，发现 ${stickyCount} 处`);
+
+  const tabMapCount = [...helpCode.matchAll(/TABS\.map\(/g)].length;
+  assert.equal(tabMapCount, 1, `帮助页只允许一处分区切换区渲染点，发现 ${tabMapCount} 处`);
+
+  // 六个分区各自一个条件渲染分支。
+  const branchCount = [...helpCode.matchAll(/tab === '/g)].length;
+  assert.equal(branchCount, 6, `帮助页须有六个分区条件渲染分支，发现 ${branchCount} 个`);
+
+  // **切换区之前不得有任何常显内容区块**——这一条直接判死「上方常显概览 + 下方分区
+  // 切换」的双层结构。判据只认「切换区之前出现了内容渲染件」，不认组件叫什么，
+  // 所以把概览换个组件名搬回常显区照样判红。
+  const barIndex = helpCode.indexOf('sticky top-0');
+  assert.ok(barIndex >= 0, '帮助页须有 sticky 切换区');
+  const beforeBar = helpCode.slice(0, barIndex);
+  assert.doesNotMatch(
+    beforeBar,
+    /<article\b|ldvh-section-grid|overflow-hidden rounded-xl/,
+    '切换区之前不得有常显内容区块——概览必须收进分区之内，否则两套组织范式挤在同一页',
+  );
+
+  // 声明是页面级限定，须在切换区之上（页头正下方），不能压在长分区末尾等人滚到底。
+  const disclaimer = helpCode.indexOf("t('help.disclaimer')");
+  assert.ok(disclaimer >= 0, '帮助页须渲染页脚声明');
+  assert.ok(
+    disclaimer < barIndex,
+    '声明必须在切换区之上——它是页面级限定，与分区内容无关',
+  );
+});
+
+test('帮助页的呈现件必须唯一：一种卡壳、一种行式列表、一个网格基准', () => {
+  // 卡片壳只有一处：`<article` 只允许出现在统一卡壳组件里。
+  const articleCount = [...helpCode.matchAll(/<article\b/g)].length;
+  assert.equal(
+    articleCount,
+    1,
+    `帮助页只允许一种卡片壳（统一卡壳组件里的 <article>），发现 ${articleCount} 处——多种卡壳读起来像几套页面拼在一起`,
+  );
+
+  // 卡壳与行式列表的**外观**各只允许出现一次（按类串计，不按组件名计——改名型
+  // 变更不应当把守卫打红）。
+  const cardShell = [...helpCode.matchAll(/rounded-xl border border-ldvh-border bg-ldvh-panel p-4/g)].length;
+  assert.equal(cardShell, 1, `卡片壳只允许一处，发现 ${cardShell} 处`);
+
+  const rowShell = [...helpCode.matchAll(/overflow-hidden rounded-xl border border-ldvh-border bg-ldvh-panel/g)].length;
+  assert.equal(rowShell, 1, `行式列表壳只允许一处，发现 ${rowShell} 处`);
+
+  // 网格基准只允许一个：此前本页同时用了 section-grid / subgrid / panel-grid 三种列宽。
+  assert.doesNotMatch(
+    helpCode,
+    /ldvh-panel-grid|ldvh-subgrid|ldvh-compact-grid|ldvh-mini-grid|ldvh-metric-grid/,
+    '帮助页只允许一个网格基准（ldvh-section-grid）——多种列宽基准使同一页读起来没有统一的分栏',
+  );
+  assert.match(helpCode, /ldvh-section-grid/, '帮助页的卡片网格须走 ldvh-section-grid');
+});
+
+test('帮助页的标题层级必须是 h1 → h2 → h3，不得跳级或加深', () => {
+  const h2Count = [...helpCode.matchAll(/<h2\b/g)].length;
+  assert.equal(h2Count, 1, `帮助页只允许一个 h2（当前分区的标题），发现 ${h2Count} 个`);
+
+  const h3Count = [...helpCode.matchAll(/<h3\b/g)].length;
+  assert.ok(h3Count > 0, '帮助页的条目标题须用 h3');
+
+  for (const tag of ['h4', 'h5', 'h6']) {
+    assert.doesNotMatch(
+      helpCode,
+      new RegExp(`<${tag}\\b`),
+      `帮助页不得出现 <${tag}>——标题层级固定为 h1（页头）→ h2（分区）→ h3（条目），分组标签是普通文本行不占层级`,
+    );
+  }
 });
