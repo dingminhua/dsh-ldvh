@@ -178,6 +178,7 @@ async function readTimerEvidence(dshHomePath, sessionId) {
     // 把两类证据合成一个对象，由各行的判定各取所需。
     return {
       handleCleared: found.cleared?.handleCleared,
+      hadTimer: found.cleared?.hadTimer,
       clearedAt: found.cleared?.at ?? null,
       clearedReason: found.cleared?.reason ?? null,
       reason: found.expiry?.reason ?? null,
@@ -273,11 +274,16 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
     ["延迟的取消", (() => {
       if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
       // 唯一可判的情形：诊断记录真的带回了「清理后句柄为空」的回读结果。
-      if (timerEvidence.handleCleared === true) {
-        return ["pass", "诊断记录带回清理后回读：句柄为空"];
+      // 确有计时器被清掉：回读须证明清干净了。
+      if (timerEvidence.hadTimer === true) {
+        if (timerEvidence.handleCleared === true) {
+          return ["pass", `确有计时器被清掉（${timerEvidence.clearedReason ?? "?"}），清理后回读：句柄为空`];
+        }
+        return ["fail", `清理后回读显示句柄非空（${timerEvidence.clearedReason ?? "?"}）——清理未生效`];
       }
-      if (timerEvidence.handleCleared === false) {
-        return ["fail", "诊断记录带回清理后回读：句柄非空（清理未生效）"];
+      // 本来就没有计时器：§18 该行是「回合开始即清掉计时」，条件未出现。
+      if (timerEvidence.hadTimer === false) {
+        return ["pass", `清理时本无计时器（${timerEvidence.clearedReason ?? "?"}），该行条件未出现、无需清理`];
       }
       return ["not-checkable", `诊断记录（${timerEvidence.reason ?? "?"}）未带回「清理后句柄为空」的回读结果；§18 该行的可接受依据正是该回读，本痕迹无法判定`];
     })()],
@@ -303,41 +309,29 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
       }
       return ["not-checkable", `诊断记录（${r ?? "?"}）未带回三项确认的完整证据；该行无法判定`];
     })()],
-    // **路径约定落实**（2026-11-03 第二次自查修正）。
+    // **路径约定落实 / 无主控预检落实**（2026-11-03 第三次重做，Human 选「补真正的采集点」）。
     //
-    // 该行核对「动作是否按 §14 第 1 条的标准路径处置、未降为快通道」。§14 第 1 条
-    // 把层级**直接规定**为本任务的标准路径（不适用快通道），故对本任务而言，
-    // 「层级是第 2 层」是**规范直接给定的结构性事实**，不是某次运行采集到的东西。
-    //
-    // 第一版我把它写成 `riskLayer: 2` 的常量快照再比对——那永远是 pass，
-    // 不可证伪，等于伪造。如实做法：**说明它是结构性事实、不在本行可证伪范围内**，
-    // 记 not-checkable 并写明这一判断依据。真正的核对是「运行时是否真的没有被
-    // 降级」，而本任务的实现里不存在快通道分支（§14 第 4 条：不设自行降级路径），
-    // 故该风险在结构上已被排除——这同样是"规范保证"，不是"本次核对"。
-    // **路径约定落实**（2026-11-03 第三次重做，Human 选「补真正的采集点」）。
-    //
-    // 前两版都错在找配置载体：该行核对的是「§14 第 1 条规定的标准路径是否被
-    // 降为快通道」，而本任务**没有「选择层级」这个动作**——层级由规范直接规定。
-    // 真正的采集点是对实现的可复现断言：审核段是否接受风险层/快通道参数。
+    // 前两版都错在找配置载体：第一版写四个硬编码常量（恒 pass、不可证伪），
+    // 第二版记「结构性保证」直接放行（同样不可证伪）。根因是：这两行核对的东西
+    // **本来就不是配置**——
+    //   - §14 第 1 条把层级**直接规定**为标准路径，本任务没有「选择层级」这个动作；
+    //   - §14 第 2 条要求预检事先配置、执行体**不作临时裁量**，核对的是「实现里
+    //     有没有留裁量入口」。
+    // 故真采集点是**对真实函数对象的可复现断言**：审核段若接受 tier / riskLayer /
+    // fastPath / precheckResult 等参数，裁量入口就存在，该行即 fail。可证伪。
     ["路径约定落实", (() => {
       if (structural === null) return ["not-checkable", STRUCTURAL_NOT_PROBED];
-      // 层级不是可选参数：一旦审核段接受 tier/riskLayer/fastPath，就可能被降级。
       const offending = structural.discretionFound.filter((x) => /tier|riskLayer|fastPath/i.test(x));
       if (offending.length > 0) {
-        return ["fail", `审核段出现了层级/快通道裁量入口：${offending.join("、")}；§14 第 1 条要求本任务固定走标准路径`];
+        return ["fail", `审核段出现层级/快通道裁量入口：${offending.join("、")}；§14 第 1 条要求本任务固定走标准路径`];
       }
       return ["pass", `审核段导出面（${structural.checked.join("、")}）不含 tier/riskLayer/fastPath 参数，层级无从被降为快通道（§14 第 1、4 条）`];
     })()],
-
-    // **无主控预检落实**（同上）。
-    //
-    // §14 第 2 条要求预检「事先配置」、执行体「不作临时裁量」。核对的是实现里
-    // 有没有留裁量入口——同样是对真实函数对象的可复现断言。
     ["无主控预检落实", (() => {
       if (structural === null) return ["not-checkable", STRUCTURAL_NOT_PROBED];
       const offending = structural.discretionFound.filter((x) => /precheck|allowFastPath/i.test(x));
       if (offending.length > 0) {
-        return ["fail", `审核段出现了预检结果/放行裁量入口：${offending.join("、")}；§14 第 2 条要求预检事先配置、执行体不临时裁量`];
+        return ["fail", `审核段出现预检/放行裁量入口：${offending.join("、")}；§14 第 2 条要求预检事先配置、执行体不临时裁量`];
       }
       if (structural.discretionFree !== true) {
         return ["fail", `审核段存在裁量入口：${structural.discretionFound.join("、")}`];
@@ -345,67 +339,6 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
       return ["pass", `审核段导出面（${structural.checked.join("、")}）不含预检/放行参数，执行体无临时裁量入口（§14 第 2 条）`];
     })()],
 
-    // **七段完整性**：`formed` 里每一条都是**回读已通过**才被 push 的
-    // （`observation-review.js:1000` 前后的 readBack 断言含 `body_valid === true`，
-    // 而 `body_valid` 正是七段结构校验）。故「formed 中的对象」与「七段齐备」在
-    // 该链路上等价——这里不需要、也不该再用正文去重核。
-    //
-    // 2026-11-03 复核修复（第二轮 A 项）：初版按 `item.body` 逐段正则匹配，但真实
-    // `formed` 元素只有 `{entry_id, object_uid, file}`，没有 body/title——于是任何
-    // 真的形成了对象的运行都会被判「缺七段」而 blocked。那正是本仓已知 pitfall
-    // 「夹具写旧格式致生产路径假绿」的镜像形态：按想象的形状写判据。
-    // **延迟的取消 / 二次确认空闲**（2026-11-03 补齐采集点，Human 选 A）。
-    //
-    // 这两行的核对**本来就在做**，只是结果没进审核运行这条痕迹：
-    // `triggers.js` 的 `trace("silence-expiry", reason)` 在计时到期时逐步判定
-    // （disposed / turn-in-flight / no-activity-anchor / not-quiet-enough /
-    // not-governed / dispatching），并作为 `task:"diagnostic"` 记录写进同一份
-    // runlog。此处按**会话**把它们取回来，作为这两行的证据——不是重新判断，
-    // 而是把已经发生的判定搬进本次运行的逐行结论。
-    // **延迟的取消 / 二次确认空闲**（2026-11-03 第三次复核修正）。
-    //
-    // 第三轮复核指出三处实质缺陷，全部成立：
-    //   ① 无 fail 路径——任何 reason 都记 pass，等于不可证伪；
-    //   ② 无时间窗——从 limit:200 里取最后一条同会话记录，一次到期后永远 pass；
-    //   ③ §18 对本行的可接受依据是「清理后的本地回读（句柄为空）」，而
-    //      silence-expiry 诊断里**没有句柄回读**这项证据，`disposed` 反而更像异常现场。
-    //
-    // 故这两行**不具备真证据**：诊断记录能证明「当时做过判定」，不能证明「清理后
-    // 句柄为空」。如实记 not-checkable 并写明缺哪项证据——不再把它映射成 pass。
-    // 只有当诊断记录带 `handleCleared` 这一字段（将来真的采集到回读结果）时才判 pass。
-    ["延迟的取消", (() => {
-      if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
-      // 唯一可判的情形：诊断记录真的带回了「清理后句柄为空」的回读结果。
-      if (timerEvidence.handleCleared === true) {
-        return ["pass", "诊断记录带回清理后回读：句柄为空"];
-      }
-      if (timerEvidence.handleCleared === false) {
-        return ["fail", "诊断记录带回清理后回读：句柄非空（清理未生效）"];
-      }
-      return ["not-checkable", `诊断记录（${timerEvidence.reason ?? "?"}）未带回「清理后句柄为空」的回读结果；§18 该行的可接受依据正是该回读，本痕迹无法判定`];
-    })()],
-    ["二次确认空闲", (() => {
-      if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
-      const r = timerEvidence.reason;
-      // 逐项核对三项确认——任何一项为 false 都说明「空闲未被确认」，
-      // 而 §18 要求「无法确认时不派发」，故确认为 false 却是 dispatching 即异常。
-      if (r === "dispatching" && timerEvidence.confirmedAt !== undefined) {
-        const noTurn = timerEvidence.confirmNoTurn === true;
-        const quiet = timerEvidence.confirmQuiet === true;
-        const noOther = timerEvidence.confirmNoOtherTimer === true;
-        if (noTurn && quiet && noOther) {
-          return ["pass", `三项确认逐项成立：无进行中回合／安静时长达标／无其他待触发计时（confirmedAt=${timerEvidence.confirmedAt}）`];
-        }
-        return ["fail", `已派发但三项确认不全：无回合=${noTurn} 安静达标=${quiet} 无其他计时=${noOther}（§18 要求无法确认时不派发）`];
-      }
-      if (r === "turn-in-flight") {
-        return ["pass", "到期时发现回合进行中，未派发（硬约束生效）"];
-      }
-      if (r === "not-quiet-enough") {
-        return ["pass", "到期时安静时长不足，重新武装（确认机制生效）"];
-      }
-      return ["not-checkable", `诊断记录（${r ?? "?"}）未带回三项确认的完整证据；该行无法判定`];
-    })()],
     // **七段完整性**（2026-11-03 第三次复核修正依据）。
     //
     // 第二轮修了「读 item.body 但真实 formed 无该字段」的形状错误。但第三轮复核

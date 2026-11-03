@@ -264,10 +264,15 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       state.silenceTimer = null;
     }
     // **清理后回读**：句柄是否真的为空。这是 §18 该行要的证据本身。
+    //
+    // **两种情况都必须记录**（2026-11-03 自查修正）：
+    //   - `hadTimer: true`  → 确有计时器被清掉，回读证明清干净了；
+    //   - `hadTimer: false` → 本来就没有计时器，无从清理。
+    // 后者若也走同一行判定，会被读成「清理未验证」而记缺口；但 §18 该行的条件
+    // 是「回合开始时清掉计时」，**没有计时器时该行不适用**而非「没核对」。
+    // 故把 hadTimer 一并带出，供判定方区分「清过且干净」与「本来就没有」。
     const handleCleared = state.silenceTimer === null;
-    if (hadTimer) {
-      trace("silence-cleared", reason ?? "cleared", { handleCleared, hadTimer: true });
-    }
+    trace("silence-cleared", reason ?? "cleared", { handleCleared, hadTimer });
     return handleCleared;
   }
 
