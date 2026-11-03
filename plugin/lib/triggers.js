@@ -358,11 +358,16 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     trace("silence-cleared", reason ?? "cleared", {
       handleCleared, idleCancelled, hadTimer, slotEmpty, handleDestroyed, handleIdleTimeout,
       observesClear,
+      // **如实写明这条观察的实际判别力**（2026-11-03 第六轮自查）：
+      // 实测 `clearTimeout` 之后 `_idleTimeout` **恒为 -1**（1000 次抽样无例外），
+      // 故「_idleTimeout !== -1」在生产中不会出现——`handleCleared:false` 的实际
+      // 触发条件只剩「清理后状态槽仍非空」，即实现忘了置 null。那是一条**真实的
+      // 缺陷形态**（可失败），但只有一条，不能把这条腿说成两道独立防线。
       proves: observesClear
-        ? "状态槽已空且句柄被取消（_idleTimeout=-1），可区分「被清理」与「自然到期」"
-        : "仅证明状态槽已空（本 Node 版本未提供 timer 内部字段，无法区分清理与到期）",
+        ? "状态槽已空，且句柄确已被取消（_idleTimeout=-1）；本行可失败的路径是「状态槽仍非空」"
+        : "仅证明状态槽已空（本 Node 版本未提供 timer 内部字段）",
       cannotProve: observesClear
-        ? "不证明清理在进程异常退出时仍然成立"
+        ? "不证明清理在进程异常退出时仍然成立；亦不区分「被清理」与「自然到期」（两者 _idleTimeout 表现相同）"
         : "无法区分「被清理」与「自然到期」——本环境未提供可区分的可观察量",
     });
     return handleCleared;

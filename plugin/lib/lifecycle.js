@@ -204,7 +204,13 @@ export async function readTimerEvidence(dshHomePath, sessionId) {
   if (typeof sessionId !== "string" || sessionId.length === 0) return null;
   try {
     const read = await readRuns(dshHomePath, { limit: 200 });
-    if (read?.ok !== true) return null;
+    if (read?.ok !== true) {
+      // **载体不可用 ≠ 本轮没有发生计时**（2026-11-03 第六轮自查）。
+      // 前者是真实的失败（读不到账），必须让该行阻断；后者才是「条件未出现」。
+      // 若两者都返回 null，readTimerEvidence 的 catch 会把「读不到」说成「没有」，
+      // 正是本单反复要消除的形态。故用一个显式标记区分。
+      return { unavailable: true, reason: read?.error?.code ?? "runlog/unavailable" };
+    }
     const runs = Array.isArray(read.value?.runs) ? read.value.runs : [];
 
     // **两类证据分开找**（2026-11-03）：
@@ -315,6 +321,10 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
     // 的独立观察），到期确认则记录 `quietFor`/`idleMs` 观测值由判定侧复算。
     // 故现在只有**证据缺失**时才记 not-checkable，有证据即给真结论。
     ["延迟的取消", (() => {
+      if (timerEvidence?.unavailable === true) {
+        // 读不到账是**真实失败**，不是「条件未出现」——不得记缺口放行。
+        return ["fail", `计时证据不可读（${timerEvidence.reason}）；无法确认清理是否发生，按 §12 fail-closed 处置`];
+      }
       if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
       // 唯一可判的情形：诊断记录真的带回了「清理后句柄为空」的回读结果。
       // 确有计时器被清掉：回读须证明状态槽已空。
@@ -335,6 +345,9 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
       return ["not-checkable", `诊断记录（${timerEvidence.reason ?? "?"}）未带回「清理后句柄为空」的回读结果；§18 该行的可接受依据正是该回读，本痕迹无法判定`];
     })()],
     ["二次确认空闲", (() => {
+      if (timerEvidence?.unavailable === true) {
+        return ["fail", `计时证据不可读（${timerEvidence.reason}）；无法确认空闲确认是否成立，按 §12 fail-closed 处置`];
+      }
       if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
       const r = timerEvidence.reason;
       // 逐项核对三项确认——任何一项为 false 都说明「空闲未被确认」，

@@ -404,3 +404,22 @@ test("证据时间窗：旧的 dispatching 记录不得被当成本轮证据复�
     await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(() => {});
   }
 });
+
+test("证据载体不可读 → 判 fail 并阻断，不得说成「本轮条件未出现」", () => {
+  // 上一版 `readTimerEvidence` 在 runlog 读失败时 catch→null，判定侧把 null 当成
+  // 「本轮没有计时」——读不到账被说成「没发生」，正是本单反复要消除的形态。
+  const v = verifyReviewRun(
+    healthyOutcome(),
+    { unavailable: true, reason: "runlog/unavailable" },
+    structuralProbe(),
+  );
+  assert.equal(v.stage, "blocked");
+  assert.ok(v.fail.includes("延迟的取消"), `实得 fail=${JSON.stringify(v.fail)}`);
+  assert.ok(v.fail.includes("二次确认空闲"));
+});
+
+test("本轮真的没有计时记录 → 记缺口而非 fail（这才是「条件未出现」）", () => {
+  const v = verifyReviewRun(healthyOutcome(), { reason: null }, structuralProbe());
+  // 有证据对象但无 reason：既非「不可读」也非「有到期判定」，落缺口。
+  assert.notEqual(v.rows.find((r) => r.id === "延迟的取消").verdict, "pass");
+});
