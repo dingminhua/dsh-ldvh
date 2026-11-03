@@ -117,39 +117,56 @@ import { recordJudgementForGuard } from "./host-seams.js";
  *
  * @returns {{structural: object}} 逐项探测结论
  */
-export function probeStructuralFacts() {
-  // 会构成「执行体临时裁量」入口的参数名（§14 第 2 条要求这些判断不在执行体侧）。
-  const DISCRETION_NAMES = ["tier", "riskLayer", "fastPath", "precheckResult", "allowFastPath"];
-
-  /**
-   * 取函数的**签名区**（从函数关键字到参数列表结束的 `)`）。
-   *
-   * **为什么只看签名区**：初版对 `String(fn)` 全文搜索，会被**函数体注释或字符串
-   * 字面量**里的同名文字误报（例如注释里写「不设 tier 参数」反而判 fail）。
-   * 裁量入口只可能出现在形参里，故把搜索范围收窄到签名。
-   *
-   * **已知边界（如实声明）**：压缩/Minify 之后形参名会被重命名，该探测在压缩产物上
-   * 可能失效。故本探测**只在未压缩的源码运行形态下有效**——本仓 `plugin/lib` 以
-   * 源码形态加载（见 `plugin/index.js` 的 import），不存在压缩步骤；若将来引入打包，
-   * 本探测须改为别的判据（例如导出面清单的静态快照比对），此处不假装它能跨过那一步。
-   */
-  function signatureOf(fn) {
-    const src = String(fn);
-    const open = src.indexOf("(");
-    if (open < 0) return src;
-    // 括号配平找到参数列表结尾
-    let depth = 0;
-    for (let i = open; i < src.length; i += 1) {
-      if (src[i] === "(") depth += 1;
-      else if (src[i] === ")") {
-        depth -= 1;
-        if (depth === 0) return src.slice(0, i + 1);
-      }
+/**
+ * 取函数的**签名区**（从函数关键字到参数列表结束的 `)`）。
+ *
+ * **为什么只看签名区**：初版对 `String(fn)` 全文搜索，会被**函数体注释或字符串
+ * 字面量**里的同名文字误报（例如注释里写「不设 tier 参数」反而判 fail）。
+ * 裁量入口只可能出现在形参里，故把搜索范围收窄到签名。
+ *
+ * **已知边界（如实声明）**：压缩/Minify 之后形参名会被重命名，该探测在压缩产物上
+ * 可能失效。故本探测**只在未压缩的源码运行形态下有效**——本仓 `plugin/lib` 以
+ * 源码形态加载（见 `plugin/index.js` 的 import），不存在压缩步骤；若将来引入打包，
+ * 本探测须改为别的判据（例如导出面清单的静态快照比对），此处不假装它能跨过那一步。
+ */
+function signatureOf(fn) {
+  const src = String(fn);
+  const open = src.indexOf("(");
+  if (open < 0) return src;
+  // 括号配平找到参数列表结尾
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === "(") depth += 1;
+    else if (src[i] === ")") {
+      depth -= 1;
+      if (depth === 0) return src.slice(0, i + 1);
     }
-    return src.slice(0, open + 1);
   }
+  return src.slice(0, open + 1);
+}
 
-  const targets = [["runReviewStage", runReviewStage]];
+/** 会构成「执行体临时裁量」入口的参数名（§14 第 2 条要求这些判断不在执行体侧）。 */
+const DISCRETION_NAMES = ["tier", "riskLayer", "fastPath", "precheckResult", "allowFastPath"];
+
+/**
+ * 对**任意给定函数**做裁量入口探测（供测试喂入人造函数）。
+ *
+ * 抽出来是因为第五轮复核用变异证明：「只搜签名区」这一修复没有护栏——
+ * 把实现改回全文搜索，全量套件仍全绿（生产代码里恰好没有 "tier" 字样）。
+ * 有本入口后，测试可以喂一个「函数体含 tier 注释」的函数，断言不误报。
+ */
+export function probeFunctionForDiscretion(fn) {
+  return probeStructuralFactsWith([["given", fn]]).discretionFound;
+}
+
+export function probeStructuralFacts() {
+
+
+  return probeStructuralFactsWith([["runReviewStage", runReviewStage]], DISCRETION_NAMES);
+}
+
+/** 探测逻辑本体（供导出入口与测试共用，避免两套判据）。 */
+function probeStructuralFactsWith(targets, names = DISCRETION_NAMES) {
   const found = [];
   for (const [name, fn] of targets) {
     if (typeof fn !== "function") {
@@ -157,7 +174,7 @@ export function probeStructuralFacts() {
       continue;
     }
     const signature = signatureOf(fn);
-    for (const d of DISCRETION_NAMES) {
+    for (const d of names) {
       // 按词边界匹配，避免 `fastPathAllowed` 之类子串误判（那是同义入口，仍应命中；
       // 但 `riskLayered` 这类无关词不该命中）。
       const re = new RegExp(`(^|[^A-Za-z0-9_])${d}([^A-Za-z0-9_]|$)`);
@@ -194,11 +211,21 @@ async function readTimerEvidence(dshHomePath, sessionId) {
     //   - `silence-cleared`：清理后回读（`handleCleared`）→ 供「延迟的取消」；
     //   - `silence-expiry`：到期时的确认判定 → 供「二次确认空闲」。
     // 它们发生在不同时刻，此前只找后者，于是「延迟的取消」永远拿不到自己的证据。
+    // **证据必须落在本轮时间窗内**（2026-11-03 第五轮复核指出此前无时间窗：
+    // 从最近 200 条里取同会话最后一条，于是 10 小时前的记录仍能让本次判 pass）。
+    // 窗口取「本轮开始前 30 分钟」到「现在」：到达期→派发→运行这条真实链路上，
+    // 相关诊断必然落在该区间内；更早的记录属于上一轮，不得复用。
+    const since = Date.now() - 30 * 60 * 1000;
+    const inWindow = (r) => {
+      const at = Date.parse(String(r?.at ?? ""));
+      return Number.isFinite(at) && at >= since;
+    };
     const found = { cleared: null, expiry: null };
     for (let i = runs.length - 1; i >= 0; i -= 1) {
       const r = runs[i];
       if (r?.task !== "diagnostic") continue;
       if (r?.session !== sessionId) continue;
+      if (!inWindow(r)) continue;
       if (r?.stage === "silence-cleared" && found.cleared === null) found.cleared = r;
       if (r?.stage === "silence-expiry" && found.expiry === null) found.expiry = r;
       if (found.cleared !== null && found.expiry !== null) break;
@@ -275,24 +302,6 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
       outcome === "land-failed" && /buffer|unreadable/i.test(String(reviewOutcome.action ?? ""))
         ? ["fail", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]
         : ["pass", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]],
-    // **七段完整性**（依据见下方同名行的注释——此处只留一行指针，避免出现
-    // 与实现相反的陈述）。**2026-11-03 第四轮复核**指出这里曾残留旧版假陈述
-    // 「formed 每条都通过回读、与七段齐备等价」，而实际 `observation-review.js`
-    // 先 push formed（:1000）、后 readBack（:1007），回读失败的对象也在 formed 里。
-    // 该假陈述与下方实现直接相反，会误导后来者按错误依据改回去，故删除。
-    //
-    // 2026-11-03 复核修复（第二轮 A 项）：初版按 `item.body` 逐段正则匹配，但真实
-    // `formed` 元素只有 `{entry_id, object_uid, file}`，没有 body/title——于是任何
-    // 真的形成了对象的运行都会被判「缺七段」而 blocked。那正是本仓已知 pitfall
-    // 「夹具写旧格式致生产路径假绿」的镜像形态：按想象的形状写判据。
-    // **延迟的取消 / 二次确认空闲**（2026-11-03 补齐采集点，Human 选 A）。
-    //
-    // 这两行的核对**本来就在做**，只是结果没进审核运行这条痕迹：
-    // `triggers.js` 的 `trace("silence-expiry", reason)` 在计时到期时逐步判定
-    // （disposed / turn-in-flight / no-activity-anchor / not-quiet-enough /
-    // not-governed / dispatching），并作为 `task:"diagnostic"` 记录写进同一份
-    // runlog。此处按**会话**把它们取回来，作为这两行的证据——不是重新判断，
-    // 而是把已经发生的判定搬进本次运行的逐行结论。
     // **延迟的取消 / 二次确认空闲**（2026-11-03 第三次复核修正）。
     //
     // 第三轮复核指出三处实质缺陷，全部成立：
@@ -301,9 +310,10 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
     //   ③ §18 对本行的可接受依据是「清理后的本地回读（句柄为空）」，而
     //      silence-expiry 诊断里**没有句柄回读**这项证据，`disposed` 反而更像异常现场。
     //
-    // 故这两行**不具备真证据**：诊断记录能证明「当时做过判定」，不能证明「清理后
-    // 句柄为空」。如实记 not-checkable 并写明缺哪项证据——不再把它映射成 pass。
-    // 只有当诊断记录带 `handleCleared` 这一字段（将来真的采集到回读结果）时才判 pass。
+    // 后续（第四、五轮）已在 `triggers.js` 补齐真采集：`clearSilenceTimer` 在清理前
+    // 捕获句柄、清理后回读 `_idleTimeout` 是否为 -1（这是区分「被清理」与「自然到期」
+    // 的独立观察），到期确认则记录 `quietFor`/`idleMs` 观测值由判定侧复算。
+    // 故现在只有**证据缺失**时才记 not-checkable，有证据即给真结论。
     ["延迟的取消", (() => {
       if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
       // 唯一可判的情形：诊断记录真的带回了「清理后句柄为空」的回读结果。
@@ -461,16 +471,10 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
         conditionallyUnproven[id] = "本轮既无计时记录、也未运行结构性探测，该行无从观测（非「已核对」）";
       }
     }
-  } else {
-    // 有证据源却仍有行落 not-checkable：那是「观测到了但证据不全」，如实阻断。
-    for (const id of CONDITIONAL_ROWS) {
-      const row = rows.find((r) => r.id === id);
-      if (row !== undefined && row.verdict === "not-checkable") {
-        // 不加入声明表 → verifyRun 会把它判为 undeclared 并阻断
-        void row;
-      }
-    }
   }
+  // **不需要 else 分支**（2026-11-03 第五轮复核指出原 else 是空操作）：
+  // 有证据源却仍有行落 not-checkable 时，不进声明表即可——`verifyRun` 会把它们
+  // 判为 undeclared 并阻断。原先那个空转的循环什么也没做，删掉以免误导。
   const verdict = verifyMechanically({ rows, deferred: { ...DEFERRED_ROWS, ...conditionallyUnproven } });
   return {
     stage: verdict.stage,

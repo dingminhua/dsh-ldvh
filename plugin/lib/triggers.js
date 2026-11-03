@@ -126,6 +126,32 @@ function isReviewDelivery(userMessage) {
  * 本模块**不持有任何宿主调度依赖**：计时器是进程内的，宿主服务缺失不影响武装
  * ——这正是 2026-10-24 回退要消除的耦合。
  */
+/**
+ * 判定一次计时器清理是否成立——**纯函数，便于用失败输入钉住它**。
+ *
+ * 抽取自 `clearSilenceTimer`（2026-11-03 第五轮复核后）：此前该判定写在闭包里，
+ * 外部只能观察成功路径，于是「把结论硬编码为 true」这种退化解无法被测试发现
+ * （实测变异 A 全绿）。抽成纯函数后可以喂入失败输入，护栏才有意义。
+ *
+ * @param {object} a
+ * @param {boolean} a.hadTimer 清理时是否真有计时器
+ * @param {boolean} a.slotEmpty 清理后状态槽是否为空
+ * @param {number|null} a.handleIdleTimeout 句柄的 `_idleTimeout`（取消后为 -1）
+ * @param {boolean|null} a.handleDestroyed 句柄的 `_destroyed`
+ * @returns {{handleCleared: boolean, idleCancelled: boolean}}
+ */
+export function judgeClear({ hadTimer, slotEmpty, handleIdleTimeout, handleDestroyed }) {
+  const idleCancelled = handleIdleTimeout === -1;
+  if (hadTimer !== true) {
+    // 没有计时器：不存在「清理」这回事，只如实反映状态槽为空。
+    return { handleCleared: slotEmpty === true, idleCancelled: false };
+  }
+  return {
+    handleCleared: slotEmpty === true && idleCancelled && handleDestroyed !== false,
+    idleCancelled,
+  };
+}
+
 export function createTurnTriggers(agent, { getScopeState, turns, activity, log, onSessionCheckpoint, readSilenceMs, persistActivityAt, now, registerDiagnostic }) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
 
@@ -304,25 +330,40 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       if (typeof captured._destroyed === "boolean") handleDestroyed = captured._destroyed;
       if (typeof captured._idleTimeout === "number") handleIdleTimeout = captured._idleTimeout;
     }
-    // **`handleCleared` 的语义限定**（2026-11-03 第四轮复核后二次自查）：
+    // **`handleCleared` 现在有真正独立的第二腿**（2026-11-03 第五轮复核后重测）。
     //
-    // 它证明的是「状态槽已空 + 该句柄已不再生效」，**不是**「清理动作本身成功」。
-    // 技术事实（实测）：Node 的 timer 在 `clearTimeout` 之后 `_destroyed` 为 true、
-    // `_idleTimeout` 变 -1；但**自然到期触发之后这两个值同样如此**。也就是说，
-    // 现有 timer API 下无法区分「被我们清掉」与「自己到期了」。
+    // 我此前在这里写过一条「实测」结论：称 clearTimeout 与自然到期之后的可观察量
+    // 相同、无法区分——**那条结论是错的**。重测结果：
+    //   - `clearTimeout` 之后：`_destroyed === true` 且 **`_idleTimeout === -1`**
+    //   - **自然到期之后**：`_destroyed === true` 但 **`_idleTimeout` 保持原 delay**
+    // 故 `_idleTimeout` 能区分「被清掉」与「自己到期」，正是该行需要的独立观察。
+    // 上一版因为抱着错误结论，把这一腿当成不可用而放弃了。
     //
-    // 因此本字段**不能**充当 §18「清理后句柄为空」那一条的独立证据——它无法失败于
-    // 「清理没生效」这一情形（清理没生效时槽仍非空，那时 `slotEmpty` 会为 false，
-    // 这是它唯一真正能抓住的失败路径）。
-    //
-    // 如实做法：把三个观测值原样带出，由判定侧按**能被证伪的部分**下结论；
-    // 结论里不得声称「已独立验证清理成功」。这是能力边界，不是实现疏忽。
-    const handleCleared = slotEmpty && handleDestroyed !== false;
+    // 判定（三重）：
+    //   ① `slotEmpty`——清理动作真的把状态槽置空了（失败路径：忘了置 null）；
+    //   ② `_idleTimeout === -1`——句柄是被**取消**的，不是自然到期（失败路径：
+    //      clearTimeout 未生效 / 清理跑在到期之后）；
+    //   ③ `_destroyed !== false`——句柄已失效（辅助，不单独承担结论）。
+    // **已知边界**：`_idleTimeout` / `_destroyed` 是 Node 内部字段（非稳定 API）。
+    // 若某版本不再提供，观察退化为「只剩 slotEmpty」，届时本行只证「槽已空」，
+    // 不得外推「清理生效」——trace 里的 proves/cannotProve 会如实反映当时的能力。
+    // **没有计时器时不存在「清理」这回事**（2026-11-03 第五轮后修正）：
+    // `handleIdleTimeout` 为 null 是因为我们没有捕获到句柄，不是清理失败。
+    // 此时该行的条件未出现——如实标 hadTimer:false，`handleCleared` 只反映
+    // 「状态槽为空」这一事实，不假装发生了清理。
+    const { handleCleared, idleCancelled } = judgeClear({
+      hadTimer, slotEmpty, handleIdleTimeout, handleDestroyed,
+    });
+    const observesClear = handleDestroyed !== null && handleIdleTimeout !== null;
     trace("silence-cleared", reason ?? "cleared", {
-      handleCleared, hadTimer, slotEmpty, handleDestroyed, handleIdleTimeout,
-      // 明确标注本记录能证明什么、不能证明什么，避免下游误读
-      proves: slotEmpty ? "状态槽已空" : "状态槽仍非空",
-      cannotProve: "无法区分「被清理」与「自然到期」——Node timer API 无该可观察量",
+      handleCleared, idleCancelled, hadTimer, slotEmpty, handleDestroyed, handleIdleTimeout,
+      observesClear,
+      proves: observesClear
+        ? "状态槽已空且句柄被取消（_idleTimeout=-1），可区分「被清理」与「自然到期」"
+        : "仅证明状态槽已空（本 Node 版本未提供 timer 内部字段，无法区分清理与到期）",
+      cannotProve: observesClear
+        ? "不证明清理在进程异常退出时仍然成立"
+        : "无法区分「被清理」与「自然到期」——本环境未提供可区分的可观察量",
     });
     return handleCleared;
   }
@@ -598,6 +639,18 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      * 随对象销毁自然消失。清理只负责不留下「进程已退出仍在计时的定时器」这一
      * 泄漏，不对任何已发生的派发构成撤回（11 §6.1）。
      */
+    /**
+     * 测试缝：直接触发一次计时器清理并返回回读结论。
+     *
+     * 该函数此前**没有任何测试触达**，于是第五轮复核用变异证明：把
+     * `handleCleared` 改成不看 `slotEmpty`、或删掉句柄观察，全量套件仍全绿——
+     * 本轮头号修复「采集侧不再自证」没有任何回归护栏。本缝就是为补上它而开。
+     * 生产代码不调用它。
+     */
+    clearSilenceTimerForTest(reason = "test") {
+      return clearSilenceTimer(reason);
+    },
+
     dispose() {
       state.disposed = true; // 之后的 idle 事件一律不得再武装
       clearSilenceTimer("dispose");

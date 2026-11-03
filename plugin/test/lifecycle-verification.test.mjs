@@ -337,3 +337,29 @@ test("清理后状态槽仍非空 → 判 fail（这是该行唯一可失败的�
   assert.equal(v.rows.find((r) => r.id === "延迟的取消").verdict, "fail");
   assert.equal(v.stage, "blocked");
 });
+
+// ---------------------------------------------------------------------------
+// 探针的护栏（第五轮复核：把「只搜签名区」改回全文搜索，全量套件仍全绿）
+// ---------------------------------------------------------------------------
+
+test("探针只搜签名区：函数体注释里的裁量词不得误报", async () => {
+  const { probeFunctionForDiscretion } = await import("../lib/lifecycle.js");
+  // 函数**体**里谈论 tier，不是裁量入口。全文搜索会误报成 fail。
+  function looksLikeCommentOnly(a) {
+    /* deliberately no tier / fastPath parameter here */
+    return a;
+  }
+  assert.deepEqual(probeFunctionForDiscretion(looksLikeCommentOnly), [],
+    "注释里的同名文字不是裁量入口——若这里非空，说明探测退回了全文搜索");
+});
+
+test("探针确实能命中真形参（正控制）", async () => {
+  const { probeFunctionForDiscretion } = await import("../lib/lifecycle.js");
+  function reallyHasIt(tier, x) { return x; }
+  assert.deepEqual(probeFunctionForDiscretion(reallyHasIt), ["given::tier"]);
+});
+
+test("探针：函数缺失时记为 missing（交由判定侧判 fail，不得当无裁量）", async () => {
+  const { probeFunctionForDiscretion } = await import("../lib/lifecycle.js");
+  assert.deepEqual(probeFunctionForDiscretion(undefined), ["given::missing"]);
+});
