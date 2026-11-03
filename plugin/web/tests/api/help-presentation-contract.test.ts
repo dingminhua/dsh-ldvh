@@ -29,8 +29,13 @@
  * 10. **整页必须是单一 tab 容器**：先前是「上方两块常显概览 + 下方分区切换」的双层
  *     结构，两套组织范式挤在一页，常显正文越长、切换区离得越远，tab「一次只呈现
  *     一件事」的价值就被抵消。概览必须收进分区之内，声明必须在切换区之上。
- * 11. **呈现件必须唯一**：页面上只允许一种卡片壳、一种行式列表、一个网格基准。此前
- *     同一页有六种卡片形态、三个列宽基准，读起来像几套页面拼在一起。
+ * 11. **呈现件必须按类型登记，每类只有一种壳**：本页共八类呈现件（声明条、对照表、
+ *     形态卡、条目卡、行式清单、标签阵列、信任阶梯、提示条），每类的根元素带
+ *     `data-presentation` 标记并由一个组件产出。登记清单与实现必须一一对应，同一类型
+ *     不得出现第二处定义点或第二种根元素。上一轮的旧口径（「全页只有一种卡片壳 +
+ *     一种行式列表」）会把本页真正需要的形态判死——症状与机制是一一对应，用对照表
+ *     才准确；七个否定项是短句，用标签阵列才一屏扫得完。要防的是**同一类东西出现
+ *     两套写法**，不是**出现多种类**。
  * 12. **标题层级必须 h1 → h2 → h3**：h1 是页头，h2 是分区标题，h3 是条目标题。分组
  *     标签是普通文本行，不占标题层级；不得出现 h4 及更深，也不得跳级。
  *
@@ -328,24 +333,70 @@ test('帮助页必须是单一 tab 容器：概览不得常显，声明必须在
   );
 });
 
-test('帮助页的呈现件必须唯一：一种卡壳、一种行式列表、一个网格基准', () => {
-  // 卡片壳只有一处：`<article` 只允许出现在统一卡壳组件里。
-  const articleCount = [...helpCode.matchAll(/<article\b/g)].length;
-  assert.equal(
-    articleCount,
-    1,
-    `帮助页只允许一种卡片壳（统一卡壳组件里的 <article>），发现 ${articleCount} 处——多种卡壳读起来像几套页面拼在一起`,
+test('帮助页的呈现件必须按类型登记，每类只有一种壳', () => {
+  /**
+   * 呈现件登记表：**类型 → 根元素标签**。
+   *
+   * 每种呈现件的根元素带 `data-presentation="类型"`，由一个组件产出（全页恰好一处定义
+   * 点）。守卫据此复算三件事：登记清单与实现一一对应、同一类型没有第二处定义点、根
+   * 元素标签与登记一致。
+   *
+   * **为什么按类登记而不是「全页只有一种壳」**：上一轮的口径（一种卡片壳 + 一种行式
+   * 列表）会把本页真正需要的形态判死——症状与机制是一一对应，用对照表才准确；七个
+   * 否定项是短句，用标签阵列才一屏扫得完。要防的是**同一类东西出现两套写法**，不是
+   * **出现多种类**。
+   */
+  const PRESENTATION_REGISTRY: Record<string, string> = {
+    notice: 'div',
+    compare: 'div',
+    stage: 'article',
+    'entry-card': 'article',
+    rows: 'ul',
+    chips: 'ul',
+    ladder: 'div',
+    hint: 'div',
+  };
+
+  const occurrences = [...helpCode.matchAll(/<\s*(\w+)[^>]*?data-presentation="([^"]+)"/g)];
+  assert.ok(occurrences.length > 0, '须能从帮助页读出呈现件标记');
+
+  const byType = new Map<string, { count: number; tags: Set<string> }>();
+  for (const [, tag, type] of occurrences) {
+    const entry = byType.get(type) ?? { count: 0, tags: new Set<string>() };
+    entry.count += 1;
+    entry.tags.add(tag);
+    byType.set(type, entry);
+  }
+
+  // ① 登记清单与实现必须一一对应：多一种是未经登记的呈现件，少一种是登记了却没用。
+  assert.deepEqual(
+    [...byType.keys()].sort(),
+    Object.keys(PRESENTATION_REGISTRY).sort(),
+    '帮助页的呈现件集合必须与登记清单一致——多一个是未经登记的呈现件，少一个是登记了却没用上',
   );
 
-  // 卡壳与行式列表的**外观**各只允许出现一次（按类串计，不按组件名计——改名型
-  // 变更不应当把守卫打红）。
-  const cardShell = [...helpCode.matchAll(/rounded-xl border border-ldvh-border bg-ldvh-panel p-4/g)].length;
-  assert.equal(cardShell, 1, `卡片壳只允许一处，发现 ${cardShell} 处`);
+  // ② 每类只能有一个定义点：同一类出现两处，就是同一类东西有了两套写法。
+  for (const [type, entry] of byType) {
+    assert.equal(
+      entry.count,
+      1,
+      `呈现件 ${type} 只允许一处定义点（由一个组件产出），发现 ${entry.count} 处——同一类出现两套写法，读起来像几套页面拼在一起`,
+    );
+    // ③ 根元素标签必须与登记一致：行式清单与标签阵列必须是列表（ul/li），语义不留给
+    //    读屏器猜。
+    assert.deepEqual(
+      [...entry.tags],
+      [PRESENTATION_REGISTRY[type]],
+      `呈现件 ${type} 的根元素必须是 <${PRESENTATION_REGISTRY[type]}>`,
+    );
+  }
 
-  const rowShell = [...helpCode.matchAll(/overflow-hidden rounded-xl border border-ldvh-border bg-ldvh-panel/g)].length;
-  assert.equal(rowShell, 1, `行式列表壳只允许一处，发现 ${rowShell} 处`);
-
-  // 网格基准只允许一个：此前本页同时用了 section-grid / subgrid / panel-grid 三种列宽。
+  // ④ 网格基准唯一：卡片网格走 ldvh-section-grid，页面不得自写第二套列宽基准。
+  assert.doesNotMatch(
+    helpCode,
+    /minmax\(/,
+    '帮助页不得在页面内自定义网格列宽基准——列宽基准由 index.css 的语义 token 给，页面只引用',
+  );
   assert.doesNotMatch(
     helpCode,
     /ldvh-panel-grid|ldvh-subgrid|ldvh-compact-grid|ldvh-mini-grid|ldvh-metric-grid/,

@@ -1,16 +1,26 @@
 import type { ComponentType } from 'react';
 import {
   Activity,
+  BookOpen,
+  BrainCircuit,
+  CircleHelp,
+  ClipboardCheck,
   Cog,
   Combine,
+  Compass,
   FileText,
   ClipboardList,
+  FolderPlus,
   GitCommit,
   Github,
   GitPullRequestArrow,
   FileSignature,
   FolderTree,
   Globe2,
+  Hand,
+  Info,
+  KeyRound,
+  Layers,
   LayoutDashboard,
   Library,
   Lightbulb,
@@ -18,14 +28,19 @@ import {
   MapPinned,
   Milestone,
   NotebookPen,
+  PackageCheck,
   Receipt,
+  Route,
   Ruler,
+  ShieldCheck,
   Shovel,
   Snail,
   Sparkles,
   Sprout,
   Target,
   Telescope,
+  UserRound,
+  Users,
   Waypoints,
   Workflow,
   type LucideProps,
@@ -165,6 +180,52 @@ export const SYSTEM_ICONS: Record<string, SemanticIconComponent> = {
   // 摩擦销账=票据（Receipt＝一笔一笔记着的账；与 friction 对象的 Snail 蜗牛
   // 区分开：蜗牛是阻碍本身的体感，票据是它被记在账上的样子）。
   friction: Receipt,
+};
+
+/**
+ * 帮助页分区图标（09 §8 同理：映射单源，页面不得自行散落图标选择）。
+ *
+ * **这是什么形状**：六个分区切换按钮的**分区提示符**——它们回答「这一格讲的是哪一类
+ * 事情」，不是对象身份，也不是状态。与 `OBJECT_TYPE_ICONS`（这是什么对象）、
+ * `SYSTEM_ICONS`（这件事由谁管）、`NAV_ICONS`（这是哪个入口）三族全部错开形，
+ * 读者不会把分区图标误读成对象图标。
+ *
+ * **选形**：打开的书（这是什么）、层叠（有哪些东西）、路径（事情怎么推进）、举手
+ * （什么时候该你出面）、罗盘（去哪儿看）、盾牌（怎么判断可信）。
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- 与 OBJECT_TYPE_ICONS / NAV_ICONS / SYSTEM_ICONS 同理：帮助页消费，拆文件即打断共置断言。
+export const HELP_TAB_ICONS: Record<string, SemanticIconComponent> = {
+  overview: BookOpen,
+  objects: Layers,
+  systems: Route,
+  gates: Hand,
+  entries: Compass,
+  trust: ShieldCheck,
+};
+
+/**
+ * 帮助页内容图标：概览三张对照（AI 的短板 / 人的短板 / 双方叠加）、五类交互入口的
+ * 触发标记、声明条的信息标记。
+ *
+ * **为什么登记**：09 §6 允许 Card 语义区标题用语义图标，但要求「必须通过统一组件
+ * 输出，不在页面里临时拼写」；本页此前直接 import 了九枚图标，映射散在页面文件里。
+ * 收进单源后，改形只需改一处。
+ *
+ * **与既有族错开**：概览三张用「脑 / 人 / 群」三种人形关系标记，与对象族（铲子、灯泡、
+ * 星芒…）和系统族（路标排、嫩芽、齿轮…）都不撞；五类交互入口用各自的动作物（问号、
+ * 剪贴板、钥匙、包裹、加号文件夹），不借用任何对象或系统的图形。
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- 同上。
+export const HELP_ICONS: Record<string, SemanticIconComponent> = {
+  ai: BrainCircuit,
+  human: UserRound,
+  amplify: Users,
+  inquiry: CircleHelp,
+  plan: ClipboardCheck,
+  authorization: KeyRound,
+  handover: PackageCheck,
+  registration: FolderPlus,
+  info: Info,
 };
 
 type SemanticIconProps = Omit<LucideProps, 'ref'> & {

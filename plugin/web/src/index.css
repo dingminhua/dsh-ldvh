@@ -124,6 +124,18 @@
     @apply text-xs font-medium leading-4;
   }
 
+  /* 短句标签（12px/16px/500 + 几何）：一屏扫得完的**否定项清单**用它。
+   *
+   * `ldvh-chip` 只给文字样式、没有几何；`ldvh-chip-sm` 是 18px 固定盒高（状态/优先级
+   * 徽标）；本 token 补的是第三种形态——圆角矩形 + 内边距 + 四边同宽边框，装的是
+   * 「这些都不能单独证明……」这类短语，而不是状态或类型。
+   *
+   * **为什么单列**：调用方只给底色与文字色，几何在这里给一次。帮助页的标签阵列
+   * （七个否定项）是本页唯一的用法；它若在别处再出现，走这一个 token，不另抄几何。 */
+  .ldvh-chip-tag {
+    @apply inline-flex items-center rounded-md border border-ldvh-border bg-ldvh-panel px-2.5 py-1.5 text-xs font-medium leading-4;
+  }
+
   /* Compact chip for tight 18px status/priority badges. Kept as a semantic
      token so callers never hand-roll a bare `text-[10px]`, matching the
      type-scale rule in docs/01 §1.4.
