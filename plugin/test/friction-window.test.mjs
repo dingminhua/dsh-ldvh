@@ -180,6 +180,49 @@ test("核对：空窗口下任何引证都被拒（没给材料就不能有依�
 });
 
 // ---------------------------------------------------------------------------
+// 2026-11-03：失败消息须能区分「引错地方」与「引文落在被切掉的尾部」
+//
+// 材料按轮施加 20000 字符上限（specs/11 §7.1），超出部分被 clamp 切掉并置
+// `truncated`。两种成因的处置完全不同：前者是执行体该改，后者是本次交付范围
+// 不足以支持判断、执行体没有错。此前两者产生逐字相同的消息，且消息里只留引文
+// 前 80 字、不说明被截过——待处置队列 18 条 `quote_not_in_window` 因此至今
+// 无从归因。这三条钉住：默认（未截断）口径不变、截断口径改词、显示须标原长。
+// ---------------------------------------------------------------------------
+
+test("核对：窗口未截断时，失败消息仍指向「引了窗口外的材料」（默认路径不变）", () => {
+  const r = verifyQuotation("这段不在材料里的话", "材料正文在这里。", { truncated: false });
+  assert.ok(!r.ok);
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
+  assert.match(r.error.message, /outside the observation window/, "未截断时须维持原结论：引错了地方");
+  assert.ok(!/截断/.test(r.error.message), "未截断时不得提到截断，否则等于给执行体递了一个不成立的借口");
+});
+
+test("核对：窗口截断过时，失败消息不得断言「引文失实」，须点明可能是尾部被切", () => {
+  const r = verifyQuotation("这段可能落在被切掉尾部的话", "材料正文在这里。", { truncated: true });
+  assert.ok(!r.ok);
+  // 错误码不变：它仍是同一道判据的同一个失败面，改的只是可诊断性。
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
+  assert.match(r.error.message, /截断/, "须点明本次材料被截断过");
+  assert.match(r.error.message, /材料不全/, "须给出正确处置方向：按材料不全而非引证失实对待");
+  assert.ok(
+    !/the verdict cites material outside the observation window/.test(r.error.message),
+    "不得沿用「引了窗口外的材料」这一断言——那会把材料不全记成执行体出错",
+  );
+});
+
+test("核对：引文被显示截断时须标出原长（否则读者分不清「原文就这么长」与「显示被截」）", () => {
+  const longQuote = "一二三四五六七八九十".repeat(12); // 120 字，> 80
+  const r = verifyQuotation(longQuote, "完全无关的材料正文。");
+  assert.ok(!r.ok);
+  assert.match(r.error.message, /原长 120 字/, "须标原长");
+  assert.match(r.error.message, /显示前 80 字/, "须说明显示被截");
+  const shortQuote = "短引证八个字以上";
+  const r2 = verifyQuotation(shortQuote, "完全无关的材料正文。");
+  assert.ok(!r2.ok);
+  assert.ok(!/原长/.test(r2.error.message), "未被显示截断时不得无端加注");
+});
+
+// ---------------------------------------------------------------------------
 // friction-37458a09：逐字引证校验拒收「形状不同、内容相同」的引文
 //
 // 判据放宽的是**形状**（Markdown 装饰、空白码位），不是内容。这组用例三条正向
@@ -469,4 +512,31 @@ test("默认上限 20000 不是零损失：超长单轮仍被砍且如实标记�
   assert.equal(w.items[0].assistant.length, 20000, "超过 20000 的单轮只能保留前 20000 字");
   assert.ok(w.items[0].assistant.length < overlong, "**确实发生了损失**——不得声称上限 20000 等价于全文");
   assert.equal(w.items[0].truncated, true, "损失必须如实标记，不得静默");
+});
+
+test("端到端：超长单轮被切后，其尾部引文的失败须被标成「材料不全」而非「引证失实」", () => {
+  // 这是那 18 条队列记录的真实形态：执行体引了某轮靠后的原文，而该轮超过
+  // 20000 字、尾部已被 clamp 切掉。此前它得到的消息与「凭空引用」完全一样，
+  // 于是记录本身回答不了「这次是不是执行体的错」。
+  const marker = "这段原文落在第 20000 字之后的尾部，已被切掉。";
+  const long = `${blockOfLength(20000)}${marker}`;
+  assert.ok(long.length > 20000);
+
+  const acc = createWindowAccumulator();
+  acc.observe(null, assistantEvent(1, [{ type: "text", text: long }]));
+  const w = acc.windowFrom(null);
+  assert.equal(w.truncated, true, "前提：该轮确被截断");
+
+  const text = windowTextOf(w.items);
+  const r = verifyQuotation(marker, text, { truncated: w.truncated });
+  assert.ok(!r.ok, "尾部引文当然核对不过——它确实不在交付的材料里");
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
+  assert.match(r.error.message, /截断/, "消息须点明材料被截断过，否则无从与「凭空引用」区分");
+  assert.match(r.error.message, /材料不全/, "须指向正确处置：按材料不全对待，而不是判执行体引错");
+
+  // 反向半边：同一段材料下，落在**保留部分**的引文仍须通过——截断不得被
+  // 当成「一切引证都可疑」的借口。
+  const head = blockOfLength(20000).slice(0, 40);
+  const ok = verifyQuotation(head, text, { truncated: w.truncated });
+  assert.ok(ok.ok, JSON.stringify(ok.error));
 });

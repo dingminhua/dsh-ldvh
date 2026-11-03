@@ -479,7 +479,16 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       tasks: runnable,
       registry,
       contexts: Object.fromEntries(
-        runnable.map((key) => [key, { candidates: candidates ?? [], observationGroups: observationGroups ?? [], windowText }]),
+        runnable.map((key) => [key, {
+          candidates: candidates ?? [],
+          observationGroups: observationGroups ?? [],
+          windowText,
+          // 窗口级截断事实（`windowFrom` 的 `truncated`）。此前没传，于是校验器
+          // 无法区分「引了窗口外的材料」与「引文落在单轮 20000 字被切掉的尾部」，
+          // 两者产生逐字相同的失败消息——待处置队列里 18 条 `quote_not_in_window`
+          // 至今无从归因，而「是哪种」决定它算不算机制缺陷（2026-11-03）。
+          windowTruncated: effectiveWindow?.truncated === true,
+        }]),
       ),
     });
 

@@ -308,6 +308,10 @@ export const AUX_TASK_REGISTRY = Object.freeze({
       // 无法把本次观察并入既有组，聚合永远到不了 N（11 §9 第 1、3 项）。
       observationGroups: ctx?.observationGroups ?? [],
       windowText: ctx?.windowText ?? null,
+      // 2026-11-03：把窗口的截断事实一并交下去——单轮超 20000 字被切过时，
+      // 「引文不在材料里」有两种成因（引错地方／落在被切掉的尾部），
+      // 消息必须能区分，否则记录本身无法回答「该不该算机制缺陷」。
+      windowTruncated: ctx?.windowTruncated === true,
     }),
   }),
   [EXPERIENCE_CAPTURE_KEY]: Object.freeze({
@@ -322,6 +326,7 @@ export const AUX_TASK_REGISTRY = Object.freeze({
     outputSchema: captureOutputSchema,
     validate: (slice, ctx) => validateCaptureVerdict(slice, {
       windowText: ctx?.windowText ?? null,
+      windowTruncated: ctx?.windowTruncated === true,
     }),
   }),
   // 以下两个**在册但未实现**：能力本体（容量整理、四失败模式体检）没有代码。

@@ -171,9 +171,9 @@ function isOneSentence(text) {
  * 审核段据缓冲条目判断（11 §10.2）。
  *
  * @param {object} slice - 本任务在复合输出里的那一片。
- * @param {{windowText?: string|null}} ctx - `windowText` 是本轮观察材料正文，用于引证机械核对。
+ * @param {{windowText?: string|null, windowTruncated?: boolean}} ctx - `windowText` 是本轮观察材料正文，用于引证机械核对；`windowTruncated` 是窗口级截断事实（单轮超 20000 字被切过），使「引文不在材料里」能被区分成「引错地方」与「落在被切掉的尾部」两种成因。
  */
-export function validateCaptureVerdict(slice, { windowText = null } = {}) {
+export function validateCaptureVerdict(slice, { windowText = null, windowTruncated = false } = {}) {
   const failure = (code, message) => ({ ok: false, error: { code, message } });
   if (typeof slice !== "object" || slice === null) {
     return failure("capture/verdict_malformed", `structured output is not an object (got ${JSON.stringify(slice)})`);
@@ -207,7 +207,7 @@ export function validateCaptureVerdict(slice, { windowText = null } = {}) {
     );
   }
   if (quote.trim().length > 0 && windowText !== null) {
-    const checked = verifyQuotation(quote, windowText);
+    const checked = verifyQuotation(quote, windowText, { truncated: windowTruncated === true });
     if (!checked.ok) return failure(checked.error.code, checked.error.message);
   }
 
@@ -254,7 +254,7 @@ export function validateCaptureVerdict(slice, { windowText = null } = {}) {
   // 判断来自本次窗口」，`evidence` 负责「把最小原文跨度连同来源留在缓冲里」。
   // 把前者做成后者的前置，只会让两者互相绑死而不增加任何证据力。
   if (String(evidence).trim().length > 0 && windowText !== null) {
-    const checkedEvidence = verifyQuotation(evidence, windowText);
+    const checkedEvidence = verifyQuotation(evidence, windowText, { truncated: windowTruncated === true });
     if (!checkedEvidence.ok) {
       const normQuoteForHint = String(quote ?? "").trim();
       return failure(

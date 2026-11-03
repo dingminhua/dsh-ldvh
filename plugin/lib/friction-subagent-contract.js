@@ -399,7 +399,7 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
  *
  * 返回 `{ ok: true, value }` 或 `{ ok: false, error }`。
  */
-export function validateDiscoveryVerdict(structured, { candidates = [], observationGroups = [], windowText = null } = {}) {
+export function validateDiscoveryVerdict(structured, { candidates = [], observationGroups = [], windowText = null, windowTruncated = false } = {}) {
   const failure = (code, message) => ({ ok: false, error: { code, message } });
   if (typeof structured !== "object" || structured === null) {
     return failure("discovery/verdict_malformed", `structured output is not an object (got ${JSON.stringify(structured)})`);
@@ -444,7 +444,7 @@ export function validateDiscoveryVerdict(structured, { candidates = [], observat
     );
   }
   if (typeof quote === "string" && quote.trim().length > 0 && windowText !== null) {
-    const checked = verifyQuotation(quote, windowText);
+    const checked = verifyQuotation(quote, windowText, { truncated: windowTruncated === true });
     if (!checked.ok) return failure(checked.error.code, checked.error.message);
   }
 

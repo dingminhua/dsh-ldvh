@@ -336,11 +336,38 @@ export function normalizeQuotationText(value) {
  * 「这句话是否确实来自我给它看过的材料」，那是一个可机械判定的是非题。
  * 相似度会把它又变回语义判断。
  *
+ * ## 失败消息必须能区分两种「引文不在材料里」（2026-11-03）
+ *
+ * 判据本身没变（仍是归一化后的连续子串包含）。变的是**失败时的可诊断性**：
+ *
+ * 材料按**轮**施加 20000 字符上限（`specs/11` §7.1，Human 决定 2026-11-02），
+ * 超出部分被 `clamp` 切掉并置 `truncated`。于是「引文不在材料里」有两种成因，
+ * 处置完全不同：
+ *
+ *   - **引错了地方**（引了工具输出、更早轮次、自己的知识）→ 执行体该改；
+ *   - **引文落在被切掉的尾部** → 材料本身不完整，执行体**没有错**，是本次交付
+ *     范围不足以支持判断（`specs/11` §10「有损处理须如实标记」的如实面）。
+ *
+ * 此前两者产生**逐字相同**的失败消息，且消息里只留引文前 80 字、不说明被截过。
+ * 实测待处置队列 18 条 `quote_not_in_window` 因此至今无从归因——而「是哪种」
+ * 恰恰决定该不该把它算作机制缺陷。故本函数接收窗口的截断事实并在消息里点名，
+ * 引文显示也标注原长，使记录本身足以回答这个问题。
+ *
  * 返回 `{ ok: true }` 或 `{ ok: false, error }`。
+ *
+ * @param {{minChars?: number, truncated?: boolean}} [options]
+ *   `truncated` 是**窗口级**截断事实（`windowFrom` 的 `truncated`）——为 true 表示
+ *   本次材料被单轮上限切过，故「不在材料里」未必等于「不在原文里」。
  */
-export function verifyQuotation(quote, windowText, { minChars = 8 } = {}) {
+export function verifyQuotation(quote, windowText, { minChars = 8, truncated = false } = {}) {
   const normalize = normalizeQuotationText;
   const q = normalize(quote);
+
+  // 引文在消息里的显示：截到 80 字时**必须标注原长**，否则读者无法分辨
+  // 「原引文就这么长」与「显示被截断」——那正是本条要消灭的歧义。
+  const shown = q.length > 80
+    ? `${JSON.stringify(q.slice(0, 80))}（显示前 80 字，原长 ${q.length} 字）`
+    : JSON.stringify(q);
 
   if (q.length === 0) {
     return { ok: false, error: { code: "discovery/quote_missing", message: "the verdict carries no verbatim quote, so the landing side cannot tell whether it derives from this run's window" } };
@@ -350,16 +377,21 @@ export function verifyQuotation(quote, windowText, { minChars = 8 } = {}) {
       ok: false,
       error: {
         code: "discovery/quote_too_short",
-        message: `the quote is ${q.length} chars, below the ${minChars}-char floor — too short to establish that it came from this run's window (11 §11 水位段：切分依据不得由 AI 判断). Quote: ${JSON.stringify(q.slice(0, 80))}. 注意：该长度下限是**实现侧护栏**（防止极短引证无法在材料中定位跨度），不是规范 11 §11 的规定——规范只要求引证「在交付材料内」；若认为下限过严，须按规范修订流程处理，不得在本层私自调低。`,
+        message: `the quote is ${q.length} chars, below the ${minChars}-char floor — too short to establish that it came from this run's window (11 §11 水位段：切分依据不得由 AI 判断). Quote: ${shown}. 注意：该长度下限是**实现侧护栏**（防止极短引证无法在材料中定位跨度），不是规范 11 §11 的规定——规范只要求引证「在交付材料内」；若认为下限过严，须按规范修订流程处理，不得在本层私自调低。`,
       },
     };
   }
   if (!normalize(windowText).includes(q)) {
+    // 两种成因的区分就落在这两句上：截断过的窗口**不得**写成「引了窗口外的材料」
+    // 这一种结论，否则等于把「材料不全」记成「执行体出错」。
+    const why = truncated
+      ? "the quote is not present in the material actually delivered — 注意：本次材料因单轮上限被**截断**过（specs/11 §7.1），故该引文可能落在被切掉的尾部，此时执行体并未引错，而是本次交付范围不足以支持该判断；两种成因在本次记录里无法再细分（原文尾部未留存），须按「材料不全」而非「引证失实」对待"
+      : "the quote is not present in this run's window — the verdict cites material outside the observation window, so it cannot be counted as a new observation (11 §11 水位段)";
     return {
       ok: false,
       error: {
         code: "discovery/quote_not_in_window",
-        message: `the quote is not present in this run's window — the verdict cites material outside the observation window, so it cannot be counted as a new observation (11 §11 水位段). Quote: ${JSON.stringify(q.slice(0, 80))}`,
+        message: `${why}. Quote: ${shown}`,
       },
     };
   }
