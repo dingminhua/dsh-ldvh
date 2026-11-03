@@ -313,3 +313,27 @@ test("到期但 not-governed：条件确实出现却缺证据，不得被声明�
   const v = verifyReviewRun(healthyOutcome(), { reason: "not-governed" }, structuralProbe());
   assert.notEqual(v.stage, "landed", "条件出现了却没证据，必须阻断而不是免责");
 });
+
+test("证据文案如实声明能力边界：不得声称「已独立验证清理成功」", () => {
+  // 实测：Node timer 在 clearTimeout 与自然到期之后的可观察量相同（_destroyed 为
+  // true、_idleTimeout 为 -1），故「清理动作是否成功」在现有 API 下不可独立观测。
+  // 该行的 pass 只能确证「状态槽已空」，文案不得外推。
+  const v = verifyReviewRun(
+    healthyOutcome(),
+    healthyTimerEvidence({ hadTimer: true, handleCleared: true }),
+    structuralProbe(),
+  );
+  const ev = String(v.rows.find((r) => r.id === "延迟的取消").evidence);
+  assert.match(ev, /能力边界/, "须如实标注无法区分「被清理」与「自然到期」");
+  assert.doesNotMatch(ev, /已独立验证清理成功/, "不得超出证据能力下结论");
+});
+
+test("清理后状态槽仍非空 → 判 fail（这是该行唯一可失败的路径）", () => {
+  const v = verifyReviewRun(
+    healthyOutcome(),
+    healthyTimerEvidence({ hadTimer: true, handleCleared: false }),
+    structuralProbe(),
+  );
+  assert.equal(v.rows.find((r) => r.id === "延迟的取消").verdict, "fail");
+  assert.equal(v.stage, "blocked");
+});

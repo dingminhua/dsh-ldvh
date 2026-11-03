@@ -307,12 +307,16 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
     ["延迟的取消", (() => {
       if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
       // 唯一可判的情形：诊断记录真的带回了「清理后句柄为空」的回读结果。
-      // 确有计时器被清掉：回读须证明清干净了。
+      // 确有计时器被清掉：回读须证明状态槽已空。
       if (timerEvidence.hadTimer === true) {
         if (timerEvidence.handleCleared === true) {
-          return ["pass", `确有计时器被清掉（${timerEvidence.clearedReason ?? "?"}），清理后回读：句柄为空`];
+          // **不得声称「已独立验证清理成功」**：实测 Node timer API 下，
+          // clearTimeout 与自然到期之后的可观察量相同，无法区分两者。本行能确证的
+          // 只有「状态槽已空」这一条（清理没生效时槽会非空，那是它唯一可失败的路径）。
+          return ["pass", `确有计时器进入清理路径（${timerEvidence.clearedReason ?? "?"}），清理后状态槽已空；`
+            + "（能力边界：无法区分「被清理」与「自然到期」，故不外推「清理动作成功」）"];
         }
-        return ["fail", `清理后回读显示句柄非空（${timerEvidence.clearedReason ?? "?"}）——清理未生效`];
+        return ["fail", `清理后状态槽仍非空（${timerEvidence.clearedReason ?? "?"}）——清理未生效`];
       }
       // 本来就没有计时器：§18 该行是「回合开始即清掉计时」，条件未出现。
       if (timerEvidence.hadTimer === false) {

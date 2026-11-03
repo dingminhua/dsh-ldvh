@@ -299,11 +299,31 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 观察退化为不可判定，届时本行会如实落缺口而不是判 pass（见 lifecycle 侧判定）。
     const slotEmpty = state.silenceTimer === null;
     let handleDestroyed = null;
+    let handleIdleTimeout = null;
     if (captured !== null && typeof captured === "object") {
       if (typeof captured._destroyed === "boolean") handleDestroyed = captured._destroyed;
+      if (typeof captured._idleTimeout === "number") handleIdleTimeout = captured._idleTimeout;
     }
-    const handleCleared = slotEmpty && (handleDestroyed === null || handleDestroyed === true);
-    trace("silence-cleared", reason ?? "cleared", { handleCleared, hadTimer, slotEmpty, handleDestroyed });
+    // **`handleCleared` 的语义限定**（2026-11-03 第四轮复核后二次自查）：
+    //
+    // 它证明的是「状态槽已空 + 该句柄已不再生效」，**不是**「清理动作本身成功」。
+    // 技术事实（实测）：Node 的 timer 在 `clearTimeout` 之后 `_destroyed` 为 true、
+    // `_idleTimeout` 变 -1；但**自然到期触发之后这两个值同样如此**。也就是说，
+    // 现有 timer API 下无法区分「被我们清掉」与「自己到期了」。
+    //
+    // 因此本字段**不能**充当 §18「清理后句柄为空」那一条的独立证据——它无法失败于
+    // 「清理没生效」这一情形（清理没生效时槽仍非空，那时 `slotEmpty` 会为 false，
+    // 这是它唯一真正能抓住的失败路径）。
+    //
+    // 如实做法：把三个观测值原样带出，由判定侧按**能被证伪的部分**下结论；
+    // 结论里不得声称「已独立验证清理成功」。这是能力边界，不是实现疏忽。
+    const handleCleared = slotEmpty && handleDestroyed !== false;
+    trace("silence-cleared", reason ?? "cleared", {
+      handleCleared, hadTimer, slotEmpty, handleDestroyed, handleIdleTimeout,
+      // 明确标注本记录能证明什么、不能证明什么，避免下游误读
+      proves: slotEmpty ? "状态槽已空" : "状态槽仍非空",
+      cannotProve: "无法区分「被清理」与「自然到期」——Node timer API 无该可观察量",
+    });
     return handleCleared;
   }
 
