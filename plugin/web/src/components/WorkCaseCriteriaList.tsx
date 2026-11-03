@@ -167,17 +167,25 @@ export function WorkCaseCriteriaList({
     density === 'card'
       ? 'ldvh-card-decision-body'
       : 'ldvh-body';
-  const bulletOffsetClass = density === 'card' ? 'mt-[0.55rem]' : 'mt-1.5';
+  // 项目符号：**容器与该密度的正文行盒等高，圆点在容器内居中**。
+  //
+  // 此前圆点自身带垂直偏移（`card` 档 `mt-[0.55rem]`、`detail` 档 `mt-1.5`）——那是按字号
+  // 手调的数：`detail` 档正文是 14px/24px 行盒，圆点只下移 6px，实测比文字中心高 **4px**
+  // （`card` 档 12px/20px 行盒，偏移 8.8px，勉强对住 0.8px）。手调的数会随正文层级变化而
+  // 失效。改为容器等高 + 容器内居中后，偏移不再依赖字号。
+  const bulletBoxClass =
+    density === 'card' ? 'flex h-5 w-1 shrink-0 items-center' : 'flex h-6 w-1 shrink-0 items-center';
   return (
     <ul className={listClass}>
       {items.map((item) => (
         <li key={item.key} className={`${rowClass} flex items-start gap-2.5`.trim()}>
-          <span
-            aria-hidden="true"
-            className={`h-1 w-1 shrink-0 rounded-full ${
-              tone === 'residual' ? 'bg-amber-500/75 dark:bg-amber-400/80' : 'bg-blue-400/65 dark:bg-blue-400/75'
-            } ${bulletOffsetClass}`}
-          />
+          <span aria-hidden="true" className={bulletBoxClass}>
+            <span
+              className={`h-1 w-1 rounded-full ${
+                tone === 'residual' ? 'bg-amber-500/75 dark:bg-amber-400/80' : 'bg-blue-400/65 dark:bg-blue-400/75'
+              }`}
+            />
+          </span>
           <div className="ldvh-caption min-w-0 flex-1 break-words [&_p]:my-0">
             {item.statement.trim() && (
               <SummaryText

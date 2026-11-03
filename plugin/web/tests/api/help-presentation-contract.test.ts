@@ -51,8 +51,20 @@
  *     - **正文行长不超过 40rem**：14px 中文约 45 字/行，落在中文排版每行 30–45 字的
  *       舒适区；此前 46rem 约 52 字/行，长句读起来串行。
  *
+ * 14. **图标与文字必须落在同一条基线上**（Human 2026-11-03 二轮指出的「icon 和文本都没
+ *     对齐」）：本页的图标此前是「16px 容器 + `mt-N` 往下顶 1–2px」凑出来的——那个数是
+ *     为某个字号试出来的，**文字一改字号图标就歪**：声明条正文从 12px 提到 14px 的那一
+ *     轮，图标就比文字高了 2px；提示条与阶梯方块同样偏高。规矩改为**结构对齐**：图标容
+ *     器高度 = 相邻文字的行盒高度，图标在容器内居中，且**不得**再用 `mt-N` 微调。
+ * 15. **工单判断项列表的项目符号同守第 14 条**（同一轮扫查的副产品）：圆点此前自带
+ *     `mt-[0.55rem]`（卡面）/ `mt-1.5`（详情面）的按字号手调偏移，详情面正文是 14px/24px
+ *     行盒，圆点只下移 6px，实测比文字中心高 4px。改为容器与该密度正文行盒等高 + 居中。
+ *
  * **保证边界（如实登记）**：本守卫是**源码级**的——它证明页面的结构与取用方式符合
- * 上述约定，不证明页面上每句话与规范源逐字一致（那句话由人工与规范评审承担）。
+ * 上述约定，不证明页面上每句话与规范源逐字一致（那句话由人工与规范评审承担）。第 14 条
+ * 同样只证明**取用方式**（容器高度、行盒高、内部居中、无微调），不证明像素级渲染结果
+ * ——后者由浏览器实测承担（本轮实测：帮助页 57 处标记的「标记中心 − 文字行盒中心」全为 0，
+ * 与文字墨迹中心的差落在 −0.86…−0.08px 的字体墨迹差异内；工单圆点实测 Δ行盒 = 0）。
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -90,6 +102,26 @@ function readSpec(fileName: string) {
  */
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+/**
+ * 取出页面里全部 className 取值，**静态与模板字面量两种写法都要算**。
+ *
+ * **为什么不能只扫 `className="..."`**：那样只看得见双引号写法，模板字面量
+ * （`className={`... ${x}`}`）整类隐形——而模板字面量恰恰是动态类名的常规写法
+ * （阶梯块的 `layer.markClass`、对比表行的 `index === 0 ? ... : ...` 都在这里）。
+ * 第 14 条的第二版就是被这一点漏掉的：阶梯块首标记用模板字面量写 `mt-1.5`，
+ * 守卫完全看不见，放行了。盲区比误报更贵——它让守卫在一个分支上静默失效。
+ *
+ * 模板里的 `${...}` 是动态值，静态判定用不了：替换成空格，让**静态片段**参与判定。
+ */
+function classNameValues(code: string): string[] {
+  const values: string[] = [];
+  for (const m of code.matchAll(/className="([^"]*)"/g)) values.push(m[1]);
+  for (const m of code.matchAll(/className=\{`([^`]*)`\}/g)) {
+    values.push(m[1].replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}/g, ' '));
+  }
+  return values;
 }
 
 const help = read('src/pages/Help.tsx');
@@ -530,4 +562,168 @@ test('帮助页的可读性基线：分区标题用分区令牌、正文走主�
       `正文行长 ${measure}rem 超出 40rem 上限——14px 中文每行超过 45 字后读起来串行（此前 46rem 约 52 字/行）`,
     );
   }
+});
+
+test('帮助页的图标与文字必须落在同一条基线上：容器等高、内部居中、不做微调', () => {
+  /**
+   * 图文基线对齐（Human 2026-11-03 二轮：「icon 和文本，都没对齐」）。
+   *
+   * **要防的具体错误**：图标容器是 16px 高（`h-4`），再用 `mt-0.5` / `mt-1` / `mt-1.5`
+   * 往下顶 1–2px 去凑对齐。那个数是**为某个字号试出来的**——文字一改字号，图标就歪。
+   * 声明条正文从 12px `ldvh-caption` 提到 14px `ldvh-body` 的那一轮，图标立刻比文字高
+   * 2px；提示条与阶梯方块同样偏高。
+   *
+   * **改成结构对齐**：图标容器高度 = 相邻文字的行盒高度，图标在容器内居中，不再微调。
+   * 这样文字换字号时，容器高度跟着行盒走；对齐不靠手调。
+   *
+   * **期望高度从 index.css 读出，不写死**：正文行盒高由 `ldvh-body` 的 `leading-*` 决定，
+   * 守卫把它换算成 Tailwind 高度类再比对。改了行高而没改容器，守卫就红——这才是它能
+   * 守住的原因（写死 `h-6` 的话，改行高它就跟着一起错）。
+   */
+  const bodyLeading = /^\s*\.ldvh-body\s*\{[^}]*?leading-(\d+)/m.exec(indexCss);
+  assert.ok(bodyLeading, '须能从 index.css 读出 .ldvh-body 的 leading——图标容器高度要以它为准');
+  // Tailwind 的 leading-N = N/4 rem；rem 按 16px 计。
+  const bodyLineBoxPx = (Number(bodyLeading[1]) / 4) * 16;
+  const expectedHeightClass = `h-${bodyLineBoxPx / 4}`;
+
+  // 图标/标记容器的识别：**按结构认，不按「已经合规的特征」认**。
+  //
+  // **为什么不能用「含 items-center 的盒」当识别集**：那样识别集本身就是合规集——
+  // 不合规的写法（没有 items-center、或者高度写错）根本进不了检查，等于没检。
+  // 这是本条第一版的真实漏洞，被变异三连抓出来了（去掉 items-center 竟然放行）。
+  //
+  // 识别特征取**与对齐无关的结构特征**：同时声明了固定高、固定宽、且不可压缩——
+  // 这正是「图标盒 / 块首标记 / 圆点」的形状。文字列（如 `w-40` 的短板列）没有固定高，
+  // 不会混进来。
+  //
+  // **静态与模板字面量两种 className 写法都要算**：只扫双引号写法时，阶梯块首标记
+  // （它用模板字面量带动态的 `layer.markClass`）整类隐形——把它改回 `mt-1.5` 的旧写法，
+  // 守卫会放行。这不是假想：变异三连的 A2 项就是撞在这上面才发现的。
+  const containers = classNameValues(helpCode)
+    .filter((c) => /\bh-(?:\d|\[)/.test(c) && /\bw-(?:\d|\[)/.test(c) && /\bshrink-0\b/.test(c));
+
+  assert.ok(
+    containers.length >= 6,
+    `须能从帮助页读出图标/标记容器（当前 ${containers.length} 处）——规则不得空转`,
+  );
+
+  for (const container of containers) {
+    const height = /\bh-(\d+)\b/.exec(container);
+    assert.ok(
+      height,
+      `图标容器的高度必须写成 ${expectedHeightClass}（与行盒等高的约定写法），发现：${container}`,
+    );
+    assert.equal(
+      height[1],
+      expectedHeightClass.slice(2),
+      `图标容器高度 ${height[1]}（${container}）必须等于相邻正文的行盒高度 ${bodyLineBoxPx}px（${expectedHeightClass}）——容器不等高，图标与文字就不在同一条基线上`,
+    );
+    assert.match(
+      container,
+      /\bitems-center\b/,
+      `图标容器须内部居中：${container}`,
+    );
+    assert.doesNotMatch(
+      container,
+      /\bmt-[\d.]+/,
+      `图标容器不得用 mt-N 微调对齐：${container}——微调是为某个字号试出来的，文字一改字号图标就歪；改为容器等高 + 内部居中`,
+    );
+  }
+
+  // 反向断言：页面内不得再出现「固定尺寸盒 + 垂直微调」这套写法（含阶梯的块首标记与
+  // 清单前的圆点）。按类名串判定，与 `mt-N` 和尺寸类的书写顺序无关。
+  const nudgedBoxes = classNameValues(helpCode)
+    .filter((c) => /\bmt-[\d.]+/.test(c) && /\bh-(?:\d|\[)/.test(c));
+  assert.deepEqual(
+    nudgedBoxes,
+    [],
+    `帮助页不得用「mt-N + 固定尺寸盒」微调图标/标记对齐：${JSON.stringify(nudgedBoxes)}——微调是为某个字号试出来的，文字一改字号图标就歪；改为容器与行盒等高 + 内部居中`,
+  );
+});
+
+test('工单判断项列表的项目符号必须与该密度正文行盒等高居中，不得用 mt-N 微调', () => {
+  /**
+   * 同族缺陷的第二处（Human 2026-11-03 二轮「用技能或者插件好好检查」的扫查结果）。
+   *
+   * **要防的具体错误**：工单判断项列表的圆点自身带垂直偏移——`card` 档 `mt-[0.55rem]`、
+   * `detail` 档 `mt-1.5`。那是**按字号手调的数**：`detail` 档正文是 14px/24px 行盒，
+   * 圆点只下移 6px，实测比文字中心高 **4px**（本轮 Playwright 实测，Δ行盒 = −4）；
+   * `card` 档 12px/20px 行盒，偏移 8.8px，勉强对住 0.8px。
+   *
+   * 规矩与帮助页同一条：**容器与该密度的正文行盒等高，圆点在容器内居中**。
+   *
+   * **期望高度从 index.css 读出，不写死**：两档正文角色（`ldvh-card-decision-body` 与
+   * `ldvh-body`）各自的 `leading-*` 就是两档的行盒高。改了行高而没改容器，这条就红。
+   *
+   * **判据要绑定到「哪一档用哪个高度」**：只看高度**集合**会放过「两档对调」——card 档
+   * （12px/20px 行盒）用 h-6、detail 档（14px/24px 行盒）用 h-5，两档都错位，而集合仍是
+   * {h-5, h-6}。这是变异三连的 D5 项实测出来的漏洞，所以判据按密度逐档绑定。
+   */
+  const criteriaCode = stripComments(read('src/components/WorkCaseCriteriaList.tsx'));
+
+  /** 从 index.css 读某正文角色的行盒高（px） */
+  const lineBoxPx = (role: string): number => {
+    const m = new RegExp(`^\\s*\\.${role}\\s*\\{[^}]*?leading-(\\d+)`, 'm').exec(indexCss);
+    assert.ok(m, `须能从 index.css 读出 .${role} 的 leading——项目符号容器高度要以它为准`);
+    return (Number(m[1]) / 4) * 16;
+  };
+  const expectedByDensity: Record<string, string> = {
+    card: `h-${lineBoxPx('ldvh-card-decision-body') / 4}`,
+    detail: `h-${lineBoxPx('ldvh-body') / 4}`,
+  };
+
+  // 两档各自的圆点容器类：按「哪一档」绑定，而不是按「出现了哪些高度」。
+  //
+  // **必须锁定 `bulletBoxClass` 这一个定义**：同一文件里还有 `bodyClass` 的
+  // `density === 'card' ? … : …` 三元；不锁定的话会先撞上它，拿到的是正文角色名而不是
+  // 容器类（这是变异三连跑到 B/D 组时暴露的）。
+  const bulletDef = /const\s+bulletBoxClass\s*=\s*([\s\S]*?);/.exec(criteriaCode);
+  assert.ok(bulletDef, '须能读出 bulletBoxClass 的定义（两档密度的圆点容器类）');
+  const ternary = /density\s*===\s*'card'\s*\?\s*'([^']*)'\s*:\s*'([^']*)'/.exec(bulletDef[1]);
+  assert.ok(
+    ternary,
+    '须能读出两档密度各自的圆点容器类（density === "card" ? … : …）——否则无法判断哪一档用哪个高度',
+  );
+  const byDensity: Record<string, string> = { card: ternary[1], detail: ternary[2] };
+
+  for (const [density, box] of Object.entries(byDensity)) {
+    assert.match(
+      box,
+      new RegExp(`\\b${expectedByDensity[density]}\\b`),
+      `${density} 档的项目符号容器高度必须是 ${expectedByDensity[density]}（该档正文行盒高），发现：${box}`,
+    );
+    assert.match(box, /\bitems-center\b/, `项目符号容器须内部居中：${box}`);
+    assert.doesNotMatch(
+      box,
+      /\bmt-[\d.]/,
+      `项目符号容器不得用 mt-N 微调：${box}——微调是为某个字号试出来的，正文层级一改就歪`,
+    );
+  }
+
+  // 不得有第三档密度悄悄长出来：组件里带 `shrink-0` + `items-center` 的类串恰好两个。
+  const bulletBoxes = [...criteriaCode.matchAll(/'([^']*)'/g)]
+    .map((m) => m[1])
+    .filter((c) => /\bshrink-0\b/.test(c) && /\bitems-center\b/.test(c));
+  assert.equal(
+    bulletBoxes.length,
+    2,
+    `须有两档密度各一个项目符号容器（当前 ${bulletBoxes.length} 个：${JSON.stringify(bulletBoxes)}）——多一档就有一档的圆点没人管`,
+  );
+
+  // 反向断言：圆点自身不得再带垂直偏移（旧的「圆点 + mt-N」写法），也不得用任意值偏移。
+  //
+  // **必须扫到模板字面量**：圆点的 className 本身就是模板字面量（带动态的 tone 色相），
+  // 只扫单引号串会漏掉它——这正是变异三连 D3 项撞出来的漏洞。共用 classNameValues，
+  // 它静态与模板两种写法都算。
+  const nudgedBullets = classNameValues(criteriaCode).filter((c) => /\brounded-full\b/.test(c) && /\bmt-/.test(c));
+  assert.deepEqual(
+    nudgedBullets,
+    [],
+    `圆点自身不得带 mt-N 偏移：${JSON.stringify(nudgedBullets)}——改为容器与该密度正文行盒等高 + 容器内居中`,
+  );
+  assert.doesNotMatch(
+    criteriaCode,
+    /\bmt-\[/,
+    '本组件不得再用任意值 mt-[Npx] 微调项目符号——任意值偏移无法被任何守卫判定',
+  );
 });

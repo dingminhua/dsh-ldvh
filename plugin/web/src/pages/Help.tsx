@@ -43,6 +43,11 @@
  * 3. **正文行长 40rem**：14px 中文约 45 字/行，落在中文排版每行 30–45 字的舒适区；
  *    此前 46rem 约 52 字/行，长句读起来串行。
  * 4. **分节留白 mt-8 / pt-6**：分组之间除一条上边框外，再用空间分节。
+ * 5. **图标容器与相邻文字的行盒等高，图标在容器内居中**（2026-11-03 二轮，Human 指出的
+ *    「图标和文本没对齐」）：正文与标题的行盒都是 24px（`ldvh-body` / `ldvh-card-title`
+ *    均 leading-6），故图标容器取 `h-6`、图标居中。此前容器是 16px 高再用 `mt-N` 往下
+ *    顶 1–2px——那是为某个字号凑出来的数，**正文一改字号图标就歪**，声明条正是这样
+ *    从 12px 提到 14px 时歪掉的。结构对齐（等高 + 居中）才不随字号漂移。
  *
  * 纯静态、只读、零数据请求；所有可见文案走 i18n（`docs/01` §1.3）。
  */
@@ -435,14 +440,20 @@ export default function Help() {
   );
 }
 
-/** 声明条：页面级限定，独立成一条而不是浮在标题下的一行灰字。 */
+/**
+ * 声明条：页面级限定，独立成一条而不是浮在标题下的一行灰字。
+ *
+ * **图标容器与正文行盒等高**（`h-6` = 24px = `ldvh-body` 的行盒），图标在容器内居中：
+ * 图标因此落在第一行文字的视觉中心。此前容器是 16px 高再用 `mt-0.5` 往下顶 2px——
+ * 那是为 12px 的 `ldvh-caption` 凑的数；正文一提到 14px，图标就比文字高了 2px。
+ */
 function Notice({ children }: { children: ReactNode }) {
   return (
     <div
       data-presentation="notice"
       className="flex min-w-0 items-start gap-2 rounded-lg border border-ldvh-accent/25 bg-ldvh-accent/5 px-3 py-2.5"
     >
-      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-ldvh-accent">
+      <span className="flex h-6 w-4 shrink-0 items-center justify-center text-ldvh-accent">
         <HELP_ICONS.info size={15} aria-hidden="true" />
       </span>
       <p className="ldvh-body min-w-0">{children}</p>
@@ -472,7 +483,7 @@ function CompareTable({ rows }: { rows: typeof OVERVIEW_COMPARE }) {
         return (
           <div key={row.title} className="flex flex-wrap items-start gap-x-3 gap-y-2 border-t border-ldvh-border/75 px-4 py-3">
             <div className="flex w-40 shrink-0 items-start gap-2">
-              <span className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center text-ldvh-text-secondary">
+              <span className="flex h-6 w-4 shrink-0 items-center justify-center text-ldvh-text-secondary">
                 <Icon size={15} aria-hidden="true" />
               </span>
               <span className="ldvh-card-title min-w-0">{t(row.title)}</span>
@@ -543,9 +554,11 @@ function EntryCard({
   return (
     <article data-presentation="entry-card" className="flex min-w-0 flex-col gap-3 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
       <div className="flex min-w-0 items-start gap-2">
-        {/* 图标顶端对齐并下移 4px：对齐标题首行的字冠中线。英文态标题常折成两行，
-            若用 items-center，图标会落到第二行旁边，读起来像是配错了条目。 */}
-        <span className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center text-ldvh-text-secondary">
+        {/* 图标容器与标题首行的行盒等高（h-6 = 24px），图标在容器内居中：对齐标题首行的
+            字冠中线。英文态标题常折成两行，若用 items-center，图标会落到第二行旁边，
+            读起来像是配错了条目——所以行是 items-start，靠容器等高来定位，而不是靠
+            mt-N 往下顶一个凑出来的数。 */}
+        <span className="flex h-6 w-4 shrink-0 items-center justify-center text-ldvh-text-secondary">
           {icon}
         </span>
         <h3 className="ldvh-card-title min-w-0">{title}</h3>
@@ -643,7 +656,12 @@ function Ladder({ layers }: { layers: typeof TRUST_LAYERS }) {
     <div data-presentation="ladder" className="flex min-w-0 flex-col gap-2.5">
       {layers.map((layer) => (
         <div key={layer.key} className="flex min-w-0 items-start gap-3 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
-          <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-sm ${layer.markClass}`} aria-hidden="true" />
+          {/* 块首标记：容器高 = 相邻标题的行盒高（24px），标记在容器内居中。
+              此前用 `mt-1.5` 把 10px 方块往下顶到看着差不多——那是个凑出来的数，
+              标题字号一改就又歪了。容器与行盒等高、标记居中，才是结构上的对齐。 */}
+          <span className="flex h-6 w-2.5 shrink-0 items-center" aria-hidden="true">
+            <span className={`h-2.5 w-2.5 rounded-sm ${layer.markClass}`} />
+          </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="ldvh-card-title">{t(layer.title)}</h3>
@@ -657,11 +675,16 @@ function Ladder({ layers }: { layers: typeof TRUST_LAYERS }) {
   );
 }
 
-/** 提示条：一句话的补充说明（双源召回、必停之后怎么办）。 */
+/**
+ * 提示条：一句话的补充说明（双源召回、必停之后怎么办）。
+ *
+ * **图标容器与正文行盒等高**（`h-6` = 24px），图标在容器内居中——同声明条，不再用
+ * `mt-0.5` 凑那 2px。
+ */
 function Hint({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <div data-presentation="hint" className="flex min-w-0 items-start gap-2.5 rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
-      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-ldvh-accent">
+      <span className="flex h-6 w-4 shrink-0 items-center justify-center text-ldvh-accent">
         <HELP_ICONS.info size={15} aria-hidden="true" />
       </span>
       <p className="ldvh-body min-w-0">
@@ -852,7 +875,11 @@ function GatesBody() {
             key: item,
             content: (
               <div className="flex min-w-0 items-start gap-2.5">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-ldvh-accent" aria-hidden="true" />
+                {/* 圆点：容器与正文行盒等高（h-6 = 24px），圆点在容器内居中——此前是
+                    6px 圆点用 mt-2 顶着，比文字高 1px，且那个数同样是手调的。 */}
+                <span className="flex h-6 w-1.5 shrink-0 items-center" aria-hidden="true">
+                  <span className="h-1.5 w-1.5 rounded-full bg-ldvh-accent" />
+                </span>
                 <p className="ldvh-body min-w-0">{t(item)}</p>
               </div>
             ),
@@ -874,7 +901,7 @@ function EntriesBody() {
           key: entry.title,
           content: (
             <div className="flex min-w-0 items-start gap-2.5">
-              <span className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center text-ldvh-text-secondary">
+              <span className="flex h-6 w-4 shrink-0 items-center justify-center text-ldvh-text-secondary">
                 <Icon size={15} aria-hidden="true" />
               </span>
               <div className="min-w-0 flex-1">
@@ -910,7 +937,10 @@ function TrustBody() {
             key: item,
             content: (
               <div className="flex min-w-0 items-start gap-2.5">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" aria-hidden="true" />
+                {/* 圆点：容器与正文行盒等高（h-6 = 24px），圆点在容器内居中。 */}
+                <span className="flex h-6 w-1.5 shrink-0 items-center" aria-hidden="true">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 dark:bg-amber-400" />
+                </span>
                 <p className="ldvh-body min-w-0">{t(item)}</p>
               </div>
             ),
