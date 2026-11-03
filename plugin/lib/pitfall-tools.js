@@ -12,8 +12,9 @@
 //     candidates).
 //   - pitfall-write-object (effect: may_change_state) — controlled create
 //     (after Human-confirmed proposal incl. dedup result) and CAS update
-//     with change_log: active→active is errata/supplement-only (scope
-//     field-identical, 23 §9.3), active→discarded is terminal.
+//     with change_log: same-status updates (draft→draft, active→active,
+//     and the terminal discarded→discarded errata) are errata/supplement-
+//     only (scope field-identical, 23 §9.3), active→discarded is terminal.
 //
 // Authorities: specs/05 §6 (operation declaration + common envelope),
 // §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
@@ -49,7 +50,7 @@ const OPERATIONS = {
   "pitfall-write-object": {
     toolName: "ldvh_pitfall_write",
     writeShaped: true,
-    summary: "Controlled write of Pitfall fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; active→active is errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
+    summary: "Controlled write of Pitfall fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; same-status updates (draft→draft, active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
     effect: "may_change_state"
   }
 };

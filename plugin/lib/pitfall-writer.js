@@ -14,10 +14,11 @@
  *  - read:    returns frontmatter + body + file-level content
  *             fingerprint (SHA-256).
  *  - update:  CAS — two guarded lanes (23 §9):
- *               * active→active = 勘误与补充级: scope must be
- *                 field-identical to the CAS baseline (机械比对；变了就
- *                 拒绝——影响范围实质变化走新对象)。The supplement/revision
- *                 boundary of the other sections is AI review scope
+ *               * same-status updates (draft→draft, active→active, and the
+ *                 terminal discarded→discarded errata) = 勘误与补充级:
+ *                 scope must be field-identical to the CAS baseline (机械比对；
+ *                 变了就拒绝——影响范围实质变化走新对象)。The supplement/
+ *                 revision boundary of the other sections is AI review scope
  *                 (root-cause compatibility judgement, 23 §9.3).
  *               * active→discarded = terminal transition: disposition
  *                 (non-empty) required.
@@ -567,15 +568,23 @@ export async function updatePitfallObject(args) {
     }
   }
 
-  // 23 §9.3 补充边界：同态更新（active→active、draft→draft）是勘误与补充级——
-  // scope 必须与 CAS 基线逐字段一致（变了走新对象路径）。
-  // draft→active 是入档转换而非补充更新，不受此边界约束（其七段要求已在创建时满足）。
-  if (nextStatus === prevStatus && nextStatus === "active") {
+  // 23 §9.3 / §15 补充边界：**同态更新**（draft→draft、active→active、以及终态的
+  // discarded→discarded 勘误）都是勘误与补充级——scope 必须与 CAS 基线逐字段一致
+  // （变了就不是补充：影响范围实质变化走新对象路径）。
+  //
+  // 判据是「状态是否变化」而不是「状态是不是 active」（2026-11-03 修正）：原实现把
+  // 守恒条件写成 `nextStatus === "active"`，于是 draft→draft 这条同样属于补充更新的
+  // 路径整条漏检——候选可以在等待入档期间把 scope 的适用条件换掉而不留机械信号，
+  // 而独立复现核对的是换之前的适用范围。终态勘误同理。
+  //
+  // 状态转换（draft→active、active→discarded、draft→discarded）不是补充更新，
+  // 不受本行约束（§13 对入档/终态流转另列其检查项，不含 scope 比对）。
+  if (nextStatus === prevStatus) {
     if ((fm.scope ?? "") !== (current.value.frontmatter.scope ?? "")) {
-      return failure("pitfall/supplement_boundary", "scope changed on an active→active update — that is a real impact-range change, not an errata/supplement: create a NEW Pitfall object (23 §9.3)");
-    }
-    if (fm.disposition !== undefined) {
-      return failure("pitfall/frontmatter_invalid", "disposition must not be present while status=active (23 §8)");
+      return failure(
+        "pitfall/supplement_boundary",
+        `scope changed on a same-status update (${prevStatus}→${nextStatus}) — that is a real impact-range change, not an errata/supplement: create a NEW Pitfall object (23 §9.3)`,
+      );
     }
   }
 

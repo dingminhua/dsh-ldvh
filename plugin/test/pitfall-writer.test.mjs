@@ -358,8 +358,9 @@ test("create: carrier coherence — drifted scope not verbatim rejected (23 §8/
 });
 
 // ---------------------------------------------------------------------------
-// update 补充边界 (23 §9.3 —— active→active 是勘误与补充级: scope 必须与
-// CAS 基线逐字段一致; 变了就走新对象路径)
+// update 补充边界 (23 §9.3 —— 同态更新是勘误与补充级: scope 必须与
+// CAS 基线逐字段一致; 变了就走新对象路径。active→active 与 draft→draft、
+// 终态勘误同受此约束，后两者见下方 2026-11-03 补的用例)
 // ---------------------------------------------------------------------------
 
 test("update: active→active with scope change rejected as supplement-boundary violation (23 §9.3)", async () => {
@@ -551,6 +552,103 @@ test("update: discarded object allows content correction but not reopening (23 �
     });
     assert.ok(!reopen.ok);
     assert.equal(reopen.error.code, "pitfall/status_terminal");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 补充边界覆盖全部同态更新（23 §9.3 / §15「更新时」）
+//
+// 2026-11-03 修正前，闸门条件被写成 `nextStatus === prevStatus && nextStatus
+// === "active"`，于是 draft→draft 这一条同属补充更新的路径整条漏检：候选在
+// 等待入档期间把 scope 的适用条件换掉，机械层零信号。终态勘误同理。
+// ---------------------------------------------------------------------------
+
+test("update: draft→draft with scope change rejected as supplement-boundary violation (23 §9.3)", async () => {
+  await withTemp("pitfall-writer.", async (root) => {
+    const draft = validFrontmatterDraft({ status: "draft" });
+    const created = await createPitfallObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const current = await readPitfallObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+
+    const newScope = "该经验改为只适用于另一套适用条件。";
+    const result = await updatePitfallObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: current.value.fingerprint,
+      frontmatterAfter: { status: "draft", scope: newScope },
+      bodyMarkdownAfter: validBodyMarkdown({ ...draft, scope: newScope }),
+      changeSummary: "试图在候选期改写影响范围",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok, "draft→draft scope change must be refused");
+    assert.equal(result.error.code, "pitfall/supplement_boundary");
+    // 拒绝必须是零写入
+    const after = await readPitfallObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.fingerprint, current.value.fingerprint);
+    assert.equal(after.value.frontmatter.scope, draft.scope);
+  });
+});
+
+test("update: draft→draft body-only supplement succeeds (scope identical) — no over-blocking", async () => {
+  await withTemp("pitfall-writer.", async (root) => {
+    const draft = validFrontmatterDraft({ status: "draft" });
+    const created = await createPitfallObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    const current = await readPitfallObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const body2 = validBodyMarkdown(draft).replace("升级后出现重复的解析失败", "升级后出现重复的解析失败（补充新的触发样例）");
+    const result = await updatePitfallObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: current.value.fingerprint,
+      frontmatterAfter: { status: "draft" },
+      bodyMarkdownAfter: body2,
+      changeSummary: "补充新触发样例（补充级，23 §9.3）",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+    const after = await readPitfallObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.frontmatter.status, "draft");
+    assert.equal(after.value.frontmatter.scope, draft.scope);
+    assert.equal(after.value.frontmatter.change_log.length, 2);
+  });
+});
+
+test("update: discarded→discarded errata with scope change rejected (23 §9.3 终态内容更正同受补充边界)", async () => {
+  await withTemp("pitfall-writer.", async (root) => {
+    const { draft, read } = await createAndRead(root);
+    const toDiscarded = await updatePitfallObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { status: "discarded", disposition: "前提消失，机制不再存在。" },
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "转入 discarded",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(toDiscarded.ok, JSON.stringify(toDiscarded.error));
+    const terminal = await readPitfallObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+
+    const newScope = "该经验改为只适用于另一套适用条件。";
+    const result = await updatePitfallObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: terminal.value.fingerprint,
+      frontmatterAfter: { scope: newScope },
+      bodyMarkdownAfter: validBodyMarkdown({ ...draft, scope: newScope }),
+      changeSummary: "试图借终态更正改写影响范围",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok, "terminal errata must not smuggle a scope change");
+    assert.equal(result.error.code, "pitfall/supplement_boundary");
   });
 });
 
