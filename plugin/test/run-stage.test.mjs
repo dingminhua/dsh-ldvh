@@ -53,8 +53,22 @@ test("partial 与其他结局混合仍为 partial", () => {
   );
 });
 
-test("skipped 单任务不被当成 landed", () => {
-  assert.equal(deriveStage({ taskOutcomes: { a: { outcome: "skipped" } } }), "land-failed");
+test("单任务 skipped 记 skipped，不记失败（skipped 不是失败）", () => {
+  // 复核第二轮 B 项：`skipped` 在 idle-runlog 的枚举里是「无执行体」，
+  // 既不是成功也不是失败。把「本轮没有可判条目」记成 land-failed 会使
+  // 运行痕迹系统性失真。
+  assert.equal(deriveStage({ taskOutcomes: { a: { outcome: "skipped" } } }), "skipped");
+});
+
+test("skipped 与失败混合时记 land-failed（有真失败就不是单纯没跑）", () => {
+  assert.equal(
+    deriveStage({ taskOutcomes: { a: { outcome: "skipped" }, b: { outcome: "land-failed" } } }),
+    "land-failed",
+  );
+  assert.equal(
+    deriveStage({ taskOutcomes: { a: { outcome: "skipped" }, b: { outcome: "rejected" } } }),
+    "land-failed",
+  );
 });
 
 test("派生结果必属 stage 闭集", () => {

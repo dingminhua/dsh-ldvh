@@ -155,11 +155,14 @@ test("(e) 把已声明为不可判的行填成 pass → 阻断（这就是「默
   assert.match(String(recorded.reason), /not-checkable/);
 });
 
-test("(e2) 派发准入缺席时不阻断，但它必须以 not-checkable 出现或缺席，不得为 pass", () => {
+test("(e2) 派发准入完全缺席 → 阻断（缺席既非 pass 也非声明）", () => {
+  // 2026-11-03 复核第二轮 D 项：此前只对机械可核对行查缺席，于是「派发准入」
+  // 完全不报也能 landed。§18「按本表逐行产出结论」要求它必须出现（以
+  // not-checkable 出现），缺席是报告不完整。
   const rows = completeRows().filter((r) => r.id !== "派发准入");
-  const noRow = verifyRun({ rows });
-  assert.equal(noRow.stage, "landed", "该行缺席不影响结论（它无判定可作）");
-  assert.ok("派发准入" in NOT_CHECKABLE_ROWS, "派发准入必须在声明表内，调用方据此填 not-checkable");
+  const r = verifyRun({ rows });
+  assert.equal(r.stage, "blocked");
+  assert.deepEqual(r.missing, ["派发准入"]);
 });
 
 test("闭集外的 verdict 一律按阻断处置，不静默通过", () => {
@@ -206,7 +209,8 @@ test("空报告不得 landed（全不报 ≠ 全通过）", () => {
   const r = verifyRun({ rows: [] });
   assert.equal(r.ok, false);
   assert.equal(r.stage, "blocked");
-  assert.equal(r.missing.length, MECHANICAL_ROWS.length, "所有机械可核对行都应被列为缺席");
+  assert.ok(r.missing.length >= MECHANICAL_ROWS.length, "所有机械可核对行都应被列为缺席");
+  assert.ok(r.missing.includes("派发准入"), "已声明不可判的行同样必须出现，缺席也算不完整");
 });
 
 test("少报一行可核对行即阻断", () => {

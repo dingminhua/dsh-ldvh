@@ -76,33 +76,6 @@ import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
 
 
-/** pitfall 正文的七段（与 `plugin/lib/pitfall-writer.js` 的 `BODY_H2_REQUIRED` 同源）。 */
-const PITFALL_BODY_SECTIONS = Object.freeze(["症状", "触发条件", "根因", "解决", "规避", "验证", "影响与适用范围"]);
-
-/**
- * 核对本次运行**产出的**经验对象是否七段齐备（§18「经验对象的七段完整」）。
- *
- * 只看本次真的形成过的对象：没有形成对象时该行不适用，记 pass 并写明原因——
- * 「不适用」与「没核对」在 §18 上是两件事（前者无对象可核，后者有对象却没去核）。
- *
- * @returns {[string, string]} `[verdict, evidence]`
- */
-function sevenSectionVerdict(reviewOutcome) {
-  const formedList = Array.isArray(reviewOutcome.formed_all)
-    ? reviewOutcome.formed_all
-    : (reviewOutcome.formed === null || reviewOutcome.formed === undefined ? [] : [reviewOutcome.formed]);
-  if (formedList.length === 0) return ["pass", "本轮未形成经验对象，该行不适用"];
-
-  const broken = [];
-  for (const item of formedList) {
-    const body = typeof item?.body === "string" ? item.body : "";
-    const missing = PITFALL_BODY_SECTIONS.filter((name) => !body.includes("## " + name));
-    if (missing.length > 0) broken.push((item?.title ?? "(无标题)") + " 缺 " + missing.join("／"));
-  }
-  if (broken.length > 0) return ["fail", broken.join("；")];
-  return ["pass", formedList.length + " 个对象七段齐备"];
-}
-
 /**
  * 把一次审核运行的结局整理成 §18 逐行核对结论（11 §18「运行完成」）。
  *
@@ -122,7 +95,7 @@ function sevenSectionVerdict(reviewOutcome) {
  *
  * @returns {object|null} null 表示该次运行无可核对结局（skipped），痕迹不写该字段
  */
-function verifyReviewRun(reviewOutcome) {
+export function verifyReviewRun(reviewOutcome) {
   if (reviewOutcome === null || typeof reviewOutcome !== "object") return null;
   const outcome = reviewOutcome.outcome;
   if (outcome === "skipped" || outcome === undefined) return null;
@@ -145,7 +118,23 @@ function verifyReviewRun(reviewOutcome) {
       outcome === "land-failed" && /buffer|unreadable/i.test(String(reviewOutcome.action ?? ""))
         ? ["fail", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]
         : ["pass", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]],
-    ["经验对象的七段完整", sevenSectionVerdict(reviewOutcome)],
+    // **七段完整性**：`formed` 里每一条都是**回读已通过**才被 push 的
+    // （`observation-review.js:1000` 前后的 readBack 断言含 `body_valid === true`，
+    // 而 `body_valid` 正是七段结构校验）。故「formed 中的对象」与「七段齐备」在
+    // 该链路上等价——这里不需要、也不该再用正文去重核。
+    //
+    // 2026-11-03 复核修复（第二轮 A 项）：初版按 `item.body` 逐段正则匹配，但真实
+    // `formed` 元素只有 `{entry_id, object_uid, file}`，没有 body/title——于是任何
+    // 真的形成了对象的运行都会被判「缺七段」而 blocked。那正是本仓已知 pitfall
+    // 「夹具写旧格式致生产路径假绿」的镜像形态：按想象的形状写判据。
+    ["经验对象的七段完整", (() => {
+      const formedNow = Array.isArray(reviewOutcome.formed_all)
+        ? reviewOutcome.formed_all.length
+        : (reviewOutcome.formed === null || reviewOutcome.formed === undefined ? 0 : 1);
+      return formedNow > 0
+        ? ["pass", `${formedNow} 个对象已通过写后回读（含 body_valid，即七段结构）`]
+        : ["pass", "本轮未形成经验对象，该行不适用"];
+    })()],
   ]);
 
   // **按 §18 全表逐行产出**（机械行 + 已声明不可判行）：没有采集点的行显式落

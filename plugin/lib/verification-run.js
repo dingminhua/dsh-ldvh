@@ -265,8 +265,13 @@ export function verifyRun({
   //
   // 故：**未被报告的可核对行视为未核对**，一律按 fail 处置。缺席不是「没有
   // 问题」，是「没有证据」。`missing` 带出具体缺了哪些行。
+  // **缺席检查覆盖"应当被报"的全部行**（2026-11-03 复核第二轮 D 项）：
+  // 不只是机械可核对行，也包含已声明不可判 / 已知缺口的行——它们同样必须
+  // 以 `not-checkable` 出现。此前只查前者，于是「派发准入」这种已声明的行
+  // 完全缺席时仍可 `landed`，与 §18「按本表逐行产出结论」不符。
   const reportedIds = new Set(normalized.map((r) => r.id));
-  const missing = expectedMechanicalRows.filter((id) => !reportedIds.has(id));
+  const expectedIds = [...new Set([...expectedMechanicalRows, ...declaredSet, ...deferredSet])];
+  const missing = expectedIds.filter((id) => !reportedIds.has(id));
   for (const id of missing) {
     fail.push(id);
     normalized.push({

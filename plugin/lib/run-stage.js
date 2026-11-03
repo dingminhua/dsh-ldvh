@@ -61,6 +61,19 @@ export function deriveStage({ checkpointOk = true, taskOutcomes = {}, emptyStage
   const partialN = outcomes.filter((o) => o === "partial").length;
   if (partialN > 0) return "partial";
 
-  if (landedN === 0) return "land-failed";
+  // **skipped 不是失败**（2026-11-03 复核第二轮 B 项修复）。
+  //
+  // 重批前的两处三元式是 `landed / skipped / else land-failed`——skipped 有专位。
+  // 收敛成 deriveStage 时我改成了 `landedN === 0 → land-failed`，于是单任务
+  // `outcome=skipped`（「本轮没有可判条目」，实测 live runlog 里很常见）被记成
+  // 「失败」。`idle-runlog.js:121-124` 的枚举把 `skipped` 定义为「无执行体」，
+  // 它既不是成功也不是失败。
+  //
+  // 规则：全部为 skipped → skipped；只要出现过 rejected / land-failed → land-failed。
+  if (landedN === 0) {
+    const failedN = outcomes.filter((o) => o === "rejected" || o === "land-failed").length;
+    if (failedN === 0) return "skipped";
+    return "land-failed";
+  }
   return "partial";
 }
