@@ -4956,3 +4956,95 @@ test("independence: 上述洗白路径被关闭门禁拒绝（正向——不洗
     assert.equal(res.error.code, "workcase/review_independence_unverifiable");
   });
 });
+
+// ---------------------------------------------------------------------------
+/** 去掉正文的 H1（close 的 body_markdown_after 要求自 H2 起）。 */
+function stripH1(body) {
+  return String(body).replace(/^#\s+.*$/m, "").replace(/^\s*\n/, "");
+}
+
+// 21 §9.1「同一次复核事项最多 3 次」——机械承载（2026-11-04 补）
+//
+// 此前该上限只有文本纪律、无机械校验：审核轴有 pre_gate1_audit_round_cap，
+// 复核轴只有 20 条的总量上限。实测后果是 workcase-6588d816 复核到第 5 轮，
+// 第 4、5 轮均越过 §9.1 而两次写入都成功。以下用例钉住新加的三道机械校验。
+// ---------------------------------------------------------------------------
+
+/** 连续记录 n 次复核，返回每次的结果数组。 */
+async function recordReviewTimes(root, uid, n) {
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    const fm = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    out.push(await recordWorkcaseReview({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: fm.value.fingerprint,
+      summary: `对象：第 ${i + 1} 次复核；基线：c95af4f；方法：隔离会话只读；覆盖：全部判据；未覆盖：运行时；发现：无；保证边界：静态。`,
+      sessionSignature: SIG(),
+      sessionIdentity: REVIEWER(),
+    }));
+  }
+  return out;
+}
+
+test("record_review: 允许记录第 1～3 次（上限之内不误伤）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const results = await recordReviewTimes(root, appr.uid, 3);
+    for (const [i, r] of results.entries()) {
+      assert.ok(r.ok, `第 ${i + 1} 次应成功：${JSON.stringify(r.error)}`);
+    }
+    const entries = await reviewsOf(root, appr.uid);
+    assert.equal(entries.length, 3);
+  });
+});
+
+test("record_review: 拒绝第 4 次（21 §9.1 同一次复核事项最多 3 次）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    await recordReviewTimes(root, appr.uid, 3);
+    const fm = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    const fourth = await recordWorkcaseReview({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: fm.value.fingerprint,
+      summary: "对象：第 4 次复核（应被拒）；基线：x；方法：x；覆盖：x；未覆盖：x；发现：x；保证边界：x。",
+      sessionSignature: SIG(),
+      sessionIdentity: REVIEWER(),
+    });
+    assert.ok(!fourth.ok, "第 4 次必须被拒绝");
+    assert.equal(fourth.error.code, "workcase/review_round_cap");
+    assert.match(fourth.error.message, /3 次/, "拒绝文案须写明上限数值");
+    assert.match(fourth.error.message, /Human/, "拒绝文案须指向 Human 裁决");
+    // 拒绝后不得落盘第 4 条，对象保持 open
+    const entries = await reviewsOf(root, appr.uid);
+    assert.equal(entries.length, 3, "拒绝不得静默落盘");
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(after.value.frontmatter.status, "open", "达上限时对象保持 open（§9.1）");
+  });
+});
+
+test("record_review: 达上限后仍可 close（该上限只拦复核，不拦关闭）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    await recordReviewTimes(root, appr.uid, 3);
+    const fm = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    const closed = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      outcome: "partial",
+      result: {
+        achieved_scope: "测试用（达上限后关闭仍应允许）",
+        criteria_checks: fm.value.frontmatter.plan.map(() => ({ satisfied: true, evidence: "测试用证据" })),
+        residual: ["测试用残留（partial 必须有非空残留，21 §9.3）"],
+      },
+      bodyMarkdownAfter: stripH1(fm.value.body) + "\n\n## 结果\n\n- 达成：测试用。\n\n### 残留去向\n\n- residual:\n  - 测试用残留（partial 必须有非空残留，21 §9.3）\n    - **接受现状**：测试用去向。",
+      changeSummary: "达 3 次复核上限后按 Human 裁决关闭",
+      sessionSignature: SIG(),
+    });
+    assert.ok(closed.ok, `达上限不应阻塞关闭：${JSON.stringify(closed.error)}`);
+  });
+});

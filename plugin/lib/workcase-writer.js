@@ -424,6 +424,26 @@ export const REVIEW_ENTRIES_MAX = 20;
 /** 21 §9.2（2026-10-27）：同一审核事项的**轮次**上限——只拒绝开启新轮；复用既有轮号不受限。 */
 export const PRE_AUDIT_ROUNDS_MAX = 3;
 
+/**
+ * 21 §9.1「复核结论与主控判断不一致时的处置」：**同一次复核事项最多 3 次**。
+ *
+ * **本条此前只有纪律、没有机械承载**（2026-11-04 Human 指出并要求补齐）：
+ * 审核轴（`PRE_AUDIT_ROUNDS_MAX`）早就有第二道校验，复核轴只有 `REVIEW_ENTRIES_MAX`
+ * = 20 的条数上限——于是「最多 3 次」事实上从未被机械执行。实测后果：本仓
+ * `workcase-6588d816` 一路复核到第 5 轮，第 4、5 轮均已越过 §9.1 的上限，
+ * 而两次 `record_review` 都成功落盘。
+ *
+ * **为什么与 §9.2 用不同常量而不是复用**：两轴的计数载体不同——审核轴按
+ * `pre_reviews[].round_index` 的**不同值**计（同轮分片不占轮次，故可有 >3 条而只算
+ * 3 轮）；复核轴没有 `round_index`，`reviews` 每条就是一次复核，故按**条数**计。
+ * 混用一个常量会让两条不同口径的判据互相污染。
+ *
+ * **事项边界**：§9.1 说「不跨事项累加」。本对象只有一个复核事项（关闭端的复核
+ * 就是本单这一件事），故按对象级计数即可；若将来引入多事项复核，须先给 `reviews`
+ * 增加事项标识字段，不能在这里猜。
+ */
+export const REVIEW_ROUNDS_MAX = 3;
+
 /** 03 §7.2 / 21 §8: bounded ordinary content references. */
 export const REFS_ENTRIES_MAX = 10;
 
@@ -3281,6 +3301,25 @@ export async function recordWorkcaseReview(args) {
       "workcase/review_entries_exhausted",
       `reviews already holds ${existing.length} entries (cap ${REVIEW_ENTRIES_MAX}, 21 §8): refuses to truncate or compress `
       + "existing entries. Report to Human — this object needs a decision (rebatch or close), not a dropped history.",
+    );
+  }
+  // 21 §9.1「同一次复核事项最多 3 次」——**拒绝发起第 4 次**（2026-11-04 补机械承载）。
+  //
+  // 该上限此前只有 §9.1 的文本纪律、无任何机械校验：审核轴有
+  // `workcase/pre_gate1_audit_round_cap`，复核轴只有 20 条的总量上限。实测后果是
+  // 本仓 `workcase-6588d816` 复核到第 5 轮而两次越过上限的写入均成功。
+  //
+  // **拒绝的是「再记一条复核」，不是「拒绝关闭」**：达上限后对象保持 `open`、
+  // 交 Human 裁决（§9.1），故本校验只拦 `record_review`；`close` 不受影响——
+  // 已达 3 条复核的对象仍可按 Human 裁决正常关闭。
+  if (existing.length >= REVIEW_ROUNDS_MAX) {
+    return failure(
+      "workcase/review_round_cap",
+      `本单已记录 ${existing.length} 次独立复核（上限 ${REVIEW_ROUNDS_MAX}，21 §9.1「同一次复核事项最多 3 次」）—— `
+      + "拒绝记录第 4 次。规范要求：3 次后仍不一致时**停止自动循环并提请 Human 裁决**，不得发起第 4 次；"
+      + "达上限时对象保持 `open`，由 Human 裁决后续（改方案收敛、改对象承载，或按已记录的复核结论决定是否关闭）。"
+      + "**本拒绝只拦「再记一条复核」，不拦 `close`**：已达上限的对象仍可依 Human 裁决关闭。"
+      + "若认为必须再来一轮，须先由 Human 明确授权（该授权本身须在对话中给出，不由 AI 自判）。",
     );
   }
 
