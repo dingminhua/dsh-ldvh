@@ -102,3 +102,55 @@ test("不得把有采集点的行错报成 not-checkable（否则等于自废核
   const collected = v.rows.filter((r) => r.verdict !== "not-checkable");
   assert.ok(collected.length >= 5, `至少应有 5 条有采集点的行给出真结论，实际 ${collected.length}`);
 });
+
+// ---------------------------------------------------------------------------
+// 计时器两行的采集点（2026-11-03 Human 选「补齐四行采集点」后落地）
+// ---------------------------------------------------------------------------
+
+test("有计时判定证据时，「延迟的取消」「二次确认空闲」给出真结论而非 not-checkable", () => {
+  const v = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching", turn: 5 });
+  const byId = new Map(v.rows.map((r) => [r.id, r]));
+  for (const id of ["延迟的取消", "二次确认空闲"]) {
+    assert.notEqual(byId.get(id).verdict, "not-checkable", `${id} 有证据时不应落缺口`);
+    assert.equal(byId.get(id).verdict, "pass");
+  }
+  assert.ok(!v.deferredRows.includes("延迟的取消"));
+  assert.ok(!v.deferredRows.includes("二次确认空闲"));
+});
+
+test("回合进行中拒绝派发是硬约束生效，记 pass 而非 fail", () => {
+  const v = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "turn-in-flight", turn: 3 });
+  const byId = new Map(v.rows.map((r) => [r.id, r]));
+  assert.equal(byId.get("延迟的取消").verdict, "pass");
+  assert.equal(byId.get("二次确认空闲").verdict, "pass");
+  assert.deepEqual(v.fail, []);
+});
+
+test("无计时证据时记 not-checkable 并说明成因，不得声称核对通过", () => {
+  // 「没有计时发生」不等于「清理已验证过」。记 pass 就是第三种「默认通过」。
+  const v = verifyReviewRun(healthyOutcome(), null);
+  const byId = new Map(v.rows.map((r) => [r.id, r]));
+  for (const id of ["延迟的取消", "二次确认空闲"]) {
+    assert.equal(byId.get(id).verdict, "not-checkable", `${id} 无证据时不得记 pass`);
+    assert.match(String(byId.get(id).evidence), /条件未出现|该行的条件/);
+  }
+  // 但它们属「条件式不适用」，已声明，故不阻断本轮。
+  assert.equal(v.stage, "landed");
+});
+
+test("不变量：每条机械行必须有采集点或缺口理由（防漏登记）", async () => {
+  // 这条钉住 c24510a 那个 bug：某行既不在 collected 也不在 DEFERRED，
+  // 会落成「未声明 not-checkable」使门禁恒 blocked。
+  const { MECHANICAL_ROWS, DEFERRED_ROWS, NOT_CHECKABLE_ROWS } = await import("../lib/verification-run.js");
+  const v = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching" });
+  assert.deepEqual(v.missing, [], "不得有任何缺席行");
+  assert.deepEqual(v.undeclared, [], "不得有未声明的 not-checkable 行");
+  const accounted = new Set([
+    ...Object.keys(DEFERRED_ROWS),
+    ...Object.keys(NOT_CHECKABLE_ROWS),
+    ...v.rows.filter((r) => r.verdict !== "not-checkable").map((r) => r.id),
+  ]);
+  for (const id of MECHANICAL_ROWS) {
+    assert.ok(accounted.has(id), `${id} 既无采集点也无缺口理由——这正是漏登记的形态`);
+  }
+});

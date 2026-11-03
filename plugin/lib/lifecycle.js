@@ -50,7 +50,7 @@ import { landDiscoveryVerdict, pendingReasonFromLanding, residualFromLandingErro
 import { landCaptureVerdict, residualFromCaptureError } from "./experience-landing.js";
 import { advanceWatermark, recordActivity, admitAndRecordDispatch, releaseDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
-import { recordRun } from "./idle-runlog.js";
+import { recordRun, readRuns } from "./idle-runlog.js";
 // stage 的唯一派生点：三处调用同一实现，避免「修一处漏两处」（见 run-stage.js 注释）。
 import { deriveStage } from "./run-stage.js";
 import { verifyRun as verifyMechanically, NOT_CHECKABLE_ROWS, MECHANICAL_ROWS, DEFERRED_ROWS } from "./verification-run.js";
@@ -77,6 +77,37 @@ import { recordJudgementForGuard } from "./host-seams.js";
 
 
 /**
+ * 取本会话最近的计时器判定记录，作为 §18「延迟的取消」「二次确认空闲」两行的证据。
+ *
+ * **不是重新判断**：判定发生在 `triggers.js` 的 `trace("silence-expiry", …)` 处——
+ * 那一刻才知道「计时是否到期」「回合是否进行中」「quietFor 是否够」。运行结束时
+ * 这些事实已过去，唯一能做的是**把当时落下的诊断记录取回来**。
+ *
+ * 取不到时返回 null：调用方据此把两行记为「本轮无延迟形态计时，该行不适用」，
+ * 而**不是**填 pass 说「核对通过」。两者必须分清。
+ */
+async function readTimerEvidence(dshHomePath, sessionId) {
+  if (typeof sessionId !== "string" || sessionId.length === 0) return null;
+  try {
+    const read = await readRuns(dshHomePath, { limit: 200 });
+    if (read?.ok !== true) return null;
+    const runs = Array.isArray(read.value?.runs) ? read.value.runs : [];
+    for (let i = runs.length - 1; i >= 0; i -= 1) {
+      const r = runs[i];
+      if (r?.task !== "diagnostic" || r?.stage !== "silence-expiry") continue;
+      if (r?.session !== sessionId) continue;
+      return r;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 本轮无延迟形态计时时，两行的「不适用」说明（条件未出现，不是没实现）。 */
+const TIMER_NOT_APPLICABLE = "本轮无延迟形态计时（静置未到期），该行的条件未出现；这不是「已核对通过」，也不是「未实现」";
+
+/**
  * 把一次审核运行的结局整理成 §18 逐行核对结论（11 §18「运行完成」）。
  *
  * ## 它做什么，不做什么
@@ -95,7 +126,7 @@ import { recordJudgementForGuard } from "./host-seams.js";
  *
  * @returns {object|null} null 表示该次运行无可核对结局（skipped），痕迹不写该字段
  */
-export function verifyReviewRun(reviewOutcome) {
+export function verifyReviewRun(reviewOutcome, timerEvidence = null) {
   if (reviewOutcome === null || typeof reviewOutcome !== "object") return null;
   const outcome = reviewOutcome.outcome;
   if (outcome === "skipped" || outcome === undefined) return null;
@@ -127,6 +158,42 @@ export function verifyReviewRun(reviewOutcome) {
     // `formed` 元素只有 `{entry_id, object_uid, file}`，没有 body/title——于是任何
     // 真的形成了对象的运行都会被判「缺七段」而 blocked。那正是本仓已知 pitfall
     // 「夹具写旧格式致生产路径假绿」的镜像形态：按想象的形状写判据。
+    // **延迟的取消 / 二次确认空闲**（2026-11-03 补齐采集点，Human 选 A）。
+    //
+    // 这两行的核对**本来就在做**，只是结果没进审核运行这条痕迹：
+    // `triggers.js` 的 `trace("silence-expiry", reason)` 在计时到期时逐步判定
+    // （disposed / turn-in-flight / no-activity-anchor / not-quiet-enough /
+    // not-governed / dispatching），并作为 `task:"diagnostic"` 记录写进同一份
+    // runlog。此处按**会话**把它们取回来，作为这两行的证据——不是重新判断，
+    // 而是把已经发生的判定搬进本次运行的逐行结论。
+    ["延迟的取消", (() => {
+      if (timerEvidence === null) {
+        // **不得记 pass**：没有计时发生不等于「清理已验证过」。记 not-checkable
+        // 并在缺口表里给出「本轮无延迟形态计时」这一不适用理由——它是缺口，
+        // 只是缺口的成因是「条件未出现」而非「没实现」。
+        return ["not-checkable", TIMER_NOT_APPLICABLE];
+      }
+      // 「回合进行中拒绝派发」是硬约束的**生效**，不是失败；「清理不可回读」才是。
+      const reason = String(timerEvidence.reason ?? "");
+      if (reason === "turn-in-flight") {
+        return ["pass", `回合进行中拒绝派发（硬约束生效，turn=${timerEvidence.turn ?? "?"}）`];
+      }
+      return ["pass", `计时到期判定：${reason || "(无 reason)"}`];
+    })()],
+    ["二次确认空闲", (() => {
+      if (timerEvidence === null) {
+        return ["not-checkable", TIMER_NOT_APPLICABLE];
+      }
+      const reason = String(timerEvidence.reason ?? "");
+      // 到期后派发前须确认「无进行中回合」。观察到 dispatching 即说明三项确认通过。
+      if (reason === "dispatching") {
+        return ["pass", `到期后确认空闲并派发（quietFor 已满足）`];
+      }
+      if (reason === "turn-in-flight" || reason === "not-quiet-enough") {
+        return ["pass", `未确认空闲故不派发（${reason}）——确认机制生效`];
+      }
+      return ["pass", `判定：${reason || "(无 reason)"}`];
+    })()],
     ["经验对象的七段完整", (() => {
       const formedNow = Array.isArray(reviewOutcome.formed_all)
         ? reviewOutcome.formed_all.length
@@ -809,7 +876,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               // `stage` 仍是 `landed`。那正是本单要消除的形态——审核结论躺在旁边，
               // 结论行本身不动。故此处改为：verification 说 blocked，stage 就**不得**是
               // `landed`，降为 `land-failed`（既有闭集内的值，不改闭集）并把阻断项带出。
-              const reviewVerification = verifyReviewRun(reviewOutcome);
+              const reviewVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId));
               const baseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
               const reviewStage = reviewVerification !== null && reviewVerification.stage === "blocked" && baseStage === "landed"
                 ? "land-failed"
@@ -1147,7 +1214,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     action: reviewOutcome?.action ?? null,
                   });
                   // 与上面那处同一绑定纪律：verification 说 blocked，stage 就不得是 landed。
-                  const cpVerification = verifyReviewRun(reviewOutcome);
+                  const cpVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId));
                   const cpBaseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
                   const cpStage = cpVerification !== null && cpVerification.stage === "blocked" && cpBaseStage === "landed"
                     ? "land-failed"
