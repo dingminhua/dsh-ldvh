@@ -35,6 +35,7 @@ import {
 import {
   createPitfallObject,
   readPitfallObject,
+  updatePitfallObject,
   listPitfallObjects,
 } from "../lib/pitfall-writer.js";
 
@@ -113,7 +114,7 @@ function newCandidateProposal(entryId, overrides = {}) {
   };
 }
 
-/** 把两条既有 Pitfall（active + draft）写进临时事实源，返回它们的 object_uid。 */
+/** 把两条既有 Pitfall（active + discarded）写进临时事实源，返回它们的 object_uid。 */
 async function seedExistingPitfalls(factSourceRoot) {
   const bodies = (scope) => [
     `## 症状\n升级后出现重复的解析失败。`,
@@ -138,20 +139,33 @@ async function seedExistingPitfalls(factSourceRoot) {
   });
   assert.equal(active.ok, true, JSON.stringify(active.error));
 
-  const draft = await createPitfallObject({
+  // 2026-11-03 取消 `draft` 待确认态后，初态只能是 active（23 §9/§13）——
+  // 第二个种子先建 active 再走唯一的合法转换 active → discarded（23 §8 须带 disposition）。
+  const seeded = await createPitfallObject({
     factSourceRoot,
     frontmatterDraft: {
       title: "归档读取流程的缓存残留",
-      status: "draft",
+      status: "active",
       scope: "适用于归档读取场景。",
-      change_summary: "测试种子（draft）",
+      change_summary: "测试种子（待废止）",
     },
     bodyMarkdown: bodies("适用于归档读取场景。"),
     sessionSignature: TEST_SIGNATURE,
   });
-  assert.equal(draft.ok, true, JSON.stringify(draft.error));
+  assert.equal(seeded.ok, true, JSON.stringify(seeded.error));
+  const before = await readPitfallObject({ factSourceRoot, objectUid: seeded.value.object_uid });
+  const retired = await updatePitfallObject({
+    factSourceRoot,
+    objectUid: seeded.value.object_uid,
+    expectedFingerprint: before.value.fingerprint,
+    frontmatterAfter: { status: "discarded", disposition: "测试种子：该经验经复核不成立" },
+    bodyMarkdownAfter: before.value.body.replace(/^#\s+.*\n+/, ""),
+    changeSummary: "测试种子废止",
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.equal(retired.ok, true, JSON.stringify(retired.error));
 
-  return [active.value.object_uid, draft.value.object_uid];
+  return [active.value.object_uid, seeded.value.object_uid];
 }
 
 async function readEntry(home, entryId) {
@@ -161,7 +175,7 @@ async function readEntry(home, entryId) {
 }
 
 async function listPitfallFiles(factSourceRoot) {
-  const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active", "draft", "discarded"], limit: 200 });
+  const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active", "discarded"], limit: 200 });
   assert.equal(listed.ok, true, JSON.stringify(listed.error));
   return listed.value.items;
 }
@@ -267,10 +281,10 @@ test("第 1 项：entry_id 指向不存在的条目 → entry_not_found（不猜
 });
 
 // ---------------------------------------------------------------------------
-// 第 2–4 项：查重 → 建 draft → 精确回读 → 结算 consumed
+// 第 2–4 项：查重 → 建 active Pitfall → 精确回读 → 结算 consumed
 // ---------------------------------------------------------------------------
 
-test("第 3–4 项：形成一条 draft 候选，并把条目置 consumed 指向该候选", async () => {
+test("第 3–4 项：形成一条 active Pitfall，并把条目置 consumed 指向该对象", async () => {
   await withHome(async (home) => {
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const entryId = await appendEntry(home);
@@ -290,10 +304,11 @@ test("第 3–4 项：形成一条 draft 候选，并把条目置 consumed 指�
       assert.deepEqual(result.value.discarded, []);
       assert.equal(result.value.remaining_pending, 0);
 
-      // 候选初态只能是 draft（23 §13 / 11 §10.2：建 active 属 Human Gate，不在此）。
+      // 机械通道初态即 active（11 §10.2 第 3 项 / 23 §13；2026-11-03 取消 `draft` 待确认态，
+      // 创建与入档是同一个决定，废止才是 23 §16 的 Human Gate）。
       const readBack = await readPitfallObject({ factSourceRoot, objectUid: formed.object_uid });
       assert.equal(readBack.ok, true, JSON.stringify(readBack.error));
-      assert.equal(readBack.value.frontmatter.status, "draft");
+      assert.equal(readBack.value.frontmatter.status, "active");
       assert.equal(readBack.value.frontmatter.disposition, undefined);
       assert.equal(readBack.value.body_valid, true);
       // 逐字引证与来源标识必须已复制进正文（§12bis「证据不留在缓冲」）。
@@ -378,7 +393,7 @@ test("第 2 项：查重未登记 → fail-closed（不得在无对照记录时�
 
 // ── 第 2 项：查重已执行（2026-10-27 判据更正）────────────────────────────
 //
-// 原用例断言「compared 未覆盖全部 active 与 draft → 拒绝」。**该判据已撤销**：
+// 原用例断言「compared 未覆盖全部 active 与 discarded 候选 → 拒绝」。**该判据已撤销**：
 // 规范把这一项定为 **AI 语义审核**（11 §18 该行「校验方式：AI 语义审核」，且
 // 未验证范围明写「不证明同机制确不存在」），23 §6.2 正文也没有 `compared` 字段、
 // 没有「须枚举全部 object_uid」的表述——那是实现自加的强度。实测后果：执行体如实
@@ -397,7 +412,7 @@ test("第 2 项：compared 只列**实际比对过的部分**对象 → 放行�
         projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         // 对照集里有 2 个对象，但执行体只比对了其中 1 个并如实记录——这**是**合规的。
-        existingPitfalls: [{ object_uid: uid, status: "active" }, { object_uid: "uid-draft-uncompared", status: "draft" }],
+        existingPitfalls: [{ object_uid: uid, status: "active" }, { object_uid: "uid-discarded-uncompared", status: "discarded" }],
         proposals: [newCandidateProposal(entryId, {
           dedupe: { checked: true, compared: [uid], conclusion: "new" },
         })],
@@ -431,7 +446,7 @@ test("第 2 项：compared 里出现**对照集之外**的 uid → 拒绝（可�
       assert.equal(result.ok, true, JSON.stringify(result.error));
       assert.equal(result.value.partial, true, "编造比对对象须使该条不落地");
       assert.ok(
-        result.value.unsettled.some((u) => u.code === "observation_review/dedup_not_recorded" && /not in the active\/draft comparison set/.test(u.message)),
+        result.value.unsettled.some((u) => u.code === "observation_review/dedup_not_recorded" && /not in the active comparison set/.test(u.message)),
         `须记下该条未结算的真实原因：${JSON.stringify(result.value.unsettled)}`,
       );
       assert.equal((await readEntry(home, entryId)).status, "pending");
@@ -736,7 +751,7 @@ test("交出却没给判定 → **已判定的照常落地、缺判定的留待�
       // 「一个一个审核，要么草稿要么作废，相同问题不能审核第二次」。
       assert.equal((await readEntry(home, first)).status, "consumed", "已判定的那条必须已结算（不得因别人没判而作废）");
       assert.equal((await readEntry(home, second)).status, "pending", "缺判定的那条留待下次，不得被顺手结算");
-      assert.equal((await listPitfallFiles(factSourceRoot)).length, 1, "已判定成文的那一条须真的写成 draft");
+      assert.equal((await listPitfallFiles(factSourceRoot)).length, 1, "已判定成文的那一条须真的写成 active Pitfall");
     });
   });
 });
@@ -966,17 +981,19 @@ test("verifyEvidenceCopy：未复制来源标识 → 拒绝（§12bis：引证�
 });
 
 // ---------------------------------------------------------------------------
-// 查重对照集：active + draft 在范围内（23 §6.2）
+// 查重对照集：只剩 active 在范围内（23 §6.2 / 2026-11-03）
 // ---------------------------------------------------------------------------
 
-test("collectExistingPitfalls：对照集含 active 与 draft，标出可比性", async () => {
+test("collectExistingPitfalls：对照集只含 active，标出可比性", async () => {
   await withTemp("observation-review-facts-", async (factSourceRoot) => {
     const uids = await seedExistingPitfalls(factSourceRoot);
     const collected = await collectExistingPitfalls({ factSourceRoot });
     assert.equal(collected.ok, true, JSON.stringify(collected.error));
     const byUid = new Map(collected.value.items.map((item) => [item.object_uid, item]));
-    for (const uid of uids) {
-      assert.ok(byUid.has(uid), `对照集缺少 ${uid}（23 §6.2：active 与 draft 都须在范围内）`);
+    // 2026-11-03 取消 `draft` 后对照集只剩 active，故只取第一个（active）种子——
+    // 第二个种子是终态 discarded，按 23 §12 不进入默认候选，也就不在对照集里。
+    for (const uid of uids.slice(0, 1)) {
+      assert.ok(byUid.has(uid), `对照集缺少 ${uid}（23 §6.2 / 2026-11-03：对照集只剩 active）`);
       const item = byUid.get(uid);
       assert.equal(item.comparable, true);
       assert.ok(item.title.length > 0);
@@ -1065,18 +1082,18 @@ test("同题不二审：已结算的条目不再进入下一次候选集（靠�
   });
 });
 
-// ── 并发双写不得产生重复 draft（2026-10-27 实测缺陷的守卫）──────────────────
+// ── 并发双写不得产生重复 Pitfall 对象（2026-10-27 实测缺陷的守卫）──────────────────
 //
 // ## 缺陷
 //
-// 实测（2026-10-27）：**并发**跑两次审核同一批条目，产出**重复 draft**——
+// 实测（2026-10-27）：**并发**跑两次审核同一批条目，产出**重复 Pitfall 对象**——
 // 3 个条目出了 5 个文件，其中两个标题各出现两次（`createPitfallObject` 用
 // `randomUUID()` 分配身份，故每次重复都是一个新对象，事后无法自动认出）。
 // 且两次都报 `ok:true`，外面完全看不出来。串行重跑是安全的（结算后条目退出
 // 候选集），**只有并发才漏**。
 //
 // 根因有两层，缺一不可：
-//   ① `读 pending → 判 → 写 draft → 写 settle` 之间没有互斥；
+//   ① `读 pending → 判 → 写 Pitfall → 写 settle` 之间没有互斥；
 //   ② `pending` 是**本轮开始时的快照**，并发的另一方可能在快照之后才结算，
 //      于是「锁已释放 + 快照仍显示 pending」叠加，照样重复。
 //
@@ -1087,7 +1104,7 @@ test("同题不二审：已结算的条目不再进入下一次候选集（靠�
 //
 // 串行跑一万次都不会暴露这个缺陷。只有 `Promise.all` 同时起两路、且共用同一
 // 缓冲载体与同一事实源根，才能压出那个窗口。
-test("并发两次审核同一批条目 → 不得产生重复 draft（3 条目必须恰好 3 个文件）", async () => {
+test("并发两次审核同一批条目 → 不得产生重复 Pitfall 对象（3 条目必须恰好 3 个文件）", async () => {
   await withHome(async (home) => {
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       // 三条各自合法的条目（正文每段都回指 evidence）。
@@ -1118,7 +1135,7 @@ test("并发两次审核同一批条目 → 不得产生重复 draft（3 条目�
       const files = await listPitfallFiles(factSourceRoot);
       assert.equal(
         files.length, 3,
-        `3 个条目必须恰好形成 3 个 draft，实际 ${files.length} 个（多于 3 即重复成文）`,
+        `3 个条目必须恰好形成 3 个 Pitfall 对象，实际 ${files.length} 个（多于 3 即重复成文）`,
       );
 
       // 两路合计成文数也不得超过条目数——多于说明同一条被写成两遍。

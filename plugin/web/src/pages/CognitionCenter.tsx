@@ -20,7 +20,6 @@ import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import {
   FrictionCardContent,
   ObjectCardFrame,
-  PitfallCardContent,
 } from '@/pages/ObjectList';
 import StatusBadge from '@/components/StatusBadge';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -66,7 +65,6 @@ const SPARK_HEALTH_AGE_FILTERS: SparkHealthAgeFilter[] = ['all', '3d', '7d'];
 const INBOX_KIND_LABEL_KEYS: Record<CognitionInboxKind, LocaleKey> = {
   plan_confirmation: 'cognition.kind.plan_confirmation',
   closure_confirmation: 'cognition.kind.closure_confirmation',
-  pitfall_confirmation: 'cognition.kind.pitfall_confirmation',
   // 26 §12：open 摩擦账目进待决定事项（Human 2026-10-19 决定）。标签词刻意用
   // 「待修摩擦」而非「待确认」——它不是 Human Gate、没有一步待授权动作，混用
   // 「待确认」会让 Human 去找一个不存在的批准按钮（26 §9 的流转由
@@ -99,7 +97,6 @@ function buildModuleSummary(data: CognitionData, locale: string, t: Translate): 
   const counts: Record<CognitionInboxKind, number> = {
     plan_confirmation: 0,
     closure_confirmation: 0,
-    pitfall_confirmation: 0,
     friction_repair: 0,
   };
   for (const item of data.inbox.items) counts[item.inboxKind] += 1;
@@ -173,7 +170,6 @@ function InboxItemReadNotes({ item, locale }: { item: CognitionCardItem; locale:
 
 // `t` 已不再是本函数的依赖：改用共享组件后不再在此拼接文案（Human 2026-09-24）。
 function InboxCardContent({ item }: { item: CognitionInboxItem }) {
-  if (item.type === 'pitfall') return <PitfallCardContent obj={toObjectCard(item)} />;
   // 26 §9 卡体分工：`open` 摩擦的卡体**留空**（与 `resolved` 同），身份与
   // 状态由卡头（类型 + 影响 + 重复观察 + 修改次数）与标题托承载——标题已是现象单句的
   // 浓缩。现象全文、入账依据住详情页；故这里与列表卡同走 `FrictionCardContent`

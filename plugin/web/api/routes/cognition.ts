@@ -3,7 +3,7 @@
  *
  * 已交付模块一（待决定事项）、模块二（近期动态）与模块三（Spark 池健康）
  * + §5 全局信任标记所需的派生字段：
- * generatedAt（观察时间）、scope、inbox（WorkCase Human Gate 与 Pitfall draft 审核的派生收录与排序）、
+ * generatedAt（观察时间）、scope、inbox（WorkCase Human Gate 与 Friction 待修的派生收录与排序）、
  * recentActivity（指定窗口内事实对象 change_log 的创建 / 更新事件）与 issues（模块级降级）。
  * 数据经 Web 字段级直读（localFactReader / facts.ts 的 listObjects），不复用 /api/dashboard 聚合逻辑。
  *
@@ -38,13 +38,15 @@ import yaml from 'js-yaml'
 
 const router = Router()
 
-// 收件类型闭集（v5）：WorkCase 侧只有两个 Human Gate，加 Pitfall draft 确认，
+// 收件类型闭集（v5）：WorkCase 侧只有两个 Human Gate，
 // 加 Friction `open` 待修（Human 2026-10-19 决定，见 cognition-inbox-contract 的
 // 「待修的摩擦」用例）。
 // 曾经的 `blocked_resolution`（v4「阻塞待处置」）已移除——v5 状态闭集无 `blocked`，
 // `deriveInboxKind` 无法产出该值，保留它等于在类型上承认一个不可达分支。
-type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation' | 'friction_repair'
-type InboxObjectType = 'workcase' | 'pitfall' | 'friction'
+// **`pitfall_confirmation` 已移除**（2026-11-03）：Pitfall 取消 `draft` 待确认态后
+// 不再有「待确认的经验」这一收件档（23 §9），机械通道产出即 `active`。
+type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'friction_repair'
+type InboxObjectType = 'workcase' | 'friction'
 type RecentActivityKind = 'created' | 'updated'
 type RecentActivityWindow = '1d' | '3d' | '7d'
 
@@ -211,13 +213,12 @@ function priorityRank(priority: unknown): number {
 
 /** 与 localFactReader.metadataFor 一致：按事实类型返回当前 canonical path。 */
 function canonicalPath(type: InboxObjectType, objectId: string): string {
-  // 三类载体都是平铺单文件且文件名就是 `<对象 id>.md`（02 §7.2 / 26 §7），故只有
+  // 载体都是平铺单文件且文件名就是 `<对象 id>.md`（02 §7.2 / 26 §7），故只有
   // 目录名随类型变化。此前写作 `'workcase' ? 'workcases' : 'pitfalls'` 的二元式，
   // 新增类型时会静默落到 fallback 分支给出**错误的目录**——错误路径不会报错，
   // 只会让「复制对象路径」复制出不存在的位置。故改为显式查表，缺项即失败。
   const directories: Record<InboxObjectType, string> = {
     workcase: 'workcases',
-    pitfall: 'pitfalls',
     friction: 'frictions',
   }
   const directory = directories[type]
@@ -664,28 +665,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    if (!pitfallResult.ok || !('data' in pitfallResult)) {
-      const message = pitfallResult.ok ? 'Pitfall 列表读取失败' : (pitfallResult as { error: string }).error
-      issues.push({ section: 'inbox', code: 'pitfall_list_unavailable', message })
-    } else {
-      const data = pitfallResult.data as { items: Array<Record<string, unknown>>; collection_issues?: Array<Record<string, unknown>> }
-      for (const issue of Array.isArray(data.collection_issues) ? data.collection_issues : []) issues.push(toIssue(issue))
-      for (const raw of data.items) {
-        if (raw.status !== 'draft') continue
-        const object_id = String(raw.object_id ?? '')
-        builds.push({
-          type: 'pitfall', inboxKind: 'pitfall_confirmation', object_id, title: String(raw.title ?? object_id),
-          ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
-          ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
-          ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
-          updated_at: getLatestChangeLogAt(raw.change_log),
-          read_status: String(raw.read_status ?? 'unknown'), projection: raw,
-          field_issues: Array.isArray(raw.field_issues) ? (raw.field_issues as Array<Record<string, unknown>>) : [],
-          unparsed_structures: Array.isArray(raw.unparsed_structures) ? (raw.unparsed_structures as Array<Record<string, unknown>>) : [],
-          read_issues: Array.isArray(raw.read_issues) ? (raw.read_issues as Array<Record<string, unknown>>) : [],
-        })
-      }
-    }
+    // Pitfall 不再有收件分支（2026-11-03）：Pitfall 取消 `draft` 待确认态后，
+    // 「待确认的经验」这一档不存在（23 §9）。`pitfallResult` 仍被下面的
+    // `recentSources` 消费（近期动态要读它的 change_log 流水），其不可读性由
+    // recentSources 循环按 `recentActivity` 段报出，故此处不再重复登记 issue。
 
     // 26 §12「Web 账本呈现」消费点：open 账目进入聚焦的待决定事项（Human 2026-10-19
     // 决定：只收 `open`）。
@@ -818,11 +801,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         // 平铺到 entry 而非让客户端翻 card：近期动态行的徽标是平铺消费的。
         if (typeof card.pre_audit_passed === 'boolean') entry.pre_audit_passed = card.pre_audit_passed
       }
-      else if (build.type === 'pitfall') entry.status = 'draft'
       else {
-        // Friction（26 §8）：`status` 是来源状态的直读值（本分支只收 `open`），
-        // 与 Pitfall 的 `draft` 同法平铺——否则 entry 上没有 status，客户端
-        // `toObjectCard` 会把 `undefined` 当状态传给状态徽标。
+        // Friction（26 §8）：`status` 是来源状态的直读值（本分支只收 `open`）——
+        // 平铺到 entry 否则 entry 上没有 status，客户端 `toObjectCard` 会把
+        // `undefined` 当状态传给状态徽标。
         // `occurrence` 见 projectFrictionOccurrence 的注释：卡头徽标读对象根。
         entry.status = String(build.projection.status ?? '')
         Object.assign(entry, projectFrictionOccurrence(build.projection))

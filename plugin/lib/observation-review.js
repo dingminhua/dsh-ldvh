@@ -3,10 +3,10 @@
  *
  * ## 本模块是什么、不是什么
  *
- * 本模块是审核段 6 项闭集的**代码形态**：读缓冲 → 查重 → 建 draft 候选 → 精确回读
+ * 本模块是审核段 6 项闭集的**代码形态**：读缓冲 → 查重 → 建 active Pitfall → 精确回读
  * → 结算缓冲条目 → 不足成文则 discarded → 任一校验不可用/未通过即 fail-closed。
  * 它**只**读留观缓冲载体（`observation-buffer.js`）与既有 Pitfall 事实对象，
- * **不**创建 active、**不**升格、**不**废止（11 §10.2「审核段不得做的事」；
+ * **不**废止、**不**改写既有对象（11 §10.2「审核段不得做的事」；
  * 23 §16：这三者均属 Human Gate）。
  *
  * ## 「不读实时对话」的机械形态
@@ -34,7 +34,7 @@
  *
  * **查重是 AI 语义判断**（对照 title 与症状／根因语义），规范明确「02 §9.2 不建立
  * 相似度自动裁决」。本模块因此**不自己裁决**：它只校验「查重已执行且对照集覆盖
- * 全部 active 与 draft」这一机械部分（`dedupe.checked` + `dedupe.compared` 覆盖
+ * 全部 active」这一机械部分（`dedupe.checked` + `dedupe.compared` 覆盖
  * `existingPitfalls` 全部 uid），语义结论由调用方（AI）给出。本模块不声称查重结论
  * 正确，只声称查重**不是**在无对照集的情况下被跳过的。
  *
@@ -50,7 +50,7 @@
  * 又可能新增——待审数单调不减，「审完」在实践中不可达（Human 2026-10-27：「完成
  * 一个处理一个，否则很容易变成永远结束不了的任务」）。
  *
- * 现行口径：**一次派发交出的每一条都必须有判定**——有价值则建 `draft`（查重命中
+ * 现行口径：**一次派发交出的每一条都必须有判定**——有价值则建 `active` Pitfall（查重命中
  * 则记 `consumed` 并指向既有对象），无价值则结算为 `discarded` 并写明带引证的
  * 理由。**交出却无判定即 fail-closed**（`observation_review/unjudged_entry`），
  * 且该拒绝发生在**任何写入之前**——不允许「判了几条、剩下的默认留着」的半途状态。
@@ -273,7 +273,7 @@ export function verifyEvidenceCopy(bodyMarkdown, entry) {
   const evidence = isNonEmptyString(entry?.evidence) ? entry.evidence : "";
 
   if (!isNonEmptyString(bodyMarkdown)) {
-    return { ok: false, issues: ["body: bodyMarkdown is required (23 §8: the seven sections are mandatory for a draft)"] };
+    return { ok: false, issues: ["body: bodyMarkdown is required (23 §8: the seven sections are mandatory for a Pitfall object)"] };
   }
 
   const titles = h2Titles(bodyMarkdown);
@@ -296,12 +296,12 @@ export function verifyEvidenceCopy(bodyMarkdown, entry) {
     sectionTexts.set(title, content);
 
     if (content.trim().length === 0) {
-      issues.push(`body: section "${title}" is empty (23 §9.1: the seven sections must all be non-empty for a draft)`);
+      issues.push(`body: section "${title}" is empty (23 §9.1: the seven sections must all be non-empty)`);
       continue;
     }
     const placeholder = findPlaceholder(content);
     if (placeholder !== null) {
-      issues.push(`body: section "${title}" carries the placeholder ${JSON.stringify(placeholder)} (23 §9 / 11 §18: a draft may not pass a placeholder off as content)`);
+      issues.push(`body: section "${title}" carries the placeholder ${JSON.stringify(placeholder)} (23 §9 / 11 §18: a Pitfall object may not pass a placeholder off as content)`);
     }
     if (evidence.length > 0 && !sharesVerbatimFragment(content, evidence, MIN_VERBATIM_FRAGMENT_LENGTH)) {
       issues.push(
@@ -360,11 +360,11 @@ function extractSourceReferences(evidence) {
 }
 
 // ---------------------------------------------------------------------------
-// 查重对照集（23 §6.2：active 与 draft 都必须在对照范围内）
+// 查重对照集（23 §6.2：对照范围是全部 active；2026-11-03 起 Pitfall 无 draft）
 // ---------------------------------------------------------------------------
 
 /**
- * 收集查重所需的确定性输入：既有 **active 与 draft** Pitfall 的 title 与
+ * 收集查重所需的确定性输入：既有 **active** Pitfall 的 title 与
  * 症状／根因正文（23 §6.2；23 §12：discarded 不入普通候选，故不在对照集内）。
  *
  * 本函数**不做**语义裁决——它只把 AI 比对需要的材料取全并如实标出取不全的行。
@@ -373,7 +373,7 @@ export async function collectExistingPitfalls({ factSourceRoot, limit = 200 } = 
   if (!isNonEmptyString(factSourceRoot)) {
     return failure("observation_review/invalid_request", "factSourceRoot is required");
   }
-  const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active", "draft"], limit });
+  const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active"], limit });
   if (!listed.ok) {
     return failure(
       listed.error?.code ?? "observation_review/list_failed",
@@ -393,7 +393,7 @@ export async function collectExistingPitfalls({ factSourceRoot, limit = 200 } = 
       symptoms: readable ? (sectionContent(read.value.body, "症状") ?? "").trim() : "",
       root_cause: readable ? (sectionContent(read.value.body, "根因") ?? "").trim() : "",
       // comparable=false：正文取不全的既有对象**不得**被当作已比对过——那会让
-      // 「对照集覆盖全部 active 与 draft」变成一句不成立的断言。
+      // 「对照集覆盖全部 active」变成一句不成立的断言。
       comparable: readable,
     });
   }
@@ -406,12 +406,12 @@ export async function collectExistingPitfalls({ factSourceRoot, limit = 200 } = 
 //
 // ## 防的是什么
 //
-// 实测（2026-10-27）：**并发**跑两次审核同一条目，会产出**两个重复的 draft**
+// 实测（2026-10-27）：**并发**跑两次审核同一条目，会产出**两个重复的 Pitfall 对象**
 // （两个不同 object_uid，因为 `createPitfallObject` 用 `randomUUID()` 分配身份），
 // 且两次都报 `ok:true`——外面完全看不出来。串行重跑是安全的（结算后条目退出
 // 候选集），只有并发才漏。
 //
-// 根因：`读 pending → 判 formed → 写 draft → 写 settle` 这一步里，「检查状态」与
+// 根因：`读 pending → 判 formed → 写 Pitfall → 写 settle` 这一步里，「检查状态」与
 // 「推进状态」不在同一个临界区。两方都在对方写 settle 之前读到了 pending。
 //
 // ## 为什么不用「先 settle 再创建」
@@ -526,13 +526,13 @@ async function claimEntry(dshHomePath, projectId, entryId, now) {
  * 机械侧只校验「查重已执行、且所记录的比对对象确实取自对照集」（23 §6.2 +
  * 11 §18「经验候选的查重已执行」行）。语义结论由调用方给出。
  *
- * ## 为什么**不**校验「compared 覆盖全部 active 与 draft」（2026-10-27 更正）
+ * ## 为什么**不**校验「compared 覆盖全部 active」（2026-10-27 更正）
  *
  * 原实现要求 `dedupe.compared` 枚举**每一个**既有对象的 `object_uid`，缺一个就整条
  * 拒绝。该要求的初衷是对的（防同一机制重复成对象），但**判据选错了层次**：
  *
  *   ① 规范把这一项明确定为 **AI 语义审核**——11 §18 该行的「校验方式」是
- *      「AI 语义审核」，判定问题是「已对照既有 active 与 draft 的 title 与
+ *      「AI 语义审核」，判定问题是「已对照既有 active 的 title 与
  *      症状／根因**语义比对**」，且**未验证范围**一栏明写「当次查重范围；**不证明**
  *      同机制确不存在」。故规范要求的是**做过比对并如实记录结论**，不是机械证明
  *      枚举完备。
@@ -553,7 +553,7 @@ async function claimEntry(dshHomePath, projectId, entryId, now) {
  *   的 uid 说明它没真读对照集，必须拒；
  * - `conclusion` 在闭集内；`duplicate` 时 `duplicate_of` 须指向对照集内的对象。
  *
- * **不做的事**：不要求枚举完备。防重复由「AI 语义判断 + Human 复核 + draft 纳入
+ * **不做的事**：不要求枚举完备。防重复由「AI 语义判断 + Human 复核 + active 纳入
  * 范围」共同承担，不由本函数的枚举检查承担。
  */
 function verifyDedupeRecord(proposal, existingPitfalls) {
@@ -582,7 +582,7 @@ function verifyDedupeRecord(proposal, existingPitfalls) {
     const fabricated = dedupe.compared.filter((uid) => !known.has(uid));
     if (fabricated.length > 0) {
       issues.push(
-        `dedupe: compared cites ${fabricated.length} object_uid(s) that are not in the active/draft comparison set (${fabricated.slice(0, 3).join(", ")}${fabricated.length > 3 ? ", …" : ""}) — the cited objects could not have been compared against this set (23 §6.2)`,
+        `dedupe: compared cites ${fabricated.length} object_uid(s) that are not in the active comparison set (${fabricated.slice(0, 3).join(", ")}${fabricated.length > 3 ? ", …" : ""}) — the cited objects could not have been compared against this set (23 §6.2)`,
       );
     }
   }
@@ -593,7 +593,7 @@ function verifyDedupeRecord(proposal, existingPitfalls) {
     if (!isNonEmptyString(dedupe.duplicate_of)) {
       issues.push("dedupe: conclusion=duplicate requires duplicate_of = the object_uid of the existing object (11 §10.2 item 4: the entry is settled consumed pointing at the existing object)");
     } else if (existingPitfalls.length > 0 && !known.has(dedupe.duplicate_of)) {
-      issues.push(`dedupe: duplicate_of ${JSON.stringify(dedupe.duplicate_of)} is not among the active/draft comparison set`);
+      issues.push(`dedupe: duplicate_of ${JSON.stringify(dedupe.duplicate_of)} is not among the active comparison set`);
     }
   }
   return { ok: issues.length === 0, issues };
@@ -665,7 +665,7 @@ export async function reviewPendingEntries({
     return failure("observation_review/invalid_request", "dshHomePath must be the path-joining function of observation-buffer.js");
   }
   // **按管辖项目分载体**（§12bis 载体段 2026-10 修订）：缺 projectId 会读到**所有
-  // 项目**的材料，而 draft 写进当前项目——那会「用别的项目的材料在本项目建经验」。
+  // 项目**的材料，而 Pitfall 写进当前项目——那会「用别的项目的材料在本项目建经验」。
   // 拒绝而不是落到旧全局载体。
   if (typeof projectId !== "string" || projectId.trim().length === 0) {
     return failure(
@@ -674,7 +674,7 @@ export async function reviewPendingEntries({
     );
   }
   if (!isNonEmptyString(factSourceRoot)) {
-    return failure("observation_review/invalid_request", "factSourceRoot is required (the draft candidate is a fact object, 11 §10.2 item 3)");
+    return failure("observation_review/invalid_request", "factSourceRoot is required (the Pitfall object is a fact object, 11 §10.2 item 3)");
   }
   if (entryId !== null && entryId !== undefined && !isNonEmptyString(entryId)) {
     return failure("observation_review/invalid_request", "entry_id must be a non-empty string when given (§12ter.1: optional buffer entry identifier)");
@@ -904,7 +904,7 @@ export async function reviewPendingEntries({
       continue;
     }
 
-    // ── 第 2 项：查重已执行且对照集覆盖 active 与 draft（23 §6.2）────────────
+    // ── 第 2 项：查重已执行且对照集覆盖全部 active（23 §6.2）────────────
     const dedupe = verifyDedupeRecord(proposal, existing);
     if (!dedupe.ok) {
       state.unsettled.push({ entry_id: entry.id, code: "observation_review/dedup_not_recorded", message:         `the dedup record for entry ${entry.id} does not satisfy 23 §6.2 / 11 §18: ${dedupe.issues.join("; ")}`, });
@@ -927,7 +927,7 @@ export async function reviewPendingEntries({
       continue;
     }
 
-    // ── 第 3 项：创建 draft 候选（七段齐备 + 逐字引证复制）────────────────
+    // ── 第 3 项：创建 active Pitfall（七段齐备 + 逐字引证复制）────────────
     if (!isNonEmptyString(proposal.title)) {
       state.unsettled.push({ entry_id: entry.id, code: "observation_review/proposal_incomplete", message:         `proposal for entry ${entry.id} has no title (23 §8: title is required, ≤ 30 characters)`, });
       continue;
@@ -951,7 +951,7 @@ export async function reviewPendingEntries({
     // ── 并发护栏：先认领，再创建（2026-10-27）───────────────────────────
     // 这一段把「检查状态」与「推进状态」收进同一个临界区：认领不到即说明**另一方
     // 正在处理这一条**，本方可跳过（该条下次仍在 pending，不会丢）。
-    // 见 claimEntry 的注释：防的是并发双写造成两个重复 draft。
+    // 见 claimEntry 的注释：防的是并发双写造成两个重复的 Pitfall 对象。
     // 认领之前**重新核对一次该条是否仍是 pending**：`pending` 是本轮开始时的快照，
     // 而并发的另一方可能已经在快照之后把它结算掉了。只看快照会给出已过期的判断，
     // 于是「锁已释放 + 快照仍显示 pending」两者叠加就会重复创建（实测残留 1 例）。
@@ -969,24 +969,24 @@ export async function reviewPendingEntries({
       state.unsettled.push({
         entry_id: entry.id,
         code: "observation_review/entry_claimed_elsewhere",
-        message: `entry ${entry.id}: ${claim.reason}; skipped so this entry is not turned into two duplicate drafts (11 §10.2 一题一审) — it stays pending and will be delivered again`,
+        message: `entry ${entry.id}: ${claim.reason}; skipped so this entry is not turned into two duplicate Pitfall objects (11 §10.2 一题一审) — it stays pending and will be delivered again`,
       });
       continue;
     }
 
     // **认领持有到结算完成**（2026-10-27 实测修正）：早先版本在创建成功后立即释放，
-    // 使「创建完 → 结算前」仍是一个窗口，实测仍产出重复 draft（3 条目出了 5 个文件）。
+    // 使「创建完 → 结算前」仍是一个窗口，实测仍产出重复的 Pitfall 对象（3 条目出了 5 个文件）。
     // 故认领必须覆盖「创建 + 回读 + 结算」整段，任何路径退出都释放。
     let created;
     try {
       created = await createPitfallObject({
       factSourceRoot,
-      // 机械通道初态只能是 draft（11 §10.2 第 3 项 / 23 §13）；创建与入档是同一
-      // 决定的 Human 入口在此处不可达，故此处不存在任何 active 分支。
+      // 机械通道初态即 active（11 §10.2 第 3 项 / 23 §13；2026-11-03 取消 `draft`
+      // 待确认态后，创建与入档是同一个决定）。
       frontmatterDraft: {
         title: proposal.title,
         scope: proposal.scope,
-        status: "draft",
+        status: "active",
         ...(Array.isArray(proposal.urls) && proposal.urls.length > 0 ? { urls: proposal.urls } : {}),
         change_summary: `闲时辅助经验积累·审核段据缓冲条目 ${entry.id} 形成候选（11 §10.2 第 3 项）`,
       },
@@ -994,7 +994,7 @@ export async function reviewPendingEntries({
         sessionSignature,
       });
     if (!created.ok) {
-      state.unsettled.push({ entry_id: entry.id, code: created.error?.code ?? "observation_review/create_failed", message:         `entry ${entry.id}: creating the draft candidate failed (11 §10.2 item 6): ${created.error?.message ?? "unknown"}`, });
+      state.unsettled.push({ entry_id: entry.id, code: created.error?.code ?? "observation_review/create_failed", message:         `entry ${entry.id}: creating the Pitfall object failed (11 §10.2 item 6): ${created.error?.message ?? "unknown"}`, });
       continue;
     }
     state.formed.push({
@@ -1006,16 +1006,16 @@ export async function reviewPendingEntries({
     // ── 第 4 项前半：写后精确回读（含状态、字段闭集与正文结构）────────────
     const readBack = await readPitfallObject({ factSourceRoot, objectUid: created.value.object_uid });
     if (!readBack.ok || readBack.value.fingerprint !== created.value.fingerprint
-      || readBack.value.frontmatter?.status !== "draft" || readBack.value.body_valid !== true) {
+      || readBack.value.frontmatter?.status !== "active" || readBack.value.body_valid !== true) {
       const detail = !readBack.ok
         ? readBack.error?.message ?? "unknown"
         : `fingerprint ${readBack.value.fingerprint === created.value.fingerprint ? "matches" : "mismatch"}, status ${JSON.stringify(readBack.value.frontmatter?.status)}, body_valid ${JSON.stringify(readBack.value.body_valid)}`;
       // 不得把部分写入当作完成：候选已落盘，故 formed 仍如实带出。
-      state.unsettled.push({ entry_id: entry.id, code: "observation_review/read_back_failed", message:         `entry ${entry.id}: the draft candidate was created but did not read back completely (${detail}); 11 §10.2 item 6 / §12 — stop this run, keep the side effect and register it honestly`, });
+      state.unsettled.push({ entry_id: entry.id, code: "observation_review/read_back_failed", message:         `entry ${entry.id}: the Pitfall object was created but did not read back completely (${detail}); 11 §10.2 item 6 / §12 — stop this run, keep the side effect and register it honestly`, });
       continue;
     }
 
-    // ── 第 4 项后半：条目置 consumed + consumed_by = draft uid ─────────────
+    // ── 第 4 项后半：条目置 consumed + consumed_by = Pitfall uid ────────────
     const settled = await settleBufferEntry(dshHomePath, entry.id, {
       status: "consumed",
       consumedBy: created.value.object_uid,

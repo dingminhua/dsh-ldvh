@@ -94,7 +94,7 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     discarded: { zh: '已废弃', en: 'Discarded' },
   },
   pitfall: {
-    draft: { zh: '待确认', en: 'Pending confirmation' },
+    // 23 §9 状态闭集两值（2026-11-03 Human 决定取消 `draft` 待确认态）。
     active: { zh: '活跃', en: 'Active' },
     discarded: { zh: '已废弃', en: 'Discarded' },
   },
@@ -1312,7 +1312,6 @@ export const UI_LOCALES = {
     'cognition.active.copiedModuleSummary': '已复制模块摘要',
     'cognition.kind.plan_confirmation': '待批准计划',
     'cognition.kind.closure_confirmation': '待确认关闭',
-    'cognition.kind.pitfall_confirmation': '待确认经验',
     'cognition.kind.friction_repair': '待修摩擦',
     'cognition.copyModuleSummary': '复制模块摘要',
     'cognition.copiedModuleSummary': '已复制模块摘要',
@@ -2171,7 +2170,7 @@ export const UI_LOCALES = {
     'diagnostics.cleanup.notListed': 'Not in cleanup scope',
     'diagnostics.cleanup.notListedHint': 'Watermarks are deliberately not cleanable: removing them makes the mechanism re-observe already-processed content and double-count. The fact source (ldvh-base/) is also untouched by log cleanup.',
     'diagnostics.experience.title': 'Experience observations',
-    'diagnostics.experience.subtitle': 'Experience material the agent picked out of conversations, waiting for the review stage to judge whether it can become a draft. These are neither fact objects nor candidates.',
+    'diagnostics.experience.subtitle': 'Experience material the agent picked out of conversations, waiting for the review stage to judge whether it can be written up. These are neither fact objects nor candidates.',
     'diagnostics.experience.pendingHint': 'Judged one by one at the next review pass',
     'diagnostics.experience.discarded': 'Judged not to be experience',
     'diagnostics.experience.discardedHint': 'Settled as not worth writing up: traced here, never a fact object, and taken away by log cleanup',
@@ -2355,7 +2354,6 @@ export const UI_LOCALES = {
     'cognition.active.copiedModuleSummary': 'Module summary copied',
     'cognition.kind.plan_confirmation': 'Plan awaiting approval',
     'cognition.kind.closure_confirmation': 'Closure awaiting confirmation',
-    'cognition.kind.pitfall_confirmation': 'Pitfall awaiting confirmation',
     'cognition.kind.friction_repair': 'Friction awaiting repair',
     'cognition.copyModuleSummary': 'Copy module summary',
     'cognition.copiedModuleSummary': 'Module summary copied',

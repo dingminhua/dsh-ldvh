@@ -85,8 +85,9 @@ const OPERATIONS = {
   // 11 §12ter 的两条公开操作。summary 与 effect 逐字对齐 specs/11 §12ter 声明表；
   // `awaitsHumanDecision` **刻意不设**：审核段是机械通道（11 §10.2 机械通道边界
   // ——仅 §10.1 第 2 项与 §10.2 第 3 项，无须事前 Human 确认并保留事后否决权，
-  // 23 §13）。入档（draft→active）与废止才是 23 §16 的 Human Gate，本模块不做
-  // 也不声明这两件事——把它标成 awaitsHumanDecision 会让宿主对一条**不提问**的
+  // 23 §13）。**废止**才是 23 §16 的 Human Gate（2026-11-03 起 Pitfall 取消 `draft`
+  // 待确认态，创建即 `active`，不再有「入档」这一刻），本模块不做也不声明这件事
+  // ——把它标成 awaitsHumanDecision 会让宿主对一条**不提问**的
   // 工具撤掉超时上限（toolDescriptor 的 timeoutMs 逻辑），反而制造挂死窗口。
   "observation-buffer-list": {
     toolName: "ldvh_observation_buffer_list",
@@ -1251,7 +1252,8 @@ function makeExecute(deps) {
    * 它还要过 §12bis「证据不留在缓冲」的逐字引证复制校验，引证不回指条目者一律拒绝。
    *
    * **逐条落地、已落保留（2026-10-27 二次修订）**：本操作本次交出的条目**逐条**处理
-   * ——可成文则建 `draft`、不足则结算为 `discarded`；**已落地的保留，不回滚**。
+   * ——可成文则建 `active` Pitfall（2026-11-03 起创建即入档）、不足则结算为
+   * `discarded`；**已落地的保留，不回滚**。
    * 某一条不合格（缺提案、字段不齐、正文不合规、缺署名、处置理由不可追溯）只影响
    * **该条**：它留在 `pending`、记入返回值的 `unsettled`（带精确原因），并使整次调用
    * 的结局为 `partial`；其余已判定条目照常结算。
@@ -1407,7 +1409,7 @@ function makeExecute(deps) {
       },
       sources: [
         ...sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
-        ...formedAll.map((item) => sources({ kind: "pitfall-draft", path: item.file ?? item.object_uid, fingerprint: null })[0])
+        ...formedAll.map((item) => sources({ kind: "pitfall-object", path: item.file ?? item.object_uid, fingerprint: null })[0])
       ],
       // **投影缺口与账本读取范围进 gaps**（2026-11-01 第三轮审核第 12 条）：
       // 只在提示词里对执行体说「可能不是全部」不够——Human 读的是这条返回体。
@@ -1439,7 +1441,7 @@ function makeExecute(deps) {
         passed: !(Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0),
       },
       follow_up: formedAll.length > 0
-        ? ["draft → active requires the 23 §16 Human Gate with another party's reproduction (11 §10.2); this pass does not and cannot promote it"]
+        ? ["the created Pitfall objects are `active` (23 §13; the draft candidate state was cancelled 2026-11-03) — abolishing them is the 23 §16 Human Gate, which this pass does not and cannot perform"]
         : (value.remaining_pending > 0
             ? ["pending entries remain outside this dispatch's delivery range; the next dispatch judges that batch (11 §10.2 — there is no per-run output quota)"]
             : [])

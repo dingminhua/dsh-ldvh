@@ -13,7 +13,8 @@ test('V4 fact lists keep every declared lifecycle status tab even when its count
   const filter = source('src/components/ObjectStatusFilter.tsx')
 
   assert.match(filter, /adr: \['active', 'retired'\]/)
-  assert.match(filter, /pitfall: \['draft', 'active', 'discarded'\]/)
+  // 23 §9 状态闭集两值（2026-11-03 Human 决定取消 `draft` 待确认态）。
+  assert.match(filter, /pitfall: \['active', 'discarded'\]/)
   assert.match(filter, /research: \['active', 'retired'\]/)
   // 20 §9 状态闭集：Spark 三态 tab 常驻（open/implemented/discarded）。
   assert.match(filter, /spark: \['open', 'implemented', 'discarded'\]/)
@@ -32,7 +33,7 @@ test('retired has an explicit lifecycle status label', () => {
   // 取代中性灰——落实是正结果）。
   assert.match(colors, /implemented: \{ light: '#059669', dark: '#00d4aa' \}/)
   assert.match(colors, /closed: \{ light: '#64748b', dark: '#94a3b8' \}/)
-  assert.match(locales, /pitfall: \{[\s\S]*draft: \{ zh: '待确认', en: 'Pending confirmation' \}/)
+  // 23 §9（2026-11-03 起 Pitfall 只剩 active/discarded 两态，无「待确认」词条）。
   assert.match(locales, /pitfall: \{[\s\S]*active: \{ zh: '活跃', en: 'Active' \}/)
 })
 

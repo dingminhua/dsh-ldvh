@@ -12,7 +12,7 @@
 //     candidates).
 //   - pitfall-write-object (effect: may_change_state) — controlled create
 //     (after Human-confirmed proposal incl. dedup result) and CAS update
-//     with change_log: same-status updates (draft→draft, active→active,
+//     with change_log: same-status updates (active→active,
 //     and the terminal discarded→discarded errata) are errata/supplement-
 //     only (scope field-identical, 23 §9.3), active→discarded is terminal.
 //
@@ -50,7 +50,7 @@ const OPERATIONS = {
   "pitfall-write-object": {
     toolName: "ldvh_pitfall_write",
     writeShaped: true,
-    summary: "Controlled write of Pitfall fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; same-status updates (draft→draft, active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
+    summary: "Controlled write of Pitfall fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
     effect: "may_change_state"
   }
 };
@@ -169,7 +169,7 @@ async function executeListObject(args, exec, deps) {
       follow_up: []
     });
   }
-  const statusFilter = args?.status === "pending" ? ["draft"] : undefined;
+  const statusFilter = undefined;
   const includeTerminal = args?.status === "all";
   const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
@@ -193,7 +193,7 @@ async function executeListObject(args, exec, deps) {
     result: {
       count: value.items.length,
       total: value.complete ? value.items.length : value.total,
-      filter: statusFilter ? "pending" : (includeTerminal ? "all" : "active"),
+      filter: includeTerminal ? "all" : "active",
       items: value.items,
     },
     scope: {
@@ -432,11 +432,11 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; failure-mechanism short title (highlight the platform when environment-specific)" },
-      status: { type: "string", enum: ["draft", "active", "discarded"], description: "**REQUIRED on create — there is no default; omitting it is rejected with pitfall/status_required.** create: status=active (23 §13 Human entry — creation and admission are the same decision) or status=draft (mechanical channel — 11 §10 experience capture, no admission judgement); update: legal transitions are draft→active (admission), active→discarded and draft→discarded (both terminal, read-only afterwards) — 23 §9/§13" },
+      status: { type: "string", enum: ["active", "discarded"], description: "**REQUIRED on create — there is no default; omitting it is rejected with pitfall/status_required.** create: status=active is the only initial state (23 §13 — both the Human entry and the 11 §10.2 mechanical channel create active; the draft candidate state was cancelled 2026-11-03); update: the only legal transition is active→discarded (terminal, read-only afterwards) — 23 §9/§13" },
       scope: { type: "string", description: "impact & applicability statement; must appear verbatim in the 影响与适用范围 body section" },
       trigger_signal: { type: "string", description: "when to re-examine this experience (dependency version change, environment migration, etc.); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the experience; when non-empty the body must carry a 证据 section" },
-      disposition: { type: "string", description: "terminal destination & reason; required iff status=discarded, forbidden while draft or active (23 §8)" },
+      disposition: { type: "string", description: "terminal destination & reason; required iff status=discarded, forbidden while active (23 §8)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "scope"],
@@ -456,7 +456,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["active", "pending", "all"], description: "active = default (current experience baseline, 23 §12); pending = draft candidates awaiting admission — the pending-review queue, draft's only outward surface (23 §12); all = include draft and discarded for review/historical tracing" },
+          status: { type: "string", enum: ["active", "all"], description: "active = default (current experience baseline, 23 §12 — 2026-11-03 起 Pitfall 无 draft 待确认档，候选与已入档是同一批对象); all = include discarded for review/historical tracing" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
         },
         additionalProperties: false

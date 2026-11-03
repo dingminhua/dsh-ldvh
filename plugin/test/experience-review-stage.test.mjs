@@ -457,7 +457,7 @@ test("查重对照集必须从**事实源根**（project.path/ldvh-base）读，
 // （无提案、空缓冲、条数上限…）。缺陷因此长期不可见。
 //
 // 故这一组必须**真的装配一个只有 `locate`/`open` 的 persistence**（与宿主同形），
-// 并让流程走到「创建 draft」那一步——它能取到签名，才能走到那儿。
+// 并让流程走到「创建 active Pitfall」那一步——它能取到签名，才能走到那儿。
 
 /** 宿主同形的 persistence 桩：**没有 read()**，只有 locate 与 open。 */
 function fakeSessionPersistence({ events = null, openThrows = null } = {}) {
@@ -516,7 +516,7 @@ function formableProposal(entryId = "entry-0") {
       "仅用于验证署名取数通道的测试夹具，不承载真实经验。",
     ].join("\n"),
     // 查重记录按 23 §6.2 / 11 §18 的字段要求写：checked 是布尔真值、compared 是
-    // **曾比对过的 object_uid 数组**（须覆盖全部 active 与 draft）、conclusion 只认
+    // **曾比对过的 object_uid 数组**（须覆盖全部 active）、conclusion 只认
     // "new" 或 "duplicate"。夹具里没有既有 Pitfall，故 compared 为空数组即可。
     dedupe: { checked: true, compared: [], conclusion: "new" },
   };

@@ -14,7 +14,7 @@
  *  - read:    returns frontmatter + body + file-level content
  *             fingerprint (SHA-256).
  *  - update:  CAS — two guarded lanes (23 §9):
- *               * same-status updates (draft→draft, active→active, and the
+ *               * same-status updates (active→active, and the
  *                 terminal discarded→discarded errata) = 勘误与补充级:
  *                 scope must be field-identical to the CAS baseline (机械比对；
  *                 变了就拒绝——影响范围实质变化走新对象)。The supplement/
@@ -54,9 +54,11 @@ export const PITFALL_DIRECTORY = "pitfalls";
 const BODY_H2_REQUIRED = ["症状", "触发条件", "根因", "解决", "规避", "验证", "影响与适用范围"];
 const BODY_H2_EVIDENCE = "证据";
 
-// 23 §9：状态闭集三值——draft（待确认的候选，由闲时辅助经验积累的机械通道创建）
-// / active / discarded。draft 与 active 的正文要求相同（七段齐备）。
-const STATUSES = new Set(["draft", "active", "discarded"]);
+// 23 §9：状态闭集两值——active（经验可信可复用，两条通道的初态）／discarded
+// （经验不再适用，终态）。**2026-11-03 Human 决定取消 `draft` 待确认态**：机械
+// 通道（11 §10.2 第 3 项）创建即落 active，不再有「候选等待入档」这一档；
+// active → discarded 仍是唯一转换，且属 23 §16 的 Human Gate。
+const STATUSES = new Set(["active", "discarded"]);
 
 /** Title cap (23 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
@@ -160,9 +162,8 @@ export function validatePitfallFrontmatter(frontmatter) {
   }
 
   // disposition ⇔ discarded (23 §8: 出现 ⇔ discarded)。
-  // **三分支而非二分支**：draft 与 active 同为「非终态」，均禁现 disposition。
-  // （原实现用 if(active)/else 两分支，加入 draft 后 draft 会落入 else 分支
-  //   被错误要求填 disposition——该形态由本次实现核对捕获并修正。）
+  // 非终态（只剩 active，2026-11-03 取消 draft 后）一律禁现 disposition；
+  // 此处按状态值分支而非按「是否终态」分支，故新增非终态档时须同步加分支。
   if (frontmatter.status === "discarded") {
     if (typeof frontmatter.disposition !== "string" || frontmatter.disposition.length === 0) {
       issues.push("disposition: required non-empty when status=discarded (23 §8)");
@@ -375,23 +376,21 @@ export async function createPitfallObject(args) {
   frontmatter.fact_type_key = PITFALL_TYPE_KEY;
   frontmatter.created_at = now;
   // 23 §13：创建分两条通道，初态依通道而异——
-  //   机械通道（11 §10 经验积累）只产出 draft，不含入档判断；
-  //   Human 入口（执行中发现 / Human 直接提出）在确认入档时创建，落盘即 active
-  //     （此时创建与入档是同一决定的两面）。
+  //   机械通道（11 §10 经验积累）与 Human 入口都直接创建 `active`——2026-11-03
+  //     Human 决定取消 `draft` 待确认态后，**创建与入档是同一个决定**，两条通道
+  //     的差别只剩「谁提出」，不再是「落什么状态」。废止（active→discarded）仍属
+  //     23 §16 的 Human Gate，且是事后动作，不在创建段。
   // 无论哪条通道，都不得以 create 进入终态 discarded。
   //
-  // **status 必须由调用方显式给出（2026-10-20）**：此前省略时默认落 `active`。
-  // 那是给「任何调用方都能在无 Human 决定的情况下落一个 active 对象」留的口子
-  // ——`active` 是入档后的状态，而入档属 23 §16 的 Human Gate。通道差异是
-  // **语义差异而不是默认值差异**：Human 入口显式传 `active`（创建与入档是同一
-  // 决定的两面），机械通道显式传 `draft`（11 §10.2 第 3 项）。故省略一律拒绝，
-  // 不替调用方猜——猜出来的那一个方向恰好是绕过 Gate 的那一个。
+  // **status 仍必须由调用方显式给出（2026-10-20）**：省略时拒绝，不替调用方猜。
+  // 保留这条硬要求是因为「省略」会把「谁决定创建」这件事一起省掉——它本身就是
+  // 23 §16 需要看见的信息，即便现在唯一的合法值只有 active。
   const requestedStatus = frontmatter.status;
   if (requestedStatus === undefined || requestedStatus === null) {
-    return failure("pitfall/status_required", "create must state status explicitly: status=active (23 §13 Human entry — creation and admission are the same decision) or status=draft (11 §10.2 mechanical channel). Omission is refused: there is no default, because defaulting to active would admit an object without a Human decision (23 §8/§13/§16)");
+    return failure("pitfall/status_required", "create must state status explicitly: status=active (23 §13 — both the Human entry and the 11 §10.2 mechanical channel create active; the draft candidate state was cancelled 2026-11-03). Omission is refused: there is no default, because the caller must state which decision this creation carries (23 §8/§13/§16)");
   }
-  if (requestedStatus !== "active" && requestedStatus !== "draft") {
-    return failure("pitfall/initial_state_violation", `create must initialise as status=active or status=draft; got ${JSON.stringify(requestedStatus)} (23 §9/§13)`);
+  if (requestedStatus !== "active") {
+    return failure("pitfall/initial_state_violation", `create must initialise as status=active; got ${JSON.stringify(requestedStatus)} (23 §9/§13: active is the only initial state — the draft candidate state was cancelled 2026-11-03)`);
   }
   frontmatter.status = requestedStatus;
   // 23 §8: disposition cannot exist at creation
@@ -543,42 +542,41 @@ export async function updatePitfallObject(args) {
 
   const nextStatus = fm.status;
   if (nextStatus === undefined || !STATUSES.has(nextStatus)) {
-    return failure("pitfall/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (draft/active/discarded, 23 §9)`);
+    return failure("pitfall/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (active/discarded, 23 §9)`);
   }
 
-  // 23 §9.2：正常转换有三——draft→active（入档）／active→discarded（废止）／
-  // draft→discarded（候选未入档即被否决）。此处校验目标状态是否可达，
-  // 并给出不合法转换的精确原因（闭合路径，不留含糊）。
+  // 23 §9.2：唯一的正常转换是 active→discarded（废止）。2026-11-03 取消 `draft`
+  // 待确认态后，「入档」这一刻不再存在——创建即 active，故 draft→active 与
+  // draft→discarded 两条随该档一并消失。此处校验目标状态是否可达，并给出不合法
+  // 转换的精确原因（闭合路径，不留含糊）。
   if (prevStatus !== nextStatus) {
-    const legal = (prevStatus === "draft" && (nextStatus === "active" || nextStatus === "discarded"))
-      || (prevStatus === "active" && nextStatus === "discarded");
+    const legal = prevStatus === "active" && nextStatus === "discarded";
     if (!legal) {
-      return failure("pitfall/status_transition_invalid", `illegal status transition ${prevStatus} → ${nextStatus} (23 §9.2: the legal transitions are draft→active, active→discarded, draft→discarded)`);
+      return failure("pitfall/status_transition_invalid", `illegal status transition ${prevStatus} → ${nextStatus} (23 §9.2: the only legal transition is active→discarded)`);
     }
   }
 
-  // 23 §9.1：draft 与 active 均不得带 disposition（disposition ⇔ discarded）。
-  // draft→active 的入档校验（另一主体复现验证，23 §16.1）**不在此处**——
-  // 该前置由提请入档的调用方（主控/Human 路径）在构造请求前完成，
-  // Code 侧不代理语义判断（23 §16.1 第 1 项：复现指实际重走或核对证据链，
-  // 属语义工作）。此处只做机械可达性与字段闭集校验。
-  if (nextStatus === "draft" || nextStatus === "active") {
+  // 23 §9.1：active 不得带 disposition（disposition ⇔ discarded）。
+  // （2026-11-03 取消 `draft` 后本项只剩 active 一侧；原 draft→active 的入档
+  // 复现校验随该档一并消失——不是挪到别处，是不再有那一刻，见 23 §16.1。）
+  if (nextStatus === "active") {
     if (fm.disposition !== undefined) {
       return failure("pitfall/frontmatter_invalid", `disposition must not be present while status=${nextStatus} (23 §8: disposition ⇔ discarded)`);
     }
   }
 
-  // 23 §9.3 / §15 补充边界：**同态更新**（draft→draft、active→active、以及终态的
+  // 23 §9.3 / §15 补充边界：**同态更新**（active→active 与终态的
   // discarded→discarded 勘误）都是勘误与补充级——scope 必须与 CAS 基线逐字段一致
   // （变了就不是补充：影响范围实质变化走新对象路径）。
   //
   // 判据是「状态是否变化」而不是「状态是不是 active」（2026-11-03 修正）：原实现把
-  // 守恒条件写成 `nextStatus === "active"`，于是 draft→draft 这条同样属于补充更新的
-  // 路径整条漏检——候选可以在等待入档期间把 scope 的适用条件换掉而不留机械信号，
-  // 而独立复现核对的是换之前的适用范围。终态勘误同理。
+  // 守恒条件写成 `nextStatus === "active"`，于是非 active 的同态更新整条漏检——
+  // 一条候选可以在等待入档期间把 scope 的适用条件换掉而不留机械信号，而独立复现
+  // 核对的是换之前的适用范围。终态勘误同理。取消 `draft` 后仍剩 discarded 一侧，
+  // 故判据必须保持「状态未变」这一形态，不得改回绑状态值。
   //
-  // 状态转换（draft→active、active→discarded、draft→discarded）不是补充更新，
-  // 不受本行约束（§13 对入档/终态流转另列其检查项，不含 scope 比对）。
+  // 状态转换（active→discarded）不是补充更新，不受本行约束
+  // （§13 对终态流转另列其检查项，不含 scope 比对）。
   if (nextStatus === prevStatus) {
     if ((fm.scope ?? "") !== (current.value.frontmatter.scope ?? "")) {
       return failure(
@@ -635,12 +633,13 @@ export async function listPitfallObjects(args) {
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
-  // 23 §12：默认候选只含 active；「待确认队列」是 draft 唯一的对外呈现点，
-  // 须能被专门查询枚举。statusFilter 是那条专门查询的机械入口。
+  // 23 §12：默认候选只含 active（2026-11-03 起 Pitfall 无待确认档，故「候选」
+  // 与「已入档」是同一批对象）。statusFilter 仍是精确查询的机械入口——它现在
+  // 服务的是「按状态取子集」（如只取 discarded 做历史追溯），不是候选队列。
   if (statusFilter !== undefined) {
     const wanted = Array.isArray(statusFilter) ? statusFilter : [statusFilter];
     if (wanted.length === 0 || !wanted.every((s) => STATUSES.has(s))) {
-      return failure("invalid_request", `statusFilter must be a non-empty subset of the closed set (draft/active/discarded, 23 §9); got ${JSON.stringify(statusFilter)}`);
+      return failure("invalid_request", `statusFilter must be a non-empty subset of the closed set (active/discarded, 23 §9); got ${JSON.stringify(statusFilter)}`);
     }
   }
   if (!Number.isInteger(limit) || limit < 1) {

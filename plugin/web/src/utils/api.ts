@@ -526,11 +526,13 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 
-/** 认知中心待决类型（v5）：两个 WorkCase Human Gate，加 Pitfall draft 审核，
+/** 认知中心待决类型（v5）：两个 WorkCase Human Gate，
  * 加 Friction `open` 待修（Human 2026-10-19 决定：只收 open；
  * 2026-10 修订后 26 §9 闭集为 open/resolved/voided/accepted，但待决只收 open——
- * accepted 是已接受、不再报告，不进待决；resolved/voided 亦不进）。 */
-export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation' | 'friction_repair';
+ * accepted 是已接受、不再报告，不进待决；resolved/voided 亦不进）。
+ * **`pitfall_confirmation` 已移除**（2026-11-03）：Pitfall 取消 `draft` 待确认态后
+ * 不再有「待确认的经验」这一档（23 §9），机械通道产出即 `active`。 */
+export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'friction_repair';
 
 /**
  * 决定依据区内联投影（Q3）：与 WorkCase 列表 Card 同源的 source-bound 字段子集，
@@ -600,18 +602,11 @@ export interface CognitionWorkCaseInboxItem extends CognitionInboxItemBase {
   inboxKind: 'plan_confirmation' | 'closure_confirmation';
 }
 
-/** Pitfall draft 的待确认是类型专属状态，按来源状态直接呈现。 */
-export interface CognitionPitfallInboxItem extends CognitionInboxItemBase {
-  type: 'pitfall';
-  status: 'draft';
-  inboxKind: 'pitfall_confirmation';
-}
-
 /**
  * 26 §12「Web 账本呈现」：Friction `open` 账目进待决定事项（Human 2026-10-19 决定）。
  *
- * `status` 是来源状态的直读值而不是派生值——本收件只收 `open`，与 Pitfall 的 `draft`
- * 同法（类型专属状态直接呈现，不新造展示态）。
+ * `status` 是来源状态的直读值而不是派生值——本收件只收 `open`（类型专属状态直接
+ * 呈现，不新造展示态）。
  */
 export interface CognitionFrictionInboxItem extends CognitionInboxItemBase {
   type: 'friction';
@@ -619,7 +614,7 @@ export interface CognitionFrictionInboxItem extends CognitionInboxItemBase {
   inboxKind: 'friction_repair';
 }
 
-export type CognitionInboxItem = CognitionWorkCaseInboxItem | CognitionPitfallInboxItem | CognitionFrictionInboxItem;
+export type CognitionInboxItem = CognitionWorkCaseInboxItem | CognitionFrictionInboxItem;
 
 /** 处于执行主链的 WorkCase（group=executing）；与两个 Human Gate 的待决定事项互斥。 */
 export interface CognitionActiveWorkCaseItem extends Omit<CognitionInboxItemBase, 'inboxKind'> {

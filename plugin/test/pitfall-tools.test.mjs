@@ -541,12 +541,13 @@ test("schema: pitfall-list-objects status is a closed set", async () => {
   const { toolDescriptorFor, OPERATIONS } = await import("../lib/pitfall-tools.js");
   const desc = toolDescriptorFor("pitfall-list-objects", OPERATIONS["pitfall-list-objects"], async () => ({}));
   const bad = validateJsonSchemaValue(desc.parameters, { status: "closed" }, "args");
-  assert.ok(bad.some((v) => v.includes('must be one of ["active","pending","all"]')), JSON.stringify(bad));
+  assert.ok(bad.some((v) => v.includes('must be one of ["active","all"]')), JSON.stringify(bad));
   assert.equal(validateJsonSchemaValue(desc.parameters, { status: "active" }, "args").length, 0);
   assert.equal(validateJsonSchemaValue(desc.parameters, { status: "all", limit: 5 }, "args").length, 0);
-  // 23 §12：draft 不进入默认候选，其唯一呈现点是「待确认队列」——
-  // 该专门查询由 status=pending 机械承载。
-  assert.equal(validateJsonSchemaValue(desc.parameters, { status: "pending" }, "args").length, 0);
+  // 23 §12 / 2026-11-03：Pitfall 取消 `draft` 待确认态后不再有「待确认队列」，
+  // 原先承载它的 status=pending 查询随该档一并移除——枚举外的值须被拒绝。
+  const pending = validateJsonSchemaValue(desc.parameters, { status: "pending" }, "args");
+  assert.ok(pending.some((v) => v.includes('must be one of ["active","all"]')), JSON.stringify(pending));
 });
 
 test("schema: pitfall-write-object enforces the frontmatter_draft shape", async () => {

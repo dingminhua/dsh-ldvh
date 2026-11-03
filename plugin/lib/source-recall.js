@@ -82,14 +82,14 @@ import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
  *   · WorkCase（21 §13）是 `draft`+`open` → 36 条全部不可见（它连 active 都没有）；
  *   · Friction（26）是 `open`（+ 当时的 `observing`，2026-10-26 已退出闭集）→ 当时 92 条不可见；
  *   · ADR（22）／Norm（27）是 `active` → 恰好正确；
- *   · Pitfall（23 §12）是 `active` → 恰好正确（draft 只在「待确认队列」专门查询时列出）。
+ *   · Pitfall（23 §12）是 `active` → 恰好正确（2026-11-03 取消 `draft` 后本类型无待确认档）。
  *
  * 合计 **142 条本可召回的事实**默认完全不可见。
  *
  * 逐条依据：
  *   · `20`「默认候选只包含 open Spark；implemented/discarded 不进入普通未处置候选」；
  *   · `21 §13`「默认候选只含 draft 与 open；closed 只在精确引用、证据链反查或历史追溯时展开」；
- *   · `23 §12`「默认候选只含 active；draft 不进入默认候选——它尚未入档」；
+ *   · `23 §12`「默认候选只含 active」（2026-11-03 修订：`draft` 待确认态已取消，discarded 只在精确引用与历史追溯时展开）；
  *   · `26`「默认候选只含 `open`」（2026-10-26 修订：观察态已退出闭集）；resolved 与 voided 仅在精确引用时展开；
  *   · `22`「默认候选只含 active——当前决策基线就是 active 集本身」；
  *   · `27`「默认候选只含 active——当前生效规范就是 active 集本身」。
@@ -798,11 +798,13 @@ function textField(value) {
  *
  * 背景（2026-10-27 实测）：加入「最后更新时间」作次级键后，调用方一旦放宽
  * `statuses`（如复核草稿时传 `["active","draft"]`），新写的 draft 会凭时间
- * 新鲜排到 active 之前——实测「校验验证」查询变成清一色 `pitfall/draft`，
- * 权威的 active 全部被挤出。**新 ≠ 更权威**，故状态等级须先于时间比较。
+ * 新鲜排到 active 之前——实测「校验验证」查询变成清一色草稿，权威的 active
+ * 全部被挤出。**新 ≠ 更权威**，故状态等级须先于时间比较。（2026-11-03 起
+ * Pitfall 已无 `draft`；`draft` 仍是 WorkCase 的初始态，本分级照旧适用。）
  *
  * 分级依据：`active`／`open` 是各类型规范定义的「当前生效」态（见
- * `DEFAULT_STATUSES_BY_TYPE`）；`draft`／`pending` 是**尚未准入**；其余
+ * `DEFAULT_STATUSES_BY_TYPE`）；`draft`／`pending` 是**尚未准入**（2026-11-03 起
+ * Pitfall 不再产生 `draft`，该档现只由 WorkCase 等类型使用）；其余
  * （retired／resolved／voided／discarded／implemented）是终态或已退出。
  */
 export function statusRank(status) {

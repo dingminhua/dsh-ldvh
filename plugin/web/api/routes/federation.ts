@@ -160,16 +160,17 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
         // 此前本处的判据是 v4 语义：`status === 'blocked'`（v5 中不存在该值，恒假）与
         // `phase ∈ {human_plan_confirming, human_closure_confirming}`（v5 对象无该字段，
         // 恒假）。实测 33 份载体中 blocked 与 phase 各 0 份，故两处计数恒为空——
-        // `pendingDecisions` 只剩 Pitfall draft 一项，WorkCase 的两个 Human Gate 永不入账。
+        // `pendingDecisions` 曾只剩 Pitfall draft 一项，WorkCase 的两个 Human Gate 永不入账。
+        // （2026-11-03：Pitfall 取消 `draft` 待确认态后，`pendingDecisions` 由 WorkCase 的
+        // 两个 Human Gate 独占——下方 Pitfall 计数随之删除。）
         card.activeWorkCases = workCases.items.filter((item) => item.status === 'open').length
         card.pendingDecisions = workCases.items
           .filter((item) => PENDING_WORKCASE_GROUPS.has(String(item.group ?? '')))
           .length
       }
-      if (!pitfalls.error) {
-        card.pendingDecisions = (card.pendingDecisions ?? 0)
-          + pitfalls.items.filter((item) => item.status === 'draft').length
-      }
+      // Pitfall 不再计入 `pendingDecisions`（2026-11-03）：Pitfall 取消 `draft` 待确认态
+      // （23 §9），已无「在等入档的候选」可数。`pitfalls` 仍用于下面的 lastActivityAt
+      // 与 issues，取数保留。
       const lastActivityAt = latestChangeLogAt([...sparks.items, ...workCases.items, ...pitfalls.items])
       if (lastActivityAt) card.lastActivityAt = lastActivityAt
       return card

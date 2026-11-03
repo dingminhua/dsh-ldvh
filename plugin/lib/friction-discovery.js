@@ -147,7 +147,7 @@ export async function loadDedupCandidates(factSourceRoot) {
  * **同源的那个 Pitfall 根本不在它的输入里**——它只能把「同源跨角色」判成两笔无关
  * 记录，`paired-with` 永远建不起来。这不是执行体判错，是输入缺层的机械后果。
  *
- * 只读：返回 `active` 与 `draft` 的薄投影（23 §12 的 F1 投影集 + 判同源所需的
+ * 只读：返回 `active` 的薄投影（23 §12 的 F1 投影集 + 判同源所需的
  * `scope`/`trigger_signal`）。**本函数不写 Pitfall**——11 §9 的机械通道写入权
  * 只覆盖摩擦观察缓冲与账目，此处仅扩充读侧。
  *
@@ -158,7 +158,7 @@ export async function loadDedupCandidates(factSourceRoot) {
  * 本函数只保证「缺层是可见的」，不替它选。
  */
 export async function loadCrossTypeDedupCandidates(factSourceRoot) {
-  const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active", "draft"], limit: 200 });
+  const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active"], limit: 200 });
   if (!listed.ok) return listed;
   const items = (listed.value.items ?? []).map((item) => ({
     object_uid: item.object_uid,

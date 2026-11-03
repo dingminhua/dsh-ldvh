@@ -582,13 +582,13 @@ test('active WorkCases contain ordinary progress or termination cleanup and reus
   }
 })
 
-test('inbox keeps WorkCase Human positions separate from Pitfall draft confirmation', async () => {
+test('inbox keeps WorkCase Human positions separate from Friction repairs', async () => {
   const body = await cognition('zh')
   const items = (body.inbox as Record<string, unknown>).items as Array<Record<string, unknown>>
 
   const kinds = new Set<string>()
   let workCaseCount = 0
-  let pitfallCount = 0
+  let frictionCount = 0
   for (const item of items) {
     if (item.type === 'workcase') {
       workCaseCount += 1
@@ -601,10 +601,11 @@ test('inbox keeps WorkCase Human positions separate from Pitfall draft confirmat
       // WorkCase 条目不得把来源 status 放在名为 status 的字段（02 §7.3）。
       assert.equal('status' in item, false)
       assert.equal(item.inboxKind, expectedInboxKind(item))
-    } else if (item.type === 'pitfall') {
-      pitfallCount += 1
-      assert.equal(item.status, 'draft')
-      assert.equal(item.inboxKind, 'pitfall_confirmation')
+    } else if (item.type === 'friction') {
+      // 26 §12：open 摩擦账目进待决定事项，`status` 是来源状态的直读值。
+      assert.equal(item.status, 'open')
+      frictionCount += 1
+      assert.equal(item.inboxKind, 'friction_repair')
       assert.equal('progress_group' in item, false)
     } else {
       assert.fail(`unexpected inbox object type: ${String(item.type)}`)
@@ -614,10 +615,10 @@ test('inbox keeps WorkCase Human positions separate from Pitfall draft confirmat
     assert.equal('source_status' in item, false)
     kinds.add(String(item.inboxKind))
   }
-  assert.equal(workCaseCount + pitfallCount, items.length)
+  assert.equal(workCaseCount + frictionCount, items.length)
   // 当前事实源不保证每次读取都包含全部待决对象；只校验实际出现对象的投影契约。
   for (const kind of kinds) {
-    assert.ok(['plan_confirmation', 'closure_confirmation', 'pitfall_confirmation'].includes(kind))
+    assert.ok(['plan_confirmation', 'closure_confirmation', 'friction_repair'].includes(kind))
   }
 })
 
@@ -625,20 +626,6 @@ test('cognition rejects a project outside the verified configuration', async () 
   const response = await fetch(`${baseUrl}/api/cognition?locale=zh&window=1d&projectId=ldvh-closure-preview`)
   assert.equal(response.status, 400)
   assert.match(String((await response.json() as Record<string, unknown>).error), /Unknown governed project/)
-})
-
-test('current inbox preserves complete shared Card fields for every available draft Pitfall', async () => {
-  const body = await cognition('zh', '1d')
-  const items = (body.inbox as Record<string, unknown>).items as Array<Record<string, unknown>>
-  for (const pitfall of items.filter((item) => item.type === 'pitfall')) {
-    assert.equal(pitfall.status, 'draft')
-    assert.equal(pitfall.inboxKind, 'pitfall_confirmation')
-    const card = pitfall.card as Record<string, unknown>
-    for (const field of ['symptoms', 'trigger_conditions', 'resolution', 'avoidance', 'validation_summary', 'applicability']) {
-      assert.equal(typeof card[field], 'string', `${field} remains readable in the ordinary Pitfall Card projection`)
-      assert.ok(String(card[field]).trim().length > 0)
-    }
-  }
 })
 
 test('priority signal is shown only for valid P0-P3 and omitted for missing/invalid', async () => {
@@ -676,8 +663,10 @@ test('decision basis is inlined via each source object card projection (Q3)', as
         }
       }
     } else {
-      assert.equal(item.type, 'pitfall')
-      for (const field of ['symptoms', 'trigger_conditions', 'applicability', 'root_cause', 'resolution', 'avoidance', 'validation_summary']) {
+      // 26 §12：inbox 的非 WorkCase 条目现只剩 Friction（Pitfall 收件档已随
+      // 2026-11-03 取消 `draft` 一并移除，23 §9）。
+      assert.equal(item.type, 'friction')
+      for (const field of ['phenomenon', 'attribution', 'disposition', 'occurrence', 'status']) {
         if (field in card) assert.notEqual(card[field], undefined, `${field} preserves its source value`)
       }
     }
@@ -695,7 +684,7 @@ test('readable items carry canonical_path for conditional copy (Q4); time omissi
   if (items.length === 0) return
   for (const item of items) {
     // 字段级直读 readable 时携带 canonical_path，供条件显示“复制对象路径”。
-    const collection = item.type === 'workcase' ? 'workcases' : 'pitfalls'
+    const collection = item.type === 'workcase' ? 'workcases' : 'frictions'
     assert.equal(item.canonical_path, `ldvh-base/${collection}/${String(item.id)}.yaml`)
     // updated_at 缺失排最后并省略时间显示（Q8）：有则带 updatedAt 字符串。
     if (item.read_status === 'readable' && typeof item.updatedAt !== 'string') {

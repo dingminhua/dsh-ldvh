@@ -41,7 +41,9 @@ const statusOrderIndex = new Map(STATUS_FILTER_ORDER.map((status, index) => [sta
 
 const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   adr: ['active', 'retired'],
-  pitfall: ['draft', 'active', 'discarded'],
+  // 23 §9 状态闭集两值（2026-11-03 Human 决定取消 `draft` 待确认态）：
+  // active（默认候选）→ discarded（终态）。
+  pitfall: ['active', 'discarded'],
   // 20 §9 状态闭集：open（待处理）→ implemented（落实/交接）/ discarded（废弃/合并/拆分）。
   spark: ['open', 'implemented', 'discarded'],
   research: ['active', 'retired'],

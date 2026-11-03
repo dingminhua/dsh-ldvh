@@ -269,7 +269,7 @@ test("recallForAction：默认只取各类型自己的活跃状态，可显式�
 		);
 	}
 	const wide = await recallForAction({
-		action: "校验验证", root: ROOT, statuses: ["active", "draft", "open", "observing"],
+		action: "校验验证", root: ROOT, statuses: ["active", "discarded", "open", "draft"],
 	});
 	assert.ok(wide.facts.length >= def.facts.length, "纳入更多状态时召回不减少");
 });
@@ -944,7 +944,8 @@ test("02 §9.1：pagination 须如实说明无游标及如何取更多", async (
 test("limitations 须如实披露词法匹配的固有边界", async () => {
 	// **口径变更说明**（2026-10-24，第 54 轮）：本用例原先断言样本量为 30，
 	// 且备注「只有 13/30 = 43% 命中」。两处都已过时：
-	//   · 样本量：早先未按类型区分默认状态，Pitfall 的 draft 也算进可见集；
+	//   · 样本量：早先未按类型区分默认状态，Pitfall 的 draft 也算进可见集（该档
+	//     2026-11-03 已取消，WorkCase 仍有 draft）；
 	//     第 48 轮按 `23 §12` 改为「默认只含 active」后，候选是 23 条；
 	//   · 命中率：早先正文只匹配前 1200 字符，症状段（在 body 中后部）常被截掉；
 	//     第 46 轮改为全文匹配后复测为 23/23 = 100%。
@@ -1047,7 +1048,8 @@ test("排序比较器：每层键都须真的被样本覆盖（无并列组 = �
 	);
 	assert.equal(compareFactHits(older, newer) > 0, true, "反向须对称");
 
-	// ② 状态等级：active 须压过更新的 draft。
+	// ② 状态等级：active 须压过更新的 draft（2026-11-03 起 Pitfall 无 draft，
+	// 该档现只由 WorkCase 等类型使用；statusRank 判据本身照旧适用）。
 	const draftNewer = mk({ ...base, status: "draft", updatedAt: "2026-10-27T00:00:00.000Z" });
 	assert.equal(
 		compareFactHits(mk(base), draftNewer) < 0, true,
@@ -1707,7 +1709,7 @@ test("默认候选状态须按类型取，不得统一写死 active（20–27 �
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.friction], ["open"], "26：默认只含 open");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.adr], ["active"], "22：默认含 active");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.norm], ["active"], "27：默认含 active");
-	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.pitfall], ["active"], "23 §12：draft 不进默认候选");
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.pitfall], ["active"], "23 §12 / 2026-11-03：Pitfall 无 draft，默认候选只含 active");
 
 	// 关键行为：各类的默认候选确实能被召回。
 	// Friction 的 open 是「活账」，必须可见（否则摩擦账本读不到东西）。

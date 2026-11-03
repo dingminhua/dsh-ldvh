@@ -3,7 +3,7 @@
 // ## 这个文件补的是什么
 //
 // `observation-review.js` 已经有 `reviewPendingEntries`：它负责读缓冲、校验提案、
-// 建 draft、结算条目——**全部机械部分**。缺的是「谁来做那个语义判断」，即：
+// 建 active Pitfall、结算条目——**全部机械部分**。缺的是「谁来做那个语义判断」，即：
 //
 //   派生一个零上下文执行体 → 把缓冲投影交给它 → 收它的结构化提案 → 交给
 //   `reviewPendingEntries` 落盘
@@ -21,7 +21,7 @@
 //    既有账本投影**，不传区间材料、不传会话正文。这是结构性的——它拿不到的东西
 //    它就偷不走。
 // 3. **一次派发逐条判定**（§10.2，2026-10-27 修订）：交出的每一条都必须有结论——
-//    可成文则建 `draft`，不足则结算为 `discarded`。这条**不在配额上设上限**，因为
+//    可成文则建 `active` Pitfall，不足则结算为 `discarded`。这条**不在配额上设上限**，因为
 //    「每轮只许写 1 条」正是让待审队列永远清不完的原因（Human：「完成一个处理一个，
 //    否则很容易变成永远结束不了的任务」）。`MAX_ENTRIES_PER_REVIEW_DISPATCH` 只是
 //    一次派发的**交付条数上限**（防提示词无界增长），超出部分留到下一次派发。
@@ -29,7 +29,7 @@
 // ## 失败即 fail-closed（§12）
 //
 // 任一步失败都如实返回，**不降级**为「跳过审核」或「只记日志」。原因：审核段是
-// 机械通道的一部分（§10.2 第 3 项创建 draft），静默跳过会让「缓冲里有材料但从不
+// 机械通道的一部分（§10.2 第 3 项创建 `active` Pitfall），静默跳过会让「缓冲里有材料但从不
 // 被审」与「缓冲为空」外观相同。
 import { join } from "node:path";
 
@@ -72,8 +72,8 @@ function failure(code, message, extra = {}) {
  * 组装审核段给执行体的提示词。
  *
  * **只含缓冲投影与既有对象投影**，不含：会话正文、区间材料、水位、任何 evidence
- * 之外的原文。`evidence` **必须**交付（审核段要据它判「够不够成文」，且 draft 正文
- * 须复制逐字引证——§12bis「证据不留在缓冲」）。
+ * 之外的原文。`evidence` **必须**交付（审核段要据它判「够不够成文」，且 Pitfall 正文
+ * 须复制逐字引证——§12bis「证据不留在缓冲」）。**2026-11-03 取消 `draft` 后，创建即入档**。
  */
 export function buildReviewPrompt({ entries, existingPitfalls, projectId, frictionGroups = [], frictionLedger = [], frictionProjectionGap = null }) {
   const lines = [];
@@ -86,7 +86,8 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId, fricti
   lines.push("留观缓冲里有一批**待审核的经验材料**。逐条判断它是否已构成一条可成文的经验");
   lines.push("（即「某个失败机制 + 它为何发生 + 怎么解决/规避」三条都已可写）。");
   lines.push("");
-  lines.push("**每一条都必须给出结论**（2026-10-27 修订）：判为可成文就成形为 `draft` 候选，");
+  lines.push("**每一条都必须给出结论**（2026-10-27 修订）：判为可成文就成形为 `active` Pitfall（");
+  lines.push("2026-11-03 起创建即入档，不再有待确认的候选态），");
   lines.push("判为不足就写成 `insufficient` 并给出带引证的理由（该条会被结算为 `discarded`，");
   lines.push("不入事实对象）。");
   lines.push("");
@@ -168,7 +169,7 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId, fricti
   lines.push("## 既有对照集（查重必用，23 §6.2）");
   lines.push("");
   if (existingPitfalls.length === 0) {
-    lines.push("（当前没有任何 active 或 draft 的 Pitfall）");
+    lines.push("（当前没有任何 active 的 Pitfall）");
   } else {
     for (const item of existingPitfalls) {
       lines.push(`- ${item.object_uid} ｜ ${item.status} ｜ ${item.title}`);
@@ -180,7 +181,7 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId, fricti
   lines.push("对**每一条**待审材料给出结论：");
   lines.push("");
   lines.push("- `formed`：可成文。须给 `title`／`scope`／`body`（七段正文），且正文里");
-  lines.push("  **必须复制该条的逐字引证**（不得只写「见缓冲」——缓冲可淘汰，draft 须长期可核）；");
+  lines.push("  **必须复制该条的逐字引证**（不得只写「见缓冲」——缓冲可淘汰，Pitfall 正文须长期可核）；");
   lines.push("  还须给 `dedupe`：你对查重做了没有、比对了哪些对象、结论是什么。");
   lines.push("");
   lines.push("  **`dedupe` 三个字段的口径**（23 §6.2；2026-10-27 明确，避免与校验器错位）：");
@@ -188,7 +189,7 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId, fricti
   lines.push("  - `compared`：数组，填**你实际逐项比对过的**那几个既有对象的 `object_uid`");
   lines.push("    （取自上面清单）。**不需要**枚举清单里全部对象——填你真正读过并据以判断的那几个；");
   lines.push("    但凡填进数组的，必须是真的取自上面清单的 uid，**不得编造**。");
-  lines.push("    注意：`draft` 状态的既有对象同样在查重范围内，不要只比 `active`；");
+  lines.push("    注意：`discarded` 状态的既有对象不在查重范围内，不要把它算进对照集；");
   lines.push("  - `conclusion`：`no-duplicate`（无同机制）或 `duplicate`（有同机制，此时另须");
   lines.push("    给 `duplicate_of` = 那个对象的 `object_uid`）。");
   lines.push("");
@@ -278,7 +279,7 @@ export function reviewOutputSchema() {
  *
  * 提示词要求执行体给的是**三分结论**（`formed` / `duplicate` / `discarded`）——那是它
  * 真正做的判断。而 `reviewPendingEntries` 收的是可以逐项机械校验的字段：`insufficient`
- * （→ discarded）、`dedupe`＋`title/scope/body`（→ 建 draft）。两者形状不同，若不翻译，
+ * （→ discarded）、`dedupe`＋`title/scope/body`（→ 建 active Pitfall）。两者形状不同，若不翻译，
  * 执行体每给一条 `discarded` 都会被当成「查重未登记」而 fail-closed——**逐条判定会
  * 因此永远落不了地**，而症状看起来像执行体不守 schema（实测过一次）。
  *
@@ -844,7 +845,7 @@ export async function runReviewStage({
     action: formedCount > 0 && value.discarded.length > 0
       ? "judged-all"
       : formedCount > 0
-        ? "formed-draft"
+        ? "formed-pitfall"
         : value.discarded.length > 0
           ? "discarded-entries"
           : "no-entry",
