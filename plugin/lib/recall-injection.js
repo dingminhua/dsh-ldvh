@@ -234,7 +234,7 @@ export const FACT_QUOTA_TOTAL = 3;
  * 与总预算的关系：这是**既有注入面预算内部的子分配**，不是新的预算边界——
  * 总预算由档位决定（`INJECTION_BUDGET_TIERS`，默认档 10240 字节，见
  * `plugin/lib/lifecycle.js` 的生产取值），基线只占其中一段（同 `specBudget`
- * 按 60% 切分候选预算、`planSpecCatalog` 按规范档份额切分目录的既有做法）。
+ * 按 60% 切分候选预算、`planL0Enumeration` 按份额切分 Norm 与经验两段的既有做法）。
  *
  * 为什么需要它：`22 §12` 要求 F1 无条件枚举全部 active ADR，而 ADR 数量会增长
  * （本仓 6 条、约 267 字节；若涨到 30 条即约 1400 字节）。没有上限时基线会
