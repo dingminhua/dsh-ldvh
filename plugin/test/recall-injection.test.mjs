@@ -18,6 +18,9 @@ import {
 	RECALL_BYTE_BUDGET,
 	RECALL_RENDER_CHAR_LIMIT,
 	RECALL_SUMMARY,
+	FACT_QUOTA_TOTAL,
+	FACT_SECTION_ORDER,
+	QUOTA_BY_TYPE,
 	buildRecallInjection,
 	classifyEntry,
 	decideInjection,
@@ -27,7 +30,7 @@ import {
 	renderRecallRow,
 	shouldRecall,
 } from "../lib/recall-injection.js";
-import { recallForAction, RECALL_DIRECT_BYTE_BUDGET, RECALL_LIMIT_MAX } from "../lib/source-recall.js";
+import { recallForAction, RECALL_DIRECT_BYTE_BUDGET, RECALL_LIMIT_MAX, INJECTION_EXCLUDED_TYPES } from "../lib/source-recall.js";
 import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -1738,9 +1741,42 @@ test("L0 三段：索引不得混入候选语汇，也不得占 limit 名额", a
 		}
 	}
 	// 索引不占 limit：候选条数仍由 limit 决定，与索引段无关。
-	const r2 = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 99, budgetBytes: 10240 });
+	//
+	// **对照组必须与注入路径同参数**（2026-11-04 修，friction-943940d6 的同族形态）：
+	// 旧断言直接调 `recallForAction({action, root, limit, budgetBytes})`，而
+	// `buildRecallInjection` 还传了 `excludeTypes: INJECTION_EXCLUDED_TYPES` 与
+	// `factSelection`（分节次序 + 每类型名额）。两个入口的**排除面与选择规则都不同**，
+	// 它们「条数相等」只是当时语料组成下的巧合：注入路径排除 spark 后由 adr/norm/
+	// pitfall/friction/research/workcase 填满 8 席，直调路径则让 6 条 spark 挤进来，
+	// 恰好也是 8。语料一变（本轮只是把几条账目从 open 改成 resolved）巧合即破——
+	// 红的不是被测行为，是断言把「同一批候选」当成了「同一套选择规则」。
+	//
+	// 现在显式传同一套参数，比较的才是本用例声称的那件事：**索引段的存在不改变
+	// limit 的语义**。若注入路径真的让索引占用名额，两侧仍会不等。
+	const r2 = await recallForAction({
+		action: "把 34 号规范改名成双源召回",
+		root: ROOT,
+		excludeTypes: INJECTION_EXCLUDED_TYPES,
+		limit: 99,
+		factSelection: { order: FACT_SECTION_ORDER, quotaByType: QUOTA_BY_TYPE, total: 99 },
+		budgetBytes: 10240,
+	});
 	assert.equal(r.result.specs.length, r2.specs.length, "L0 索引不得改变规范候选条数");
 	assert.equal(r.result.facts.length, r2.facts.length, "L0 索引不得改变事实候选条数");
+	// **正向分辨力**（2026-11-04 补）：仅靠「两侧条数相等」会被「两边都错成同一样」
+	// 满足——实测把注入路径的 `limit: totalQuota` 改成 `totalQuota - 3` 后，
+	// 上面两条相等断言**仍然全绿**（limit=99 时减 3 仍远大于实际 8 条，改动不可见）。
+	// 故另须在**名额真正吃紧**的档位钉一次：默认档总名额为 `FACT_QUOTA_TOTAL`
+	// （3 条），此时 L0 段若占了名额，事实候选必少于 3 条。
+	const tight = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, budgetBytes: 10240 });
+	assert.equal(
+		tight.result.facts.length,
+		FACT_QUOTA_TOTAL,
+		`默认档须交付满 ${FACT_QUOTA_TOTAL} 条事实候选，实测 ${tight.result.facts.length}——少一条即说明 L0 索引段占用了名额`,
+	);
+	// 且该档位下 L0 段确实在场（否则上一条会因为「没有索引」而空过）。
+	assert.match(tight.text, /【事实规范 · active Norm/, "默认档下事实规范段须在场");
+	assert.match(tight.text, /【经验 · active Pitfall/, "默认档下经验段须在场");
 });
 
 test("L0 三段：单纯读取回合也须带出三段（不依赖词法命中）", async () => {
