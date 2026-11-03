@@ -158,7 +158,13 @@ export function decideInjection(input) {
 }
 
 /**
- * 默认单次注入预算（**字节**，不是字符）。
+ * **库默认**单次注入预算（**字节**，不是字符）——只在调用方不传 `budgetBytes` 时兜底。
+ *
+ * **这不是生产预算**（2026-11-03 订正）：生产路径 `plugin/lib/lifecycle.js` 每次都从
+ * `getInjectionBudget()`（档位 `INJECTION_BUDGET_TIERS`，默认档 10 = 10240 字节）取
+ * 实际字节并传入 `budgetBytes`，本常量在那条路上**永不生效**。它现在的角色只有两个：
+ * 测试里当「小预算」的参照值，以及调用方漏传时的安全兜底。此前本注释写「总预算」，
+ * 与生产事实不符，已按 02 §5.6 据实订正。
  *
  * **命名注**（2026-10-24）：原名为 `RECALL_CHAR_BUDGET`，但它的实际用法是传给
  * `budgetBytes` 按 UTF-8 字节计算——名字说 CHAR、用法算 BYTE，同一份文件里
@@ -166,7 +172,7 @@ export function decideInjection(input) {
  * 中文一字三字节，极易让维护者按字符估算而严重低估（2400 字节只合 800 汉字）。
  * 故改名为 `RECALL_BYTE_BUDGET`，并在两条用例里校验二者单位不同。
  *
- * 与 guidance 的 1500 分开计——两者是不同的注入面。
+ * 与 guidance 的 1500 分开计——两者是不同的注入面（10 §5.3「各自独立承载、互不扣减」）。
  *
  * 定值依据（实测，2026-10-24）：`limit: 3` 时三条规范的候选卡约 1400–1500 字节、
  * 三条事实约 870–910 字节，合计约 **2300 字节**。原定 900 字节导致**每一条**都被
@@ -187,8 +193,8 @@ export const RECALL_BYTE_BUDGET = 2400;
  * 四类，research 与 workcase 兜底在其后。spark/goal 不进注入：spark 见
  * `INJECTION_EXCLUDED_TYPES`（31 §10），goal 是单例直读、本就不进候选。
  *
- * **名额不扩大任何预算**：总名额等于既有注入条数上限（3），字节预算
- * `RECALL_BYTE_BUDGET` 不变。分节只是**交付组织**，不是新的排序键。
+ * **名额不扩大任何预算**：总名额等于既有注入条数上限（3）。分节只是**交付组织**，
+ * 不是新的排序键。
  */
 export const FACT_SECTION_ORDER = Object.freeze([
   "adr", "norm", "pitfall", "friction", "research", "workcase",
@@ -225,9 +231,10 @@ export const FACT_QUOTA_TOTAL = 3;
 /**
  * **决策基线（F1）段的字节上限**。
  *
- * 与 `RECALL_BYTE_BUDGET` 的关系：这是**既有注入面预算内部的子分配**，
- * 不是新的预算边界——总预算仍是 2400 字节，基线只占其中一段（同 `specBudget`
- * 按 60% 切分候选预算的既有做法）。
+ * 与总预算的关系：这是**既有注入面预算内部的子分配**，不是新的预算边界——
+ * 总预算由档位决定（`INJECTION_BUDGET_TIERS`，默认档 10240 字节，见
+ * `plugin/lib/lifecycle.js` 的生产取值），基线只占其中一段（同 `specBudget`
+ * 按 60% 切分候选预算、`planSpecCatalog` 按规范档份额切分目录的既有做法）。
  *
  * 为什么需要它：`22 §12` 要求 F1 无条件枚举全部 active ADR，而 ADR 数量会增长
  * （本仓 6 条、约 267 字节；若涨到 30 条即约 1400 字节）。没有上限时基线会
@@ -256,8 +263,8 @@ export const ADR_BASELINE_BYTE_BUDGET = 600;
  * 为什么需要它：引导面在 `10:241` 有「未超 LDVH 侧常量预算」的核对项，
  * 而召回这一面此前只有数据预算、没有文本预算——即**渲染层可以无界增长**
  * （项目语料变大、标题变长、命中理由变多时）。这不是新增预算边界
- * （那属 `10:261` 的 Human 决定事项），而是给已声明的 2400 预算补上
- * 它在渲染端的对应约束。
+ * （那属 `10:261` 的 Human 决定事项），而是给当时已声明的 2400 字节预算补上
+ * 它在渲染端的对应约束（该 2400 现已是兜底值，生产走档位。见 `RECALL_BYTE_BUDGET`）。
  *
  * ── 2026-10-27 修正：改为**由字节预算动态导出**，不再是单值 1600 ────────
  *
@@ -544,51 +551,62 @@ export function currentUserText(messages, isOwnMessage) {
  *   · 「是不是应该」「怎么办」→ `no_tokens` 短路，同上。
  * 即法定效力决策的可见性重新取决于当回合用词，正是方案 A 要消除的缺陷。
  *
- * **边界**：本函数只渲染基线，不渲染候选、不声称适用（34 §13），并把
- * 「为什么没有候选」如实写在行里，避免读者把「只看到基线」误读成「查过了没相关」。
+ * **边界**：本函数只渲染**三段 L0 索引**，不渲染候选、不声称适用（34 §13），并把
+ * 「为什么没有候选」如实写在行里，避免读者把「只看到索引」误读成「查过了没相关」。
  *
- * @param {{baseline: object|null, why: string, limitBytes?: number|null}} input
+ * **2026-11-04 扩至三段**（Human 决定「ADR、事实规范、经验，这三个的 L0 是必须
+ * 注入的」）：本路径同样渲染 Norm 段与经验段——否则纯读取回合里这两段又退回词法
+ * 运气，而那正是本次要消除的缺陷。段内行由数据层 `planL0Enumeration` 排好
+ * （份额、让位、省略披露同源），渲染层只管拼接。
+ *
+ * @param {{baseline: object|null, l0Enumeration?: object|null, why: string, limitBytes?: number|null}} input
  * @returns {string}
  */
-export function renderBaselineOnlyRow({ baseline, why, limitBytes = null } = {}) {
+export function renderBaselineOnlyRow({ baseline, l0Enumeration = null, why, limitBytes = null } = {}) {
   const items = Array.isArray(baseline?.items) ? baseline.items : [];
+  const l0Segments = Array.isArray(l0Enumeration?.segments) ? l0Enumeration.segments : [];
   const lines = [];
   lines.push("【双源召回 · 行动前候选】");
-  // **候选区缺席的原因必须写清**：否则读者会把「只有基线」读成「已查过、无相关」。
+  // **候选区缺席的原因必须写清**：否则读者会把「只有索引」读成「已查过、无相关」。
   // 34 §6 排除与 no_tokens 是两种不同归因，分别措辞（归因不得混同）。
-  lines.push(`（本轮无词法候选：${why}。以下仅为**决策基线**——它属 22 §12 义务召回，不受该条件影响。）`);
+  lines.push(`（本轮无词法候选：${why}。以下为 **L0 索引**——ADR／事实规范／经验三段属义务召回，不受该条件影响；索引只证明「有这些」，不证明适用。）`);
   if (items.length === 0) {
     if (baseline?.sourceUnreadable === true) {
       lines.push("（决策基线：事实源不可读，基线未取得——**不表示本项目没有 ADR**（34 §12）。）");
     } else {
       lines.push("（决策基线：本项目当前无 active ADR。）");
     }
-    return lines.join("\n");
-  }
-  lines.push("【决策基线 · active ADR（22 §12 义务披露）】");
-  let usedBytes = 0;
-  // 与完整路径同一缩放口径：基线最多占注入预算的 1/3。
-  const scaledCap = typeof limitBytes === "number" && limitBytes > 0
-    ? Math.floor(limitBytes / BASELINE_BUDGET_SHARE_DIVISOR)
-    : ADR_BASELINE_BYTE_BUDGET;
-  const effectiveCap = Math.min(ADR_BASELINE_BYTE_BUDGET, scaledCap);
-  let shown = 0;
-  let omitted = 0;
-  for (const item of items) {
-    const line = `· ${item.title}${item.status ? `［${item.status}］` : ""}`;
-    const lineBytes = Buffer.byteLength(line, "utf8") + 1;
-    if (shown > 0 && usedBytes + lineBytes > effectiveCap) {
-      omitted += 1;
-      continue;
+  } else {
+    lines.push("【决策基线 · active ADR（22 §12 义务披露）】");
+    let usedBytes = 0;
+    // 与完整路径同一缩放口径：基线最多占注入预算的 1/3。
+    const scaledCap = typeof limitBytes === "number" && limitBytes > 0
+      ? Math.floor(limitBytes / BASELINE_BUDGET_SHARE_DIVISOR)
+      : ADR_BASELINE_BYTE_BUDGET;
+    const effectiveCap = Math.min(ADR_BASELINE_BYTE_BUDGET, scaledCap);
+    let shown = 0;
+    let omitted = 0;
+    for (const item of items) {
+      const line = `· ${item.title}${item.status ? `［${item.status}］` : ""}`;
+      const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+      if (shown > 0 && usedBytes + lineBytes > effectiveCap) {
+        omitted += 1;
+        continue;
+      }
+      lines.push(line);
+      usedBytes += lineBytes;
+      shown += 1;
     }
-    lines.push(line);
-    usedBytes += lineBytes;
-    shown += 1;
+    if (omitted > 0) {
+      lines.push(`（基线按字节上限 ${effectiveCap} 列出前 ${shown} 条，另有 ${omitted} 条未列出；**未列出不代表不存在**，用 ldvh_adr_list 取全量。）`);
+    }
+    lines.push("（基线只保证「看得见」，**不证明适用**。）");
   }
-  if (omitted > 0) {
-    lines.push(`（基线按字节上限 ${effectiveCap} 列出前 ${shown} 条，另有 ${omitted} 条未列出；**未列出不代表不存在**，用 ldvh_adr_list 取全量。）`);
+  // Norm 段与经验段：数据层已排好行（含段头、省略披露、段尾声明）。
+  for (const segment of l0Segments) {
+    if (segment?.yielded === true || !Array.isArray(segment?.lines) || segment.lines.length === 0) continue;
+    lines.push(...segment.lines);
   }
-  lines.push("（基线只保证「看得见」，**不证明适用**。）");
   return lines.join("\n");
 }
 
@@ -656,12 +674,48 @@ export function renderRecallRow(result) {
       ? `；基线 ${baselineItems.length} 条未展开（22 §12，ldvh_adr_list）`
       : ""
     : "";
-  let baselineYieldNoteEmitted = false;
-  // 把痕迹并进「本条披露行」的收尾括号里；只并一次（先到先得：截断行优先）。
+  // **各段让位的痕迹**（2026-11-04）：与基线同一纪律——让位不等于静默，但极小
+  // 预算下不能新增行。故三段（ADR／Norm／经验）的让位痕迹合并成**一个**后缀，
+  // 只并一次。
+  //
+  // 措辞按预算宽度分两档（实测依据沿用 2026-11-03）：1200–1500 档的固定行已占去
+  // 九成以上预算（实测 1400 档注入 1358 字节、仅余 42），带工具名的长形态必顶破
+  // 预算，进而触发更贵的一行「本次注入超出预算」（+241 字节，实测把该档放大到
+  // 1675）。故低于 1600 只报类型与条数；1600 起才带工具名。
+  const l0Enumeration = result?.l0Enumeration ?? null;
+  const l0YieldedSegments = Array.isArray(l0Enumeration?.segments)
+    ? l0Enumeration.segments.filter((segment) => segment?.yielded === true && Number.isInteger(segment?.total) && segment.total > 0)
+    : [];
+  const l0Verbose = baselineBudgetLimit === null || baselineBudgetLimit >= 1600;
+  // **极小预算下只报类别，不报条数**（2026-11-04，实测依据）：1200–1600 档的固定
+  // 披露行已占九成以上预算，多 20 字节即顶破（实测 1400 档因这条痕迹多出 9 字节，
+  // 进而触发更贵的一行「本次注入超出预算」+240）。故低于 1600 只留「哪两段未展开」
+  // 这一条可检索事实，条数与入口在数据层 `l0Enumeration` 与 `1600+` 档承载。
+  const l0YieldHint = l0Verbose
+    ? l0YieldedSegments
+      .map((segment) => `${segment.type === "norm" ? "事实规范" : segment.type === "pitfall" ? "经验" : segment.type} ${segment.total} 条`)
+      .join("、")
+    : "事实规范与经验 L0";
+  const yieldHintOf = ({ baseline, l0 }) => {
+    const parts = [];
+    if (baseline) parts.push(`基线 ${baselineItems.length} 条未展开`);
+    if (l0) parts.push(l0Verbose ? `${l0YieldHint}未展开` : l0YieldHint);
+    if (parts.length === 0) return "";
+    const basis = l0 ? "22 §12／L0" : "22 §12";
+    const entries = l0 && l0Verbose ? "，ldvh_adr_list／ldvh_norm_list／ldvh_pitfall_list" : "";
+    return `；${parts.join("、")}（${basis}${entries}）`;
+  };
+  let yieldNoteEmitted = false;
+  // 紧凑整行（`overBudget` / `blockedByBudget` 两支）用的同一后缀——与
+  // `withBaselineYieldNote` 共用 `yieldHintOf`，避免两处措辞各自漂移。
+  const compactYieldSuffix = yieldHintOf({ baseline: baselineYieldSuffix !== "", l0: l0YieldedSegments.length > 0 });
   const withBaselineYieldNote = (text) => {
-    if (baselineYieldSuffix === "" || baselineYieldNoteEmitted) return text;
-    baselineYieldNoteEmitted = true;
-    return text.endsWith("）") ? `${text.slice(0, -1)}；${baselineYieldSuffix}）` : `${text}；${baselineYieldSuffix}`;
+    const hasBaseline = baselineYieldSuffix !== "";
+    const hasL0 = l0YieldedSegments.length > 0;
+    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;
+    yieldNoteEmitted = true;
+    const suffix = yieldHintOf({ baseline: hasBaseline, l0: hasL0 });
+    return text.endsWith("）") ? `${text.slice(0, -1)}${suffix}）` : `${text}${suffix}`;
   };
   if (baselineItems.length > 0 || baseline?.sourceUnreadable === true) {
     // **极小预算的退化形态先判**：此时整段压成一行（段头、计数、入口、适用性
@@ -730,6 +784,37 @@ export function renderRecallRow(result) {
       lines.push("（基线只保证「看得见」，**不证明适用**。）");
     }
     }
+  }
+  // ── **事实规范段 + 经验段**（L0 全量，Human 决定 2026-11-04）─────────────
+  //
+  // Human 的次序是「ADR、事实规范、经验，这三个的 L0 是必须注入的，其他根据
+  // 预算安排」。ADR 段由上面的决策基线承载（形状不变），本处补 **Norm 段与
+  // Pitfall 段**，次序即 `L0_SEGMENT_ORDER`——不能颠倒：Norm 界定项目自身的
+  // 方向规则（违反即违规范源），经验是「别重蹈已知陷阱」（`23 §12` 遵守预检
+  // 的消费点），前者优先级更高。
+  //
+  // 为什么必须**独立于词法命中**：实测对事实源做词法召回时，「前端样式错乱」
+  // 「页面白屏了」这类症状表述与 Norm 的标题／direction_key 常无字面重合，
+  // 于是「正在管这件事的规范」整条不进视野。`pitfall-8b3c5705` 已确立同型结论：
+  // 依赖词法匹配的面不能保证某个已知对象进入注入位，可靠通路是枚举全貌。
+  //
+  // 所以本段不是候选，是**索引**（`01.Att.03 §4`：L0 只证明「有这些」，不证明
+  // 相关或适用）：
+  //   · 不带命中理由（没有理由可带——它没参与匹配）；
+  //   · 不占 `limit` 名额（它不是「本次可能相关的 N 条」之一）；
+  //   · 自成一节，段头写明类型与 active 口径，段尾声明不证明适用；
+  //   · 用 `·` 前缀：`- ` 行会被下方候选字节裁剪循环吃掉。
+  //
+  // 字节量由数据层 `planL0Enumeration` 规划并**已从 `usableBudget` 中扣掉**，
+  // 故这里只管排版，不再做第二次字节决策——两侧同源才不会「预留与实际不符」。
+  for (const segment of Array.isArray(l0Enumeration?.segments) ? l0Enumeration.segments : []) {
+    if (segment?.yielded === true || !Array.isArray(segment?.lines) || segment.lines.length === 0) continue;
+    lines.push(...segment.lines);
+  }
+  // **事实源不可读时 L0 段也须出声**：读不到 ≠ 本项目没有这三类对象（34 §12）。
+  // 基线已对 ADR 说过一次，此处只补 Norm／经验两侧的缺失——不重复 ADR。
+  if (l0Enumeration?.sourceUnreadable === true && baselineItems.length === 0) {
+    lines.push("（事实规范与经验两段的 L0 索引未取得——事实源不可读，**不表示本项目没有这两类对象**（34 §12）。）");
   }
   if (specs.length > 0) {
     // **来源披露**（01 §10.3）：语料由回退来源应答时，必须如实标注，
@@ -950,18 +1035,18 @@ export function renderRecallRow(result) {
       // 末尾追加一句」，实测会把 800 档从 797 顶到 878（超预算 78）。故让位时把
       // 重复的复述（「**未列出的部分不代表不存在**，需要时请扩大检索」）压成
       // 「未列出不代表不存在」并把痕迹并进同一句——净字节仍低于原行。
-      if (baselineYielded) {
-        baselineYieldNoteEmitted = true;
-        lines.push(`（预算极小（上限 ${limitBytes} 字节）：保底首项（候选行 ${usedBytes} 字节）${baselineYieldSuffix}。未列出不代表不存在。）`);
+      if (compactYieldSuffix !== "") {
+        yieldNoteEmitted = true;
+        lines.push(`（预算极小（上限 ${limitBytes} 字节）：保底首项（候选行 ${usedBytes} 字节）${compactYieldSuffix}。未列出不代表不存在。）`);
       } else {
         lines.push(`（预算极小（上限 ${limitBytes} 字节）已超额，仅保底首项（候选行 ${usedBytes} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
       }
     } else if (blockedByBudget) {
       // 真实原因是预算：可能用量百分比不高，但已放不下下一条。
       // 确实是被预算挡住了（用量贴近上限）。
-      if (baselineYielded) {
-        baselineYieldNoteEmitted = true;
-        lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节、数据层估算用 ${usedBytes} 字节${baselineYieldSuffix}。未列出不代表不存在。）`);
+      if (compactYieldSuffix !== "") {
+        yieldNoteEmitted = true;
+        lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节、数据层估算用 ${usedBytes} 字节${compactYieldSuffix}。未列出不代表不存在。）`);
       } else {
         lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，数据层估算用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
       }
@@ -1160,8 +1245,11 @@ export function renderRecallRow(result) {
   }
   // **空表头须随内容一起消失**（2026-10-31）：候选行被裁光后仍留
   // `事实源：`／`事实源 · X：` 表头，既白占预算又会让读者以为「这一类为空」。
+  // **2026-11-03 扩到规范侧**：`规范源：`／`规范源（语料来自…）：` 同一问题——
+  // 实测 800 档规范候选被裁光后仍留 12 字节表头，正是那档顶破预算的那 11 字节。
+  // 判据同一条：表头下一行不是候选行（`- `）即为空表头。
   for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-    if (!/^事实源(?: · .+)?：$/.test(trimmed[i])) continue;
+    if (!/^(?:事实源(?: · .+)?|规范源(?:（.*）)?)：$/.test(trimmed[i])) continue;
     if (trimmed[i + 1] !== undefined && trimmed[i + 1].startsWith("- ")) continue;
     trimmed.splice(i, 1);
   }
@@ -1191,8 +1279,8 @@ export function renderRecallRow(result) {
     // 预留机制管不到「零候选」地板。此时改用紧凑说明行：保留 `02 §9.1` 强制
     // 要素（约束归因、裁去条数、实际条数、「不代表不存在」），舍去「含披露行
     // 预留」精度细节——披露底线优先于说明行冗长度。紧凑行仍放不下时如实
-    // 超预算带出（固定与披露文本不静默删，见上）；生产常量 2400 与测试矩阵
-    // 800–4000 均不触及该残余。
+    // 超预算带出（固定与披露文本不静默删，见上）；生产默认档 10240 与测试
+    // 矩阵 800–4000 均不触及该残余（800 档曾触及，已由空表头修复消除）。
     const compactReasons = [];
     // **须报实际生效的上限**（2026-10-27，独立审核严重项 1）：此处原先写死
     // `RECALL_RENDER_CHAR_LIMIT`（=1600），而字符上限自本轮起由预算导出
@@ -1219,11 +1307,54 @@ export function renderRecallRow(result) {
   // 这违反 `10:241`「注入内容未超 LDVH 侧常量预算」与 `02 §9.1`「不得静默截断」。
   //
   // 收口规则（固定文本与三态披露**永不删**——那是 `34 §12` 的披露底线）：
+  //   0. **先让 L0 的非 ADR 两段让位**（2026-11-04）：经验段先、事实规范段后——
+  //      它们是「索引」，而 ADR 基线是义务披露的最高一档；Human 指定的次序
+  //      （ADR → 事实规范 → 经验）因此在让位次序上**反向**生效。每段让位都留
+  //      一行可查的痕迹，不静默消失。
   //   1. 仍超预算 → **基线整段让位**（它是本行里唯一可让的内容块；
   //      义务披露降级为一句可查的痕迹，不静默消失）；
   //   2. 让位后仍超 → 如实带出并标注超出量（不再假装守住了预算）。
   if (limitBytes !== null && limitBytes > 0) {
     const bytesNow = () => Buffer.byteLength(trimmed.join("\n"), "utf8");
+    // **L0 段让位**（只作用于 Norm／经验两段；ADR 由下方既有规则让位）。
+    //
+    // 为什么次序是经验先让：Human 的注入次序是 ADR → 事实规范 → 经验，让位是
+    // 它的镜像——最后被满足的最先让出。段块形态固定（数据层产出）：段头以
+    // `【事实规范` 或 `【经验` 起，其后是 `· ` 条目行，末行是本档的段尾声明。
+    const yieldL0Segment = (headerPrefix) => {
+      const startIdx = trimmed.findIndex((l) => l.startsWith(headerPrefix));
+      if (startIdx === -1) return null;
+      let endIdx = startIdx + 1;
+      while (endIdx < trimmed.length && trimmed[endIdx].startsWith("· ")) endIdx += 1;
+      // 段尾声明行（`（本档预算仅容…` 或 `（L0 索引：…`）随段一起走。
+      if (endIdx < trimmed.length && trimmed[endIdx].startsWith("（本档预算仅容")) endIdx += 1;
+      else if (endIdx < trimmed.length && trimmed[endIdx].startsWith("（L0 索引：")) endIdx += 1;
+      const removed = endIdx - startIdx;
+      trimmed.splice(startIdx, removed);
+      return { startIdx, removed };
+    };
+    // 段总条数取自数据层的规划结果（渲染层不自己数行——让位发生时行已不在，
+    // 数行只能数到「被删掉的那几条」，会把「共 48 条」报成「共 4 条」）。
+    const l0TotalOf = (type) => {
+      const segment = Array.isArray(l0Enumeration?.segments)
+        ? l0Enumeration.segments.find((entry) => entry?.type === type)
+        : null;
+      return Number.isInteger(segment?.total) ? segment.total : 0;
+    };
+    for (const [prefix, type, label, entry] of [
+      ["【经验 · active Pitfall", "pitfall", "经验", "ldvh_pitfall_list"],
+      ["【事实规范 · active Norm", "norm", "事实规范", "ldvh_norm_list"],
+    ]) {
+      if (bytesNow() <= limitBytes) break;
+      const at = yieldL0Segment(prefix);
+      if (at === null) continue;
+      const total = l0TotalOf(type);
+      trimmed.splice(
+        at.startIdx,
+        0,
+        `（${label} L0 索引未展开：${total > 0 ? `${total} 条` : "本类"}，本次因字节预算 ${limitBytes} 不足未列出；用 ${entry} 取全量。）`,
+      );
+    }
     if (bytesNow() > limitBytes) {
       // 找出基线段的行区间（段头以「【决策基线」起，到紧随其后的最后一个
       // 非基线行之前；基线行以 `· ` 或「（基线」开头）。
@@ -1412,15 +1543,22 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
 async function baselineOnlyInjection({ projectRoot, why, cause, limitBytes = null }) {
   let baseline;
   try {
-    baseline = await baselineOnlyForAction({ root: projectRoot });
+    baseline = await baselineOnlyForAction({ root: projectRoot, budgetBytes: limitBytes });
   } catch (error) {
     return { inject: false, reason: `recall-failed:${error instanceof Error ? error.message : String(error)}` };
   }
   const data = baseline?.decisionBaseline ?? null;
-  const hasContent = (data?.items?.length ?? 0) > 0 || data?.sourceUnreadable === true;
-  // 无基线可披露 → 不进（与主路径同判据：不注入不等于「无相关」）。
+  const l0 = baseline?.l0Enumeration ?? null;
+  // **注入判据扩到三段**（2026-11-04，Human 决定）：任一段有内容即须注入——
+  // 否则「本项目无 active ADR、但有 active Norm 与经验」的回合会整行不进，
+  // 而那正是事实规范与经验最需要被看见的情形。
+  const l0Shown = Array.isArray(l0?.segments)
+    ? l0.segments.some((segment) => segment?.yielded !== true && Array.isArray(segment?.lines) && segment.lines.length > 0)
+    : false;
+  const hasContent = (data?.items?.length ?? 0) > 0 || data?.sourceUnreadable === true || l0Shown;
+  // 无内容可披露 → 不进（与主路径同判据：不注入不等于「无相关」）。
   if (!hasContent) return { inject: false, reason: "no-hits" };
-  const text = renderBaselineOnlyRow({ baseline: data, why, limitBytes });
+  const text = renderBaselineOnlyRow({ baseline: data, l0Enumeration: l0, why, limitBytes });
   // 渲染侧硬约束同样适用：极小预算下基线行也须守住字节预算。
   // 此处只做**如实标注**，不再裁剪——基线是义务披露，裁掉等于回到旧缺陷。
   const bytes = Buffer.byteLength(text, "utf8");
@@ -1428,6 +1566,7 @@ async function baselineOnlyInjection({ projectRoot, why, cause, limitBytes = nul
   const result = {
     ok: true,
     decisionBaseline: data,
+    l0Enumeration: l0,
     specs: [],
     facts: [],
     provesApplicability: false,
@@ -1441,7 +1580,7 @@ async function baselineOnlyInjection({ projectRoot, why, cause, limitBytes = nul
     budget: { limitBytes, usedBytes: 0, limit: 0 },
     gaps: [
       ...(baseline?.gaps ?? []),
-      `本轮未做词法候选召回（${why}）；决策基线不受该条件影响（22 §12）。`,
+      `本轮未做词法候选召回（${why}）；ADR／事实规范／经验三段 L0 索引不受该条件影响（22 §12、27 §10、23 §12）。`,
     ],
   };
   result.render = {

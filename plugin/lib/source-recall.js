@@ -943,8 +943,9 @@ const EXCERPT_MAX_CHARS = 120;
 /**
  * 通用召回接口（`recallForAction`）的默认字节预算。
  *
- * **与注入路径的 `RECALL_BYTE_BUDGET`（2400）是两个不同的常量**——本接口面向
- * CLI／诊断脚本等直接调用方，候选预算较宽；注入路径受引导面预算约束，须更紧。
+ * **与注入路径的兜底常量 `RECALL_BYTE_BUDGET`（2400）是两个不同的常量**——本接口面向
+ * CLI／诊断脚本等直接调用方，候选预算较宽；注入路径受引导面**档位**约束
+ * （`INJECTION_BUDGET_TIERS`，生产默认档 10240 字节），须更紧。
  * 两者**故意不同**，不可互相代入（历史上测试曾把二者当同一个数而断言失败）。
  *
  * 之所以具名：34 §11 要求「上限须以具名常量承载，不得是运行期猜测」。字面量
@@ -981,6 +982,213 @@ export const BASELINE_YIELD_BELOW_BYTES = 1200;
  * （并如实披露）也要留住词法候选。
  */
 export const BASELINE_BUDGET_SHARE_DIVISOR = 3;
+
+/**
+ * ── **三段 L0 常驻枚举**（Human 决定 2026-11-04）─────────────────────────
+ *
+ * Human 的原话是「排序就是 ADR、事实规范、经验，这三个的 L0 是必须注入的，
+ * 其他根据预算安排」。故注入面常驻的是**三类事实对象的 L0 标识**，按
+ * ADR → 事实规范（Norm）→ 经验（Pitfall）的次序分配，其余事实类型仍走词法候选。
+ *
+ * **为什么不覆盖元规范**（同日订正）：此前一段实现把 `specs/`（元规范）的标题
+ * 全量常驻，理由是「词法匹配对规范侧 0/29」。那是**另一件事**：元规范已有既有的
+ * 载体发现与读取通道（`01 §10` 的 L0–L4 读取、`ldvh_read_specification_candidates`），
+ * 引导面亦已按 `01 §10.4` 注入规范锚点。在注入面再复制一份元规范标题清单，是
+ * 在既有通道之外发一份可能漂移的第二索引，且不属 Human 所指的「事实规范」。
+ * 故本组常量只覆盖事实源侧的三类对象，元规范目录整段撤除。
+ *
+ * **为什么必须是全量而不是词法候选**（`pitfall-8b3c5705` 同型结论）：依赖词法
+ * 匹配的面不能保证某个已知对象进入注入位——换个说法就漏。而这三类对象是
+ * 「AI 行动前必须核对」的东西：ADR 属法定效力决定（`22 §1`／`22 §12` 义务召回）、
+ * 事实规范界定项目自身要求（`27 §10` 义务召回）、经验是不得重蹈的已知陷阱
+ * （`23 §12` 的遵守预检消费点）。三者的可见性若取决于当回合用词，义务召回就悬空。
+ *
+ * **本段是索引，不是候选**（`01.Att.03 §4`：L0 的直接用途是「发现、去重与精确
+ * 定位」，「不能单独证明」列含「与当前事项相关、规则适用」）。故：
+ *   · 不带命中理由（它不是被匹配出来的）；
+ *   · 不占 `limit` 名额（它不是「本次可能相关的 N 条」之一）；
+ *   · 段头逐字写明类型与 active 口径，段尾声明「不证明适用」；
+ *   · 与候选行使用不同的行首（`·` 而非 `- `），结构上就进不了候选裁剪池。
+ *
+ * **字段只到 L0 为止**：ADR 带状态（`22 §12` F1 的 title+status）、Norm 带
+ * `direction_key`（`27 §10` F1 的 direction_key+title）、经验只带标题。三类均
+ * **不带** scope／正文／decision——那是 F2/F3 的内容，常驻会给注入面造成无谓的
+ * 字节压力，且会把索引做成第二份语料。
+ */
+export const L0_SEGMENT_ORDER = Object.freeze(["adr", "norm", "pitfall"]);
+
+/** 各段的段头（逐字含类型与 active 口径；`adr` 沿用既有措辞以保引用稳定）。 */
+export const L0_SEGMENT_HEADERS = Object.freeze({
+  adr: "【决策基线 · active ADR（22 §12 义务披露）】",
+  norm: "【事实规范 · active Norm（27 §10 L0 枚举）】",
+  pitfall: "【经验 · active Pitfall（23 §12 L0 枚举）】",
+});
+
+/** 各段的取全量入口（段尾披露「另有 N 条未列出」时一并给出）。 */
+export const L0_SEGMENT_ENTRYPOINTS = Object.freeze({
+  adr: "ldvh_adr_list",
+  norm: "ldvh_norm_list",
+  pitfall: "ldvh_pitfall_list",
+});
+
+/**
+ * **三段 L0 可占「固定开销与基线之外」剩余预算的比例分母**（3 = 至多三分之一）。
+ *
+ * 与 `BASELINE_BUDGET_SHARE_DIVISOR` 同一条方法论，但主体从「ADR 基线」扩到
+ * 「Norm 段 + 经验段」：三段是优先于词法候选的常驻段，却不得把候选区吃干——
+ * 否则 `34 §8.1` 第 1 项的「双源召回」会退化成「双源清单」（只剩常驻段，不再有
+ * 按本次动作匹配的候选）。
+ *
+ * **为什么是 3 而不是 2**（2026-11-04 实测）：分母取 2 时，2400 档 L0 占 586 字节、
+ * 候选只剩 714，且规范候选先吃 60% 后首条事实卡（549 字节）放不下——事实侧归零，
+ * 正是「规范占满预算致事实恒为 0」这条既有用例抓的形态。改 3 之后同一档 L0 占
+ * 约 430、候选约 870，规范 3 条（约 313）之后仍容得下一条事实卡。
+ *
+ * 实测（2026-11-04，本仓语料）：Norm 段 201 字节、经验段 48 条标题 2715 字节。
+ * 默认档 10240 下份额约 3.0K ⇒ **两段全量装得下**，这正是 Human「必须注入」的
+ * 常态；小预算下才会截断并如实披露（`02 §9.1` 不得静默截断）。
+ */
+export const L0_SHARE_DIVISOR = 3;
+
+/** 段尾声明（无条目被省略时）。刻意压短：它每回合常驻。 */
+export const L0_FULL_NOTE = "（L0 索引：只标「有哪些」，不证明适用。）";
+
+/**
+ * **规划三段 L0 枚举**（纯函数，字节账与渲染逐字同源）。
+ *
+ * 输入按 `L0_SEGMENT_ORDER` 排好的三段条目与当次预算，输出「每段实际列出哪些、
+ * 省略多少、占多少字节」。之所以在**数据层**决定列到第几条：`usableBudget` 必须
+ * 提前扣掉本段，否则候选会按「没有 L0 段」来装填，渲染时再挤进来——正是
+ * 2026-10-25 基线落地时踩过的欠预留缺陷（实测多裁 2 条候选且裁剪原因归错）。
+ *
+ * 装填次序即 Human 指定的次序：ADR 先，其次 Norm，最后经验；前一段装不下才
+ * 轮到后一段。每段超出的部分如实计数披露（`02 §9.1` 不得静默截断）。
+ *
+ * @param {Array<{type: string, entries: string[], total: number}>} segments 按次序排好的三段
+ * @param {number|null} budgetBytes 当次注入预算；`null` = 调用方不设字节约束
+ * @param {number} reserveBytes 已被固定开销占掉的字节
+ * @returns {{segments: object[], bytes: number, yielded: boolean, note: string}}
+ */
+export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
+  const ordered = Array.isArray(segments) ? segments : [];
+  const hasBudget = Number.isFinite(budgetBytes) && budgetBytes > 0;
+  const remaining = hasBudget ? Math.max(0, budgetBytes - reserveBytes) : Number.POSITIVE_INFINITY;
+  const cap = hasBudget ? Math.floor(remaining / L0_SHARE_DIVISOR) : Number.POSITIVE_INFINITY;
+  // 整组让位：预算低到连「一段的段头 + 段尾 + 一条」都放不下时，本组不输出任何
+  // 行，由调用方把「三段 L0 未展开」并入既有披露行（让位不等于静默，
+  // `02 §9.1` 不得静默截断——与极小预算下基线让位同一套痕迹纪律）。
+  const yieldAll = () => ({
+    segments: ordered.map((segment) => ({
+      type: segment.type,
+      lines: [],
+      total: segment.total,
+      shown: 0,
+      omitted: segment.total,
+      bytes: 0,
+      yielded: segment.total > 0,
+    })),
+    bytes: 0,
+    yielded: ordered.some((segment) => segment.total > 0),
+    note: "",
+  });
+  if (hasBudget && budgetBytes < BASELINE_YIELD_BELOW_BYTES) return yieldAll();
+  if (cap <= 0) return yieldAll();
+
+  let used = 0;
+  const planned = [];
+  for (const segment of ordered) {
+    const header = L0_SEGMENT_HEADERS[segment.type] ?? `【L0 · ${segment.type}】`;
+    const entry = L0_SEGMENT_ENTRYPOINTS[segment.type] ?? "对应 list 工具";
+    const total = Number.isInteger(segment.total) ? segment.total : segment.entries.length;
+    if (total === 0) {
+      planned.push({ type: segment.type, lines: [], total: 0, shown: 0, omitted: 0, bytes: 0, yielded: false });
+      continue;
+    }
+    const headerBytes = Buffer.byteLength(header, "utf8") + 1;
+    // 段尾两版：全量版短，截断版要报「共几条、去哪儿取全量」。逐条装填时按
+    // **最坏**那版判容量，装填完再取真实版本——宁可少列一条，不得列完才发现
+    // 段尾放不下（那会静默超预算）。
+    const noteOf = (shown) =>
+      `（本档预算仅容前 ${shown} 条，共 ${total} 条；全量用 ${entry}。L0 索引不证明适用。）`;
+    const worstNoteBytes = Buffer.byteLength(noteOf(total), "utf8") + 1;
+    // 连「段头 + 段尾 + 一条」都放不下 ⇒ 本段整段让位，痕迹由调用方并入披露行。
+    if (cap - used < headerBytes + worstNoteBytes + Buffer.byteLength(segment.entries[0] ?? "", "utf8") + 1) {
+      planned.push({ type: segment.type, lines: [], total, shown: 0, omitted: total, bytes: 0, yielded: true });
+      continue;
+    }
+    const kept = [];
+    let segmentUsed = headerBytes + worstNoteBytes;
+    for (const line of segment.entries) {
+      const size = Buffer.byteLength(line, "utf8") + 1;
+      if (used + segmentUsed + size > cap) break;
+      segmentUsed += size;
+      kept.push(line);
+    }
+    if (kept.length === 0) {
+      planned.push({ type: segment.type, lines: [], total, shown: 0, omitted: total, bytes: 0, yielded: true });
+      continue;
+    }
+    const omitted = total - kept.length;
+    const note = omitted > 0 ? noteOf(kept.length) : L0_FULL_NOTE;
+    const bytes = headerBytes
+      + kept.reduce((sum, line) => sum + Buffer.byteLength(line, "utf8") + 1, 0)
+      + Buffer.byteLength(note, "utf8") + 1;
+    used += bytes;
+    planned.push({
+      type: segment.type,
+      lines: [header, ...kept, note],
+      total,
+      shown: kept.length,
+      omitted,
+      bytes,
+      yielded: false,
+      note,
+    });
+  }
+  return {
+    segments: planned,
+    bytes: used,
+    yielded: planned.some((segment) => segment.yielded === true),
+    note: planned.some((segment) => segment.omitted > 0) ? "partial" : "full",
+  };
+}
+
+/**
+ * 三段 L0 的**枚举输入**（只取身份字段，确定性排序）。
+ *
+ * 状态取各自类型的默认候选状态（`DEFAULT_STATUSES_BY_TYPE`，与词法候选同源，
+ * 故「有词命中时基线 N 条、无词命中时基线 M 条」的漂移不可能出现）。
+ * 排序为标题码点序 → 稳定引用（`02 §9` 确定性红线：同一语料两次调用必须给出
+ * 同一次序，否则常驻段会毫无理由地抖动）。
+ *
+ * @param {object[]} facts 事实源全量（或声明范围内的事实）
+ * @returns {Array<{type: string, entries: string[], total: number}>}
+ */
+export function l0EnumerationOf(facts) {
+  const all = Array.isArray(facts) ? facts : [];
+  return L0_SEGMENT_ORDER.map((type) => {
+    const statuses = DEFAULT_STATUSES_BY_TYPE[type] ?? DEFAULT_STATUSES_FALLBACK;
+    const picked = all.filter((fact) => fact.type === type && statuses.includes(fact.status));
+    picked.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0)
+      || (String(a.ref) < String(b.ref) ? -1 : String(a.ref) > String(b.ref) ? 1 : 0));
+    const entries = picked.map((fact) => {
+      if (type === "adr") return `· ${fact.title}${fact.status ? `［${fact.status}］` : ""}`;
+      // Norm 带 direction_key（`27 §10` F1 口径）：它是遵守预检的稳定入口。
+      const directionKey = fact.structural?.directionKey;
+      if (type === "norm" && typeof directionKey === "string" && directionKey !== "") {
+        return `· ${fact.title}（${directionKey}）`;
+      }
+      return `· ${fact.title}`;
+    });
+    return { type, entries, total: entries.length };
+  });
+}
+
+/** 供渲染层阅读的 L0 常驻段（数据层已规划好行，渲染层只排版，不再做第二次字节决策）。 */
+export function l0LinesOf(plan) {
+  if (plan === null || typeof plan !== "object" || !Array.isArray(plan.segments)) return [];
+  return plan.segments.flatMap((segment) => (Array.isArray(segment.lines) ? segment.lines : []));
+}
 
 /**
  * **注入上下文总预算的量化档位**（Human 决定 2026-10-25：10/20/30/40/50 K）。
@@ -2393,7 +2601,7 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
  * @param {string[]} [input.excludeTypes] 这些类型**不属本次声明范围**（不形成候选，
  *   且**不使完整度降级**、不进 `excludedByTypeFilter`——它们不是「本次漏查」，
  *   而是由另一条路径承接）。注入路径用 `INJECTION_EXCLUDED_TYPES` 传入。
- * @param {string[]} [input.statuses] 默认 `["active"]`；写入前查重可加 `["draft","open"]`
+ * @param {string[]} [input.statuses] 默认 `["active"]`；写入前查重可加 `["open"]` 等该类型自己的候选态
  * @param {boolean} [input.includeSpecs] 是否召回规范源，默认 true
  * @param {number} [input.limit]     每侧最多返回条数，默认 5
  * @param {number} [input.budgetBytes] 返回内容的字节上限，默认 `RECALL_DIRECT_BYTE_BUDGET`
@@ -2591,23 +2799,33 @@ function relationExpansionsOf(hitCards, pool, scopedFacts, criteria) {
  * 当回合用词——正是方案 A（Human 2026-10-25）要消除的缺陷。
  *
  * **边界**：只读事实源，不读规范源、不建索引、不写任何东西；返回结构与
- * `recallForAction` 的 `decisionBaseline` 同形，故渲染层无需第二套逻辑。
+ * `recallForAction` 的 `decisionBaseline`／`l0Enumeration` 同形，故渲染层无需
+ * 第二套逻辑。
  *
- * @param {{root?: string}} [input]
+ * **2026-11-04 扩至三段**（Human 决定）：ADR、事实规范（Norm）、经验（Pitfall）
+ * 的 L0 都必须注入，且都不依赖词法命中。故本入口同时给出三段的枚举——
+ * `decisionBaseline` 仍只承载 ADR（形状不变，既有消费方与断言无需改动），
+ * `l0Enumeration` 承载 Norm 段与经验段（ADR 段在其中被跳过，避免同一批对象
+ * 出现两份渲染）。
+ *
+ * @param {{root?: string, budgetBytes?: number|null}} [input]
  */
 export async function baselineOnlyForAction(input = {}) {
   const root = input.root ?? join(import.meta.dirname, "..", "..");
+  const budgetBytes = Number.isInteger(input.budgetBytes) && input.budgetBytes > 0
+    ? input.budgetBytes : null;
   const factsDir = join(root, "ldvh-base");
   const factsReadable = await isReadableDir(factsDir);
   // 事实源不可读时不抛错：与 `recallForAction` 同口径，把「读不到」如实标进
   // `sourceUnreadable`，绝不返回空 items 让读者读成「本项目没有 ADR」。
   const facts = factsReadable ? await loadFacts(factsDir) : [];
   // **不受任何过滤影响**（22 §12／02 §9.1 F1）：不传 types/statuses/limit，只按
-  // ADR 的默认候选状态取 active——与 `recallForAction` 内的枚举同源同序，两处若
+  // 各自类型的默认候选状态取——与 `recallForAction` 内的枚举同源同序，两处若
   // 不一致会出现「有词命中时基线 3 条、无词命中时基线 2 条」的漂移。
-  const adrActiveStatuses = DEFAULT_STATUSES_BY_TYPE.adr;
+  const enumeration = l0EnumerationOf(facts);
+  const adrSegment = enumeration.find((segment) => segment.type === "adr");
   const active = facts.filter(
-    (fact) => fact.type === "adr" && adrActiveStatuses.includes(fact.status),
+    (fact) => fact.type === "adr" && (DEFAULT_STATUSES_BY_TYPE.adr ?? DEFAULT_STATUSES_FALLBACK).includes(fact.status),
   );
   // 确定性排序：标题码点序，同标题再按稳定引用兜底（02 §9 红线，无权重）。
   active.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
@@ -2617,6 +2835,12 @@ export async function baselineOnlyForAction(input = {}) {
     ref: fact.ref,
     path: fact.path,
   }));
+  // Norm 段与经验段：与完整路径同一规划函数（份额与让位阈值同源）。
+  const l0Plan = planL0Enumeration(
+    enumeration.filter((segment) => segment.type !== "adr"),
+    budgetBytes,
+    RENDER_FIXED_OVERHEAD_BYTES,
+  );
   return {
     ok: true,
     decisionBaseline: {
@@ -2626,6 +2850,15 @@ export async function baselineOnlyForAction(input = {}) {
       note: "F1 枚举：不受本次 limit／types／预算影响；retired 不入基线（22 §12）",
       // 本路径不跑词法召回，故没有候选区与基线争预算，预留恒为 0。
       reservedBytes: 0,
+    },
+    l0Enumeration: {
+      order: [...L0_SEGMENT_ORDER],
+      segments: l0Plan.segments,
+      bytes: l0Plan.bytes,
+      note: l0Plan.note,
+      sourceUnreadable: !factsReadable,
+      // ADR 段的对象已在 `decisionBaseline.items` 里，此处只报条数供核对。
+      adrTotal: adrSegment?.total ?? 0,
     },
     // 明示「本结果不证明适用」（34 §13），与 recallForAction 同口径。
     provesApplicability: false,
@@ -2638,8 +2871,10 @@ export async function recallForAction(input = {}) {
   if (action === "") {
     return { ok: false, error: { code: "recall/action_required", message: "动作描述必填" } };
   }
-  // **默认值注**（2026-10-24）：本函数默认 `limit=5`／`budgetBytes=RECALL_DIRECT_BYTE_BUDGET`，
-  // 而注入路径（`buildRecallInjection`）默认 `limit=3`／`RECALL_BYTE_BUDGET`（2400）。
+  // **默认值注**（2026-10-24，2026-11-03 订正）：本函数默认 `limit=5`／
+  // `budgetBytes=RECALL_DIRECT_BYTE_BUDGET`（4000）；注入路径的生产预算是**档位字节**
+  // （`INJECTION_BUDGET_TIERS`，默认档 10240），`RECALL_BYTE_BUDGET`（2400）只在
+  // 调用方漏传 `budgetBytes` 时兜底，不是生产值。
   // 二者**故意不同**：
   //   · 本函数是**通用召回接口**，调用方（CLI、诊断脚本）通常想要更多候选；
   //   · 注入路径受引导面预算约束（`10:241`「未超 LDVH 侧常量预算」），须更紧。
@@ -2943,7 +3178,8 @@ export async function recallForAction(input = {}) {
         a.tier - b.tier ||
         b.hits - a.hits ||
         // **状态准入等级先于时间**：已准入（active/open）一律在未准入
-        // （draft/pending）之前，避免新草稿凭新鲜度压掉权威对象。
+        // （draft/pending）之前，避免新草稿凭新鲜度压掉权威对象（2026-11-03 起
+        // Pitfall 无 draft，该档只剩 WorkCase 等类型）。
         statusRank(a.status) - statusRank(b.status) ||
         // **最后更新时间：次级键，只在前几项全等时生效**（2026-10-27）。
         // 依据 Human 的判断：「优先按匹配程度，其次按最后更新时间」。
@@ -3146,7 +3382,6 @@ export async function recallForAction(input = {}) {
   const baselineBytes = decisionBaselineForBudget.length === 0 || budgetBytes < BASELINE_YIELD_BELOW_BYTES
     ? 0
     : Math.min(baselineFullBytes, baselineScaledCap);
-  const usableBudget = Math.max(0, budgetBytes - RENDER_FIXED_OVERHEAD_BYTES - baselineBytes);
   const estimateLineBytes = (item) => {
     const title = typeof item.title === "string" ? item.title : "";
     const reason = typeof item.hitReason === "string" ? item.hitReason : "";
@@ -3170,12 +3405,34 @@ export async function recallForAction(input = {}) {
     // 前缀（`- [type/status] `）、分隔符与本行换行的粗略常量，取 8 字节。
     return Buffer.byteLength(`${title}${reason}${path}${excerpt}`, "utf8") + structuralBytes + 8;
   };
-  const fits = (item) => {
-    const size = estimateLineBytes(item);
-    if (used + size > usableBudget) return false;
-    used += size;
-    return true;
-  };
+  // ── **三段 L0 常驻枚举的预算次序**（Human 决定 2026-11-04）───────────────
+  //
+  // Human 的原话：「排序就是 ADR、事实规范、经验，这三个的 L0 是必须注入的，
+  // 其他根据预算安排」。故注入面按 **ADR → 事实规范（Norm） → 经验（Pitfall）**
+  // 装填三段 L0 标识，**之后**剩下的字节才归词法候选（其余类型按预算安排）。
+  //
+  //   budgetBytes
+  //     − RENDER_FIXED_OVERHEAD_BYTES（标题/声明/分节头）
+  //     − baselineBytes      （ADR 段；22 §12 义务披露，含 1/3 上限与让位阈值）
+  //     − l0Plan.bytes       （Norm 段 + 经验段；份额见 `L0_SHARE_DIVISOR`）
+  //     = usableBudget       （词法候选，含规范候选与其余事实类型的候选）
+  //
+  // 三段 L0 不是候选（`01.Att.03 §4`：L0 只证明「有这些」，不证明相关或适用），
+  // 故不占 `limit` 名额、不带命中理由，并各自成节、逐段在超预算时如实计数披露
+  // （`02 §9.1` 不得静默截断）。
+  //
+  // **为什么不预扣「三段全量」而不设份额**：实测本仓三段约 2.8K（ADR 104 +
+  // Norm 80 + 经验 48 条标题 2600），默认档 10240 下份额足够全量装下；但小预算
+  // （2400／4000）若让经验段吃满，词法候选会被压成零——那会与 `34 §8.1` 第 1 项
+  // 「双源召回」直接冲突（只剩清单、不再有按本次动作匹配的候选）。故设份额并
+  // **在超份额时如实披露**，而不是二选一。
+  const l0Plan = planL0Enumeration(
+    l0EnumerationOf(scopedFacts).filter((segment) => segment.type !== "adr"),
+    budgetBytes,
+    RENDER_FIXED_OVERHEAD_BYTES + baselineBytes,
+  );
+  const l0Bytes = l0Plan.bytes;
+  const usableBudget = Math.max(0, budgetBytes - RENDER_FIXED_OVERHEAD_BYTES - baselineBytes - l0Bytes);
   // **保底只在整个结果为空时才生效**，不是「每个源各自保底」。
   //
   // 实测缺陷（2026-10-24）：原实现对 specs 与 facts **分别**调用保底——specs 收了
@@ -3199,8 +3456,21 @@ export async function recallForAction(input = {}) {
     used += size;
     return true;
   };
+  // 事实侧（规范零命中时）用满 `usableBudget`——此时没有规范档可让，目录只能吃余量。
+  const fits = (item) => {
+    const size = estimateLineBytes(item);
+    if (used + size > usableBudget) return false;
+    used += size;
+    return true;
+  };
   const keptSpecs = specHits.filter(fitsSpec);
-  let keptFacts = factHits.filter(fits);
+  // **词法候选只吃三段 L0 之后的余量**（Human 决定 2026-11-04：L0 三段必须注入，
+  // 「其他根据预算安排」——「其他」既含其余事实类型的候选，也含本次命中的规范
+  // 候选行；它们不进 L0 索引，故属「按预算安排」的那一侧）。
+  //
+  // 次序因此是：ADR 段（基线）→ Norm 段 → 经验段 → 规范候选 → 事实候选。
+  // 前四者都不受本回合用词影响；只有最后一段随动作变化。
+  const keptFacts = factHits.filter(fits);
   if (keptSpecs.length === 0 && keptFacts.length === 0) {
     // 整体为空 → 保底第一条（规范优先，否则事实）。
     const first = specHits[0] ?? factHits[0];
@@ -3210,6 +3480,8 @@ export async function recallForAction(input = {}) {
       else keptFacts.push(first);
     }
   }
+  // **目录在候选之后规划**（Human 决定 2026-11-03，次序见上方 `usableBudget` 注释）。
+  // 目录已经在上方（规范候选之后、事实候选之前）规划完毕，故这里不再重复。
   // 截断有两种来源：**limit**（结果条数上限）与**预算**（字节上限）。
   // 原实现只比 `kept*` 与 `*Hits`，而 `*Hits` 已按 limit 截过，故 limit 造成
   // 的丢弃被漏掉（实测 limit=2 时 12 份命中只给 2 份，却报 truncated=false）。
@@ -3226,7 +3498,8 @@ export async function recallForAction(input = {}) {
   //
   // 故判断改为「候选行 + 渲染开销 > 预算」。这也使极小预算下的保底如实标记
   // overBudget（保底本就是明知超额仍给一条，必须说清）。
-  const overBudget = used + RENDER_FIXED_OVERHEAD_BYTES + baselineBytes > budgetBytes;
+  const overBudget =
+    used + RENDER_FIXED_OVERHEAD_BYTES + baselineBytes + l0Bytes > budgetBytes;
 
   // **源可读性一次计算、四处复用**（2026-10-25 第六次审核 N-1）：三态判定、
   // gaps 登记、sourceNotRead 清单与 note 措辞必须对「哪一源不可读」说同一句话，
@@ -3311,6 +3584,23 @@ export async function recallForAction(input = {}) {
     // active ADR，独立于 `specs`/`facts`（后两者是 F2 词法候选）。消费方须把
     // 两者分开呈现——基线是「当前决策全貌」，候选是「本次可能相关的」。
     decisionBaseline,
+    // **三段 L0 常驻枚举**（Human 决定 2026-11-04）：与 `specs`/`facts`（F2 词法
+    // 候选）是**两种东西**，不合并。ADR 段由 `decisionBaseline` 承载（既有形状
+    // 不变），本字段承载 **Norm 段 + 经验段**——消费方须把二者都单独成段呈现。
+    //
+    // `segments[].lines` 是已排版好的行（段头 + 条目 + 段尾），渲染层只管拼接，
+    // 不再做第二次字节决策；`yielded` 为真表示该段在本档预算下整段让位，调用方
+    // 须把「该段 N 条未展开」并入披露行（让位不等于静默，同极小预算下决策基线的
+    // 痕迹纪律）。`omitted > 0` 且未让位者，其段尾已自带「仅容前 M 条、共 N 条、
+    // 全量用哪个工具」的披露，无需调用方二次声明。
+    l0Enumeration: {
+      order: [...L0_SEGMENT_ORDER],
+      segments: l0Plan.segments,
+      bytes: l0Bytes,
+      note: l0Plan.note,
+      // 事实侧可读性：读不到 ≠ 本项目没有这三类对象（34 §12）。
+      sourceUnreadable: factSideUnreadable,
+    },
     truncated,
     overBudget,
     budget: { limitBytes: budgetBytes, usedBytes: used, limit },
@@ -3517,10 +3807,11 @@ export async function recallForAction(input = {}) {
     // > 管辖项目、实际 worktree/common-dir、**类型/状态计数**、Schema/对象集指纹、
     // > 当前工作对象、coverage、cursor、无效/不可用对象清单和未完成范围
     //
-    // 缺它的直接后果：`23 §12`「待确认队列」要求「**必须能枚举 `draft`，不得只列
-    // `active`**」，其目的是「Human 能知道**有多少候选在等**」。实测全库有 16 条
-    // draft Pitfall，但用「有多少候选在等」查只能命中 0 条（按词匹配根本没命中），
-    // 「待确认的候选」命中 2 条——**计数这种事不该靠词法匹配**，它属 F0。
+    // 缺它的直接后果：状态计数这种事**不该靠词法匹配**——实测用「有多少候选在等」
+    // 查只能命中 0 条，「待确认的候选」命中 2 条，而全库当时的实际条数远多于此。
+    // 2026-11-03 起 Pitfall 取消 `draft` 待确认态（该类型的「在等」档消失），
+    // 但 WorkCase 等类型的 `draft` 仍需按状态计数可见——故 F0 的全量类型×状态
+    // 计数照旧必须存在，且不依赖查询措辞。
     //
     // 故这里给出全量（不受 types/statuses 过滤影响）的类型×状态计数，
     // 使「有多少在等」可被直接回答，而不依赖查询措辞。

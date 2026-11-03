@@ -172,6 +172,16 @@ const MUTATIONS = [
 	[GB, "预警带判据恒真（逼近上限无人知）", "  return length <= budget * GUIDANCE_EARLY_WARNING_RATIO;", "  return true;"],
 	[GB, "漂移判据恒不漂移（记录值形同虚设）", "  return { drifted: delta !== 0, measured, recorded, delta };", "  return { drifted: false, measured, recorded, delta };"],
 	[WM, "回收期间的改动不挂起（in-flight 差异被吞）", "            pendingFingerprint = next;\n            void scheduleRecheck();", "            void 0;"],
+	// —— 三段 L0 常驻枚举（2026-11-04 加，Human 决定：ADR／事实规范／经验必须注入）——
+	//
+	// 这组守的是**「三段的可见性不依赖当回合用词」**这件事。每一条对应一种
+	// 「实现看着还在、但某一段其实列不出来」的失效形态：
+	// ① 只枚举 ADR 后两段被跳过 → 「单纯读取回合也须带出三段」必须转红；
+	// ② 装填次序颠倒（经验先于事实规范）→ 「次序须为 ADR → 事实规范 → 经验」必须转红；
+	// ③ 让位时整段静默消失（不留痕迹）→ 「逐段让位须留痕迹」必须转红。
+	[LIB, "L0 只枚举 ADR（事实规范与经验两段缺失）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\", \"pitfall\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\"]);"],
+	[LIB, "L0 装填次序颠倒（经验先于事实规范）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\", \"pitfall\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"pitfall\", \"norm\"]);"],
+	[INJ, "L0 让位不留痕迹（静默消失）", "    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;", "    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;\n    if (hasL0) return text;"],
 ];
 
 /**
