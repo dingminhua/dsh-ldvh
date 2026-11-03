@@ -36,8 +36,8 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
@@ -1393,6 +1393,28 @@ export async function correctFrictionObject(args) {
 // ---------------------------------------------------------------------------
 
 /**
+ * `dir` 或其祖先中存在「存在但不是目录」的路径吗？
+ *
+ * 用于区分 Windows 上同码的两种 ENOENT：「这一层没有」与「再往上被一个普通文件
+ * 挡住了」。POSIX 上前者由 ENOTDIR 单独表达，故本函数实际只在 Windows 分支被
+ * 调用到，但实现本身跨平台成立。
+ */
+async function isNonDirectoryAncestor(dir) {
+  let cursor = dir;
+  for (;;) {
+    try {
+      const s = await stat(cursor);
+      return !s.isDirectory();
+    } catch (error) {
+      if (error === null || typeof error !== "object" || error.code !== "ENOENT") return false;
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return false;
+    cursor = parent;
+  }
+}
+
+/**
  * Enumerate Friction objects (F0/F1: deterministic filter + minimal
  * projection). Default status filter: open only (26 §12 2026-10 修订：观察态
  * 活账——攒够待修的候选源；resolved 与 voided 均为终态，仅精确引用/历史追溯
@@ -1414,6 +1436,18 @@ export async function listFrictionObjects(args) {
     entries = await readdir(typeDir, { withFileTypes: true });
   } catch (error) {
     if (error?.code === "ENOENT") {
+      // **ENOENT 不等于「目录不存在」**（2026-11-04 修，Windows 专属）。
+      //
+      // Windows 在「路径上某个祖先是普通文件」时对 `readdir` 也报 **ENOENT**
+      // （POSIX 报 ENOTDIR）。原实现一律返回「空目录 + complete:true」，于是
+      // `<facts>/frictions` 的前缀被一个普通文件挡住时，这里报「一笔账都没有」，
+      // 与「确实没有账」外观完全相同——审核执行体据此安心新起 group 键，正是
+      // 「投影不可得须如实声明缺口」那条守卫要防的形态（34 §12）。
+      // 与 `source-recall.js` 的 `readdirOrEmpty`、`observation-buffer.js` 的
+      // `firstNonDirectoryAncestor` 同一处置。
+      if (await isNonDirectoryAncestor(typeDir)) {
+        return failure("friction/directory_unavailable", `cannot read frictions directory: ${typeDir} is not a directory`);
+      }
       return success({ items: [], total: 0, complete: true, invalid: [] });
     }
     return failure("friction/directory_unavailable", `cannot read frictions directory: ${error.message}`);

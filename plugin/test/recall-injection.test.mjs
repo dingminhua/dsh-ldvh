@@ -1690,7 +1690,14 @@ test("22 §12：事实源不可读时基线路径须如实披露，而不是静�
 
 test("L0 三段：默认档须把 ADR／事实规范／经验三类全量标题都列出来", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 10240 });
+	// **预算须足以容下全量**（2026-11-04 修）。本用例守的是「全量」这一语义，
+	// 不是「10K 档够不够」——原先写死 budgetBytes: 10240，语料增长到 50 条
+	// Pitfall 后该档只能容 49 条（实测 shown/total = 49/50），于是用例转红，
+	// 而产品行为完全正确：按字节算确实装不下，段尾也如实报了「仅容前 49 条」。
+	// 这与账本里「语料增长致写死规模的断言转红」（friction-943940d6）同一形态。
+	// 改用「足够大」的预算（51200 = 50K 档），让用例只判定「全量是否列全」；
+	// 预算档位本身的让位行为由下面几条专门用例守（它们才该用紧预算）。
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 51200 });
 	assert.equal(r.inject, true);
 	// ADR 段（既有段头，形状不变）。
 	assert.match(r.text, /【决策基线 · active ADR/, "ADR 段须在");

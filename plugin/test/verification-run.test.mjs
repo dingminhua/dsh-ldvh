@@ -5,6 +5,7 @@
 //      而那正是要消除的失效形态。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 
 import {
   VERDICTS,
@@ -19,7 +20,12 @@ import {
   DEFERRED_STRICT,
 } from "../lib/verification-run.js";
 
-const REPO_ROOT = new URL("../..", import.meta.url).pathname;
+// **必须用 fileURLToPath，不能用 url.pathname**（2026-11-04 修，Windows 专属）。
+// `new URL(...).pathname` 在 Windows 上给出 `/D:/DshProject/dsh-ldvh`——带一个前导
+// 斜杠；再经 `path.join` 拼接就变成 `D:\D:/DshProject/...`，`readFile` 报 ENOENT，
+// 于是本文件两条一致性用例在本机恒红，且报错里那个重复盘符极易被误读成产品缺陷。
+// POSIX 上 pathname 恰好可用，所以这个写法长期没被发现。
+const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 // ---------------------------------------------------------------------------
 // id 派生规则：四种首列形态

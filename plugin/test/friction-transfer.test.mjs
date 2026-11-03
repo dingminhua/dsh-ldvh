@@ -13,6 +13,35 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { testSignature, withTemp } from "./helpers.mjs";
+
+/**
+ * 本机是否真的支持「取消目录写权限」？
+ *
+ * 这三条用例靠 chmod 0o500 造回写失败。POSIX 上成立，Windows 上 chmod 是空操作
+ * （实测：0500 目录里 writeFile 仍成功），用例会恒红——那是平台假设，不是缺陷。
+ * 故此处**实测**而不是按平台名推断：造一个临时目录、chmod 掉写权限、真写一次。
+ */
+async function supportsDirectoryWriteRevocation() {
+  const { mkdtemp, mkdir, writeFile, chmod, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const probe = await mkdtemp(join(tmpdir(), "chmod-probe-"));
+  try {
+    const dir = join(probe, "d");
+    await mkdir(dir);
+    await chmod(dir, 0o500);
+    try {
+      await writeFile(join(dir, "x"), "y", "utf8");
+      return false; // 仍可写 → 本机不支持该构造
+    } catch {
+      return true; // 被拒 → 支持
+    } finally {
+      await chmod(dir, 0o700).catch(() => {});
+    }
+  } finally {
+    await rm(probe, { recursive: true, force: true }).catch(() => {});
+  }
+}
 import {
   appendBufferEntry,
   readBufferEntries,
@@ -526,7 +555,11 @@ test("登记失败即**整体放弃淘汰**——不得出现「已淘汰但无�
 });
 
 
-test("容量路径：登记已写但载体回写失败时**销账**，不留「已淘汰」假记录（第四轮审核 F1）", async () => {
+test("容量路径：登记已写但载体回写失败时**销账**，不留「已淘汰」假记录（第四轮审核 F1）", async (t) => {
+  if (!(await supportsDirectoryWriteRevocation())) {
+    t.skip("本机 chmod 无法取消目录写权限（Windows 实测 0500 目录仍可写），该用例的失败构造不成立");
+    return;
+  }
   await withTemp("friction-evict-writeback-", async (root) => {
     const base = join(root, "dsh-home");
     const now = new Date("2026-11-01T00:00:00.000Z");
@@ -573,7 +606,11 @@ test("容量路径：登记已写但载体回写失败时**销账**，不留「�
   });
 });
 
-test("保留期路径：载体回写失败后重读**不重复登记**，销账后可重新登记（第四轮审核 F1 幂等）", async () => {
+test("保留期路径：载体回写失败后重读**不重复登记**，销账后可重新登记（第四轮审核 F1 幂等）", async (t) => {
+  if (!(await supportsDirectoryWriteRevocation())) {
+    t.skip("本机 chmod 无法取消目录写权限（Windows 实测 0500 目录仍可写），该用例的失败构造不成立");
+    return;
+  }
   await withTemp("friction-evict-idem-", async (root) => {
     const base = join(root, "dsh-home");
     const now = new Date("2026-11-01T00:00:00.000Z");
@@ -685,7 +722,11 @@ test("登记前先查重：队列里已有同一条未销账登记时**不重复
   });
 });
 
-test("转写时容量淘汰失败：报「已落地、淘汰未生效」，不得报成「没能追加」（第五轮审核发现 ①）", async () => {
+test("转写时容量淘汰失败：报「已落地、淘汰未生效」，不得报成「没能追加」（第五轮审核发现 ①）", async (t) => {
+  if (!(await supportsDirectoryWriteRevocation())) {
+    t.skip("本机 chmod 无法取消目录写权限（Windows 实测 0500 目录仍可写），该用例的失败构造不成立");
+    return;
+  }
   // 构造：摩擦缓冲已被写满 200 条、且载体目录不可写 → 转写写入成功，但紧随的容量淘汰
   // 无法回写。`appendFrictionObservation` 会返回 `written: true`。
   await withTemp("friction-transfer-evict-", async (root) => {
