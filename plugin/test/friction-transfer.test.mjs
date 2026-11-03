@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { withTemp } from "./helpers.mjs";
+import { testSignature, withTemp } from "./helpers.mjs";
 import {
   appendBufferEntry,
   readBufferEntries,
@@ -22,6 +22,7 @@ import {
   readFrictionObservations,
   settleGroupPromoted,
 } from "../lib/friction-observation-buffer.js";
+import { createFrictionObject } from "../lib/friction-writer.js";
 import {
   transferDiscardedEntryToFriction,
   validateTransferProposal,
@@ -264,17 +265,77 @@ test("转写：五项语义字段缺一即拒——机械侧不代填 group 与�
   });
 });
 
-test("转写：带 target_uid 时走补充路径的入口（指向既有账目，不攒新组）", async () => {
+// ---------------------------------------------------------------------------
+// target_uid 可解析性校验（2026-11-04，11 §12bis.1）
+//
+// 此前转写入口对 target_uid 只查「非空字符串」，不判它能否解析到账目——
+// 那是本单修的第一处缺口。以下三例钉住新校验的三个分支。
+// ---------------------------------------------------------------------------
+
+test("转写：带 target_uid 但缺 factSourceRoot → 拒绝（不静默跳过校验）", async () => {
   await withTemp("friction-transfer.", async (root) => {
     const h = home(root);
-    const target = "9d1c1b6e-1111-4222-8333-444455556666";
+    const moved = await transferDiscardedEntryToFriction({
+      dshHomePath: h,
+      projectId: PROJECT,
+      entry: discardedEntry({ evidence: "另一段逐字引证（会话 sess-1 turn 20）" }),
+      transfer: transfer({ target_uid: "9d1c1b6e-1111-4222-8333-444455556666" }),
+      // 故意不传 factSourceRoot
+    });
+    assert.ok(!moved.ok, "缺 factSourceRoot 时必须拒绝——跳过校验等于让本闸静默失效");
+    assert.equal(moved.error.code, "friction_transfer/target_uid_unresolvable");
+    const read = await readFrictionObservations(h, PROJECT);
+    assert.ok(read.ok);
+    assert.equal(read.value.items.length, 0, "被拒时不得写入缓冲");
+  });
+});
+
+test("转写：target_uid 解析不到账目 → 拒绝（这正是把条目永久卡死的形态）", async () => {
+  await withTemp("friction-transfer.", async (root) => {
+    const h = home(root);
+    const factSourceRoot = join(root, "facts");
+    const moved = await transferDiscardedEntryToFriction({
+      dshHomePath: h,
+      projectId: PROJECT,
+      entry: discardedEntry({ evidence: "另一段逐字引证（会话 sess-1 turn 20）" }),
+      // 真实事故里这两个 uid 只差两个字符（da7d vs da9d）
+      transfer: transfer({ target_uid: "6c6ea207-da7d-4527-957a-9b46775ecfd4" }),
+      factSourceRoot,
+    });
+    assert.ok(!moved.ok, "解析不到的 target_uid 必须拒绝");
+    assert.equal(moved.error.code, "friction_transfer/target_uid_unresolvable");
+    assert.equal(moved.error.target_uid, "6c6ea207-da7d-4527-957a-9b46775ecfd4");
+    const read = await readFrictionObservations(h, PROJECT);
+    assert.ok(read.ok);
+    assert.equal(read.value.items.length, 0, "被拒时不得写入缓冲");
+  });
+});
+
+test("转写：带 target_uid 且账目真实存在 → 放行（正控制，证明校验不误伤）", async () => {
+  await withTemp("friction-transfer.", async (root) => {
+    const h = home(root);
+    const factSourceRoot = join(root, "facts");
+    const created = await createFrictionObject({
+      factSourceRoot,
+      frontmatterDraft: {
+        title: "转写目标账目（测试夹具）",
+        phenomenon: "夹具账目用于证明 target_uid 可解析时放行",
+        occurrence: { count: 1, first_at: "2026-10-16T00:00:00.000Z", last_at: "2026-10-16T00:00:00.000Z" },
+      },
+      bodyMarkdown: "## 现象\n夹具账目用于证明 target_uid 可解析时放行。\n\n## 入账依据\n测试。\n",
+      sessionSignature: testSignature(),
+    });
+    assert.equal(created.ok, true, "夹具创建失败: " + JSON.stringify(created.error));
+    const target = created.value.object_uid;
+
     const moved = await transferDiscardedEntryToFriction({
       dshHomePath: h,
       projectId: PROJECT,
       entry: discardedEntry({ evidence: "另一段逐字引证（会话 sess-1 turn 20）" }),
       transfer: transfer({ target_uid: target }),
+      factSourceRoot,
     });
-    assert.ok(moved.ok, JSON.stringify(moved.error));
+    assert.ok(moved.ok, `解析得到时必须放行：${JSON.stringify(moved.error)}`);
     const read = await readFrictionObservations(h, PROJECT);
     assert.ok(read.ok);
     assert.equal(read.value.items[0].target_uid, target);

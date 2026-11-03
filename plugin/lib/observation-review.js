@@ -856,6 +856,9 @@ export async function reviewPendingEntries({
           projectId,
           entry: current,
           transfer,
+          // `factSourceRoot`：转写入口据此解析 `target_uid`（11 §12bis.1，2026-11-04）。
+          // 该值在所在函数内已有；不传会让带 target_uid 的转写被 fail-closed 拒绝。
+          factSourceRoot,
           now,
         });
         if (!moved.ok && moved.error?.written === true) {

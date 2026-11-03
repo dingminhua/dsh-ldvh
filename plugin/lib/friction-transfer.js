@@ -47,6 +47,7 @@ import {
   appendFrictionObservation,
   readFrictionObservations,
 } from "./friction-observation-buffer.js";
+import { readFrictionObject } from "./friction-writer.js";
 
 function success(value) {
   return { ok: true, value };
@@ -154,6 +155,7 @@ export async function transferDiscardedEntryToFriction({
   projectId,
   entry,
   transfer,
+  factSourceRoot = null,
   now = new Date(),
 } = {}) {
   if (typeof dshHomePath !== "function") {
@@ -195,6 +197,45 @@ export async function transferDiscardedEntryToFriction({
 
   const proposal = validateTransferProposal(transfer);
   if (!proposal.ok) return proposal;
+
+  // ── 闸 2b：target_uid 须解析到已存在的账目（2026-11-04 补，21 §12bis.1）────
+  //
+  // 此前这里对 `target_uid` 只做「非空字符串」检查（见 `validateTransferProposal`），
+  // 不判它能否解析到账目。**发现层是校验的**（`friction-landing.js` 先
+  // `readFrictionObject` 再设状态闸），故转写入口是**唯一未校验的入口**。
+  //
+  // 结构性成因：本函数的签名里原本没有 `factSourceRoot`，从结构上不可能解析账目
+  // ——校验不是漏写，是缺一个入参。调用方（`observation-review.js`）所在函数内
+  // 已有该值，故由调用方传入。
+  //
+  // 后果的实测：缓冲条目 648749cd 的 target_uid 比真实账目 uid 差两个字符
+  // （`...da7d...` vs `...da9d...`）。带 target_uid 的条目被排除在阈值聚合之外、
+  // 也不会被 `settleSupplementedEntries` 结算，于是每轮按该 uid 读账目得 ENOENT、
+  // 条目留在 pending、下一轮原样重试——**永久卡死**。
+  //
+  // fail-closed：`factSourceRoot` 缺失时**拒绝**而非跳过校验。跳过等于让本闸在
+  // 未来的新调用点上静默失效，那正是它要消除的形态。
+  if (proposal.value.target_uid !== null) {
+    if (typeof factSourceRoot !== "string" || factSourceRoot.trim().length === 0) {
+      return failure(
+        "friction_transfer/target_uid_unresolvable",
+        "transfers carrying target_uid require factSourceRoot to resolve it; refusing rather than skipping the "
+        + "resolution check (11 §12bis.1 — the transfer entry point must not accept an unresolvable target_uid)",
+        { target_uid: proposal.value.target_uid, reason: "fact_source_root_missing" },
+      );
+    }
+    const target = await readFrictionObject({ factSourceRoot, objectUid: proposal.value.target_uid });
+    if (target?.ok !== true) {
+      return failure(
+        "friction_transfer/target_uid_unresolvable",
+        `target_uid ${JSON.stringify(proposal.value.target_uid)} does not resolve to an existing friction object: `
+        + `${target?.error?.message ?? "unknown"} (11 §12bis.1). A typo here makes the buffer entry permanently `
+        + "unsettleable: an entry carrying target_uid is excluded from threshold aggregation and from "
+        + "settleSupplementedEntries, so it stays pending forever while every review run retries and fails.",
+        { target_uid: proposal.value.target_uid, reason: target?.error?.code ?? "object_not_found" },
+      );
+    }
+  }
 
   // ── 闸 3：逐字幂等（任何状态）────────────────────────────────────────
   //

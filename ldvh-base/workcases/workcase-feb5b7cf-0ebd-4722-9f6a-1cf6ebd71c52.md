@@ -2,7 +2,7 @@
 fact_type_key: workcase
 object_uid: feb5b7cf-0ebd-4722-9f6a-1cf6ebd71c52
 title: 摩擦补充路径校验与存量改正
-status: draft
+status: open
 gist: 修摩擦补充路径的三处缺口：转写入口不校验目标账目编号能解析、补充失败不进待处置队列、以及把一条因编号抄错而永久卡死的存量缓冲条目改正。先修入口再迁移，避免迁移完又有新的。请 Human 决定是否批准按此范围开工。
 serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: |-
@@ -205,6 +205,36 @@ pre_reviews:
         fingerprint: 56ca7d8a83711d934c63068e4d80231f7fce22eb10d37c4743010f37a5f44938
     round_index: 3
     verdict: pass
+gate_1:
+  approved_at: 2026-11-03T21:06:13.458Z
+  approver: 老丁（Human，本会话 2026-11-04 指令「好，推进吧」）
+  authorization_fingerprint: 4994d9cbbcc6d7492155b269fcfb30338996c2065cc41389899f066f25c97a22
+  scope_snapshot: |-
+    做什么：
+    - 转写入口对 target_uid 增加解析校验：给 `transferDiscardedEntryToFriction` 增加 `factSourceRoot` 形参，非空 `target_uid` 须解析到已存在账目，失败即拒绝并返回 `friction_transfer/target_uid_unresolvable`，且不写入缓冲
+    - 把 `registerTransferFailure` 上提为共享模块，使转写失败与补充失败走同一实现（不复制第二份）
+    - 补充级更新的失败登记进待处置队列，与转写失败同形（含队列不可写时的 `unregistered`／`unregistered_message`，不得吞掉）
+    - 在 Human 批准本单（Gate 1）后，把缓冲条目 648749cd 的 target_uid 一次性改正为 `6c6ea207-da9d-4527-957a-9b46775ecfd4`，**批准前不得就地改写**；迁移前备份，迁移后精确回读
+    - 把该次补充落到真实账目 `6c6ea207` 上（按 02 §10 的受控写入要求：走受控入口、写后精确回读、失败 fail-closed），使 `occurrence.count` 递增 1 且现象段新增一条带逐字引证的观察；该补充须由一次受控的审核运行产生，使其在同一次运行内把该缓冲条目结算移除
+    - 同步修订 specs/11 §12bis.1（新增可解析性校验、补充失败登记、经授权的字段差错更正三处）与 §19.1 归口登记
+    - 为上述各项补测试，并使既有摩擦与转写相关测试全绿
+
+    明确不做什么：
+    - 不实现机械审核门 verifyRun，不改 `idle-runlog.js` 的 stage 语义，不改 §18
+    - 不改变 §9／§10 自动动作闭集的成员，不改变阈值 N、缓冲容量与保留期
+    - 不改 §12bis.1 的字段闭集（本单只增校验义务与登记义务，不增删字段）
+    - 不改变任何既有账目的 `status`；不批量处置其它 pending 缓冲条目
+    - 不清理、不删除既有待处置队列登记，也不为历史 132 条未核查登记补写 `resolved_at`
+    - 不改动 Web 呈现层，不动 DSH 官方包
+    - 不修订 specs/ 其它章节
+    - 整文件批量改写只允许出现在两个具名载体：`~/.dsh/ldvh/friction-observations/dsh-ldvh.jsonl`（仅限 648749cd 一条的 target_uid）与 `pending-queue.jsonl`（仅限追加）
+attempt:
+  attempt_id: 1
+  started_at: 2026-11-03T21:06:13.458Z
+  controller: 主控（本会话 session-372f10f2）
+  heartbeat_at: 2026-11-03T21:06:13.458Z
+  session_id: session-380a02f5-68d0-41d4-a111-94c78850cc03
+  session_source: host
 refs:
   - object_uid: 451c4a7d-a14f-4e2f-af1c-9911d3c80fd6
 created_at: 2026-11-03T17:11:54.034Z
@@ -233,6 +263,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: "建前独立审核第 3 轮（针对改动后候选）：pass（四处改动均无阻断，附建议级漂移提示） [pre-gate1 audit recorded by session 098657a3-d07d-4107-b7d3-bba4034cf68e; verdict: pass; round: 3/3; covered: 20/20 partition(s); candidate_fingerprint: 4994d9cbbcc6…; pre_reviews entries: 3; 记录自子代理会话 098657a3-d07d-4107-b7d3-bba4034cf68e 的最终产出（Code 捕获）]"
+  - at: 2026-11-03T21:06:13.459Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: Gate 1 批准：建前审核三轮用满（第 2、3 轮 pass，20/20 分区覆盖），批准范围为修摩擦补充路径三处缺口与存量改正 [gate_1 approved by 老丁（Human，本会话 2026-11-04 指令「好，推进吧」）; attempt 1 allocated to 主控（本会话 session-372f10f2）]
 ---
 
 # 摩擦补充路径校验与存量改正
@@ -287,4 +321,8 @@ change_log:
 3. 在步骤 1、2 落地且本单获 Gate 1 批准后，把缓冲条目 648749cd 的 target_uid 一次性改正。完成判据：该条目的 `target_uid` 等于 `6c6ea207-da9d-4527-957a-9b46775ecfd4`；迁移前备份文件保留在 `~/.dsh/ldvh/` 下且可由文件名追溯；该条其余 13 个字段与迁移前逐字一致（字段闭集共 14 项）；写后精确回读该条并断言与目标逐字一致，回读不符即 fail-closed 并登记；迁移脚本内可见本单 object_uid、批准时刻与 `authorization_fingerprint`。
 4. 把该次观察补充到真实账目，并在夹具副本上验证「补充→结算」全链路。完成判据：**真实账目侧**——账目 `6c6ea207` 的 `occurrence.count` 由 7 增至 8、`last_at` 更新、现象段新增一条含该条 `evidence` 逐字引证与来源的观察，写后精确回读通过（按 02 §10 受控写入）；该补充必须**由一次受控的审核运行产生**（使其在同一次运行内按 §12bis.1 结算段把该缓冲条目整条移除），不得以直调 `supplementOccurrence` 代替——后者会留下仍为 `pending` 的条目，下一轮再补一次、`count` 由 8 变 9，形成新的重复计数。**全链路侧**——在夹具副本上调用 `runFrictionReviewPromotion`（复用 `friction-review-promotion.test.mjs` 的 `home(root)`／`factRoot(root)` 夹具），一次调用即可同时观察到副本账目 `occurrence.count` 递增 1 与副本缓冲条目被整条移除（因该函数在补充成功后调用 `settleSupplementedEntries`）。**如实声明**：直调 `supplementOccurrence` 不结算条目，故「两条断言由同一次调用同时成立」只对夹具侧的 `runFrictionReviewPromotion` 成立，对真实载体与直调路径不成立。
 5. 同步修订 specs/11 §12bis.1 与 §19.1 归口登记。完成判据：§12bis.1 的「写入后回读」段写明 `target_uid` 须解析到已存在账目、解析失败即拒绝；写入者条款或「结算」段写明补充失败的登记义务；新增一条「经授权的条目字段差错更正」条款，且**限定为逐实例授权**（每次改写须有独立 Human 授权、写明授权形态、限定载体、留痕要求；不得写成对「追加＋状态结算」的常设例外），以维持「不归第 4 项」为真；可解析性校验与字段表 `target_uid` 行的既有约束**指回衔接**而非并列新增。§19.1 新增归口记录：写明归第 3 项（入口校验＝机械校验范围收紧；补充失败入队＝新增 fail-closed 失败处置），写明显式「不归第 2 项」（§6.2 派发准入未动）与「不归第 4 项」（动作成员与字段闭集未动），并写明「一次性存量改正不属任何归口项，它是第 3 项修订的执行后果」。验收方式为逐行回读 §12bis.1 与 §19.1 正文，确认无与实现相反的表述。
+
+## 执行
+
+- attempt 1 started at 2026-11-03T21:06:13.458Z (controller: 主控（本会话 session-372f10f2）)；Gate 1 授权范围见 gate_1.scope_snapshot。
 
