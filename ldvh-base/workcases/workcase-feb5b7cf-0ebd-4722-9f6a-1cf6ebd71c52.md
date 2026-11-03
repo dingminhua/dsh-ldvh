@@ -2,7 +2,7 @@
 fact_type_key: workcase
 object_uid: feb5b7cf-0ebd-4722-9f6a-1cf6ebd71c52
 title: 摩擦补充路径校验与存量改正
-status: open
+status: closed
 gist: 修摩擦补充路径三处缺口：转写入口不校验目标账目编号能解析、补充失败不进待处置队列、以及把一条因编号抄错而永久卡死的存量缓冲条目改正。三处均已修复并经三轮独立复核；第四步「由受控审核运行补进真实账目」尚未发生（须宿主跨回合静置触发），故以 partial 关闭。
 serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: |-
@@ -228,13 +228,6 @@ gate_1:
     - 不改动 Web 呈现层，不动 DSH 官方包
     - 不修订 specs/ 其它章节
     - 整文件批量改写只允许出现在两个具名载体：`~/.dsh/ldvh/friction-observations/dsh-ldvh.jsonl`（仅限 648749cd 一条的 target_uid）与 `pending-queue.jsonl`（仅限追加）
-attempt:
-  attempt_id: 1
-  started_at: 2026-11-03T21:06:13.458Z
-  controller: 主控（本会话 session-372f10f2）
-  heartbeat_at: 2026-11-03T22:11:43.588Z
-  session_id: session-380a02f5-68d0-41d4-a111-94c78850cc03
-  session_source: host
 reviews:
   - at: 2026-11-03T21:52:22.303Z
     provider: workbuddy
@@ -263,6 +256,27 @@ reviews:
     implementer_session_source: host
     reviewer_origin: subagent
     summary: "复核对象：workcase-feb5b7cf 摩擦补充路径校验与存量改正，第三轮 Gate 2 前复核。基线：9adc303，plugin/ 与 specs/ 无未提交改动，闲时产出不计。方法：实读规范与实现并自行变异实测，不采信前两轮自述。覆盖：§19.1 已写「一次性存量改正不属任何归口项」、标题无「与存量改正」；补充失败登记正文落在 §12bis.1（行 658，节界 602–688），§10.2 行 419 只剩指针；两变异——删 unregistered、删 unregistered_message——各自仅使「队列不可写」用例转红，还原后基线全绿，正控制有效；§12bis.1 三处条款与实现逐条相符，差错更正限定逐实例 Human 授权、非常设例外；改动仅 specs/11 与插件六文件，无越权。未覆盖：步骤 4 真实账目侧尚未发生。发现：条目 648749cd 仍 pending，账目 6c6ea207 的 count 已为 8，7→8 那次属另一条观察，故计划判据过期、实际应为 8→9，结案须改记该判据；以 partial 关闭恰当。全量两次均 2920 通过、1 失败（L0 三段 pitfall 49/50，改动前既有，与本单无关）。保证边界：覆盖 9adc303 已提交内容与本机载体状态，不覆盖宿主静置触发的真实补充与未核查历史登记。verdict: pass"
+result:
+  criteria_checks:
+    - evidence: 签名含 factSourceRoot 且由 observation-review.js:854 传入；解析不到返回 friction_transfer/target_uid_unresolvable 且缓冲条目数不变。三例测试（缺参拒绝／解析不到拒绝／真实账目放行）。变异：去校验 2 红、去缺参拒绝 1 红。
+      satisfied: true
+    - evidence: registerTransferFailure 全仓仅 1 处定义（friction-failure-registration.js:105），observation-review.js:828/871 与 friction-review-promotion.js:145 共用。补充失败登记带 pending_entry_id（用例断言）；队列不可写时带 unregistered + unregistered_message（重写用例，变异删任一赋值均转红）。
+      satisfied: true
+    - evidence: target_uid 等于 6c6ea207-da9d-4527-957a-9b46775ecfd4；备份 dsh-ldvh.jsonl.bak-before-target-uid-fix-20261104-051651 在位；与备份逐字段比对确认 85 条不变、其余 13 字段逐字一致；改后精确回读通过。
+      satisfied: true
+    - evidence: 全链路侧成立（夹具上 runFrictionReviewPromotion 一次调用同时断言 count 递增、last_at 更新、条目整条移除、逐字引证进正文；变异 2 红）。真实账目侧未发生：条目 648749cd 仍 pending、账目 count 仍 8；判据「7→8」经第三轮复核实测已过期（该次递增属另一条观察），本条应为 8→9。
+      satisfied: false
+    - evidence: §12bis.1 三处：可解析性校验（行 658 前的写入后回读段）、补充失败登记义务（行 658）、经授权的条目字段差错更正（非第四类、非线性许可）。§19.1 归第 3 项、明写不归第 2 项与第 4 项、并写「一次性存量改正不属任何归口项」。逐行回读确认无与实现相反的表述。
+      satisfied: true
+  achieved_scope: 步骤 1、2、3、5 完整交付：转写入口 target_uid 可解析性校验、两失败面共用同一登记实现、存量条目 648749cd 的 target_uid 改正、specs/11 §12bis.1 三处条款与 §19.1 归口。全部经三轮独立复核，两项关键变异经复核者独立重做确认。
+  residual:
+    - 真实账目侧的那次补充未发生：缓冲条目 648749cd 仍 pending，未被任何受控审核运行补充进账目 6c6ea207，也未在同次运行内结算移除
+    - 该次补充须由宿主静置计时器驱动的一次受控审核运行产生，而计时器的武装点是 session/event turn/end，故只能跨回合完成，无法在对话内驱动
+    - 计划判据「count 由 7 增至 8」已过期：该账目现为 8，但那次递增的内容是另一条观察（正文引证「宿主只发布事件、不回放」），与本条 evidence 不同，故本条若被补充应为 8→9
+    - 未采用直调 supplementOccurrence 补齐：它只写账目、不结算缓冲，直调后条目仍 pending，下一轮再补一次即重复计数，正是本单要消除的形态
+    - 第二轮的复核记录仅 20 字符（系统捕获到复核者的收尾语而非七要素正文），该轮判 pass 的实质结论只存在于会话记录与第三轮复核的交叉验证中
+    - 待下一次受控审核运行把 648749cd 补进账目（count 8→9）并整条结算移除后，本单的步骤 4 才算真正交付，届时可补记 completed
+outcome: partial
 refs:
   - object_uid: 451c4a7d-a14f-4e2f-af1c-9911d3c80fd6
 created_at: 2026-11-03T17:11:54.034Z
@@ -319,6 +333,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 提交 Gate 2 关闭提案（结果节）：四步完整交付、步骤 4 仅全链路侧完成；真实账目侧须跨回合受控审核运行触发，且判据 7→8 经第三轮复核实测已过期（该次递增属另一条观察，本条应为 8→9） [attempt 1 heartbeat refreshed]
+  - at: 2026-11-03T22:57:06.924Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: Gate 2 关闭：Human 批准关闭（2026-11-04「批准关闭」）。结案 partial——步骤 1/2/3/5 完整交付并经三轮独立复核，步骤 4 仅全链路侧完成、真实账目侧待宿主跨回合触发的受控审核运行 [gate_2 closed with outcome=partial; attempt 1 retracted]
 ---
 
 # 摩擦补充路径校验与存量改正
@@ -414,11 +432,19 @@ change_log:
 
 四步完整交付、一步部分交付。
 
+### 逐条判据核对
+
+- 计划步骤 1：达成——证据：签名含 factSourceRoot 且由 observation-review.js:854 传入；解析不到返回 friction_transfer/target_uid_unresolvable 且缓冲条目数不变。三例测试（缺参拒绝／解析不到拒绝／真实账目放行）。变异：去校验 2 红、去缺参拒绝 1 红。
+- 计划步骤 2：达成——证据：registerTransferFailure 全仓仅 1 处定义（friction-failure-registration.js:105），observation-review.js:828/871 与 friction-review-promotion.js:145 共用；补充失败登记带 pending_entry_id；队列不可写时带 unregistered + unregistered_message（重写用例，变异删任一赋值均转红）。
+- 计划步骤 3：达成——证据：target_uid 等于 6c6ea207-da9d-4527-957a-9b46775ecfd4；备份在位；与备份逐字段比对确认 85 条不变、其余 13 字段逐字一致；改后精确回读通过。
+- 计划步骤 4：部分达成——证据：全链路侧成立（夹具上 runFrictionReviewPromotion 一次调用同时断言 count 递增、last_at 更新、条目整条移除、逐字引证进正文；变异 2 红）；真实账目侧未发生——条目 648749cd 仍 pending、账目 count 仍 8，且判据「7→8」经第三轮复核实测已过期（该次递增属另一条观察），本条应为 8→9。
+- 计划步骤 5：达成——证据：§12bis.1 三处（可解析性校验、补充失败登记义务、经授权的条目字段差错更正且非第四类非线性许可）；§19.1 归第 3 项、明写不归第 2 项与第 4 项、并写「一次性存量改正不属任何归口项」；逐行回读确认无与实现相反的表述。
+
 ### 已完成的四步
 
-**步骤 1（入口校验）**：`transferDiscardedEntryToFriction` 增加 `factSourceRoot` 形参，非空 `target_uid` 须解析到已存在账目，否则拒绝 `friction_transfer/target_uid_unresolvable` 且不写缓冲；缺 `factSourceRoot` 时同样拒绝，不静默跳过。三例测试含正控制。变异：去掉校验 → 2 红；去掉缺参拒绝 → 1 红。
+**步骤 1（入口校验）**：`transferDiscardedEntryToFriction` 增加 `factSourceRoot` 形参，非空 `target_uid` 须解析到已存在账目，否则拒绝 `friction_transfer/target_uid_unresolvable` 且不写缓冲；缺 `factSourceRoot` 时同样拒绝，不静默跳过。
 
-**步骤 2（共用登记）**：新增 `plugin/lib/friction-failure-registration.js`，两失败面共用同一实现，全仓仅一处定义；`observation-review.js` 的私有副本已删除；`friction-review-promotion.js` 的补充失败改为登记。变异：去掉登记调用 → 1 红；删 `unregistered` 赋值 → 1 红；删 `unregistered_message` 赋值 → 1 红（后两项在第二轮复核前是空断言，已重修）。
+**步骤 2（共用登记）**：新增 `plugin/lib/friction-failure-registration.js`，两失败面共用同一实现，全仓仅一处定义；`observation-review.js` 的私有副本已删除；`friction-review-promotion.js` 的补充失败改为登记。
 
 **步骤 3（存量改正）**：条目 `648749cd` 的 `target_uid` 由 `6c6ea207-da7d-…` 改为 `6c6ea207-da9d-…`。改前备份、改后精确回读、与备份逐字段比对确认 85 条不变、唯一差异是该字段。
 
@@ -426,7 +452,7 @@ change_log:
 
 ### 部分完成的步骤 4
 
-**全链路侧已完成**：夹具上用 `runFrictionReviewPromotion` 一次调用同时断言 count 递增、`last_at` 更新、缓冲条目被整条移除、逐字引证进账目正文。变异：把结算条件改恒假 → 2 红。
+**全链路侧已完成**：夹具上用 `runFrictionReviewPromotion` 一次调用同时断言 count 递增、`last_at` 更新、缓冲条目被整条移除、逐字引证进账目正文。
 
 **真实账目侧未完成**，原因与代价如实登记：
 - 该步须由**一次受控的审核运行**产生，使其在同一运行内完成补充与结算。
@@ -444,4 +470,18 @@ change_log:
 ### 说明
 
 本单以 `partial` 关闭：机制侧三处缺口已修并有变异钉住，规范与实现一致；步骤 4 的真实账目侧是一次**尚未发生的运行**，不是未修的问题——条目 `648749cd` 的 `target_uid` 已改正且可解析，下一次受控审核运行会把它补进账目（count 8→9）并在同次运行内结算移除。
+
+- residual:
+  - 真实账目侧的那次补充未发生：缓冲条目 648749cd 仍 pending，未被任何受控审核运行补充进账目 6c6ea207，也未在同次运行内结算移除
+    - **接受现状**：等下一次受控审核运行自然消费它；该条目的 target_uid 已改正且可解析，届时会在同一次运行内完成补充与结算，无需人工介入
+  - 该次补充须由宿主静置计时器驱动的一次受控审核运行产生，而计时器的武装点是 session/event turn/end，故只能跨回合完成，无法在对话内驱动
+    - **接受现状**：这是机制约束不是缺陷；本单已查清并登记该武装点，后续同类判断可据此避免误判为「等几分钟即可」
+  - 计划判据「count 由 7 增至 8」已过期：该账目现为 8，但那次递增的内容是另一条观察（正文引证「宿主只发布事件、不回放」），与本条 evidence 不同，故本条若被补充应为 8→9
+    - **接受现状**：判据属一次性数值，已被真实数据的独立变化覆盖；本单按实测结果改记，不按原数值声明完成
+  - 未采用直调 supplementOccurrence 补齐：它只写账目、不结算缓冲，直调后条目仍 pending，下一轮再补一次即重复计数，正是本单要消除的形态
+    - **接受现状**：为凑判据而制造重复计数，与本单目标相悖；该取舍已在结果节写明，不视为可优化项
+  - 第二轮的复核记录仅 20 字符（系统捕获到复核者的收尾语而非七要素正文），该轮判 pass 的实质结论只存在于会话记录与第三轮复核的交叉验证中
+    - **接受现状**：record_review 只接受复核者实际被捕获的结论，改写即构成代述；该限制由机制决定，本单不用伪造文本绕过，改以第三轮的合格记录承载同一结论
+  - 待下一次受控审核运行把 648749cd 补进账目（count 8→9）并整条结算移除后，本单的步骤 4 才算真正交付，届时可补记 completed
+    - **接受现状**：本单以 partial 关闭即是对该未完成项的唯一如实表达；不另立工单跟踪，因为触发条件已明确且无需人为动作
 
