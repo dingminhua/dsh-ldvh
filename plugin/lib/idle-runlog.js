@@ -120,7 +120,9 @@ async function readAll(dshHomePath) {
  *     要求「勾了但没做」必须可见）；
  *   - `stage`：**落到哪一步**——`skipped`（无执行体） / `not-implemented`（任务未实现）
  *     / `throttled`（被闲时辅助的准入闸挡下——**不是失败**，内容不丢、水位不推进）
- *     / `stopped`（fail-closed 停止） / `landed`（落地已调用） / `land-failed`；
+ *     / `stopped`（fail-closed 停止） / `landed`（落地已调用） / `land-failed` /
+ *     **`partial`**（有成有败，含逐任务 outcome 为 partial 的情形——2026-11-03 补入
+ *     枚举行：该值此前只在下方 `action` 段的说明文字里出现，枚举行漏登，与实现不一致）；
  *
  *     `throttled` 与 `stopped` **必须可区分**：前者是机制按配置歇着（下次仍会看），
  *     后者是坏了。混同会使 Human 从痕迹里读不出机制到底在干什么。
@@ -132,7 +134,7 @@ async function readAll(dshHomePath) {
  *     而成功者已落地时整轮 `stage` 为 `partial`，单一 `action` 只是主项动作——
  *     **真相在 `per_task`**；
  *   - `per_task`（可选，F-2 子项 3）：逐任务结局映射
- *     `{任务键: {outcome: landed|rejected|land-failed, action?,
+ *     `{任务键: {outcome: landed|skipped|rejected|land-failed|partial, action?,
  *     object_uid?, watermark_advanced?, watermark_turn?}}`——11 §11 留痕前提
  *     「其二」的载体：连续停滞轮次由读取侧比对历次**逐任务**停点得出，不新建
  *     计数器（§11「读出来而非记出来」）；

@@ -755,7 +755,19 @@ export async function runReviewStage({
   //
   // 若将来真要按模型分流，须先解决「哪个模型产生了这个结果」的可核对性——
   // 那正是当初只允许单路由、不做多路由/失败切换的理由。
+  // **如实登记本次实际派发的 provider，并对 model 明确声明取不到**（2026-11-03）。
+  //
+  // 此前这里是裸的 `const modelApplied = null;`——字段存在、恒为 null、无任何说明。
+  // 于是 runlog 里 6 条记录的 `model` 全是 null，「这次用的哪个模型」无从回答，
+  // 而 code 注释却写着该字段的用途正是「事后核对设置的那个模型到底有没有生效」。
+  //
+  // 本次不改路由策略（仍固定跟随宿主默认路由，理由见上）；改的是**登记真实性**：
+  //   · `provider` 是我们确知的（`picked.value.name`），照实登记；
+  //   · `model` 宿主未回传，**不得编造**——故为 null，并把「为什么取不到」一并
+  //     带出，使读的人不会把「null」误当成「没跑」或「没查到」。
+  const providerApplied = picked.value.name ?? null;
   const modelApplied = null;
+  const modelAppliedReason = "宿主 startActivation 未回传所应用的具体模型；本任务固定跟随宿主默认路由，故只能登记 provider，model 如实为 null（不编造）";
   let activation;
   try {
     activation = await subagents.startActivation({
@@ -839,7 +851,16 @@ export async function runReviewStage({
   }
   const value = reviewed.value;
   const formedCount = Array.isArray(value.formed_all) ? value.formed_all.length : (value.formed === null ? 0 : 1);
-  const outcome = formedCount > 0 || value.discarded.length > 0 ? "landed" : "skipped";
+  // **`unsettled` 非空 → partial**（2026-11-03）。
+  //
+  // 此前这一行只看 formedCount 与 discarded，故「有几条没判完」的运行照样记
+  // `landed`——§18「派发条目的判定完备」行要求的是「整轮结局如实标 partial 并
+  // 登记 unsettled」，而 per_task 侧只剩 landed/skipped 两值，那条要求无处落地。
+  // partial 必须**先于** landed 判断：有成有败比「全部成功」弱，不得被前者掩掉。
+  const hasUnsettled = Array.isArray(value.unsettled) && value.unsettled.length > 0;
+  const outcome = hasUnsettled
+    ? "partial"
+    : formedCount > 0 || value.discarded.length > 0 ? "landed" : "skipped";
   record(outcome, {
     // 一次派发可能同时成文与废弃——动作名按**两者都发生**的形态如实写，不择一。
     action: formedCount > 0 && value.discarded.length > 0
@@ -859,8 +880,19 @@ export async function runReviewStage({
     transferred: value.transferred,
     transfer_failed: value.transfer_failed,
     remaining_pending: value.remaining_pending,
-    // 用了哪个模型：事后核对「设置的那个模型到底有没有生效」全靠这一项。
+    // 用了哪个模型：事后核对全靠这一项。`model` 为 null 时必须同时给
+    // `model_reason`，否则「null」与「没跑」「没查到」三者不可区分。
+    provider: providerApplied,
     model: modelApplied,
+    ...(modelApplied === null ? { model_reason: modelAppliedReason } : {}),
+    // **本次没判完的条目标识**（§18「派发条目的判定完备」行的正文承载）。
+    //
+    // 此前 `unsettled` 只存在于上游 `observation-review` 的返回值里，本段从不转出，
+    // 于是运行痕迹看不到「有几条没判完」；而 `outcome` 又只按 formed/discarded 算
+    // （见上），故 trace 里只可能是 landed/skipped——§18 要求的 partial 结局
+    // 在 per_task 里根本不可能出现。两处一起接上，partial 才首次可达。
+    unsettled: Array.isArray(value.unsettled) ? value.unsettled : [],
+    partial: value.partial === true,
   });
   // **投影缺口与读取范围随返回体带出**（2026-11-01 第三轮审核第 12 条）：只在提示词
   // 里声明缺口是不够的——那次声明只对执行体可见，Human 面看到的是「一切正常」。

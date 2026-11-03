@@ -51,6 +51,59 @@ import { landCaptureVerdict, residualFromCaptureError } from "./experience-landi
 import { advanceWatermark, recordActivity, admitAndRecordDispatch, releaseDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
+// stage 的唯一派生点：三处调用同一实现，避免「修一处漏两处」（见 run-stage.js 注释）。
+import { deriveStage } from "./run-stage.js";
+import { verifyRun as verifyMechanically, NOT_CHECKABLE_ROWS } from "./verification-run.js";
+
+/**
+ * 把一次审核运行的结局整理成 §18 逐行核对结论（11 §18「运行完成」）。
+ *
+ * **这不是第二次判断**：它只把该次运行**已经产生**的事实映射到 §18 的行上——
+ * 例如「派发条目的判定完备」看的是 `unsettled` 是否为空。凡该次运行没有采集到
+ * 证据的行，一律落 `not-checkable` 并带上原因，**不填 pass**（填 pass 等于把
+ * 没核对记成核对通过，那正是本门禁要消除的）。
+ *
+ * 返回 `null` 表示该次运行没有可核对的结局（如 skipped），此时痕迹里不写
+ * `verification` 字段——缺席与空结果是两件事。
+ */
+function verifyReviewRun(reviewOutcome) {
+  if (reviewOutcome === null || typeof reviewOutcome !== "object") return null;
+  const outcome = reviewOutcome.outcome;
+  if (outcome === "skipped" || outcome === undefined) return null;
+
+  const rows = [];
+  const push = (id, verdict, evidence) => rows.push({ id, verdict, evidence });
+
+  const unsettledN = Array.isArray(reviewOutcome.unsettled) ? reviewOutcome.unsettled.length : 0;
+  push("派发条目的判定完备", unsettledN > 0 ? "fail" : "pass",
+    unsettledN > 0 ? `unsettled=${unsettledN} 条未判完` : "unsettled 为空，本次派发的每条均有去向");
+
+  const transferFailedN = Array.isArray(reviewOutcome.transfer_failed) ? reviewOutcome.transfer_failed.length : 0;
+  push("转写条目的合法性", transferFailedN > 0 ? "fail" : "pass",
+    transferFailedN > 0 ? `transfer_failed=${transferFailedN} 条` : "本轮无转写失败");
+
+  push("fail-closed 处置", outcome === "land-failed" ? "fail" : "pass",
+    outcome === "land-failed" ? `本次运行失败：${reviewOutcome.action ?? "unknown"}` : "本次运行未触发 fail-closed");
+
+  push("缓冲条目不可写／不可回读",
+    outcome === "land-failed" && /buffer|unreadable/i.test(String(reviewOutcome.action ?? "")) ? "fail" : "pass",
+    `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`);
+
+  // 这些行的 §18 时机是动作点采集（「每次判断执行时」「每次写入后」），运行结束时
+  // 的痕迹不足以充当证据。如实落 not-checkable，不填 pass。
+  for (const id of Object.keys(NOT_CHECKABLE_ROWS)) {
+    push(id, "not-checkable", NOT_CHECKABLE_ROWS[id]);
+  }
+
+  const verdict = verifyMechanically({ rows });
+  return {
+    stage: verdict.stage,
+    fail: verdict.fail,
+    undeclared: verdict.undeclared,
+    misreported: verdict.misreported ?? [],
+    rows: verdict.rows,
+  };
+}
 import { appendPendingEntry, countPendingEntries } from "./pending-queue.js";
 import { adoptFinishedChild, createChildInstaller } from "./child.js";
 import { resolveChildFromSessionRecord } from "./child-session-record.js";
@@ -697,11 +750,19 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 task: "experience-review",
                 tasks: ["experience-review"],
                 unimplemented: [],
-                stage: reviewOutcome?.outcome === "landed" ? "landed"
-                  : reviewOutcome?.outcome === "skipped" ? "skipped"
-                  : "land-failed",
+                // stage 派生收敛到 deriveStage（run-stage.js）：此前是三处各自的
+                // 三元式，per_task.outcome=partial 会被记成 land-failed（「部分完成」
+                // 记成「失败」）。
+                stage: deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } }),
                 action: reviewOutcome?.action,
                 per_task: reviewOutcomes,
+                // **机械审核结论随痕迹带出**（11 §18）：`stage=landed` 此前只证明
+                // 「落地被调用了」。现在同时带出逐行核对结果，使「那次运行到底
+                // 核对过什么」可从 `idle-checkpoint-runs.json` 回读。
+                ...(() => {
+                  const verification = verifyReviewRun(reviewOutcome);
+                  return verification === null ? {} : { verification };
+                })(),
               });
             } catch {
               // 诊断旁路不得打断机制（与安静期路径同一纪律）。
@@ -1025,11 +1086,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                       task: "experience-review",
                       tasks: ["experience-review"],
                       unimplemented: [],
-                      stage: reviewOutcome?.outcome === "landed" ? "landed"
-                        : reviewOutcome?.outcome === "skipped" ? "skipped"
-                        : "land-failed",
+                      stage: deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } }),
                       action: reviewOutcome?.action,
                       per_task: reviewOutcomesForCheckpoint,
+                      ...(() => {
+                        const verification = verifyReviewRun(reviewOutcome);
+                        return verification === null ? {} : { verification };
+                      })(),
                     });
                   } catch {
                     // 诊断旁路不得打断机制（与安静期路径同一纪律）。
@@ -1442,17 +1505,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               //   （**新值**——F-1 后「一件成功一件失败」不能再记成 `land-failed`，
               //   那会把「成功者已落地」与「整块没落地」混同；两者在 per_task 里
               //   本有逐体真相，stage 取「有未成功项」与旧语义之间的诚实中间态）。
-              stage: (() => {
-                if (checkpoint?.ok !== true) return "stopped";
-                const outcomes = Object.values(taskOutcomes);
-                if (outcomes.length === 0) {
-                  return checkpoint.value?.outcome === "not-implemented" ? "not-implemented" : "skipped";
-                }
-                const landedN = outcomes.filter((o) => o.outcome === "landed").length;
-                if (landedN === outcomes.length) return "landed";
-                if (landedN === 0) return "land-failed";
-                return "partial";
-              })(),
+              // 与上面两处同一派生（run-stage.js 的 deriveStage）——三处曾各自实现，
+              // 导致「两处会把 partial 记成 land-failed、一处已正确」的不一致。
+              stage: deriveStage({
+                checkpointOk: checkpoint?.ok === true,
+                taskOutcomes,
+                emptyStage: checkpoint.value?.outcome === "not-implemented" ? "not-implemented" : "skipped",
+              }),
               code: checkpoint?.ok === false ? (checkpoint.error?.code ?? "unknown") : undefined,
               // ── 失败的可诊断面进运行痕迹（2026-11-03，丙方案「补下班」）──────
               //
