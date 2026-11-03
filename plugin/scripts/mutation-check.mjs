@@ -30,6 +30,7 @@ const LIFE = join(PLUGIN, "lib", "lifecycle.js");
 const HM = join(PLUGIN, "lib", "hook-manager.js");
 const GGR = join(PLUGIN, "lib", "git-gate-runner.js");
 const WM = join(PLUGIN, "lib", "web-mount.js");
+const GB = join(PLUGIN, "lib", "guidance-budget.js");
 const TESTS = [
 	"test/source-recall.test.mjs",
 	"test/recall-injection.test.mjs",
@@ -49,6 +50,10 @@ const TESTS = [
 	// 守任何东西」这件事不会有任何东西发现（实测踩过：改写后的 in-flight
 	// 用例对 pendingFingerprint 变异失去检测力）。
 	"test/web-mount.test.mjs",
+	// 2026-11-03：引导体量守卫（friction-f9a66474 的处置）。此前引导面的
+	// 预算判据**不在**本清单里，故「超预算不拒绝」「预警带恒真」这类破坏
+	// 从来不会被本脚本发现。
+	"test/guidance-budget.test.mjs",
 ];
 
 const MUTATIONS = [
@@ -157,6 +162,15 @@ const MUTATIONS = [
 	// ③ 不记录挂起的差异 → 「a change landing during an in-flight recycle」
 	//    必须转红。这条最容易被「缩放后仍然绿」掩盖，也正是 ② 抓不住的那一类：
 	//    ② 守「回收后有没有重拉」，③ 守「回收期间落的改动有没有被记住」。
+	// —— 引导体量守卫（2026-11-03 加，friction-f9a66474 的处置）——
+	//
+	// 这三条守的是「引导可以无限增长而无人发现」这件事不再成立：
+	// ① 超预算不再拒绝（注入继续）→ 「超预算时拒绝而非截断」必须转红；
+	// ② 预警带判据恒真（永远不带内/永远带内）→ 预警带用例必须转红；
+	// ③ 漂移判据恒不漂移（记录值形同虚设）→ 漂移报警用例必须转红。
+	[GB, "超预算不再拒绝（引导可无限增长）", "  if (length > budget) {", "  if (false && length > budget) {"],
+	[GB, "预警带判据恒真（逼近上限无人知）", "  return length <= budget * GUIDANCE_EARLY_WARNING_RATIO;", "  return true;"],
+	[GB, "漂移判据恒不漂移（记录值形同虚设）", "  return { drifted: delta !== 0, measured, recorded, delta };", "  return { drifted: false, measured, recorded, delta };"],
 	[WM, "回收期间的改动不挂起（in-flight 差异被吞）", "            pendingFingerprint = next;\n            void scheduleRecheck();", "            void 0;"],
 ];
 

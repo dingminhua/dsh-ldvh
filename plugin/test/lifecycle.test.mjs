@@ -145,6 +145,46 @@ test("assemble: foreign agent id and aborted signal pass through untouched", asy
 });
 
 // ---------------------------------------------------------------------------
+// guidance: 体量体检与漂移报警（2026-11-03，friction-f9a66474）
+// ---------------------------------------------------------------------------
+
+test("assemble: 每次装配都挂上体量体检报告（漂移不阻断，但报告恒在场）", async () => {
+	// 「有记录无人看」是另一种空转。故本断言是**正向**的：字段缺席即转红，
+	// 而不是「没漂移所以看不出有没有报警」。
+	const agent = makeAgent("s1", "/cwd");
+	const scopes = [];
+	const handler = createAssembleHandler(agent, {
+		resolve: async () => ({ state: "governed" }),
+		syncTools: () => {},
+		recordScope: (scope) => scopes.push(scope)
+	});
+	const result = await handler(assembly(), { agent }, async () => assembly());
+	assert.equal(scopes.length, 1, "scope 被记录一次");
+	const scope = scopes[0];
+	assert.ok(scope.guidanceSizeReport !== undefined, "体量体检报告须恒在场");
+	assert.equal(scope.guidanceSizeReport.state, "governed");
+	assert.equal(scope.guidanceSizeReport.ok, true);
+	assert.ok(scope.guidanceSizeReport.budget > 0, "预算须为正");
+	assert.equal(typeof scope.guidanceSizeReport.drifted, "boolean");
+	assert.equal(typeof scope.guidanceSizeReport.withinEarlyWarning, "boolean");
+	// 引导段照常注入——体量体检不是注入的前置门。
+	assert.ok(result.sections.some((section) => section.name === GUIDANCE_SECTION_NAME));
+});
+
+test("assemble: 体量体检报告与注入文本同源（不另算一份长度）", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const scopes = [];
+	const handler = createAssembleHandler(agent, {
+		resolve: async () => ({ state: "governed" }),
+		syncTools: () => {},
+		recordScope: (scope) => scopes.push(scope)
+	});
+	const result = await handler(assembly(), { agent }, async () => assembly());
+	const section = result.sections.find((entry) => entry.name === GUIDANCE_SECTION_NAME);
+	assert.equal(scopes[0].guidanceSizeReport.length, section.text.length, "报告长度须等于实际注入文本长度");
+});
+
+// ---------------------------------------------------------------------------
 // guidance: pre-step skeleton
 // ---------------------------------------------------------------------------
 

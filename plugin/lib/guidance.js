@@ -32,7 +32,7 @@
 //      gate, reject/abort pass-through and ownRequest stub are all in place
 //      and tested before content ever flows.
 
-import { buildGuidance } from "./guidance-budget.js";
+import { buildGuidance, guidanceSizeAlerts, reportGuidanceSize } from "./guidance-budget.js";
 import { currentUserText } from "./recall-injection.js";
 import { GUIDANCE_SECTION_NAME, migrationLineFor, noticeTextFor } from "./guidance-text.js";
 
@@ -80,6 +80,38 @@ export function createAssembleHandler(agent, { resolve, syncTools, recordScope }
     if (!guided.ok) {
       // 超预算时不静默注入半截文本，而是交还「未注入及原因」（10 §10.1-3）。
       scope.guidanceBudgetExceeded = guided.error.message;
+    }
+    // **体量体检与漂移报警**（2026-11-03，friction-f9a66474 的处置）：实测体量与
+    // `GUIDANCE_MEASURED_LENGTH` 记录值不一致时如实报出——**不阻断**注入。
+    //
+    // 为什么是报警而不是断言：若把实测体量写成测试断言的期望值，则「改动受保护
+    // 文本」与「同步该期望值」必然落在两个提交里，与 `00 §4.3`「受保护文档须形成
+    // 只含该文档的独立提交」互斥（friction-f9a66474）。拆开之后，受保护文本的
+    // 合法改动可以独立成一个提交且全绿；记录值落后期间由本报警如实显示差异，
+    // 记录值的同步是随后的普通提交。
+    //
+    // `guidanceSizeReport` **总是**挂上（不只在漂移时），这样「漂移报警这段代码
+    // 还在不在」是可被正向断言的：字段缺席即转红，而不是「没漂移所以看不出」。
+    const sizeReport = reportGuidanceSize(scope.state);
+    scope.guidanceSizeReport = {
+      state: sizeReport.state,
+      length: sizeReport.length,
+      budget: sizeReport.budget,
+      ok: sizeReport.ok,
+      withinEarlyWarning: sizeReport.withinEarlyWarning ?? null,
+      drifted: sizeReport.drift.drifted,
+      recorded: sizeReport.drift.recorded,
+      delta: sizeReport.drift.delta,
+    };
+    // 两类告警（漂移／逼近上限）**都不阻断注入**，只如实报出。
+    const alerts = guidanceSizeAlerts(sizeReport);
+    if (alerts.drift !== undefined) {
+      scope.guidanceLengthDrift = alerts.drift;
+      agent?.ctx?.logger?.warn?.(`ldvh: ${alerts.drift.message}`);
+    }
+    if (alerts.nearBudget !== undefined) {
+      scope.guidanceNearBudget = alerts.nearBudget;
+      agent?.ctx?.logger?.warn?.(`ldvh: ${alerts.nearBudget.message}`);
     }
     let noticeText = noticeTextFor(scope);
     if (lastState !== null && lastState !== scope.state) {
