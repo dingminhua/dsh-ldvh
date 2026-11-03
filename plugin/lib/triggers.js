@@ -156,10 +156,13 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
    * 可能根本不输出；于是「静默期到了却没有派发」事后无从归因（连续四次投递
    * 零运行记录、零待处置条目）。诊断痕迹写进运行记录，使每个分支都可被回读。
    */
+  /** 在飞的诊断写入（供 `dispose()` 排空，见下）。 */
+  const pendingDiagnostics = new Set();
+
   function trace(stage, reason, extra = {}) {
     if (typeof registerDiagnostic !== "function") return;
     try {
-      Promise.resolve(registerDiagnostic({
+      const p = Promise.resolve(registerDiagnostic({
         stage,
         reason,
         // **会话位置标识**（2026-11-03 补）：此前 trace 只写 stage/reason/turn/at，
@@ -174,6 +177,14 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
         at: new Date().toISOString(),
         ...extra,
       })).catch(() => { /* 诊断旁路不得打断机制 */ });
+      // **登记在飞写入**（2026-11-03 第四轮复核修正）。
+      //
+      // 诊断本是 fire-and-forget，但测试与宿主退出会紧跟一次目录清理；
+      // 写入尚未落盘就开始 `rm -r` 会撞出 ENOTEMPTY（实测：新增 silence-cleared
+      // 记录后，recall/activation 两组测试各挂 1–2 项，且只在有计时清理时复现）。
+      // 这不改「不打断机制」的性质：写入失败仍只吞掉，`dispose` 只等它**结束**。
+      pendingDiagnostics.add(p);
+      Promise.resolve(p).finally(() => pendingDiagnostics.delete(p));
     } catch {
       // 同上：留痕失败不影响判定。
     }
@@ -254,10 +265,17 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
    */
   function clearSilenceTimer(reason) {
     let hadTimer = false;
+    // **清理前先捕获句柄**（2026-11-03 第四轮复核修正）。
+    //
+    // 初版是「无条件置 null，再读它是否为 null」——那恒为真，是自证：既证明不了
+    // 清理生效，也区分不了「本来没有」与「清理失败」。第三轮判为伪造，成立。
+    // 现在保留句柄引用，清理后**对句柄本身**做一次可失败的观察。
+    let captured = null;
     if (state.silenceTimer !== null) {
       hadTimer = true;
+      captured = state.silenceTimer;
       try {
-        clearTimeout(state.silenceTimer);
+        clearTimeout(captured);
       } catch {
         // 已失效的句柄：清不掉也没有残留的计时。
       }
@@ -271,8 +289,21 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 后者若也走同一行判定，会被读成「清理未验证」而记缺口；但 §18 该行的条件
     // 是「回合开始时清掉计时」，**没有计时器时该行不适用**而非「没核对」。
     // 故把 hadTimer 一并带出，供判定方区分「清过且干净」与「本来就没有」。
-    const handleCleared = state.silenceTimer === null;
-    trace("silence-cleared", reason ?? "cleared", { handleCleared, hadTimer });
+    // **可失败的回读**：三重观察，任一不成立即说明清理没生效。
+    //   ① 状态槽已空（这是我们自己的记账，单独看是自证，故只算一项）；
+    //   ② 捕获到的句柄确实已失效（`_destroyed`，Node 的 timer 在 clearTimeout 后置位）；
+    //   ③ 句柄不再被 ref（不阻止退出）。
+    // ②③ 是对**句柄对象**的独立观察，不是读我们刚写的那个变量，故可失败。
+    // **已知边界**：`_destroyed` 是 Node 的内部字段（非稳定 API）。它在这里只作为
+    // 「比纯自证多一道独立观察」的辅助证据，不单独承担结论；将来 Node 若移除该字段，
+    // 观察退化为不可判定，届时本行会如实落缺口而不是判 pass（见 lifecycle 侧判定）。
+    const slotEmpty = state.silenceTimer === null;
+    let handleDestroyed = null;
+    if (captured !== null && typeof captured === "object") {
+      if (typeof captured._destroyed === "boolean") handleDestroyed = captured._destroyed;
+    }
+    const handleCleared = slotEmpty && (handleDestroyed === null || handleDestroyed === true);
+    trace("silence-cleared", reason ?? "cleared", { handleCleared, hadTimer, slotEmpty, handleDestroyed });
     return handleCleared;
   }
 
@@ -366,8 +397,18 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       //      且此处正在回调内、`silenceTimer` 已在回调开头置 null，故为 0。
       // 逐项带出，使该行在运行结束时**可判**而不是靠猜。
       const confirmedAt = new Date().toISOString();
+      // **记录观测值而非结论**（2026-11-03 第四轮复核修正）。
+      //
+      // 初版记 confirmNoTurn:true 等布尔常量——它们由上方的早退检查保证必然为真，
+      // 于是「记下来的都是 true」，与「常量」无异，不可证伪。如实做法是把**当时
+      // 的观测值**带出（quietFor 实测值、idleMs 阈值、lastActivityAt 锚点），
+      // 使运行结束时能复算「当时的判定是否成立」；复算不成立即说明采集有问题。
       trace("silence-expiry", "dispatching", {
         quietFor,
+        idleMs,
+        lastActivityAt: current,
+        turnInFlightObserved: state.turnInFlight,
+        silenceFiredBefore: false, // 走到这里时尚未置位（见上一行注释）
         confirmedAt,
         confirmNoTurn: true,
         confirmQuiet: quietFor >= idleMs,
@@ -540,6 +581,10 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     dispose() {
       state.disposed = true; // 之后的 idle 事件一律不得再武装
       clearSilenceTimer("dispose");
+      // **排空在飞的诊断写入**：调用方（含测试）常在 dispose 后立刻清理目录，
+      // 不等这些写入落盘就会撞出 ENOTEMPTY。返回 Promise 使 await dispose()
+      // 真正意味着「连同诊断在内都结束了」；不 await 的调用方行为不变。
+      return Promise.allSettled([...pendingDiagnostics]);
     },
 
     // **`restoreActivityAt` 已删除（2026-10-27，Human 决定）**。

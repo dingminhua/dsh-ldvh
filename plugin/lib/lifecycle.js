@@ -117,13 +117,38 @@ import { recordJudgementForGuard } from "./host-seams.js";
  *
  * @returns {{structural: object}} 逐项探测结论
  */
-function probeStructuralFacts() {
-  // 会构成「执行体临时裁量」入口的参数名（§14 第 2 条要求这些判断不出现在
-  // 执行体侧）。出现任何一个，即说明该条不再成立。
+export function probeStructuralFacts() {
+  // 会构成「执行体临时裁量」入口的参数名（§14 第 2 条要求这些判断不在执行体侧）。
   const DISCRETION_NAMES = ["tier", "riskLayer", "fastPath", "precheckResult", "allowFastPath"];
 
-  // **探的是真实函数对象**（本模块已 import `runReviewStage`），不是配置、不是常量。
-  // 一旦有人给审核段加上裁量参数，`String(fn)` 会包含该名字，本断言立即失败。
+  /**
+   * 取函数的**签名区**（从函数关键字到参数列表结束的 `)`）。
+   *
+   * **为什么只看签名区**：初版对 `String(fn)` 全文搜索，会被**函数体注释或字符串
+   * 字面量**里的同名文字误报（例如注释里写「不设 tier 参数」反而判 fail）。
+   * 裁量入口只可能出现在形参里，故把搜索范围收窄到签名。
+   *
+   * **已知边界（如实声明）**：压缩/Minify 之后形参名会被重命名，该探测在压缩产物上
+   * 可能失效。故本探测**只在未压缩的源码运行形态下有效**——本仓 `plugin/lib` 以
+   * 源码形态加载（见 `plugin/index.js` 的 import），不存在压缩步骤；若将来引入打包，
+   * 本探测须改为别的判据（例如导出面清单的静态快照比对），此处不假装它能跨过那一步。
+   */
+  function signatureOf(fn) {
+    const src = String(fn);
+    const open = src.indexOf("(");
+    if (open < 0) return src;
+    // 括号配平找到参数列表结尾
+    let depth = 0;
+    for (let i = open; i < src.length; i += 1) {
+      if (src[i] === "(") depth += 1;
+      else if (src[i] === ")") {
+        depth -= 1;
+        if (depth === 0) return src.slice(0, i + 1);
+      }
+    }
+    return src.slice(0, open + 1);
+  }
+
   const targets = [["runReviewStage", runReviewStage]];
   const found = [];
   for (const [name, fn] of targets) {
@@ -131,15 +156,19 @@ function probeStructuralFacts() {
       found.push(`${name}::missing`);
       continue;
     }
-    const src = String(fn);
+    const signature = signatureOf(fn);
     for (const d of DISCRETION_NAMES) {
-      if (src.includes(d)) found.push(`${name}::${d}`);
+      // 按词边界匹配，避免 `fastPathAllowed` 之类子串误判（那是同义入口，仍应命中；
+      // 但 `riskLayered` 这类无关词不该命中）。
+      const re = new RegExp(`(^|[^A-Za-z0-9_])${d}([^A-Za-z0-9_]|$)`);
+      if (re.test(signature)) found.push(`${name}::${d}`);
     }
   }
   return {
     discretionFree: found.length === 0,
     discretionFound: found,
     checked: targets.map(([n]) => n),
+    scope: "signature-only",
     at: new Date().toISOString(),
   };
 }
@@ -186,6 +215,9 @@ async function readTimerEvidence(dshHomePath, sessionId) {
       expiryAt: found.expiry?.at ?? null,
       // 三项确认的逐项结论（triggers 在 dispatching 时带出）
       confirmedAt: found.expiry?.confirmedAt,
+      quietFor: found.expiry?.quietFor,
+      idleMs: found.expiry?.idleMs,
+      turnInFlightObserved: found.expiry?.turnInFlightObserved,
       confirmNoTurn: found.expiry?.confirmNoTurn,
       confirmQuiet: found.expiry?.confirmQuiet,
       confirmNoOtherTimer: found.expiry?.confirmNoOtherTimer,
@@ -243,10 +275,11 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
       outcome === "land-failed" && /buffer|unreadable/i.test(String(reviewOutcome.action ?? ""))
         ? ["fail", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]
         : ["pass", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]],
-    // **七段完整性**：`formed` 里每一条都是**回读已通过**才被 push 的
-    // （`observation-review.js:1000` 前后的 readBack 断言含 `body_valid === true`，
-    // 而 `body_valid` 正是七段结构校验）。故「formed 中的对象」与「七段齐备」在
-    // 该链路上等价——这里不需要、也不该再用正文去重核。
+    // **七段完整性**（依据见下方同名行的注释——此处只留一行指针，避免出现
+    // 与实现相反的陈述）。**2026-11-03 第四轮复核**指出这里曾残留旧版假陈述
+    // 「formed 每条都通过回读、与七段齐备等价」，而实际 `observation-review.js`
+    // 先 push formed（:1000）、后 readBack（:1007），回读失败的对象也在 formed 里。
+    // 该假陈述与下方实现直接相反，会误导后来者按错误依据改回去，故删除。
     //
     // 2026-11-03 复核修复（第二轮 A 项）：初版按 `item.body` 逐段正则匹配，但真实
     // `formed` 元素只有 `{entry_id, object_uid, file}`，没有 body/title——于是任何
@@ -292,14 +325,24 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
       const r = timerEvidence.reason;
       // 逐项核对三项确认——任何一项为 false 都说明「空闲未被确认」，
       // 而 §18 要求「无法确认时不派发」，故确认为 false 却是 dispatching 即异常。
+      // **复算观测值，而不是相信结论布尔**（2026-11-03 第四轮复核修正）。
+      //
+      // 初版直接读 confirmNoTurn 等布尔——它们是采集侧的常量，恒真，等于把
+      // 「采集方说通过」当成证据。现在用带出的**观测值**独立复算：
+      //   quietFor 与 idleMs 都在记录里，安静是否达标由本侧重算，不由采集方断言。
       if (r === "dispatching" && timerEvidence.confirmedAt !== undefined) {
-        const noTurn = timerEvidence.confirmNoTurn === true;
-        const quiet = timerEvidence.confirmQuiet === true;
-        const noOther = timerEvidence.confirmNoOtherTimer === true;
-        if (noTurn && quiet && noOther) {
-          return ["pass", `三项确认逐项成立：无进行中回合／安静时长达标／无其他待触发计时（confirmedAt=${timerEvidence.confirmedAt}）`];
+        const quietFor = Number(timerEvidence.quietFor);
+        const idleMs = Number(timerEvidence.idleMs);
+        if (!Number.isFinite(quietFor) || !Number.isFinite(idleMs)) {
+          return ["not-checkable", `dispatching 记录未带出 quietFor/idleMs 观测值，无法复算三项确认；不接受采集方的结论布尔`];
         }
-        return ["fail", `已派发但三项确认不全：无回合=${noTurn} 安静达标=${quiet} 无其他计时=${noOther}（§18 要求无法确认时不派发）`];
+        const quiet = quietFor >= idleMs;
+        const noTurn = timerEvidence.turnInFlightObserved !== true;
+        const noOther = timerEvidence.confirmNoOtherTimer === true;
+        if (quiet && noTurn && noOther) {
+          return ["pass", `按观测值复算成立：quietFor=${quietFor}ms ≥ idleMs=${idleMs}ms、无进行中回合、无其他待触发计时（confirmedAt=${timerEvidence.confirmedAt}）`];
+        }
+        return ["fail", `已派发但复算不成立：quietFor=${quietFor} idleMs=${idleMs} 无回合=${noTurn} 无其他计时=${noOther}（§18 要求无法确认时不派发）`];
       }
       if (r === "turn-in-flight") {
         return ["pass", "到期时发现回合进行中，未派发（硬约束生效）"];
@@ -324,6 +367,11 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
       const offending = structural.discretionFound.filter((x) => /tier|riskLayer|fastPath/i.test(x));
       if (offending.length > 0) {
         return ["fail", `审核段出现层级/快通道裁量入口：${offending.join("、")}；§14 第 1 条要求本任务固定走标准路径`];
+      }
+      // **函数缺失时不得判 pass**（第四轮复核发现：missing 不匹配 tier 正则，
+      // 于是「探不到」被读成「没有裁量入口」——一条假 pass 通道）。
+      if (!structural.discretionFree) {
+        return ["fail", `结构性探测未全部通过：${structural.discretionFound.join("、")}`];
       }
       return ["pass", `审核段导出面（${structural.checked.join("、")}）不含 tier/riskLayer/fastPath 参数，层级无从被降为快通道（§14 第 1、4 条）`];
     })()],
@@ -388,10 +436,36 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, structural 
   // 为使其不被判为「未声明」，把它们作为**本轮条件未出现**单独声明给 verifyRun：
   // 声明的含义是「本轮确实没证据」（值不与 DEFERRED_STRICT 匹配 → 不拦 pass，
   // 因为条件一旦出现本就该给真结论）。
+  // **只在本轮确实无从观测时才声明为条件未出现**（2026-11-03 第四轮复核修正）。
+  //
+  // 初版把「这四行只要 not-checkable」就一律声明为「本轮条件未出现」——那是新的
+  // 万能免责：runlog 读失败（catch → null）、到期但 not-governed、以及任何未来的
+  // 缺证据情形，全都被说成「条件没发生」，门禁照样 landed。复核实测了这条通道。
+  //
+  // 现在区分两种 not-checkable：
+  //   - **无从观测**（证据源整个不存在：本轮没有计时器也没有到期记录 / 探针未运行）
+  //     → 才声明为条件未出现，不阻断；
+  //   - **观测到了却证据不全**（有记录但字段缺失、复算不通过）
+  //     → **不声明**，让它落 undeclared 并阻断。这是缺陷，不该被免责。
+  const CONDITIONAL_ROWS = ["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"];
+  const unobservable = timerEvidence === null && structural === null;
   const conditionallyUnproven = {};
-  for (const id of ["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"]) {
-    const row = rows.find((r) => r.id === id);
-    if (row !== undefined && row.verdict === "not-checkable") conditionallyUnproven[id] = "本轮条件未出现";
+  if (unobservable) {
+    for (const id of CONDITIONAL_ROWS) {
+      const row = rows.find((r) => r.id === id);
+      if (row !== undefined && row.verdict === "not-checkable") {
+        conditionallyUnproven[id] = "本轮既无计时记录、也未运行结构性探测，该行无从观测（非「已核对」）";
+      }
+    }
+  } else {
+    // 有证据源却仍有行落 not-checkable：那是「观测到了但证据不全」，如实阻断。
+    for (const id of CONDITIONAL_ROWS) {
+      const row = rows.find((r) => r.id === id);
+      if (row !== undefined && row.verdict === "not-checkable") {
+        // 不加入声明表 → verifyRun 会把它判为 undeclared 并阻断
+        void row;
+      }
+    }
   }
   const verdict = verifyMechanically({ rows, deferred: { ...DEFERRED_ROWS, ...conditionallyUnproven } });
   return {
@@ -1925,6 +1999,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         }
         // 清安静期计时器（11 §6.1）：会话结束/插件卸载时不得留下仍在计时的
         // 定时器——它会拖住进程退出，或在对象已销毁后仍尝试派发。
+        // 同步卸载路径（宿主 disposer 是同步的，不能 await）。诊断排空由
+        // triggers 侧在写入时自行节流，见 triggers.js 的 pendingDiagnostics 注释。
         try { turnTriggers.dispose(); } catch { /* 已失效 */ }
         if (agentTimers.get(agentId) === turnTriggers) agentTimers.delete(agentId);
         if (lifecycle.toolsDisposer !== null) {

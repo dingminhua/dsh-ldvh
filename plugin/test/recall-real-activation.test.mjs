@@ -81,8 +81,17 @@ async function createHarness() {
 		async dispose() {
 			await fiber.dispose();
 			await root.fiber.dispose();
-			await rm(home, { recursive: true, force: true });
-			await rm(project, { recursive: true, force: true });
+			// **等一拍再清目录**（2026-11-03 第四轮复核修正）。
+			//
+			// 诊断痕迹是 fire-and-forget 的异步写入（见 triggers.js 的 trace），
+			// 它的落盘不归 fiber.dispose() 管。紧跟的 `rm -r` 若与写入竞争，会撞出
+			// `ENOTEMPTY: directory not empty` —— 实测新增 silence-cleared 记录后
+			// 本文件挂 1–2 项，且只在有计时清理时才复现。生产代码的 fire-and-forget
+			// 是有意设计（诊断不得打断机制），故在测试侧等一拍才是正确位置。
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			// 清理失败不致命（残留临时目录由系统回收），但不得因竞争使测试假红。
+			await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(() => {});
+			await rm(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(() => {});
 		},
 	};
 }

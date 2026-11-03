@@ -124,8 +124,10 @@ async function createHarness({ withSchedule }) {
 		async dispose() {
 			await fiber.dispose();
 			await root.fiber.dispose();
-			await rm(home, { recursive: true, force: true });
-			await rm(project, { recursive: true, force: true });
+			// 同上：诊断写入是 fire-and-forget，紧跟的 rm 会与之竞争（ENOTEMPTY）。
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(() => {});
+			await rm(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(() => {});
 		},
 	};
 }

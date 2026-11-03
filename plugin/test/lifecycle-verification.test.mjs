@@ -24,6 +24,17 @@ function realFormed(uid = "pitfall-0000-0000-0000-000000000001") {
   return { entry_id: "entry-1", object_uid: uid, file: `/tmp/${uid}.md` };
 }
 
+/** 一次「证据齐全」的计时记录（清理回读 + 到期确认观测值）。 */
+function healthyTimerEvidence(over = {}) {
+  return {
+    hadTimer: true, handleCleared: true, slotEmpty: true, handleDestroyed: true,
+    clearedReason: "turn-start",
+    reason: "dispatching", confirmedAt: "2026-11-03T00:00:00.000Z",
+    quietFor: 600000, idleMs: 300000, turnInFlightObserved: false, confirmNoOtherTimer: true,
+    ...over,
+  };
+}
+
 /** 运行期配置快照（与 lifecycle.js 的 readConfigSnapshot 同形）。 */
 function structuralProbe(over = {}) {
   // 真实探测结论的形状（probeStructuralFacts 的返回）。
@@ -51,7 +62,7 @@ function healthyOutcome(over = {}) {
 }
 
 test("healthy 运行（成文、无未判、无转写失败）→ verification landed", () => {
-  const v = verifyReviewRun(healthyOutcome(), null, structuralProbe());
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe());
   assert.notEqual(v, null);
   assert.equal(v.stage, "landed", `fail=${JSON.stringify(v.fail)} undeclared=${JSON.stringify(v.undeclared)} missing=${JSON.stringify(v.missing)}`);
 });
@@ -60,7 +71,7 @@ test("formed 只带 entry_id/object_uid/file 时，七段行落缺口而不是�
   // 第二轮修了「读 item.body」的形状错误；第三轮复核指出依据仍不成立——
   // formed 先 push、readBack 后做，回读失败的对象也在 formed 里。故「formed 非空」
   // 不证明七段齐备。如实记 not-checkable 并列入缺口。
-  const v = verifyReviewRun(healthyOutcome(), null, structuralProbe());
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe());
   const row = v.rows.find((r) => r.id === "经验对象的七段完整");
   assert.equal(row.verdict, "not-checkable");
   assert.match(String(row.evidence), /body_valid|回读/);
@@ -68,7 +79,7 @@ test("formed 只带 entry_id/object_uid/file 时，七段行落缺口而不是�
 });
 
 test("本轮未成文也不得判失败（不适用 ≠ 失败）", () => {
-  const v = verifyReviewRun(healthyOutcome({ formed: null, formed_all: [] }), null, structuralProbe());
+  const v = verifyReviewRun(healthyOutcome({ formed: null, formed_all: [] }), healthyTimerEvidence(), structuralProbe());
   assert.equal(v.stage, "landed");
 });
 
@@ -95,7 +106,7 @@ test("null / 非对象输入返回 null 而不是抛错", () => {
 });
 
 test("产出覆盖 §18 全表：每一条 mechanical / 声明 / 缺口行都出现", () => {
-  const v = verifyReviewRun(healthyOutcome(), null, structuralProbe());
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe());
   const reported = new Set(v.rows.map((r) => r.id));
   for (const id of MECHANICAL_ROWS) assert.ok(reported.has(id), `缺行：${id}`);
   for (const id of Object.keys(NOT_CHECKABLE_ROWS)) assert.ok(reported.has(id), `缺声明行：${id}`);
@@ -103,17 +114,15 @@ test("产出覆盖 §18 全表：每一条 mechanical / 声明 / 缺口行都出
 });
 
 test("已知缺口随结果带出（deferredRows），使「没真核对」在跑绿时也读得见", () => {
-  const v = verifyReviewRun(healthyOutcome(), null, structuralProbe());
-  assert.ok(v.deferredRows.length > 0, "缺口必须列出，不能静默");
-  // 有真证据的行必须能减少缺口数：handleCleared 让「延迟的取消」具备真证据。
-  const withEvidence = verifyReviewRun(
-    healthyOutcome(),
-    { stage: "silence-expiry", reason: "dispatching", handleCleared: true },
-    structuralProbe(),
-  );
-  assert.ok(withEvidence.deferredRows.length < v.deferredRows.length,
+  const noEvidence = verifyReviewRun(healthyOutcome(), null, null);
+  assert.ok(noEvidence.deferredRows.length > 0, "无证据时缺口必须列出，不能静默");
+  // 拿到真证据后，那四行不再是缺口（它们已移出 DEFERRED_ROWS，有证据即真结论）。
+  const withEvidence = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe());
+  assert.ok(withEvidence.deferredRows.length < noEvidence.deferredRows.length,
     "采集点真的拿到证据时缺口数应减少——这是「清掉一项删一行」的可观察形态");
-  assert.ok(!withEvidence.deferredRows.includes("延迟的取消"));
+  for (const id of ["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"]) {
+    assert.ok(!withEvidence.deferredRows.includes(id), `${id} 有证据时不应落缺口`);
+  }
 });
 
 test("有采集点的行必须逐一定名列出现真结论（不接受「>=5」这种弱断言）", () => {
@@ -125,7 +134,7 @@ test("有采集点的行必须逐一定名列出现真结论（不接受「>=5�
     "fail-closed 处置",
     "缓冲条目不可写／不可回读",
   ];
-  const v = verifyReviewRun(healthyOutcome(), null, structuralProbe());
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe());
   const byId = new Map(v.rows.map((r) => [r.id, r]));
   for (const id of EXPECTED_COLLECTED) {
     assert.ok(byId.has(id), `缺少有采集点的行：${id}`);
@@ -147,11 +156,14 @@ test("仅凭 dispatching 不足以判「延迟的取消」通过——缺句柄�
 });
 
 test("带回清理回读结果时「延迟的取消」真正可判（可 pass 也可 fail）", () => {
-  const ok = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching", handleCleared: true }, structuralProbe());
-  assert.equal(ok.rows.find((r) => r.id === "延迟的取消").verdict, "pass");
-  const bad = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching", handleCleared: false }, structuralProbe());
-  assert.equal(bad.rows.find((r) => r.id === "延迟的取消").verdict, "fail");
-  assert.equal(bad.stage, "blocked");
+  const clean = verifyReviewRun(healthyOutcome(), { hadTimer: true, handleCleared: true, clearedReason: "turn-start" }, structuralProbe());
+  assert.equal(clean.rows.find((r) => r.id === "延迟的取消").verdict, "pass");
+  const dirty = verifyReviewRun(healthyOutcome(), { hadTimer: true, handleCleared: false, clearedReason: "turn-start" }, structuralProbe());
+  assert.equal(dirty.rows.find((r) => r.id === "延迟的取消").verdict, "fail");
+  assert.equal(dirty.stage, "blocked");
+  // 本来就没有计时器：条件未出现，不算是「清理未验证」也不是失败
+  const none = verifyReviewRun(healthyOutcome(), { hadTimer: false, handleCleared: true, clearedReason: "turn-start" }, structuralProbe());
+  assert.equal(none.rows.find((r) => r.id === "延迟的取消").verdict, "pass");
 });
 
 test("回合进行中拒绝派发：二次确认空闲记 pass（硬约束生效的实证）", () => {
@@ -178,7 +190,7 @@ test("不变量：每条机械行必须有采集点或缺口理由（防漏登�
   // 这条钉住 c24510a 那个 bug：某行既不在 collected 也不在 DEFERRED，
   // 会落成「未声明 not-checkable」使门禁恒 blocked。
   const { MECHANICAL_ROWS, DEFERRED_ROWS, NOT_CHECKABLE_ROWS } = await import("../lib/verification-run.js");
-  const v = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching" });
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe());
   assert.deepEqual(v.missing, [], "不得有任何缺席行");
   assert.deepEqual(v.undeclared, [], "不得有未声明的 not-checkable 行");
   // 「有账可查」= 缺口表 ∪ 声明表 ∪ 本次给出真结论的行 ∪ **有采集点但本轮条件未
@@ -204,7 +216,7 @@ test("不变量：每条机械行必须有采集点或缺口理由（防漏登�
 // ---------------------------------------------------------------------------
 
 test("无裁量入口时，「路径约定落实」「无主控预检落实」给出 pass", () => {
-  const v = verifyReviewRun(healthyOutcome(), null, structuralProbe());
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe());
   const byId = new Map(v.rows.map((r) => [r.id, r]));
   assert.equal(byId.get("路径约定落实").verdict, "pass");
   assert.equal(byId.get("无主控预检落实").verdict, "pass");
@@ -238,4 +250,66 @@ test("未探测时两行记缺口，不记 pass（探测没跑 ≠ 核过）", (
   const byId = new Map(v.rows.map((r) => [r.id, r]));
   assert.equal(byId.get("路径约定落实").verdict, "not-checkable");
   assert.equal(byId.get("无主控预检落实").verdict, "not-checkable");
+});
+
+test("结构性探测只看签名区：函数体注释里的同名文字不得误报", () => {
+  // 初版对 String(fn) 全文搜索，注释里写「本任务不设 tier 参数」反而会判 fail。
+  // 该用例通过真实 probeStructuralFacts 的间接结果钉住这个边界。
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe());
+  assert.equal(v.rows.find((r) => r.id === "路径约定落实").verdict, "pass",
+    "真实 runReviewStage 的注释里含裁量词时不该误报——若误报则说明探测退回了全文搜索");
+});
+
+test("结构性探测带 scope 声明，如实标出「只在签名区、只看源码形态」的边界", () => {
+  // 探测的有效范围本身要可读，否则后来者会以为它能跨过打包压缩。
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), structuralProbe({ scope: "signature-only" }));
+  assert.equal(v.stage, "landed");
+});
+
+// ---------------------------------------------------------------------------
+// 真实探针（第四轮复核指出：此前从无任何测试触达 probeStructuralFacts）
+// ---------------------------------------------------------------------------
+
+test("真实探针：对生产代码 runReviewStage 的探测结果为无裁量入口", async () => {
+  const { probeStructuralFacts } = await import("../lib/lifecycle.js");
+  const probe = probeStructuralFacts();
+  assert.equal(probe.discretionFree, true, `实际检出：${JSON.stringify(probe.discretionFound)}`);
+  assert.deepEqual(probe.discretionFound, []);
+  assert.ok(probe.checked.includes("runReviewStage"));
+  assert.equal(probe.scope, "signature-only", "探测范围须如实标出，否则读者会以为它能跨过打包压缩");
+});
+
+test("真实探针 + 真实证据 → 四行都给出真结论（端到端，非注入）", async () => {
+  const { probeStructuralFacts } = await import("../lib/lifecycle.js");
+  const v = verifyReviewRun(healthyOutcome(), healthyTimerEvidence(), probeStructuralFacts());
+  const byId = new Map(v.rows.map((r) => [r.id, r]));
+  for (const id of ["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"]) {
+    assert.equal(byId.get(id).verdict, "pass", `${id} 实得 ${byId.get(id).verdict}：${byId.get(id).evidence}`);
+  }
+  assert.equal(v.stage, "landed");
+});
+
+test("探针结果是『函数缺失』时不得判 pass（假 pass 通道已堵）", () => {
+  const v = verifyReviewRun(
+    healthyOutcome(),
+    healthyTimerEvidence(),
+    structuralProbe({ discretionFree: false, discretionFound: ["runReviewStage::missing"] }),
+  );
+  assert.equal(v.rows.find((r) => r.id === "路径约定落实").verdict, "fail");
+});
+
+test("有计时证据但观测值不达标 → 二次确认空闲判 fail（复算而非相信结论布尔）", () => {
+  const v = verifyReviewRun(
+    healthyOutcome(),
+    healthyTimerEvidence({ quietFor: 1000, idleMs: 300000 }),
+    structuralProbe(),
+  );
+  assert.equal(v.rows.find((r) => r.id === "二次确认空闲").verdict, "fail");
+  assert.equal(v.stage, "blocked");
+});
+
+test("到期但 not-governed：条件确实出现却缺证据，不得被声明为「条件未出现」而放行", () => {
+  // 第四轮复核指出的新万能免责通道：任何 not-checkable 都被说成「条件没发生」。
+  const v = verifyReviewRun(healthyOutcome(), { reason: "not-governed" }, structuralProbe());
+  assert.notEqual(v.stage, "landed", "条件出现了却没证据，必须阻断而不是免责");
 });
