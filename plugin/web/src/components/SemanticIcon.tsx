@@ -30,6 +30,7 @@ import {
   NotebookPen,
   PackageCheck,
   Receipt,
+  Rocket,
   Route,
   Ruler,
   ShieldCheck,
@@ -185,16 +186,17 @@ export const SYSTEM_ICONS: Record<string, SemanticIconComponent> = {
 /**
  * 帮助页分区图标（09 §8 同理：映射单源，页面不得自行散落图标选择）。
  *
- * **这是什么形状**：六个分区切换按钮的**分区提示符**——它们回答「这一格讲的是哪一类
+ * **这是什么形状**：七个分区切换按钮的**分区提示符**——它们回答「这一格讲的是哪一类
  * 事情」，不是对象身份，也不是状态。与 `OBJECT_TYPE_ICONS`（这是什么对象）、
  * `SYSTEM_ICONS`（这件事由谁管）、`NAV_ICONS`（这是哪个入口）三族全部错开形，
  * 读者不会把分区图标误读成对象图标。
  *
- * **选形**：打开的书（这是什么）、层叠（有哪些东西）、路径（事情怎么推进）、举手
- * （什么时候该你出面）、罗盘（去哪儿看）、盾牌（怎么判断可信）。
+ * **选形**：火箭（如何开始）、打开的书（这是什么）、层叠（有哪些东西）、路径（事情怎么
+ * 推进）、举手（什么时候该你出面）、罗盘（去哪儿看）、盾牌（怎么判断可信）。
  */
 // eslint-disable-next-line react-refresh/only-export-components -- 与 OBJECT_TYPE_ICONS / NAV_ICONS / SYSTEM_ICONS 同理：帮助页消费，拆文件即打断共置断言。
 export const HELP_TAB_ICONS: Record<string, SemanticIconComponent> = {
+  start: Rocket,
   overview: BookOpen,
   objects: Layers,
   systems: Route,

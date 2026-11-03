@@ -2,8 +2,9 @@
  * 帮助页（`/help`）——LDVH Web 的静态导览页。
  *
  * **它是什么**：给 Human 的一份使用引导。**整页由一个 tab 容器组织**：页头之下是
- * 常驻声明与 sticky 切换区，切换区之下是当前分区。六个分区各自回答一个问题，
+ * 常驻声明与 sticky 切换区，切换区之下是当前分区。七个分区各自回答一个问题，
  * 同一时刻只呈现一个（`specs/07` §12 第 7 条：长内容用分层入口收，不一次铺满）。
+ * 第一个分区是「如何开始」——新用户先看它，老用户也认得它在哪。
  *
  * **它不是什么**：
  * - 不是规则源。页面上的每一句都是对当前规范源的**通俗转述**，不产生规范效力；
@@ -15,14 +16,15 @@
  *   （§1.8.1「不使用营销式大留白或英雄区」、§1.10「密度和响应式」第 1 条）。
  *
  * **呈现件按类型登记，每类一种壳**（Human 2026-11-03 定，替掉上一轮「全页只有一种
- * 卡片壳」的旧口径）：本页共八类呈现件——声明条 `notice`、对照表 `compare`、形态卡
+ * 卡片壳」的旧口径）：本页共九类呈现件——声明条 `notice`、对照表 `compare`、形态卡
  * `stage`、条目卡 `entry-card`、行式清单 `rows`、标签阵列 `chips`、信任阶梯 `ladder`、
- * 提示条 `hint`。每类呈现件的根元素带 `data-presentation` 标记，守卫据此复算：
- * **登记清单与实现必须一一对应，同一类型不得出现第二种壳**。
+ * 提示条 `hint`、步骤清单 `steps`。每类呈现件的根元素带 `data-presentation` 标记，
+ * 守卫据此复算：**登记清单与实现必须一一对应，同一类型不得出现第二种壳**。
  *
  * 旧口径为什么换掉：要求「全页只有一种卡片壳 + 一种行式列表」会把本页真正需要的
  * 呈现形态判死——症状与机制是一一对应，用对照表才准确；七个否定项是短句，用标签
- * 阵列才一屏扫得完。真正要防的是**同一类东西出现两套写法**，不是**出现多种类**。
+ * 阵列才一屏扫得完；「如何开始」的两步有来源已成立的先后顺序，用有序列表才准。
+ * 真正要防的是**同一类东西出现两套写法**，不是**出现多种类**。
  *
  * **版式纪律**：网格只用 `ldvh-section-grid` 一个基准（形态卡与条目卡共用）；标题
  * 层级固定 h1（页头）→ h2（分区标题）→ h3（条目标题），分组标签是普通文本行，不占
@@ -58,11 +60,14 @@ const OVERVIEW_COMPARE: { icon: string; title: LocaleKey; symptom: LocaleKey; an
  * 自己的身份；读者要认的是它落在哪种对象上。六种类型色按演进顺序排开，方向感来自
  * 色彩递进，不是编号。
  */
-const SPINE_STAGES: {
+/** 形态件的形状：标题 + 说明 + 承载对象。形态不是对象，它落在哪些对象上由链接说明。 */
+type StageShape = {
   title: LocaleKey;
   body: LocaleKey;
   links: { to: string; type: string }[];
-}[] = [
+};
+
+const SPINE_STAGES: StageShape[] = [
   {
     title: 'help.spine.goal.title',
     body: 'help.spine.goal.body',
@@ -99,6 +104,33 @@ const SPINE_STAGES: {
       { to: '/objects/friction', type: 'friction' },
       { to: '/objects/norm', type: 'norm' },
       { to: '/objects/devlog', type: 'devlog' },
+    ],
+  },
+];
+
+/**
+ * 「如何开始」的两条起点：新项目与老项目。
+ *
+ * **为什么是形态卡**：起点也是一种形态——它有承载对象（卡头图标即这些对象的类型
+ * 图标），有说明，也有落到哪些对象上的去路。与主线六段共用同一套卡壳，是「同一类
+ * 东西只有一种写法」的直接后果，而不是又一套写法。
+ */
+const START_BRANCHES: StageShape[] = [
+  {
+    title: 'help.start.new.title',
+    body: 'help.start.new.body',
+    links: [
+      { to: '/goal', type: 'goal' },
+      { to: '/objects/subgoal', type: 'subgoal' },
+    ],
+  },
+  {
+    title: 'help.start.old.title',
+    body: 'help.start.old.body',
+    links: [
+      { to: '/objects/research', type: 'research' },
+      { to: '/goal', type: 'goal' },
+      { to: '/objects/subgoal', type: 'subgoal' },
     ],
   },
 ];
@@ -293,12 +325,16 @@ const PUSHBACK_ITEMS: LocaleKey[] = [
 ];
 
 /**
- * 六个分区：**标签是短问句，标题是完整问句**。
+ * 七个分区：**标签是短问句，标题是完整问句**。
  *
  * 标签给切换区（窄屏会折行，必须短）；标题给分区内容（读者落在这里，要知道自己
  * 在回答哪一问）。两者不重复：标签问「有什么」，标题补「具体是哪些」。
+ *
+ * **第一个分区是「如何开始」**：它是新用户的入口，放在最前并作为默认落点——一个
+ * 藏在中段的「如何开始」不算入口。
  */
 const TABS = [
+  { id: 'start', icon: 'start', label: 'help.tab.start', title: 'help.panel.start.title', lead: 'help.start.lead' },
   { id: 'overview', icon: 'overview', label: 'help.tab.overview', title: 'help.panel.overview.title', lead: 'help.overview.lead' },
   { id: 'objects', icon: 'objects', label: 'help.tab.objects', title: 'help.panel.objects.title', lead: 'help.objects.lead' },
   { id: 'systems', icon: 'systems', label: 'help.tab.systems', title: 'help.panel.systems.title', lead: 'help.systems.lead' },
@@ -311,7 +347,7 @@ type TabId = (typeof TABS)[number]['id'];
 
 export default function Help() {
   const { t } = useI18n();
-  const [tab, setTab] = useState<TabId>('overview');
+  const [tab, setTab] = useState<TabId>('start');
   const barRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -373,6 +409,7 @@ export default function Help() {
       <div ref={panelRef} className="min-w-0 pb-6">
         <h2 className="ldvh-card-title-prominent">{t(current.title)}</h2>
         <p className="ldvh-body-muted mt-1 max-w-[46rem]">{t(current.lead)}</p>
+        {tab === 'start' && <StartBody />}
         {tab === 'overview' && <OverviewBody />}
         {tab === 'objects' && <ObjectsBody />}
         {tab === 'systems' && <SystemsBody />}
@@ -436,12 +473,15 @@ function CompareTable({ rows }: { rows: typeof OVERVIEW_COMPARE }) {
 }
 
 /**
- * 形态卡：主线的六种形态。
+ * 形态卡：一种形态，落在哪些对象上。
  *
  * **卡头图标 = 承载对象的类型图标**：形态不是对象，没有自己的身份；读者要认的是
  * 它落在哪种对象上。颜色取类型色单源（`getCategoryColor`）。
+ *
+ * **两处用它**：主线六段形态（这是什么分区）与「如何开始」的两条起点（如何开始
+ * 分区）。同一个壳、同一套几何——起点也是一种形态。
  */
-function StageCard({ stage }: { stage: (typeof SPINE_STAGES)[number] }) {
+function StageCard({ stage }: { stage: StageShape }) {
   const { t } = useI18n();
   return (
     <article data-presentation="stage" className="flex min-w-0 flex-col gap-2 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
@@ -554,6 +594,23 @@ function ChipList({ items }: { items: LocaleKey[] }) {
 }
 
 /**
+ * 步骤清单：有序列表。
+ *
+ * **为什么是 `ol` 不是 `ul`**：这两步有**来源已成立的先后关系**——项目没选定，目标
+ * 就无处可落（目标与子目标长在被选中的项目下面）。`docs/01` §1.5 第 12 条把编号留给
+ * 这样的步骤；顺序写进 markup 而不只是写在词句里，读屏器才念得出「第 1 项，共 2 项」。
+ *
+ * **不套面板边框**：它不是一张卡，是两条步骤。卡里再套卡会读成几层盒子。
+ */
+function StepList({ children }: { children: ReactNode }) {
+  return (
+    <ol data-presentation="steps" className="flex min-w-0 flex-col">
+      {children}
+    </ol>
+  );
+}
+
+/**
  * 信任阶梯：声明的三层。
  *
  * **三层是分级的**：已证实 / 未证实 / 残留风险的可信度不同，视觉上要能看出来。
@@ -636,6 +693,36 @@ function EntryLink({ to, label }: { to: string; label: string }) {
       <span className="truncate">{label}</span>
       <ArrowRight size={13} className="shrink-0 text-ldvh-text-secondary/70" aria-hidden="true" />
     </Link>
+  );
+}
+
+function StartBody() {
+  const { t } = useI18n();
+  return (
+    <StepList>
+      <li className="min-w-0">
+        <h3 className="ldvh-card-title">{t('help.start.step1.title')}</h3>
+        <p className="ldvh-body-muted mt-1 max-w-[46rem]">{t('help.start.step1.body')}</p>
+        <div className="mt-3 max-w-[46rem]">
+          <Hint title={t('help.start.step1.hintTitle')}>{t('help.start.step1.hint')}</Hint>
+        </div>
+      </li>
+      <li className="mt-6 min-w-0 border-t border-ldvh-border pt-5">
+        <h3 className="ldvh-card-title">{t('help.start.step2.title')}</h3>
+        <p className="ldvh-body-muted mt-1 max-w-[46rem]">{t('help.start.step2.body')}</p>
+        <div className="mt-5">
+          <GroupLabel>{t('help.start.branchLabel')}</GroupLabel>
+        </div>
+        <div className="ldvh-section-grid mt-3">
+          {START_BRANCHES.map((branch) => (
+            <StageCard key={branch.title} stage={branch} />
+          ))}
+        </div>
+        <div className="mt-4 max-w-[52rem]">
+          <Hint title={t('help.start.nextTitle')}>{t('help.start.next')}</Hint>
+        </div>
+      </li>
+    </StepList>
   );
 }
 
