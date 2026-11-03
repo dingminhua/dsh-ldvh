@@ -116,6 +116,7 @@ const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md�
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
 建工单：**须先经 ldvh_workcase_write 的路由询问取得 Human 选择，不得未经询问擅自创建**；**不得在 ldvh_workcase_write 之外另发等效询问**（宿主询问不写会话事件流，日志里看不到不等于「没问过」，不得据此补问、不得擅自重建；同一候选内容指纹相同重试时接缝复用既有答复而不再提问，确需重问须先确认候选内容已变）；
 模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，请将 question 控制在 200 字符内，判断依据写进对话正文；此为对 AI 的指令、无机械保障（该工具不转发 detail，长内容无承载位）；
+待处置队列：11 §12 第4条把「下一个接管受影响对象的主控」列为读取者——接管前先读账（账在本机 ~/.dsh/ldvh/pending-queue.jsonl；源码布局下 node plugin/scripts/resolve-pending-entry.mjs --list --unresolved-only；Web 诊断页只给计数与截断原因、不含 entry_id）；核查后由接管的主控或 Human 用 ldvh_pending_queue_resolve 结案，note 必填、写明核查看到了什么；核查前对受影响对象的事实效力按 11 §12 第5条处理；
 管辖状态：ldvh_resolve_governance_scope。完整规则以规范源原文为准，本引导不复制规则正文。`;
 
 const UNAVAILABLE_GUIDANCE = `LDVH 管辖登记当前不可读取。本项目暂按不受管辖处理（与 not_governed 一致），但状态确为「不可用」而非「不受辖」，不得据此认定本项目不受辖。
