@@ -63,7 +63,6 @@ import { syncWorkcaseGoal, GOAL_WRITE_POINTS } from "./workcase-goals.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
 import { objectRef, objectRefOf } from "./object-reference.js";
-import { runAutoPreGate1Audit } from "./workcase-auto-audit.js";
 
 const OPERATIONS = {
   "workcase-read-object": {
@@ -745,10 +744,6 @@ async function executeWriteObject(args, exec, deps) {
   }
 
   let result;
-  // create 的路由答复来源（asked / reused）；其余 action 保持 null，不进信封。
-  let routingOutcome = null;
-  // create 之后自动派生的建前审核结果；其余 action 保持 null，不进信封。
-  let autoAudit = null;
   if (action === "create") {
     const draft = args?.frontmatter_draft;
     const bodyMarkdown = args?.body_markdown;
@@ -857,30 +852,6 @@ async function executeWriteObject(args, exec, deps) {
       sessionSignature: sig.value,
       expectedCandidateFingerprint: candidateFingerprint,
     });
-    // 路由这一步的**两个分支必须可分辨**：`asked`（本次真的把问题呈到 Human
-    // 面前）与 `reused`（同一候选的既有答复被复用，未再提问）。宿主 §6.3 询问
-    // 不进入会话事件流，若结果里也不区分，事后无从判断「这次到底问没问」——
-    // 2026-11-04 实测的重复提问（先用 ask_user_question 自问、再由本工具问）正是
-    // 靠这个区别才在账本里被辨认出来。只登记、不改判定。
-    routingOutcome = routing.reused === true
-      ? { decided: "reused", routed_to: routing.routedTo, decided_at: routing.decidedAt ?? null }
-      : { decided: "asked", routed_to: routing.routedTo };
-    // ── 建前独立审核的**自动派生**（21 §14 Gate 1 前置，2026-11-04）─────
-    //
-    // 为什么必须由机械发起：21 §14 把「Gate 1 前必审」写成无条件要求，机械层也
-    // 落成了两道闸（时序闸+覆盖闸），但**闸只拒绝、不推动**。实测（2026-11-04）：
-    // 主控建完 draft 直接对 Human 说「要关闭还是取消」，整个审核环节被跳过——而
-    // 引导段里明明写着这条规则。Human 的判词是「没有机械辅助，AI 执行力很差」。
-    //
-    // 故此处在 create **成功之后**立即派生零上下文子代理做审核，并经 record_audit
-    // 落盘。边界：不替 Human 批准 Gate 1、不改候选、不推进状态；`needs_revision`
-    // 时只落盘结论并交还，对象保持 draft。
-    if (result.ok === true) {
-      autoAudit = await runAutoAuditAfterCreate({
-        deps, exec, factSourceRoot, result: result.value, draft, bodyMarkdown,
-        sessionSignature: sig.value, sessionIdentity: ident.value,
-      });
-    }
   } else {
     // All remaining actions are CAS-guarded transitions on an existing object.
     const objectUid = requireString(args, "object_uid", action);
@@ -1321,12 +1292,6 @@ async function executeWriteObject(args, exec, deps) {
       // 宿主推进目标这一步必须**从结果中可读**（与上文 create 的次序纪律同理）：
       // 只把结果留在日志里，读者无法从信封看出「目标是否真的与对象对齐」。
       goal: goalSync,
-      // 路由答复的来源（asked / reused）。宿主 §6.3 询问不进会话事件流，若这里
-      // 也不区分，事后无从判断「这次到底问过没有」——重复提问正是靠它才可辨认。
-      ...(routingOutcome === null ? {} : { routing: routingOutcome }),
-      // 建前审核的自动派生结果。三种状态都可读（passed/rejected/failed），
-      // 任一路径都不把「没审成」说成「审过了」（00 §5.6）。
-      ...(autoAudit === null ? {} : { auto_audit: autoAudit }),
     },
     scope: {
       requested: args.action,
@@ -1356,126 +1321,9 @@ async function executeWriteObject(args, exec, deps) {
   });
 }
 
-/**
- * create 成功后的**建前审核自动派生**（21 §14 Gate 1 前置，2026-11-04）。
- *
- * 职责单一：拿到一份可信的子代理结论，经 `record_audit` 落盘，返回可读的摘要。
- * 它**不**批准 Gate 1、不改候选、不推进状态——那三件事都不是它的事。
- *
- * 三种结果都必须可读（不静默）：
- *   - `passed`   审核体判 pass 且已落盘 → 对象仍在 draft，等 Human 在 Gate 1 决定；
- *   - `rejected` 审核体判 needs_revision 且已落盘 → 对象仍在 draft，须回收敛；
- *   - `failed`   派生/结算/落盘任一步失败 → 对象仍在 draft，**如实报告须人处理**。
- *
- * 任一路径都不得把「没审成」说成「审过了」（00 §5.6 据实声明）。
- */
-async function runAutoAuditAfterCreate({ deps, exec, factSourceRoot, result, draft, bodyMarkdown, sessionSignature, sessionIdentity }) {
-  const attempt = { initiated_by: "plugin", started_at: new Date().toISOString() };
-  const subagents = deps?.subagents ?? null;
-  const parent = exec?.agent ?? null;
-
-  // 候选内容取自**本次调用实际提交的那份**（draft/body），不是落盘后重读——审核
-  // 的对象是「被提请的那份候选」，21 §14 的一致性纪律同源。
-  const candidate = {
-    title: draft?.title ?? null,
-    gist: draft?.gist ?? null,
-    summary: draft?.summary ?? null,
-    scope: draft?.scope ?? null,
-    plan: draft?.plan ?? null,
-    body: bodyMarkdown ?? null,
-  };
-
-  const audited = await runAutoPreGate1Audit({ subagents, parent, candidate, signal: exec?.signal });
-  if (!audited.ok) {
-    return { ...attempt, status: "failed", code: audited.error.code, message: audited.error.message };
-  }
-
-  // 落盘：走与工具面**同一条** record_audit 实现。身份取自**审核子代理**的宿主
-  // 会话记录（`authoritativeSessionIdentity`，`auditor_origin="subagent"`），这与
-  // 工具面代子代理回传时的取值口径一致——本流程只是把「谁去派生」从主控换成插件，
-  // **审核体的身份来源不变**，覆盖闸读到的仍是"由受管辖隔离子代理产出"。
-  const objectUid = result.object_uid;
-  const fingerprint = result.fingerprint;
-  const agentId = audited.value.agentId;
-  const sessionId = audited.value.sessionId ?? agentId;
-  if (typeof agentId !== "string" || agentId.length === 0 || typeof sessionId !== "string" || sessionId.length === 0) {
-    return {
-      ...attempt,
-      status: "failed",
-      code: "auto_audit/no_child_id",
-      message: "the audit executor produced a conclusion but carries no citable child id, so it cannot be "
-        + "recorded through record_audit (21 §14 无来源的结论不入档). The object stays in draft.",
-    };
-  }
-  const auditorIdentity = authoritativeSessionIdentity({ sessionId, source: "host", origin: "subagent" });
-  if (auditorIdentity === null) {
-    return {
-      ...attempt,
-      status: "failed",
-      code: "auto_audit/identity_unavailable",
-      message: "the audit executor carries no usable host session identity, so the audit cannot be attributed "
-        + "to it (21 §14 覆盖闸只认受管辖隔离子代理的结论). The object stays in draft.",
-    };
-  }
-
-  // 结论概要须为子代理结论的逐字子串（防代述）。审核体已按 schema 返回 summary，
-  // 直接冒用；若它超出 600 字符上限，逐步回退到结构化三维拼接——但每一步都仍是
-  // 它自己的原文，不由本函数改写。
-  const summaryCandidates = [
-    audited.value.summary,
-    [
-      `对象恰当性：${audited.value.structured?.object_appropriateness ?? ""}`,
-      `方案可行性：${audited.value.structured?.plan_feasibility ?? ""}`,
-      `scope 清晰度：${audited.value.structured?.scope_clarity ?? ""}`,
-      `结论：${audited.value.verdict}`,
-    ].join("\n"),
-  ].filter((text) => typeof text === "string" && text.trim().length > 0);
-
-  let recorded = null;
-  let lastError = null;
-  for (const summary of summaryCandidates) {
-    if (summary.length > REVIEW_SUMMARY_MAX_CHARS) continue;
-    // `sessionIdentity` 传**子代理的**宿主身份：writer 从它取 `session_id` 与
-    // `auditor_origin`，覆盖闸只认 `auditor_origin === "subagent"`。这正是
-    // 「本流程只是换发起者、不换审核体身份」的机械落点。
-    // `sessionSignature` 由 writer 侧 `requireAuthoritativeSignature` 校验；自动路径
-    // 没有工具面调用方提供的签名，故从当前会话签名通道取一次。
-    const written = await recordWorkcaseAudit({
-      factSourceRoot,
-      objectUid,
-      expectedFingerprint: fingerprint,
-      summary,
-      verdict: audited.value.verdict,
-      changeSummary: `自动派生的建前独立审核（插件发起），结论 ${audited.value.verdict}`,
-      auditorNote: `auto-dispatched by plugin after create; auditor child ${agentId}`,
-      sessionSignature,
-      sessionIdentity: auditorIdentity,
-    });
-    if (written.ok) { recorded = written; break; }
-    lastError = written;
-  }
-
-  if (recorded === null) {
-    return {
-      ...attempt,
-      status: "failed",
-      code: lastError?.error?.code ?? "auto_audit/record_failed",
-      message: lastError?.error?.message ?? "the audit conclusion could not be recorded; the object stays in draft",
-      verdict: audited.value.verdict,
-    };
-  }
-
-  return {
-    ...attempt,
-    status: audited.value.verdict === "pass" ? "passed" : "rejected",
-    verdict: audited.value.verdict,
-    auditor: agentId,
-    fingerprint: recorded.value?.fingerprint ?? null,
-  };
-}
-
 function writeRejected(operationKey, failureResult, factSourceRoot) {
-  const code = failureResult.error.code;  const mechanicalCodes = new Set([
+  const code = failureResult.error.code;
+  const mechanicalCodes = new Set([
     "workcase/frontmatter_invalid", "workcase/body_invalid", "workcase/coherence_invalid",
     "workcase/initial_state_violation", "workcase/transition_invalid", "workcase/c2_fingerprint_invalidated",
     "workcase/cas_conflict", "workcase/serves_unresolvable", "workcase/relations_unresolvable",
@@ -1537,24 +1385,6 @@ function renderEnvelope(operationKey, value) {
     }
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "workcase")}`);
-  // 路由答复来源必须出现在**模型读得到的那一行**里：信封里有而渲染层不输出，
-  // 等于模型侧不存在（pitfall-b878f526 的同一形态）。`reused` 尤其要露出来——
-  // 它是「本次没有再打扰 Human」的唯一凭据。
-  if (result?.routing !== undefined && result.routing !== null) {
-    const decidedAt = result.routing.decided_at ? ` decided_at=${result.routing.decided_at}` : "";
-    lines.push(`routing: ${result.routing.decided} routed_to=${result.routing.routed_to ?? "unknown"}${decidedAt}`);
-  }
-  // 自动派生的建前审核结果也必须出现在模型读得到的这一行里：三层状态各自
-  // 要能一眼看出（passed = 已审通过待 Human 批准 / rejected = 须回收敛 /
-  // failed = 没审成须人处理）。只写进信封不写这里，等于模型侧不存在。
-  if (result?.auto_audit !== undefined && result.auto_audit !== null) {
-    const auto = result.auto_audit;
-    const detail = auto.status === "failed"
-      ? ` code=${auto.code ?? "unknown"}`
-      : ` verdict=${auto.verdict ?? "unknown"} auditor=${auto.auditor ?? "unknown"}`;
-    lines.push(`auto_audit: ${auto.status}${detail}`);
-    if (auto.status === "failed" && typeof auto.message === "string") lines.push(`auto_audit_detail: ${auto.message}`);
-  }
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
   return text(lines.join("\n"));
 }
@@ -1713,12 +1543,7 @@ function parameterSchemaFor(operationKey) {
           frontmatter_draft: workcaseFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 摘要' (H2 sections 摘要/授权范围/计划; the H1 is generated from title)" },
           expected_candidate_fingerprint: { type: "string", description: "create: the candidate_fingerprint returned by ldvh_workcase_precheck_create for THIS candidate content. When supplied, the write refuses if the content changed in between — so a precheck verdict never silently carries over to a different candidate (21 §14 create). Optional: omit when the candidate was not prechecked." },
-          // 路由询问由**本工具**发起（21 §6.3 / §14 C1），故此参数只承载「原话」，
-          // 不承载询问本身。约束写在这里而非只写在引导段：引导段只在会话起始的
-          // 系统消息里出现一次，工具定义则每回合随请求下发——实测（2026-11-04）
-          // 模型在长会话中先用 ask_user_question 自问一遍、再调本工具，Human 因此
-          // 被同一件事问两次，而模型自认为在遵守流程。
-          routing_request: { type: "string", description: "create: the Human's request in their own words, carried verbatim into the 21 §6.3 routing prompt (e.g. 「帮我把 X 改掉」). Optional but strongly recommended — it is what lets the Human recognise which piece of work is being routed. The routing question itself is asked BY THIS TOOL; do not ask an equivalent question beforehand through any other channel (that would put the same decision in front of the Human twice), and do not re-ask after a refusal — a changed candidate is the only thing that warrants a new question." },
+          routing_request: { type: "string", description: "create: the Human's request in their own words, shown in the 21 §6.3 routing prompt (e.g. 「帮我把 X 改掉」). Optional but strongly recommended — it is what lets the Human recognise which piece of work is being routed." },
           routing_rationale: {
             type: "object",
             description: "create: the AI's 21 §6.3 reasoning. Advisory only, NOT part of what is accepted — and since 2026-10 NOT shown in the routing prompt either (Human ruled the AI's lean reasons must not appear there), so supplying it changes nothing user-visible. Kept for call compatibility; omit it.",

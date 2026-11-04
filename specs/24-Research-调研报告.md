@@ -182,7 +182,7 @@ frontmatter 是三态与引用的机器权威，任何正文只可展开、不�
 1. 三态至少一项成立：`confirmed_statements`、`uncertain`、`gaps` 三者至少出现其一，不出现时整体省略；
 2. 溯源锚点不变量：正文"关键发现"段每个发现单元必须以一行 `溯源：<ref>（<锚点>）` 结尾，`<ref>` 逐字等于某条 `urls[].ref`——证据不悬空，但摘录本身留在来源处不复制进对象（需要核对时按锚点回查）；
 3. 停止一致性：`stopping_reason=sufficient` 时 `confirmed_statements` 必填非空且不存在阻塞 `research_purpose` 结论的 `high` 优先级缺口；`stopping_reason=round-cap` 时必须在 `gaps` 或正文"后续分流"中声明未覆盖范围；
-4. 生命周期约束：`status=retired` 时禁止新增或实质修改发现单元，只允许配套更正或退出说明的更新；
+4. 生命周期约束：`status=retired` 时禁止新增或实质修改发现单元，只允许配套更正或退出说明的更新——**该许可的受控入口是 §13 的「终态事实更正」**（`correct`）：正文与 §13 白名单五项可改，`status`/`retirement_reason`/`retired_at`/`urls`/`research_purpose`/`stopping_reason` 与子阶段逐字继承；「实质修改发现单元」仍被禁止——更正只能修正错述，不变量 7 要求声明与正文 H3 标题逐字对应，改一条须两层同改；
 5. 未知字段处理：frontmatter 出现本文与 02 §7.1 之外字段时，该对象不得作为 Research 消费，直到完成字段准入或修正；
 6. 载体一致性：`调查阶段` H2 存在性与子阶段一致（探索型必在、明确方向型禁在），frontmatter 只在文件头部，`调查阶段` H3 正文不承载字段、不得改变或弱化 frontmatter 语义；
 7. 索引一致不变量：每条 `confirmed_statements[]` 成员必须逐字等于正文某个发现单元的声明句——索引不悬空，每条机器索引都能在正文定位到完整叙述；
@@ -241,7 +241,7 @@ Research 使用 02 §8.2 的公共关系形状，允许的 `relation_key` 闭集
 
 F1 卡片只投影最小权威字段：`object_uid`、`fact_type_key`、`title`、`status`、`research_question`、`research_purpose`、`stopping_reason`、`created_at`；不投影三态内容、发现单元、溯源锚点或子阶段，不在卡片层解释结论当前性。
 
-F2 候选发现只按确定性字段过滤：默认状态范围 `status=active`，`retired` 只在精确引用、调研历史或来源追溯时进入候选；允许按类型、状态、稳定引用、关系或本文允许字段（`title`、`research_question`、`research_purpose`）命中，候选卡返回 F1 字段、命中依据与有界确定性摘录（`title` 或 `research_question` 的定长片段）；关系导航支持两种只读方向：已知目标对象反查哪些 Research 声明了指向它的关系（`fact_type_keys=[research]` 与 `relation_targets`），或从已知 Research 沿 `inspired-by`/`informs`/`updates` 边取得直接目标（`relation_source_refs`）；两者只形成候选与关系边结果，不自动改变对象状态、时效或结论当前性，反向导航依赖通用关系机制派生，不写回对象。
+F2 候选发现只按确定性字段过滤：默认状态范围 `status=active`，`retired` 只在精确引用、调研历史或来源追溯时进入候选；允许按类型、状态、稳定引用、关系或本文允许字段（`title`、`research_question`、`research_purpose`）命中，候选卡返回 F1 字段、命中依据与有界确定性摘录（`title` 或 `research_question` 的定长片段）；关系导航**不设本类型专属的检索操作**，两个只读方向由通用关系机制承载：**反向**（已知目标对象反查哪些 Research 声明了指向它的关系）走 02 §9.1 的 F2 关系命中——以目标 `object_uid` 为查询指称、并限定 `fact_type_keys=[research]`，命中理由标注命中的 `relation_key`／`relation_target`；**正向**（从已知 Research 沿 `inspired-by`/`informs`/`updates` 边取得直接目标）由本类型判据表「关系展开」行（02 §12.4）与 §11 关系闭集承载，只跟随对象上实际存在的边、一条边一跳、不递归。两者只形成候选与关系边结果，不自动改变对象状态、时效或结论当前性，均为通用关系机制的派生结果，不写回对象。
 
 F3 完整展开发生在三态证据、引用闭环或边界结论影响当前判断时：读取当前权威载体（单文件）全文，完成已实现机械校验（frontmatter 闭集、状态、`调查阶段` H2 存在性与子阶段一致、引用闭环回指一致、关系 key 与目标解析），再作适用与边界判断。
 
@@ -265,7 +265,9 @@ F4 来源展开发生在需要核对具体观察、版本或观察时点时：�
 
 创建按 02 §10.4 承接；类型特有的机械校验为：必填条件字段、闭集取值、三态至少一项、每条 `confirmed_statements[]` 成员在正文有逐字对应发现单元、每个发现单元末尾有合法溯源锚点（`ref` 回指 `urls`）、正文"研究问题"段逐字包含 `research_question` 原文（不变量 10）、正文 H2 顺序与唯一（明确方向型六个 H2；探索型七个 H2 且`调查阶段`内四个 H3 顺序与唯一）。
 
-更新与更正按 02 §10.5 承接；类型特有约束：CAS 以完整文件为单位（指纹绑定整个文件），提交完整 after；frontmatter 的三态字段如因调查发现变化须同步更新（frontmatter 是三态的机器权威，`调查阶段` 正文不得有独立于 frontmatter 的证据状态）。子阶段不可变：更新不得添加或删除 `调查阶段` H2。
+更新与更正按 02 §10.5 承接（通用发布不变量——完整 after、恰好一条 change_log、写后回读——见该节；**可更正到什么范围由本条下方的终态事实更正条目定义**，02 §10.5 本身不承载任何类型的终态更正正文规则）；类型特有约束：CAS 以完整文件为单位（指纹绑定整个文件），提交完整 after；frontmatter 的三态字段如因调查发现变化须同步更新（frontmatter 是三态的机器权威，`调查阶段` 正文不得有独立于 frontmatter 的证据状态）。子阶段不可变：更新不得添加或删除 `调查阶段` H2。
+
+**终态事实更正**（`correct`；2026-11-04 建立）：§8 第 4 项早已允许「`retired` 时……只允许配套更正或退出说明的更新」，但此前**没有任何通道承载它**——`status` 由磁盘继承，于是 `retired` 对象的任何一次更新都会命中「`retired → retired` 不可再次进入」而一律被拒，该许可只是一句话。本入口是它的承载。**入口只对 `status = retired` 开放**：`active` 的内容修正走普通更新；把内容更新路由到本入口即「把内容更新伪装成事实更正」的反向越界。**必须 Human 授权**：调用方须提供非空 `human_authorization`，其文本逐字落入 `change_log`；缺授权即拒绝。**如实声明边界**：该字段是自报，机械层只保证「授权记录被提交」，**不证明** Human 真的同意过。**可写范围是白名单**（本类型不能像 22 号 ADR 那样「完全不接收 frontmatter」——§8 的索引-正文不变量要求两层同改，只改正文无法完成一次合法更正）：`confirmed_statements`／`uncertain`／`gaps`／`implications`／`research_question` 五项，其余键一律拒绝。**逐字继承**：`status`／`retirement_reason`／`retired_at`／`urls`／`research_purpose`／`stopping_reason` 与子阶段。**`stopping_reason` 为何不在白名单**：它是「为什么停在这个轮次」的**判断**，改动它属判断变更而非事实更正，且没有任何机械判据能区分「更正一个写错的停止理由」与「把结论改成另一个结论」，故明文排除。**§8 不变量的拒绝属预期行为，不是缺口**：不变量 3（`sufficient` ⇒ `confirmed_statements` 非空）会拒绝「更正后清空全部声明」——替换单条不触发，只有删空全部才触发，而删空全部本就不是错述更正；不变量 7（声明与关键发现 H3 标题逐字对应）与不变量 10（研究问题段逐字包含 `research_question`）都是**两层同改**的要求，白名单纳入对应字段后即可满足，不构成阻断。**无写入变更即拒绝**：正文与白名单字段均未变时拒绝为 no-op，不追加声称更正过的条目（02 §10.5 不记录 no-op）。**机械拒绝的越权动作**：终态字段（`correction_terminal_field_immutable`）、判断字段（`correction_judgment_field_immutable`）、白名单外字段（`correction_field_not_permitted`）、非终态对象（`correction_requires_retired`）、缺授权（`human_authorization_required`）、陈旧指纹（`cas_conflict`）。写后精确回读。**本条机械保证范围**：只证明「该次写入带 Human 授权、只改白名单字段与正文、终态与判断字段逐字未变、`change_log` 恰好 +1」；**不证明**更正内容正确或缺陷已实质消除——那属 AI 语义审核与 Human 阅读（04 §6）。**残留（如实登记）**：`urls` 的源头写错（如链接本身记错）不在本入口范围，仍无通道。
 
 状态转换 `active → retired` 经受控更新完成：after 含新状态、`retirement_reason`（闭集）与 Code 托管填写的 `retired_at`，当 `retirement_reason=superseded` 时同时携带一条 `updates` 关系指向可解析的替代 Research；`change_summary` 必须据实说明退出依据；正文`建议`段最后一条必须显式回答"本对象在何种条件下仍可被回查"以保证"研究→执行"承接不断裂（与 §9 退出完整性不变量对齐）；不允许普通编辑 direct writing canonical 载体。多对象边界：新调研创建与旧对象 `retired` 是两个单对象操作，不声明原子性；`relations` 随对象创建写入（02 §10.6）。
 
@@ -274,6 +276,8 @@ F4 来源展开发生在需要核对具体观察、版本或观察时点时：�
 ## 14. 类型特有验证与类型退出
 
 类型特有验证对象为三态一致性、溯源锚点完整性、单文件载体结构与正文结构：机械层验证三态与 `stopping_reason` 的闭集与存在性、`confirmed_statements` 与正文发现单元的逐字对应、正文"研究问题"段逐字包含 `research_question` 原文（不变量 10）、溯源锚点格式与 `ref` 回指、`relations` 的 key 与目标类型闭集、`调查阶段` H2 存在性与子阶段一致、正文 H2（及探索型 H3）的顺序与唯一性；逐字摘录是否真实、来源是否仍当前、缺口优先级是否阻塞 `research_purpose` 判断、三态归类是否据实、子阶段判定是否据实，属 AI 语义审核与独立复核范围，机械结果与语义判断互不替代（02 §8.1）。
+
+**终态事实更正边界**（§13 的 `correct`）：对象为 `retired`；带非空 Human 授权与变更摘要；提交正文与落盘正文不同（no-op 拒绝）；**终态与判断字段逐字未变**——`status`/`retirement_reason`/`retired_at`/`urls`/`research_purpose`/`stopping_reason` 与 CAS 基线逐字段一致；frontmatter 写入限于 §13 白名单五项，其余键按专属失败码拒绝；正文固定 H2/H3 结构与索引-正文一致性（不变量 7、10）仍须通过；`change_log` 恰好 +1 且带授权文本。**可证明范围**：只证明该次写入的形状与不变性；更正内容的正确性属 AI 语义审核与 Human 阅读。
 
 类型退出：Research 停止新增、合并、替代或取消时，必须按 02 §11 与 09 处置唯一定义来源、全部对象文件、字段登记、引用消费方与仍适用内容，并保留仍需回看调研历史的 `retired` 档案；不能只删除本文、目录、Schema 或 Web 入口，也不能用文件删除代替完整退出。
 
@@ -286,6 +290,7 @@ F4 来源展开发生在需要核对具体观察、版本或观察时点时：�
 | 身份与载体 | 创建、读取、更新时 | 文件路径、`调查阶段` H2 存在性与子阶段一致、frontmatter 闭集且只在文件头、身份、字段类型、条件、正文 H2/H3 顺序与唯一性符合 | 当前载体、本文 §7/§8 与 02 §6 | 实际 parser/validator；未实现时逐项来源回读 | 当次对象当前载体机械范围 | 不作为有效 Research 消费并报告字段与未验证范围 |
 | 三态与溯源锚点 | 创建、更新与消费时 | 三态闭集、停止一致性、`confirmed_statements` 与正文发现单元逐字对应、每个发现单元溯源锚点格式与 `ref` 回指、锚点处内容仍可复核 | 本文 §8/§10、对象 frontmatter 与正文 | 结构校验与 F4 展开回读；观察忠实性与判断成立性由 AI/独立复核承担 | 当次三态与溯源锚点范围 | 停止消费受影响声明，补锚点或更新至如实状态 |
 | 状态与生命周期 | 创建与状态转换时 | 初态 `active`、唯一转换、`retired` 时 frontmatter 必填 `retirement_reason`（闭集）且 `retired_at` 由 Code 托管、`retirement_reason=superseded` 时携带可解析 `updates` 关系、`retired` 禁止新增发现单元 | 本文 §8/§9、对象 frontmatter 与 `change_log` | Schema 检查与 AI 语义核对 | 当次对象状态与转换 | 不写入状态，修正退出依据或转换条件 |
+| 终态事实更正边界 | 每次 `correct` 写入前 | 对象为 `retired`；带非空 Human 授权与变更摘要；提交正文与落盘正文不同；终态与判断字段逐字未变；frontmatter 仅写 §13 白名单五项 | 对象全文 + 写入前后 frontmatter 比对 + `change_log` 条数 | 机械（状态检查、必填项、白名单、正文比对、CAS、写后回读 + 逐字字段比对） | 该次写入只改白名单字段与正文、`status`/`retirement_reason`/`retired_at`/`urls`/`research_purpose`/`stopping_reason` 逐字未变、`change_log` 恰好 +1 且带授权文本；**不证明**更正内容正确或缺陷已实质消除 | 拒绝且零写入；缺陷须实质消除后重走 |
 | 关系契约 | 创建、更新、展开时 | key 属于闭集、目标类型与方向正确、目标可解析、失效如实报告 | 本文 §11、02 §8.2、目标读取结果 | 关系校验与一跳目标读取 | 当次一跳关系范围 | 拒绝未知或无效关系，保留目标缺失、不可用与未检查范围 |
 | 召回与消费 | 候选发现、展开与压缩恢复时 | F1 投影字段、F2 确定性过滤与命中依据、F3 全文展开、F4 展开边界、`retired` 默认排除 | 本文 §12、对象卡与正文 | 分层候选走查与 AI 适用审核 | 当次召回与展开范围 | 缩小或补读，不把候选命中当作适用或全文已读 |
 | 受控写入 | 创建、更新、转换、删除前 | CAS 绑定整个文件、授权、类型条件、引用闭环一致、文件原子写入、精确回读整个文件与适用审计均完成 | 02 §10、本文 §13、授权与回读结果 | 受控入口、精确回读与适用审计 | 当次写入、回读与流水范围 | 任何条件未满足时零写入或停止后续写入、提交与成功声明 |
@@ -304,7 +309,8 @@ F4 来源展开发生在需要核对具体观察、版本或观察时点时：�
 2. 调研来源涉及需要 Human 授权的访问边界（私密、付费、许可、受限仓库或敏感领域）；
 3. 引用闭环需要保留受版权限制的逐字长摘录或受限引用时的取舍；
 4. 来源冲突无法裁决、或证据缺口阻塞 `research_purpose` 所支撑判断仍需引用时的高影响取舍；
-5. 从 v4 或旧材料迁移 Research 的批量方式及其准入标准的决策，以及 v4 `technical_assessment` 不迁入后的承载处置、`internal_audit` 迁入 29 号 DevLog 后的准入细目与 v4 Study 类型名废弃的决定。
+5. 从 v4 或旧材料迁移 Research 的批量方式及其准入标准的决策，以及 v4 `technical_assessment` 不迁入后的承载处置、`internal_audit` 迁入 29 号 DevLog 后的准入细目与 v4 Study 类型名废弃的决定；
+6. **对 `retired` 报告的终态事实更正**（§13 的 `correct`）：每次更正都须 Human 明确授权，授权文本逐字落入 `change_log`。这是 §16「本规范不新增 00 之外的 Human Gate」的一处领域细化——它不新增关卡类型，而是把 00 §4.2 的既有授权要求落到一个此前没有入口的动作上；**如实声明**：机械层只校验授权记录被提交，不证明 Human 真的同意过。
 
 ### 16.2 决定边界
 

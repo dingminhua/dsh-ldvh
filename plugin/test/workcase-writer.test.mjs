@@ -831,6 +831,138 @@ test("execute: takeover allocates a strictly higher attempt id (21 §10.4 单调
   });
 });
 
+test("execute: reallocate voids the attempt, allocates a strictly higher id and moves the baseline (21 §10.4 冷恢复)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    const fmNext = structuredClone(after.value.frontmatter);
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: fmNext,
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 冷恢复：核对副作用后重新分配。\n`,
+      changeSummary: "冷恢复重新分配",
+      attemptOperation: "reallocate",
+      newController: "controller-b",
+      sessionSignature: SIG(),
+      sessionIdentity: IDENTITY("session-new-impl"),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read.value.frontmatter.attempt.attempt_id, 2);
+    // 基线随新执行者，旧实施者身份不被继承
+    assert.equal(read.value.frontmatter.attempt.session_id, "session-new-impl");
+  });
+});
+
+test("execute: reallocate without host identity omits session_id, and closure fails closed (21 §10.4)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    const fmNext = structuredClone(after.value.frontmatter);
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: fmNext,
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 无宿主身份的重分配。\n`,
+      changeSummary: "无身份重分配",
+      attemptOperation: "reallocate",
+      newController: "controller-c",
+      sessionSignature: SIG(),
+      sessionIdentity: null,
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read.value.frontmatter.attempt.attempt_id, 2);
+    assert.equal(read.value.frontmatter.attempt.session_id, undefined);
+
+    // 边界（21 §14 按条目比对）：关闭侧的独立性判据只看 reviews 条目，不读当前 attempt。
+    // 此处**没有**任何可比对的复核条目，故关闭 fail-closed；若此前已有带实施者基线的
+    // 条目，该次换号不使其失效——本用例只钉住前一条路径。
+    const reviewedRes = await reviewed(root, { uid, after: read });
+    const closed = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: reviewedRes.after.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(2),
+      changeSummary: "尝试关闭",
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 无身份重分配。\n\n## 结果\n\n- 完成。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!closed.ok);
+    assert.equal(closed.error.code, "workcase/review_independence_unverifiable");
+  });
+});
+
+test("execute: repeated reallocate keeps attempt ids monotonic (21 §10.4 单调)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    let current = after;
+    for (const expectedId of [2, 3]) {
+      const res = await executeWorkcaseObject({
+        factSourceRoot: root,
+        objectUid: uid,
+        expectedFingerprint: current.value.fingerprint,
+        frontmatterAfter: structuredClone(current.value.frontmatter),
+        bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 第 ${expectedId} 次重分配。\n`,
+        changeSummary: `第 ${expectedId} 次重分配`,
+        attemptOperation: "reallocate",
+        newController: "controller-b",
+        sessionSignature: SIG(),
+        sessionIdentity: IDENTITY("session-new-impl"),
+      });
+      assert.ok(res.ok, JSON.stringify(res.error));
+      current = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+      assert.equal(current.value.frontmatter.attempt.attempt_id, expectedId);
+    }
+  });
+});
+
+test("execute: reallocate does not turn an earlier self-check into an independent review (21 §10.4/§14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    // 实施者自己记一条复核（主控自查），再换号：自查不得因换号变成独立复核。
+    // 身份用 subagent 形态且 session_id 与实施者相同——这样承载形式门禁通过，
+    // 只剩独立性判据生效，断言不依赖两道门禁的先后顺序。
+    const selfReviewed = await reviewed(root, await approved(root), undefined, IDENTITY("session-implementer-test", "subagent"));
+    const fmNext = structuredClone(selfReviewed.after.value.frontmatter);
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: selfReviewed.uid,
+      expectedFingerprint: selfReviewed.after.value.fingerprint,
+      frontmatterAfter: fmNext,
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 换号续跑。\n`,
+      changeSummary: "接管后换号",
+      attemptOperation: "reallocate",
+      newController: "controller-b",
+      sessionSignature: SIG(),
+      sessionIdentity: IDENTITY("session-new-impl"),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const afterRealloc = await readWorkcaseObject({ factSourceRoot: root, objectUid: selfReviewed.uid });
+    const closed = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: selfReviewed.uid,
+      expectedFingerprint: afterRealloc.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(2),
+      changeSummary: "尝试关闭",
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 换号续跑。\n\n## 结果\n\n- 完成。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!closed.ok);
+    assert.equal(closed.error.code, "workcase/review_independence_missing");
+  });
+});
+
 test("execute: CAS conflict rejected on stale fingerprint (03 §9.5)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);

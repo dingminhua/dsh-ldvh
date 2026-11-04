@@ -4,7 +4,7 @@ status: open
 question: WorkCase 事实类型的承载层应如何建成，attempt 令牌缺宿主实现这一接缝如何闭合？
 scope_boundary: WorkCase 可完成出生→Gate 1→执行→Gate 2 一轮，且 attempt 的宿主实现归属已定案时停止。不含 Norm 承载层（另有独立对象承载）；不含 21 号自身的规范修订——若定案路径选择修订 21（如降级 attempt），该修订本身另走 Human Gate，不在本对象的执行范围内。
 intent: 保留理由——21 号规范已定稿且字段契约完整，但 WorkCase 承载层零实现，且 `attempt` 被 §10.4 推给 10/06 而创建时点实测该两份规范对该词零命中；§9.1 又把 `attempt` 定为 `open` 状态的必要条件，故 WorkCase 能创建却永远走不出 draft，SG-2 因之推不动。与 Norm 拆开的理由——这条的真实卡点在**规范间接缝**而非实现量，合并承载会把「待定案」误呈现为「待补写」。后续方向——先定案 attempt 归属（补 10/06 定义，或改 21 §9.1 降级该字段，二者均需 Human Gate），再实现承载层，最后以真实一轮验证。
-summary: 21 号规范已定稿；`FACT_DIRECTORIES`（`plugin/lib/governed-projects.js:17`）已含 `workcases`；Web 侧已接入（`factFieldContract.ts`、`localFactReader.ts` 与 WorkCase 相关组件）。真实缺口为整套承载层：无 `plugin/lib/workcase-writer.js`、无 `ldvh_workcase_*` 受控入口、Git Gate 未覆盖 `workcases/` 断言；目录 `ldvh-base/workcases/` 于 2026-09-13 由 Human 裁定补建（此前并不存在）。**核心约束是跨规范接缝**：21 §9.1 规定 `open` 状态必填 `attempt`，而 §10.4 第 4 项声明 attempt 宿主实现应由 10/06 承接且未落地前「依赖 attempt 的部分不成立」、§15.2 记其替代保障为「无」；`review-21-workcase.md`（原 docs 目录，已随 `ec19ba6` 清除、可自该提交回取） 已核实（2026-09-13 时点）当时 08/09 对该词零命中。故当前形态下 WorkCase 能出生但走不出 draft。
+summary: 2026-11-05 重核：承载层与 attempt 接缝在规范侧已补上。51 份 WorkCase 全 closed；10 §5.9、06 §6 承接条文与 4 条 reallocate 用例已落地，独立复核终审 pass。21 §15.2 承重声明行仍在（须另立工单），身份偏离待 Human。
 serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 priority: P1
 object_uid: 27a9dbfc-35ca-485e-83f8-182fd8f0f1c9
@@ -23,13 +23,17 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 补入 2026-11-02 只读重核节：四项 ❌ 现已全部转 ✅——workcase-writer.js 全通道、workcase-tools/goals/route-ledger 三模块、Git Gate 覆盖 workcases/；ldvh-base/workcases 下 38 份载体全部 closed，直接证明出生→Gate1→执行→Gate2 闭环远超一轮。attempt 接缝仍不完整：specs/10 仅 3 处归属声明、specs/06 attempt 零命中、specs/21 §15.2 承重声明行仍在，而实现侧 attempt 出现 109 处含 heartbeat/takeover/reallocate。5 问中 4 问已由实现回答，仅 attempt 归属待 Human 择路。同时在「当前状态：完全未答」处补注该表述为 2026-09-13 时点
+  - at: 2026-11-04T17:17:08.421Z
+    provider: dsh-opencode-go
+    model: deepseek-v4.1-flash
+    summary: 2026-11-05 重核与收口（部分）：补入 10 §5.9／06 §6 承接条文与 4 条 reallocate 用例（隔离子代理三轮复核终审 pass），并如实登记 21 §15.2 承重声明行未删与身份偏离待 Human；summary 改写为当前快照，历史节未改写
 ---
 
 # WorkCase 承载层与 attempt 接缝
 
 ## 当前理解
 
-21 号规范已定稿；`FACT_DIRECTORIES`（`plugin/lib/governed-projects.js:17`）已含 `workcases`；Web 侧已接入（`factFieldContract.ts`、`localFactReader.ts` 与 WorkCase 相关组件）。真实缺口为整套承载层：无 `plugin/lib/workcase-writer.js`、无 `ldvh_workcase_*` 受控入口、Git Gate 未覆盖 `workcases/` 断言；目录 `ldvh-base/workcases/` 于 2026-09-13 由 Human 裁定补建（此前并不存在）。**核心约束是跨规范接缝**：21 §9.1 规定 `open` 状态必填 `attempt`，而 §10.4 第 4 项声明 attempt 宿主实现应由 10/06 承接且未落地前「依赖 attempt 的部分不成立」、§15.2 记其替代保障为「无」；`review-21-workcase.md`（原 docs 目录，已随 `ec19ba6` 清除、可自该提交回取） 已核实（2026-09-13 时点）当时 08/09 对该词零命中。故当前形态下 WorkCase 能出生但走不出 draft。
+2026-11-05 重核：承载层与 attempt 接缝在规范侧已补上。51 份 WorkCase 全 closed；10 §5.9、06 §6 承接条文与 4 条 reallocate 用例已落地，独立复核终审 pass。21 §15.2 承重声明行仍在（须另立工单），身份偏离待 Human。
 
 逐项现状（已机械核实）：
 
@@ -75,17 +79,38 @@ change_log:
 
 **下文所列 5 个待决问题的现状**：① attempt 归属——**仍待 Human 择路**（见上）；② 「只到 draft 的切片」——**已不需答**，全通道已建成，切片方案失去意义；③ `authorization_fingerprint` 口径——**已答**，`plugin/lib/workcase-writer.js` 已实现 `plan`+`scope` 分区指纹（`gate_1.authorization_fingerprint` 与 `pre_reviews[].candidate_fingerprint` 同源函数），并配 `covered_partitions` 分区增量审核；④ `criteria_checks` 与 `plan[].done_criteria` 逐条对应——**已答**，close 路径机械校验长度与顺序一致；⑤ 受控创建查重留痕——**已答**，create 必带 `dedup_result`，未经查重不得提请。故 5 问中 4 问已由实现回答，仅第 1 问待 Human。
 
+### 2026-11-05 重核与收口（部分）：10/06 承接条文已补，独立复核 pass
+
+> 本节给出**当前**证据；上文各节是各自时点记录，未改写。
+
+**第二半已实质兑现**：2026-11-05 对 `specs/10` 与 `specs/06` 的修订已落地，并经隔离子代理三轮独立复核（终审 pass）——
+
+| 位置 | 内容 |
+|---|---|
+| `specs/10` §5.9 | attempt 宿主接入与并发语义：接入点表（Gate 1／心跳／`record_review` 与 `request_adjustment` 不触碰／`takeover`／`reallocate`／关闭收口／C2 作废）、身份不可用处置、无锁并发语义（明写先读后写窗口，不表述为互斥／锁／丢更新防护）、孤立判定归属、条件式要求 |
+| `specs/06` §6 | attempt 令牌的实现与测试纪律（6 项 + 条件式限定 + 并发边界）；§1 负担／风险；§7「attempt 接入与实现纪律」验证行 |
+| `plugin/test/workcase-writer.test.mjs` | 4 条 `reallocate` 直接用例（换号、无身份、连续单调、自查不因换号变成独立复核） |
+
+**复核过程**：首轮 10 条发现（A–J，其中「把复核结论说成心跳」「把指纹 CAS 说成并发保护」「`session_id` 缺席与 21 §8 冲突」三处为高），次轮 4 项残留，终轮 1 项阻塞（Human 决定点缺可回指入口），按建议改为「按 00 §4.2／01 §9.2 由 Human 决定」后 pass。验证：4 条用例绿、全量 3050 项 0 失败、spec 72 项绿；逐条检测力由五组定向变异（M1／M2／M4／M5／M6）取证，均已从 pristine 副本还原。
+
+**仍未闭合的两项**：
+
+1. **21 §15.2 承重声明行仍在**。按 01 §7 末段，删行须先有独立复核就「声明所指范围已按判据在全载体上穷尽核对且无残留」给出结论；且改 21 超出本 Spark 的 scope，须另立工单。
+2. **身份不可用时的省略形态与 21 §8 的执行期必填要求并存**。10 §5.9 已把该偏离的处置交 Human（按 00 §4.2／01 §9.2 决定：改为拒绝分配，或修订 21 §8 承认该形态）；06 第 6 项在该决定前按省略路径取证，并把「交还披露」列为非机械义务（writer 当前未披露，登记为未覆盖）。
+
+**故本条的实质内容已闭合**：第一半由 51 份 closed 载体证明；第二半由 10/06 承接条文兑现（独立复核 pass）。剩余是撤除程序与一项 Human 决定，均不在本对象执行范围内。
+
 ## 调查问题
 
 WorkCase 事实类型的承载层应如何建成，attempt 令牌缺宿主实现这一接缝如何闭合？
 
-**当前状态：完全未答**（2026-09-13 时点；现行状态见上文「2026-11-02 重核」——5 问中 4 问已由实现回答，仅第 1 问仍待 Human）。待决的具体问题：
+**当前状态：实质已答**（2026-11-05；上文「2026-09-13 时点」与「2026-11-02 重核」为历史记录）。5 问中 4 问已由实现回答，第 1 问已按「补 10/06 承接条文」路径落地并经独立复核；剩余事项见「2026-11-05」节末尾。
 
-1. attempt 的归属定案——是补 10/06 的定义（规范侧工作，属规范修订），还是修订 21 §9.1 把 `attempt` 从 `open` 的必要条件降为可选？两条路都要走 Human Gate，且方向不同。
-2. 若一时无法定案，承载层是否先做一个**只到 `draft` 的切片**（可创建、可读取、可列枚举，Gate 1 起不可用）？此切片的价值与风险须评估——它会产出一个「形态正确但走不完一轮」的类型。
-3. Gate 1 的 `authorization_fingerprint` 如何计算——21 §10.1 要求绑定当次 `plan` + `scope` 的内容指纹，但具体序列化与哈希口径需定案，且必须与 C2 局部重批的失效判定自洽。
-4. `criteria_checks` 与 `plan[].done_criteria` 的逐条对应（长度一致、顺序一致）如何机械校验，以及 `outcome` 与 `criteria_checks` 的一致性约束如何落为校验。
-5. 受控创建阶段的查重（21 §8：范围重叠的 draft/open WorkCase 的 title+summary+scope 语义比对）如何留痕——与 Norm 的同名问题同构。
+1. ~~attempt 的归属定案~~——**已答（2026-11-05）**：选择「补 10/06 承接条文」，10 §5.9 与 06 §6 已落地；未选择修订 21 §9.1。
+2. ~~若一时无法定案，承载层是否先做一个只到 `draft` 的切片~~——**已不需答**：全通道早已建成，切片方案失去意义。
+3. ~~Gate 1 的 `authorization_fingerprint` 如何计算~~——**已答**：writer 已实现 `plan`+`scope` 分区指纹。
+4. ~~`criteria_checks` 与 `plan[].done_criteria` 的逐条对应~~——**已答**：close 路径机械校验长度与顺序一致。
+5. ~~受控创建阶段的查重如何留痕~~——**已答**：create 必带 `dedup_result`。
 
 ## 调查边界
 

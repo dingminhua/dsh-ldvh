@@ -4,7 +4,7 @@
 // the OS temp dir and removes it again when the test finishes, so no test
 // ever writes outside its own temporary area.
 import { execFile } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +30,48 @@ export const VALID_COMMIT_MESSAGE = [
 	"LDVH-Provider: deepseek-harness",
 	"LDVH-Model: test",
 ].join("\n");
+
+/**
+ * A hermetic DSH shell environment for Git Gate (commit-msg) tests.
+ *
+ * The Hook resolves the authoritative route through the shell channel
+ * (09 §5.1 取值来源 / workcase-608786b8). A test child would otherwise inherit
+ * the real DSH_* of whoever runs the suite, so the route would be the live
+ * session's provider/model and the assertions would depend on the operator.
+ * Stripping the three route variables makes the child hermetic; callers that
+ * need a resolvable route pass `signatureEnv()` extras.
+ */
+export function gateEnv(extra = {}) {
+	const env = { ...process.env };
+	delete env.DSH_SESSION_ID;
+	delete env.DSH_SESSION_JSONL;
+	delete env.DSH_HOME;
+	return { ...env, ...extra };
+}
+
+const ROUTE_HOMES = new Map();
+
+/**
+ * Build a DSH home holding one session log whose last routing event carries the
+ * given provider/model, and return the env additions that let a child process
+ * resolve it (`DSH_HOME` + `DSH_SESSION_ID`). Memoized per pair so a test file
+ * does not create a directory per spawn.
+ */
+export function signatureEnv({ provider = "deepseek-harness", model = "test", sessionId = "session-test" } = {}) {
+	const key = `${provider}\0${model}\0${sessionId}`;
+	const cached = ROUTE_HOMES.get(key);
+	if (cached !== undefined) return cached;
+	const home = mkdtempSync(join(tmpdir(), "ldvh-sig-home-"));
+	const dir = join(home, "sessions", "enc-cwd", sessionId);
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, "session.v3.jsonl"), [
+		JSON.stringify({ type: "session", id: sessionId }),
+		JSON.stringify({ type: "model/selection", data: { provider, model } }),
+	].join("\n"));
+	const env = { DSH_HOME: home, DSH_SESSION_ID: sessionId };
+	ROUTE_HOMES.set(key, env);
+	return env;
+}
 
 /** Run a git command against a worktree and return trimmed stdout. */
 export async function git(root, args, options = {}) {

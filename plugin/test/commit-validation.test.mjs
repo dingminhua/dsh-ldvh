@@ -452,6 +452,7 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"validation/staged_path_uncovered",
 		"validation/signature_provider_mismatch",
 		"validation/signature_model_mismatch",
+		"validation/signature_source_unverifiable",
 		"git/index_empty",
 		"facts/norm_direction_collision",
 		"facts/norm_carrier_unparseable",
@@ -1031,11 +1032,11 @@ relations:
   - relation_key: informs
     target:
       commit: ${"b".repeat(40)}
-    evidence_locator:
-      commit: ${"c".repeat(40)}
   - relation_key: informs
     target:
       object_uid: 99999999-8888-7777-6666-555555555555
+    evidence_locator:
+      commit: ${"c".repeat(40)}
 object_uid: 11111111-2222-3333-4444-555555555555
 ---
 ## 现象

@@ -81,6 +81,7 @@ export const GATE_RULES = Object.freeze({
   "validation/staged_path_uncovered": Object.freeze({ severity: "blocking", description: "a staged diff path is covered by no 关键变更 item (06 §6.1: no diff change may be omitted; K1 bidirectional, Human 2026-09-10)" }),
   "validation/signature_provider_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Provider does not match the authoritative session record" }),
   "validation/signature_model_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Model does not match the authoritative session record" }),
+  "validation/signature_source_unverifiable": Object.freeze({ severity: "blocking", description: "the authoritative route could not be resolved inside the commit-msg Hook, so the trailers' traceability cannot be verified — 09 §5.5 非 passed 即阻断; rule established by the 09 §8.1 item 2 decision (Human 2026-11-05, workcase-608786b8)" }),
   "git/index_empty": Object.freeze({ severity: "blocking", description: "candidate Index is empty" }),
   "facts/norm_direction_collision": Object.freeze({ severity: "blocking", description: "two or more ACTIVE Norm objects in ldvh-base/norms/ share one direction_key (27 §11 uniqueness second layer: the Git Gate traverses the index and refuses the commit)" }),
   "facts/norm_carrier_unparseable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base/norms/norm-*.md carrier cannot be parsed for the direction_key uniqueness assertion — an unreadable carrier cannot be proven conflict-free, so the gate fails closed rather than passing it" }),
@@ -160,6 +161,53 @@ export function validateMessage(message) {
 /** Deterministic snapshot identity over (staged diff, message) — 06 §6.2. */
 export function snapshotIdentity(diff, message) {
   return createHash("sha256").update(diff, "utf8").update("\0").update(message, "utf8").digest("hex");
+}
+
+/**
+ * Compare the two signature trailers against the authoritative route (09 §5.1:
+ * 「取值来源」is one of the three things both entrypoints must check).
+ *
+ * THREE-VALUE, deliberately (09 §5.4): when the route is unavailable this
+ * returns `{ok:false, hardFail:false, issues:[]}` — the precheck reports
+ * `unverifiable`, it does NOT hard-fail. The Git Gate entrypoint decides what
+ * an unavailable route means for the commit seam (it refuses it by name), so
+ * the severity of "unverifiable" stays with the caller instead of being baked
+ * into the shared comparison. Splitting those two questions is what keeps
+ * "the value is WRONG" and "we could not judge the value" distinguishable.
+ */
+export function checkSignatureAgainstRoute(message, route) {
+  const lines = message.replace(/\r\n/g, "\n").split("\n");
+  const providerLine = lines.find((line) => line.startsWith("LDVH-Provider:"));
+  const modelLine = lines.find((line) => line.startsWith("LDVH-Model:"));
+  if (!route.ok) return { ok: false, hardFail: false, issues: [] };
+  const issues = [];
+  if (providerLine !== undefined && providerLine.slice("LDVH-Provider:".length).trim() !== route.value.provider) {
+    issues.push(newFinding("validation/signature_provider_mismatch", `trailer LDVH-Provider does not match the authoritative session record (${route.value.provider})`));
+  }
+  if (modelLine !== undefined && modelLine.slice("LDVH-Model:".length).trim() !== route.value.model) {
+    issues.push(newFinding("validation/signature_model_mismatch", `trailer LDVH-Model does not match the authoritative session record (${route.value.model})`));
+  }
+  return { ok: issues.length === 0, hardFail: issues.length > 0, issues };
+}
+
+/**
+ * 09 §5.5 content dispatch: which staged paths make a commit subject to the
+ * controlled-commit contract. The spec's list is 受管载体 (`ldvh-base/` 事实对象),
+ * 规范源文件, 规则源成员变更 and 仓库根 `AGENTS.md`.
+ *
+ * 「规则源成员」has no separate registry carrier in this repository (the member
+ * set is the specs' own identity blocks — specs/01 §9), so a spec carrier is
+ * exactly what a 规则源成员变更 touches; `specs/` is that union. Keeping the
+ * predicate here (not in the runner) is what lets the same answer be tested and
+ * reused by both entrypoints.
+ */
+export function isGovernedCommitPath(path) {
+  return path === "AGENTS.md" || path.startsWith("ldvh-base/") || path.startsWith("specs/");
+}
+
+/** True when the staged path list touches at least one governed carrier. */
+export function touchesGovernedContent(paths) {
+  return Array.isArray(paths) && paths.some((path) => isGovernedCommitPath(path));
 }
 
 /**

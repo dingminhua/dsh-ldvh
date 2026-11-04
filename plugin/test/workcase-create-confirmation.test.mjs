@@ -28,7 +28,6 @@
 // judgement belongs to Gate 1 (21 §10.1), where the Human has the whole object.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
@@ -123,7 +122,7 @@ function routingSeam(reply) {
   };
 }
 
-async function setup(base, { hostSeams, subagents } = {}) {
+async function setup(base, { hostSeams } = {}) {
   const projectDir = join(base, "proj");
   await mkdir(projectDir, { recursive: true });
   await writeCarrier(base, projectDir);
@@ -132,7 +131,6 @@ async function setup(base, { hostSeams, subagents } = {}) {
     dshHomePath: (...segments) => join(base, ...segments),
     sessionPersistence: sessionPersistenceWithRoutingLog(base),
     ...(hostSeams === undefined ? {} : { hostSeams }),
-    ...(subagents === undefined ? {} : { subagents }),
   });
   const write = tools.get("ldvh_workcase_write");
   assert.ok(write, "write tool must be registered");
@@ -307,55 +305,6 @@ test("create: the routing request forwards the caller's cancellation signal", as
       "the routing request must carry exec.signal so the ask aborts (ASK_ABORTED) instead of hanging"
     );
     assert.equal(seam.calls[0].signal, signal, "the forwarded signal must be the caller's own");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 路由答复的来源必须可分辨（2026-11-04：同一件事被问了两次）
-//
-// 现场（session-8cca690d，2026-11-04 21:05→21:10）：主控先用宿主
-// `ask_user_question` 自问了一遍「路由选择」，Human 答完，再调本工具，接缝
-// 内部**又弹一次**正式询问——Human 被同一件事问了两次，而 create 一次耗时
-// 218s 几乎全耗在第二次等待上。
-//
-// 事后之所以难以判定，是因为两道信息都不落：宿主 §6.3 询问不进会话事件流，
-// 而 create 的结果里也不区分「本次真的问了」与「复用了既有答复」。故这两条
-// 性质各配一条用例：`asked` 与 `reused` 必须在**模型读得到的那一行**里可分。
-// ---------------------------------------------------------------------------
-test("create: 首次提问的结果记为 routing.decided=asked（且模型侧可读）", async () => {
-  await withTemp("workcase-route-asked-", async (base) => {
-    const seam = routingSeam(() => ({ granted: true, routedTo: "workcase", answer: "建工单走流程" }));
-    const { write, exec } = await setup(base, { hostSeams: seam });
-    const result = await write.execute(createArgs(), exec);
-
-    assert.equal(result.envelope.outcome, "completed", JSON.stringify(result.envelope).slice(0, 500));
-    assert.deepEqual(result.envelope.result.routing, { decided: "asked", routed_to: "workcase" });
-
-    // 信封里有而渲染层不输出 = 模型侧不存在（pitfall-b878f526 的同一形态）。
-    const rendered = JSON.stringify(write.output.render(createArgs(), result));
-    assert.match(rendered, /routing: asked/, `渲染行必须露出来源，实际：${rendered.slice(0, 400)}`);
-  });
-});
-
-test("create: 复用既有答复时必须标为 reused（否则「没再打扰 Human」无从判定）", async () => {
-  await withTemp("workcase-route-reused-", async (base) => {
-    const seam = routingSeam(() => ({
-      granted: true,
-      routedTo: "workcase",
-      answer: "建工单走流程",
-      reused: true,
-      decidedAt: "2026-11-04T12:54:45.216Z",
-    }));
-    const { write, exec } = await setup(base, { hostSeams: seam });
-    const result = await write.execute(createArgs(), exec);
-
-    assert.equal(result.envelope.outcome, "completed", JSON.stringify(result.envelope).slice(0, 500));
-    assert.deepEqual(result.envelope.result.routing, {
-      decided: "reused",
-      routed_to: "workcase",
-      decided_at: "2026-11-04T12:54:45.216Z",
-    }, "复用分支必须与「本次又问了一遍」区分开");
-    assert.equal(seam.calls.length, 1, "用例自身的前提：接缝被调用一次，由它决定复用");
   });
 });
 
@@ -678,126 +627,5 @@ test("record_review: after a plugin rebuild the cited reviewer is resolved from 
     assert.equal(resolveCalls.length, 1, `登记表未命中必须回落到持久化来源：${JSON.stringify(resolveCalls)}`);
     assert.equal(resolveCalls[0][0], "reviewer-1");
     assert.equal(resolveCalls[0][1].parentSessionId, "session-parent", "血统须对调用方自己的会话 id 校验");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 建前审核的自动派生（21 §14 Gate 1 前置，2026-11-04）
-//
-// 为什么需要这组用例：21 §14 把「Gate 1 前必审」写成无条件要求，机械层也落成了
-// 两道闸——但**闸只拒绝、不推动**。实测（2026-11-04）：主控建完 draft 直接对 Human
-// 说「判据已达成，要关闭还是取消」，整个审核环节被跳过；引导段里明明写着该规则，
-// 照样被跳过。Human 的判词是「没有机械辅助，AI 执行力很差」。
-//
-// 故本组钉住三点：
-//   (1) create 成功后**确实派生了**审核体（不是等主控自觉）；
-//   (2) 审核结论**确实经 record_audit 落盘**，且 auditor_origin=subagent；
-//   (3) 派生失败**如实报告**，绝不把「没审成」说成「审过了」。
-// ---------------------------------------------------------------------------
-
-/** 造一个最小的宿主 subagents 服务替身：零上下文 provider + 可控结论。 */
-function subagentSeam({ verdict = "pass", summary = "对象恰当性：符合——候选落在 §6.1 边界内。\n方案可行性：符合——两条判据均可被证据判定。\nscope 清晰度：符合——两段边界可充当越权基准。", throwOnStart = false } = {}) {
-  const started = [];
-  return {
-    started,
-    list: () => ["reviewer"],
-    getProvider: (name) => (name === "reviewer" ? { name, inheritsParentContext: false, capabilities: { outputSchema: true } } : undefined),
-    startActivation: async (spec) => {
-      started.push(spec);
-      if (throwOnStart) throw new Error("host refused to start the audit executor");
-      return {
-        childId: "audit-child-1",
-        sessionId: "audit-child-1",
-        result: Promise.resolve({
-          structured: {
-            object_appropriateness: "符合——落在 §6.1 边界内",
-            plan_feasibility: "符合——判据可被证据判定",
-            scope_clarity: "符合——两段边界可充当越权基准",
-            verdict,
-            summary,
-          },
-        }),
-      };
-    },
-  };
-}
-
-test("create: 成功后自动派生建前审核体（不再等主控自觉）", async () => {
-  await withTemp("workcase-auto-audit-a-", async (base) => {
-    const seam = routingSeam(() => ({ granted: true, routedTo: "workcase", answer: "建工单走流程" }));
-    const subagents = subagentSeam();
-    const { write, exec } = await setup(base, { hostSeams: seam, subagents });
-    const result = await write.execute(createArgs(), exec);
-
-    assert.equal(result.envelope.outcome, "completed", JSON.stringify(result.envelope).slice(0, 600));
-    assert.equal(subagents.started.length, 1, "create 成功后必须派生且只派生一次审核体");
-
-    const auto = result.envelope.result.auto_audit;
-    assert.ok(auto, "结果必须带出 auto_audit（否则「有没有自动审」无从判定）");
-    assert.equal(auto.initiated_by, "plugin", "发起者必须标为 plugin——它改变了「谁发起」这条边界");
-    assert.equal(auto.status, "passed", `审核结论应落为 passed，实际：${JSON.stringify(auto)}`);
-    assert.equal(auto.verdict, "pass");
-
-    // 模型读得到的那一行也必须露出来（信封里有而渲染层不输出 = 模型侧不存在）。
-    const rendered = JSON.stringify(write.output.render(createArgs(), result));
-    assert.match(rendered, /auto_audit: passed/, `渲染行须露出自动审核结果，实际：${rendered.slice(0, 500)}`);
-  });
-});
-
-test("create: 审核判 needs_revision 时如实落盘，对象仍留在 draft（不自行推进）", async () => {
-  await withTemp("workcase-auto-audit-b-", async (base) => {
-    const seam = routingSeam(() => ({ granted: true, routedTo: "workcase", answer: "建工单走流程" }));
-    const subagents = subagentSeam({ verdict: "needs_revision", summary: "对象恰当性：不符——属对单外既成工作的追认。\n方案可行性：不符——判据不可唯一判定。\nscope 清晰度：不符——两条排除互相冲突。" });
-    const { write, exec } = await setup(base, { hostSeams: seam, subagents });
-    const result = await write.execute(createArgs(), exec);
-
-    assert.equal(result.envelope.outcome, "completed", JSON.stringify(result.envelope).slice(0, 600));
-    const auto = result.envelope.result.auto_audit;
-    assert.equal(auto.status, "rejected", "needs_revision 必须如实记为 rejected，不得记为 passed");
-    assert.equal(auto.verdict, "needs_revision");
-
-    // 审核不通过时**不得**自行推进：对象已落盘且回读成功，但 create 的返回里
-    // 不含任何 Gate 1 痕迹——推进状态不是本流程的事。
-    assert.equal(result.envelope.result.read_back.ok, true);
-    assert.ok(result.envelope.result.object_uid, "对象已落盘");
-    assert.equal(result.envelope.result.gate_1, undefined, "自动审核不得顺带批准 Gate 1");
-
-    // **最要紧的一环**：结论必须真的落进了对象的 pre_reviews，否则「自动审核」只是
-    // 一次空转——Gate 1 的时序闸读的正是这个字段。
-    const file = await readFile(result.envelope.result.actual_ref, "utf8");
-    assert.match(file, /pre_reviews:/, "审核结论必须落进对象的 pre_reviews（时序闸读它）");
-    assert.match(file, /verdict: needs_revision/, "落盘的 verdict 须与审核体结论一致");
-    assert.match(file, /auditor_origin: subagent/, "覆盖闸只认 subagent 来源的审核结论");
-    assert.match(file, /status: draft/, "审核不通过后对象仍须停在 draft");
-  });
-});
-
-test("create: 派生失败时如实报告，绝不把「没审成」说成「审过了」", async () => {
-  await withTemp("workcase-auto-audit-c-", async (base) => {
-    const seam = routingSeam(() => ({ granted: true, routedTo: "workcase", answer: "建工单走流程" }));
-    // 宿主拒绝启动审核体：这是真实可能发生的失败。
-    const subagents = subagentSeam({ throwOnStart: true });
-    const { write, exec } = await setup(base, { hostSeams: seam, subagents });
-    const result = await write.execute(createArgs(), exec);
-
-    // 建单本身成功（它已落盘），但审核失败必须单独如实报出。
-    assert.equal(result.envelope.outcome, "completed");
-    const auto = result.envelope.result.auto_audit;
-    assert.equal(auto.status, "failed", `派生失败必须记 failed，实际：${JSON.stringify(auto)}`);
-    assert.match(auto.code, /dispatch_failed/);
-    assert.doesNotMatch(JSON.stringify(auto), /"status":"passed"/, "失败不得被写成通过");
-  });
-});
-
-test("create: 宿主未接 subagents 服务时，自动审核报 unavailable 而不是静默跳过", async () => {
-  await withTemp("workcase-auto-audit-d-", async (base) => {
-    const seam = routingSeam(() => ({ granted: true, routedTo: "workcase", answer: "建工单走流程" }));
-    // 不注入 subagents：模拟宿主未提供该服务。
-    const { write, exec } = await setup(base, { hostSeams: seam });
-    const result = await write.execute(createArgs(), exec);
-
-    const auto = result.envelope.result.auto_audit;
-    assert.equal(auto.status, "failed");
-    assert.match(auto.code, /unavailable/, `未接服务必须报 unavailable，实际：${JSON.stringify(auto)}`);
   });
 });

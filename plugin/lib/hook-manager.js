@@ -409,6 +409,8 @@ async function invokeHook(path, args, cwd, env = {}) {
  * and blow the runner's maxBuffer. The orphan blob is garbage-collectable and
  * the temp dir is removed by the caller's finally.
  */
+const PREFLIGHT_PATH = "ldvh-base/preflight-probe.md";
+
 async function seedPreflightIndex(identity, tempDir) {
   const blobFile = join(tempDir, "preflight-blob");
   const preflightIndex = join(tempDir, "preflight-index");
@@ -419,8 +421,31 @@ async function seedPreflightIndex(identity, tempDir) {
   } catch {
     /* no HEAD yet (empty repository): start from the empty tree */
   }
-  await runGit(identity.projectRoot, ["update-index", "--add", "--cacheinfo", `100644,${blob},ldvh-preflight`], { env: { GIT_INDEX_FILE: preflightIndex } });
+  // A GOVERNED path (09 §5.5): the preflight's job is to prove the controlled
+  // commit contract blocks a bad message, and an ordinary path is passed
+  // directly by the dispatch — proving nothing about the message checks.
+  await runGit(identity.projectRoot, ["update-index", "--add", "--cacheinfo", `100644,${blob},${PREFLIGHT_PATH}`], { env: { GIT_INDEX_FILE: preflightIndex } });
   return preflightIndex;
+}
+
+/**
+ * Give the preflight Hook a resolvable authoritative route (09 §5.1 取值来源).
+ *
+ * The valid probe message carries the values this log's routing event declares,
+ * so "lets the good through" stays a real assertion instead of relying on the
+ * operator's live DSH session. Written under the preflight temp dir and removed
+ * with it.
+ */
+async function seedPreflightRoute(tempDir) {
+  const home = join(tempDir, "route-home");
+  const sessionId = "ldvh-preflight";
+  const dir = join(home, "sessions", "preflight", sessionId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "session.v3.jsonl"), [
+    JSON.stringify({ type: "session", id: sessionId }),
+    JSON.stringify({ type: "model/selection", data: { provider: "deepseek-harness", model: "preflight" } }),
+  ].join("\n"), "utf8");
+  return { DSH_HOME: home, DSH_SESSION_ID: sessionId };
 }
 
 /**
@@ -465,7 +490,8 @@ async function preflight(rendered, identity, spec, workspaceRoot) {
       const invalid = join(tempDir, "invalid-message");
       const valid = join(tempDir, "valid-message");
       await writeFile(invalid, "bad\n", "utf8");
-      await writeFile(valid, "chore(code): 预检\n\n关键变更:\n- add ldvh-preflight synthetic index entry\n\nLDVH-Provider: deepseek-harness\nLDVH-Model: preflight\n", "utf8");
+      await writeFile(valid, `chore(code): 预检\n\n关键变更:\n- add ${PREFLIGHT_PATH} synthetic index entry\n\nLDVH-Provider: deepseek-harness\nLDVH-Model: preflight\n`, "utf8");
+      Object.assign(hookEnv, await seedPreflightRoute(tempDir));
       const blocked = invokeHook(hook, [invalid], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: preflightIndex });
       const allowed = invokeHook(hook, [valid], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: preflightIndex });
       // Await BOTH before judging either: a rejection on the valid message must

@@ -44,6 +44,8 @@ import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
+import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
+import { carrierCoherenceMessage } from "./coherence-report.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/26 §7, §8, §9, §11)
@@ -475,7 +477,8 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       continue;
     }
 
-    // evidence_locator：公共闭集当前只有 commit 一形（02 §8.1），附加在 object_uid 上。
+    // evidence_locator：闭集只有 commit 一形——该项由类型来源登记（26 §11 2026-11-05），
+    // 公共侧只定「附加在 object_uid target 上」与「不得与 target.commit 混用」（02 §8.1）。
     const locator = rel.evidence_locator;
     if (locator !== undefined && locator !== null) {
       if (typeof locator !== "object" || locator === null) {
@@ -483,7 +486,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       } else {
         const locExtra = Object.keys(locator).filter((k) => k !== "commit");
         if (locExtra.length > 0) {
-          issues.push(`relations[]: evidence_locator carries unsupported key(s) ${locExtra.join(", ")} (02 §8.1 公共闭集当前只有 commit)`);
+          issues.push(`relations[]: evidence_locator carries unsupported key(s) ${locExtra.join(", ")} (26 §11 闭集当前只有 commit)`);
         } else if (typeof locator.commit !== "string" || !COMMIT_PATTERN.test(locator.commit)) {
           issues.push(`relations[]: evidence_locator.commit must be a 40-hex commit hash (02 §8.1); got ${JSON.stringify(locator.commit)}`);
         }
@@ -689,7 +692,9 @@ export function validateCarrierCoherence(frontmatter, body) {
   const content = sectionContent(body, "现象");
   if (content === null) return { ok: true, issues }; // section presence checked in body structure
   if (!content.includes(text)) {
-    issues.push(`carrier coherence: 现象 section must contain phenomenon verbatim (frontmatter is the single authoritative text): "${text.slice(0, 40)}…"`);
+    issues.push(carrierCoherenceMessage({
+      section: "现象", field: "phenomenon", declared: text, actual: content, clause: "26 §8, §14.1",
+    }));
   }
   return { ok: issues.length === 0, issues };
 }
@@ -876,11 +881,45 @@ export async function createFrictionObject(args) {
 // Read (specs/03 §9.2 precise read-back)
 // ---------------------------------------------------------------------------
 
-export async function readFrictionObject(args) {
-  const { factSourceRoot, objectUid } = args;
-  if (!assertValidUid(objectUid)) {
-    return failure("friction/invalid_uid", "objectUid must be a valid UUID");
+/**
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ *
+ * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `friction/invalid_uid`
+ * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
+ * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
+ */
+async function resolveFrictionObjectUid(factSourceRoot, input, currentProjectId = null) {
+  const parsed = parseObjectIdentifier(input);
+  if (!parsed.ok) {
+    return { ok: false, error: failure("friction/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
   }
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
+  if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
+    return { ok: false, error: failure("friction/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
+  }
+  if (objectUid !== undefined) {
+    if (declaredType !== undefined && declaredType !== "friction") {
+      return { ok: false, error: failure("friction/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "friction" objects`) };
+    }
+    return { ok: true, objectUid };
+  }
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "friction" });
+  if (!resolved.ok) {
+    const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
+    return { ok: false, error: failure("friction/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`) };
+  }
+  if (resolved.value.factTypeKey !== "friction") {
+    return { ok: false, error: failure("friction/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "friction" objects`) };
+  }
+  return { ok: true, objectUid: resolved.value.objectUid };
+}
+
+export async function readFrictionObject(args) {
+  const { factSourceRoot, objectUid: objectUidInput, currentProjectId = null } = args;
+  const uidResolution = await resolveFrictionObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   const filePath = objectFilePath(factSourceRoot, objectUid);
 
   let content;
@@ -955,7 +994,7 @@ export async function updateFrictionObject(args) {
     return failure("friction/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
 
-  // 26 §9.2: resolved、voided 与 accepted 均为终态（终态不重开；销错/记错/接受错的账按 05 事实更正修正）。
+  // 26 §9.2: resolved、voided 与 accepted 均为终态（终态不重开）；销错/记错/接受错的账走 26 §13 的 correct。
   // voided 于 2026-11 进入闭集、accepted 于 2026-10 进入闭集——新终态均须在此拦截。
   //
   // **`accepted` 的计数豁免（2026-11-02，Human 决定 —— 26 §9.3）**：`accepted`
@@ -1134,7 +1173,7 @@ export async function updateFrictionObject(args) {
 /**
  * 终态事实更正（`correct`；26 §13，Human 决定 2026-10-09）。
  *
- * 存在理由：§9.2 要求「销错的账按 05 事实更正修正」，而本类型此前只有补充级更新
+ * 存在理由：§9.2 要求「销错的账按事实更正修正」，而本类型此前只有补充级更新
  * （机械拒绝改 status）与状态流转（终态不重开）——销错的 resolved 账无路可改。
  *
  * 可改范围：**正文（含处置段）与 relations**——恰是销账时写错的两处（02:386 事实

@@ -2425,31 +2425,12 @@ function auditFieldGuardNote(attempted) {
  * 修正取**收敛实现**而非放宽文本：既然该值会落盘，它就属于候选内容，须受同一
  * 一致性约束。指纹因此直接覆盖调用方传入的原始 draft，不再剥离任何字段。
  *
- * **唯一的例外是 `status`**（2026-11-04 实测修正）：它是**可省略的初态字段**，
- * 而初态由 Code 钉死为 `draft`（§9：create 只能以 draft 出生；其它值由校验器
- * 以 `initial_state_violation` 拒绝）。故「省略」与「显式写 draft」产出的是
- * **同一个对象**，二者不构成两份不同的候选内容。
- *
- * 此前它被算进指纹，实测造成一次真实的重复提问（session-5d9e6f62，2026-11-04
- * 20:54→20:59）：预检时不带 `status`（得指纹 c6dad294…），写入时带了
- * `status:"draft"`（算得 f0a3b48f…），于是
- *
- *   ① `workcase/candidate_changed` 拒绝写入，尽管两份内容会落成同一个对象；
- *   ② 路由账本以指纹为键，键随之失配——Human 已经答过的那次询问**不被复用**，
- *      同一个问题被原样再问一遍（账本里因此留下同 request 的两条记录）。
- *
- * 剥离 `status` 不削弱一致性约束：任何非 draft 的 status 仍由**同一条校验器**
- * （`evaluateCreateCandidate`，预检与写入共用）在两条路径上分别拒绝，绕过不了。
- *
  * 该指纹**不是授权凭据**：它只证明「两次调用提交的是同一份候选内容」，不证明
  * 内容恰当、不证明 Human 同意、也不构成 Gate 1 的任何部分。
  */
 export function computeCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
-  // 只剥离 `status`（可省略的初态，由 Code 钉死）；`change_summary` 等其余
-  // 调用方可控字段一律保留受同一约束，理由见上。
-  const { status: _initialStatus, ...draftWithoutStatus } = frontmatterDraft ?? {};
   const candidate = {
-    frontmatter_draft: frontmatterDraft === null || frontmatterDraft === undefined ? null : draftWithoutStatus,
+    frontmatter_draft: frontmatterDraft ?? null,
     body_markdown: typeof bodyMarkdown === "string" ? bodyMarkdown : null,
   };
   return createHash("sha256").update(stableStringify(candidate), "utf8").digest("hex");

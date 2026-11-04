@@ -8,7 +8,32 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { git, gitOk, initRepo, pluginRoot, runNode, runnerPath, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
+import { gateEnv, git, gitOk, initRepo, pluginRoot, runNode, runnerPath, signatureEnv, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
+
+/**
+ * Spawn the commit-msg entrypoint with the controlled environment the Hook runs
+ * in: no inherited DSH_* (hermetic) plus a resolvable authoritative route whose
+ * provider/model match VALID_COMMIT_MESSAGE's trailers. Every commit-msg test
+ * goes through this wrapper so the gate's new value-source check does not turn
+ * "who ran the suite" into part of the assertion.
+ */
+/**
+ * A repo whose staged content is a governed carrier (`specs/…`), so the
+ * controlled-commit contract actually applies after the 09 §5.5 dispatch.
+ * `initRepo`'s default README is an ordinary path and would be passed directly.
+ */
+const GOVERNED_FIXTURE = "specs/99-fixture.md";
+async function initGovernedRepo(base) {
+	const root = await initRepo(base, { stage: false });
+	await mkdir(join(root, "specs"), { recursive: true });
+	await writeFile(join(root, GOVERNED_FIXTURE), "# fixture\n");
+	await gitOk(root, ["add", GOVERNED_FIXTURE]);
+	return root;
+}
+
+function runGate(args) {
+	return runNode(args, { env: gateEnv(signatureEnv()) });
+}
 
 function runnerArgs({ workspaceRoot, worktree, messageFile }) {
 	return [
@@ -98,13 +123,13 @@ test("accepts a workspace-root inside or equal to the governed Git root", async 
 		await writeFile(messageFile, VALID_COMMIT_MESSAGE);
 
 		// workspace-root == worktree (runtime sits inside the governed repo)
-		let result = await runNode(runnerArgs({ workspaceRoot: root, worktree: root, messageFile }));
+		let result = await runGate(runnerArgs({ workspaceRoot: root, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 
 		// workspace-root is a subdirectory of the worktree
 		await mkdir(join(root, "inner"));
-		result = await runNode(runnerArgs({ workspaceRoot: join(root, "inner"), worktree: root, messageFile }));
+		result = await runGate(runnerArgs({ workspaceRoot: join(root, "inner"), worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 	});
@@ -112,11 +137,11 @@ test("accepts a workspace-root inside or equal to the governed Git root", async 
 
 test("blocks an illegal message and reports every failing rule", async () => {
 	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await initRepo(base); // README staged -> Index non-empty
+		const root = await initGovernedRepo(base); // governed carrier staged -> checks apply
 		const messageFile = join(root, "msg.txt");
 		await writeFile(messageFile, "not a conventional header\n");
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1);
 		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) failed/);
 		assert.match(result.stderr, /validation\/header_invalid/);
@@ -127,19 +152,19 @@ test("blocks an illegal message and reports every failing rule", async () => {
 
 test("blocks a message that misses or duplicates a signature trailer", async () => {
 	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await initRepo(base);
+		const root = await initGovernedRepo(base);
 		const messageFile = join(root, "msg.txt");
 
 		const missing = [
 			"chore(x): 合规标题",
 			"",
 			"关键变更:",
-			"- README.md item",
+			"- specs/99-fixture.md item",
 			"",
 			"LDVH-Provider: deepseek-harness",
 		].join("\n");
 		await writeFile(messageFile, missing);
-		let result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		let result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1);
 		assert.match(result.stderr, /validation\/signature_trailer_missing/);
 		assert.doesNotMatch(result.stderr, /header_invalid/);
@@ -148,14 +173,14 @@ test("blocks a message that misses or duplicates a signature trailer", async () 
 			"chore(x): 合规标题",
 			"",
 			"关键变更:",
-			"- README.md item",
+			"- specs/99-fixture.md item",
 			"",
 			"LDVH-Provider: a",
 			"LDVH-Provider: b",
 			"LDVH-Model: c",
 		].join("\n");
 		await writeFile(messageFile, duplicated);
-		result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1);
 		assert.match(result.stderr, /validation\/signature_trailer_missing/);
 	});
@@ -167,7 +192,7 @@ test("blocks a valid message when the candidate Index is empty", async () => {
 		const messageFile = join(root, "msg.txt");
 		await writeFile(messageFile, VALID_COMMIT_MESSAGE);
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1);
 		assert.match(result.stderr, /git\/index_empty/);
 		assert.doesNotMatch(result.stderr, /header_invalid|key_changes_required/);
@@ -176,11 +201,11 @@ test("blocks a valid message when the candidate Index is empty", async () => {
 
 test("passes a legal message against a non-empty Index", async () => {
 	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await initRepo(base); // README staged
+		const root = await initGovernedRepo(base); // governed carrier staged
 		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, VALID_COMMIT_MESSAGE);
+		await writeFile(messageFile, VALID_COMMIT_MESSAGE.replace("seed README.md test carrier", `seed ${GOVERNED_FIXTURE} test carrier`));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 		assert.match(result.stderr, /source_fingerprint=/);
@@ -191,7 +216,7 @@ test("passes a legal message against a non-empty Index", async () => {
 test("fails cleanly when the message file cannot be read", async () => {
 	await withTemp("ldvh-ggr.", async (base) => {
 		const root = await initRepo(base);
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile: join(root, "missing-msg.txt") }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile: join(root, "missing-msg.txt") }));
 		assert.equal(result.code, 1);
 		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) unavailable/);
 	});
@@ -199,7 +224,7 @@ test("fails cleanly when the message file cannot be read", async () => {
 
 test("rejects legacy Product-Name/Model-Name trailers and accepts only LDVH-Provider/LDVH-Model", async () => {
 	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await initRepo(base); // README staged -> Index non-empty
+		const root = await initGovernedRepo(base); // governed carrier staged -> checks apply
 		const messageFile = join(root, "msg.txt");
 
 		// Legacy trailer: header and 关键变更段 are compliant, but the
@@ -210,34 +235,108 @@ test("rejects legacy Product-Name/Model-Name trailers and accepts only LDVH-Prov
 			"chore(x): 合规标题",
 			"",
 			"关键变更:",
-			"- README.md item",
+			"- specs/99-fixture.md item",
 			"",
 			"LDVH-Product-Name: x",
 			"LDVH-Model-Name: y",
 		].join("\n");
 		await writeFile(messageFile, legacy);
-		const rejected = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const rejected = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(rejected.code, 1);
 		assert.match(rejected.stderr, /validation\/signature_trailer_missing/);
 		assert.doesNotMatch(rejected.stderr, /header_invalid|key_changes_required/);
 
-		// The new trailer is accepted with the same header + 关键变更段,
-		// proving the gate's contract is precisely the new field names.
-		const current = [
+		// The new field names are necessary but no longer sufficient: the SAME
+		// header + 关键变更段 passes only when the values trace back to the
+		// authoritative route (09 §5.1 取值来源, workcase-608786b8). Arbitrary
+		// values under the right field names are the forgery this test now pins.
+		const forged = [
 			"chore(x): 合规标题",
 			"",
 			"关键变更:",
-			"- README.md item",
+			"- specs/99-fixture.md item",
 			"",
 			"LDVH-Provider: x",
 			"LDVH-Model: y",
 		].join("\n");
+		await writeFile(messageFile, forged);
+		const rejectedForged = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(rejectedForged.code, 1, rejectedForged.stderr);
+		assert.match(rejectedForged.stderr, /validation\/signature_provider_mismatch/);
+		assert.match(rejectedForged.stderr, /validation\/signature_model_mismatch/);
+
+		const current = [
+			"chore(x): 合规标题",
+			"",
+			"关键变更:",
+			"- specs/99-fixture.md item",
+			"",
+			"LDVH-Provider: deepseek-harness",
+			"LDVH-Model: test",
+		].join("\n");
 		await writeFile(messageFile, current);
-		const accepted = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const accepted = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(accepted.code, 0, accepted.stderr);
 		assert.match(accepted.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 	});
 });
+test("passes an ordinary commit without running the controlled-commit checks", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		// README only: no managed carrier, no spec carrier, no AGENTS.md.
+		const root = await initRepo(base);
+		const messageFile = join(root, "msg.txt");
+		// Even a message that violates the contract is passed here: the dispatch
+		// decides BEFORE any check runs (09 §5.5 「直接放行」), and treating this
+		// as "ran the checks and ignored them" would be a different contract.
+		await writeFile(messageFile, "not a conventional header\n");
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /ordinary commit/);
+		assert.doesNotMatch(result.stderr, /validation\//);
+	});
+});
+
+test("a staged ldvh-base carrier triggers the controlled-commit checks", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		const root = await initRepo(base, { stage: false });
+		await mkdir(join(root, "ldvh-base"), { recursive: true });
+		await writeFile(join(root, "ldvh-base", "notes.md"), "notes\n");
+		await gitOk(root, ["add", "ldvh-base/notes.md"]);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, "not a conventional header\n");
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/header_invalid/);
+	});
+});
+
+test("a staged repository-root AGENTS.md triggers the controlled-commit checks", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		const root = await initRepo(base, { stage: false });
+		await writeFile(join(root, "AGENTS.md"), "# agents\n");
+		await gitOk(root, ["add", "AGENTS.md"]);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, "not a conventional header\n");
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/header_invalid/);
+	});
+});
+
+test("blocks a governed commit when the authoritative route is unavailable", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		const root = await initGovernedRepo(base);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, VALID_COMMIT_MESSAGE.replace("seed README.md test carrier", `seed ${GOVERNED_FIXTURE} test carrier`));
+		// gateEnv() alone strips every route variable: the Hook cannot judge the
+		// values, and 09 §5.5 「非 passed 即阻断」 refuses it BY NAME rather than
+		// passing an unverified pair (rule registered for exactly this case).
+		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }), { env: gateEnv() });
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/signature_source_unverifiable/);
+	});
+});
+
 // ---------------------------------------------------------------------------
 // Load-bearing declaration protection, driven through the real gate
 // (01 §7 末段; 09 §5.3 item 6)
@@ -261,7 +360,7 @@ const declarationFile = (resolution) =>
 	].join("\n");
 
 const declarationMessage = (item) =>
-	["docs(specs): 调整规范", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n");
+	["docs(specs): 调整规范", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n");
 
 async function committedDeclarationRepo(base) {
 	const root = await initRepo(base);
@@ -280,7 +379,7 @@ test("blocks an edit that strips a declaration's 恢复条件 element (the incid
 		const messageFile = join(root, "msg.txt");
 		await writeFile(messageFile, declarationMessage("specs/01-test.md: 调整对齐列的表述"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1, result.stderr);
 		assert.match(result.stderr, /validation\/load_bearing_resolution_missing/);
 	});
@@ -294,7 +393,7 @@ test("blocks removing a declaration outright", async () => {
 		const messageFile = join(root, "msg.txt");
 		await writeFile(messageFile, declarationMessage("specs/01-test.md: 移除对齐行"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1, result.stderr);
 		assert.match(result.stderr, /validation\/load_bearing_declaration_removed/);
 	});
@@ -312,7 +411,7 @@ test("passes the same edit when a 关键变更 item carries a resolvable referen
 			declarationMessage(`specs/01-test.md: 调整对齐列表述（独立复核 ${head} 已确认范围关闭）`)
 		);
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 	});
@@ -326,7 +425,7 @@ test("an unresolvable reference exempts nothing", async () => {
 		const messageFile = join(root, "msg.txt");
 		await writeFile(messageFile, declarationMessage("specs/01-test.md: 调整表述（独立复核 deadbeefdeadbeef）"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1, result.stderr);
 		assert.match(result.stderr, /validation\/load_bearing_resolution_missing/);
 	});
@@ -349,7 +448,7 @@ test("a fact reference resolves by the carrier's object_uid, not only by its fil
 		const messageFile = join(root, "msg.txt");
 		await writeFile(messageFile, declarationMessage(`specs/01-test.md: 调整表述（独立复核 ${uid} 已确认范围关闭）`));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 	});
 });
@@ -392,9 +491,9 @@ test("blocks a §7.2 removal basis whose quoted sentence is absent from §7.2", 
 		await gitOk(root, ["add", "-A"]);
 		const messageFile = join(root, "msg.txt");
 		// 历史事故的形态：引用的判据在 §7.2 里根本不存在。
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：**布局自指计数**", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：**布局自指计数**", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1, result.stderr);
 		assert.match(result.stderr, /validation\/removal_basis_unquotable/);
 	});
@@ -406,9 +505,9 @@ test("allows a §7.2 removal basis that quotes §7.2 verbatim", async () => {
 		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
 		await gitOk(root, ["add", "-A"]);
 		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：禁止的状态有三类：", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：禁止的状态有三类：", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 	});
 });
@@ -420,9 +519,9 @@ test("a quote the commit itself deletes still counts (HEAD ∪ candidate)", asyn
 		await gitOk(root, ["add", "-A"]);
 		const messageFile = join(root, "msg.txt");
 		// 引的正是本次要删的那句：它只在 HEAD 版 §7.2 里，仍算引用成立。
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 	});
 });
@@ -434,9 +533,9 @@ test("a quote from outside §7.2 does not satisfy the basis (scope is the sectio
 		await gitOk(root, ["add", "-A"]);
 		const messageFile = join(root, "msg.txt");
 		// 引的是 §7.3 的句子：在载体里逐字存在，但不属 §7.2。
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：此处不得进入 §7.2 的引用核对范围。", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：此处不得进入 §7.2 的引用核对范围。", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1, result.stderr);
 		assert.match(result.stderr, /validation\/removal_basis_unquotable/);
 	});
@@ -448,9 +547,9 @@ test("no declaration means no check (narrow by design)", async () => {
 		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
 		await gitOk(root, ["add", "-A"]);
 		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 	});
 });
@@ -496,7 +595,7 @@ test("同一条删声明的提交走 commit-msg 仍被拒（09 §5.3 第 6 项 /
 		// 消息里没有任何可解析的引用 ⇒ 豁免集为空 ⇒ 承重声明检查必须拒绝。
 		await writeFile(messageFile, declarationMessage("specs/01-test.md: 移除对齐行（无独立复核引用）"));
 
-		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1, result.stderr);
 		assert.match(result.stderr, /validation\/load_bearing_declaration_removed/);
 	});

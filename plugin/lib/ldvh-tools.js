@@ -28,7 +28,7 @@ import { probeHostAutomation } from "./host-automation-probe.js";
 import { isReviewRunning } from "./experience-review-trigger.js";
 import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { QUEUE_RELATIVE_PATH, readPendingQueue, resolvePendingEntry } from "./pending-queue.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
 // friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
 import { detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -1079,25 +1079,6 @@ function makeExecute(deps) {
       }
       return false;
     }
-  }
-
-  function checkSignatureAgainstRoute(message, route) {
-    const lines = message.replace(/\r\n/g, "\n").split("\n");
-    const providerLine = lines.find((line) => line.startsWith("LDVH-Provider:"));
-    const modelLine = lines.find((line) => line.startsWith("LDVH-Model:"));
-    if (!route.ok) {
-      // No authoritative record: the trailer can exist, but traceability is
-      // unverifiable — mechanical outcome is unverifiable, not failed.
-      return { ok: false, hardFail: false, issues: [] };
-    }
-    const issues = [];
-    if (providerLine !== undefined && providerLine.slice("LDVH-Provider:".length).trim() !== route.value.provider) {
-      issues.push(newFinding("validation/signature_provider_mismatch", `trailer LDVH-Provider does not match the authoritative session record (${route.value.provider})`));
-    }
-    if (modelLine !== undefined && modelLine.slice("LDVH-Model:".length).trim() !== route.value.model) {
-      issues.push(newFinding("validation/signature_model_mismatch", `trailer LDVH-Model does not match the authoritative session record (${route.value.model})`));
-    }
-    return { ok: issues.length === 0, hardFail: issues.length > 0, issues };
   }
 
   /**

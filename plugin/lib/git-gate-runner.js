@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute, touchesGovernedContent } from "./commit-validation.js";
+import { currentRouteValuesFromShellEnvironment } from "./session-signature.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -586,10 +587,43 @@ async function runCommitMsgChecks(argv) {
   // external workspace layout.
   const root = resolve(worktree);
   const message = await readFile(messageFile, "utf8");
+  // 09 §5.5 content dispatch (Human 2026-11-05, workcase-608786b8): the
+  // controlled-commit contract applies only when the staged content touches a
+  // managed carrier (`ldvh-base/`), a spec carrier (「规范源文件」/「规则源成员」
+  // share specs/ as their member set), or the repository-root AGENTS.md. An
+  // ordinary commit passes here directly — before ANY controlled-commit check,
+  // because that is what 「直接放行」 means; running the checks and then
+  // ignoring the result would still be a different contract.
+  const dispatchDiff = await git(root, ["diff", "--cached", "--no-ext-diff"], indexFile);
+  const stagedPaths = extractDiffPaths(dispatchDiff);
+  // An EMPTY candidate Index still reaches the checks: "nothing staged" is not
+  // "an ordinary commit", and the gate's own `git/index_empty` refusal must
+  // keep firing (it is also what the Hook preflight relies on).
+  if (stagedPaths.length > 0 && !touchesGovernedContent(stagedPaths)) {
+    process.stderr.write("LDVH Git Gate (commit-msg) passed: ordinary commit (no managed carrier, spec carrier, or AGENTS.md touched) — controlled-commit checks skipped per 09 §5.5\n");
+    return 0;
+  }
   const shared = await runSharedChecks(root, indexFile, message);
   const correspondence = checkKeyChangesAgainstDiff(message, shared.diff);
   const issues = [...validateMessage(message), ...shared.issues];
   if (!correspondence.ok) issues.push(...correspondence.issues);
+  // 09 §5.1 (「precheck 与 Git Gate 机械校验两行 trailer 的存在、取值来源和
+  // 候选一致性」) + 09 §5.5 (同一 validator). The value source is the DSH
+  // authoritative session log, read by the shell channel: a Hook is a child of
+  // the Git process, so it inherits DSH_SESSION_ID/DSH_HOME from the DSH shell
+  // that launched the commit (verified 2026-11-05) and reads the SAME record
+  // the precheck reads through the host channel.
+  //
+  // An unavailable route is NOT a mismatch — it is "could not judge". 09 §5.5
+  // 非 passed 即阻断 makes the commit seam refuse it by name rather than pass
+  // an unverified value (rule registered in GATE_RULES; the 09 §8.1 item 2
+  // decision covers exactly this semantic change).
+  const route = await currentRouteValuesFromShellEnvironment();
+  if (!route.ok) {
+    issues.push(newFinding("validation/signature_source_unverifiable", `the authoritative session route could not be resolved in this Hook: ${route.reason}`));
+  } else {
+    issues.push(...checkSignatureAgainstRoute(message, route).issues);
+  }
   if (issues.length > 0) return report("commit-msg", issues);
   const snapshot = snapshotIdentity(shared.diff, message);
   process.stderr.write(`LDVH Git Gate (commit-msg) passed: source_fingerprint=${SOURCE_FINGERPRINT} snapshot_identity=${snapshot}\n`);

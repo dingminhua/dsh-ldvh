@@ -26,7 +26,7 @@ import {
 	resolveShCommand,
 	uninstallHook,
 } from "../lib/hook-manager.js";
-import { git, gitOk, initRepo, pluginRoot, runnerPath, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
+import { gateEnv, git, gitOk, initRepo, pluginRoot, runnerPath, signatureEnv, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -288,6 +288,12 @@ test("installHook succeeds on a clean tree via the synthetic preflight index", a
 test("real commit-msg: illegal commit is blocked, legal commit passes", async () => {
 	await withTemp("ldvh-hm.", async (base) => {
 		const root = await initRepo(base);
+		// 09 §5.5 dispatch: an ordinary staged path (README) is passed directly,
+		// so a message-shape assertion must stage a governed carrier to reach the
+		// commit-msg checks at all.
+		await mkdir(join(root, "specs"), { recursive: true });
+		await writeFile(join(root, "specs", "99-fixture.md"), "# fixture\n");
+		await gitOk(root, ["add", "specs/99-fixture.md"]);
 		const install = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
 		assert.equal(install.ok, true, install.error?.message);
 
@@ -298,7 +304,8 @@ test("real commit-msg: illegal commit is blocked, legal commit passes", async ()
 		// one file in isolation. The temp repo has no node_modules of its own,
 		// so the rendered pre-commit Hook is pointed at this plugin's tree,
 		// exactly as a real install points it at the governed workspace.
-		const blocked = await gitOk(root, ["commit", "-m", "bad header no colon"], { env: { ...process.env, LDVH_WORKSPACE_ROOT: pluginRoot } });
+		const commitEnv = { ...gateEnv(signatureEnv()), LDVH_WORKSPACE_ROOT: pluginRoot };
+		const blocked = await gitOk(root, ["commit", "-m", "bad header no colon"], { env: commitEnv });
 		assert.equal(blocked.ok, false, "commit with illegal message must be blocked");
 		assert.match(blocked.stderr, /LDVH Git Gate \(commit-msg\) failed/);
 		assert.match(blocked.stderr, /validation\/header_invalid/);
@@ -307,7 +314,8 @@ test("real commit-msg: illegal commit is blocked, legal commit passes", async ()
 		assert.match(porcelain, /^A {2}README\.md/m);
 
 		// Legal message: full conventional header + 关键变更 + signatures.
-		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE], { env: { ...process.env, LDVH_WORKSPACE_ROOT: pluginRoot } });
+		const governedMessage = VALID_COMMIT_MESSAGE.replace("seed README.md test carrier", "seed README.md and specs/99-fixture.md carriers");
+		const passed = await gitOk(root, ["commit", "-m", governedMessage], { env: commitEnv });
 		assert.equal(passed.ok, true, `legal commit must pass: ${passed.stderr}`);
 		const log = await git(root, ["log", "--oneline"]);
 		assert.match(log, /接入 ldvh 提交校验/);
@@ -449,6 +457,12 @@ test("Hook runs under a PATH without node (friction 6cb53179 regression)", async
 test("Hook still validates when node is baked as an absolute path and PATH lacks node", async () => {
 	await withTemp("ldvh-hm.", async (base) => {
 		const root = await initRepo(base);
+		// A governed carrier must be staged or the 09 §5.5 dispatch passes the
+		// commit before the message checks run, which would make "blocked"
+		// vacuous.
+		await mkdir(join(root, "specs"), { recursive: true });
+		await writeFile(join(root, "specs", "99-fixture.md"), "# fixture\n");
+		await gitOk(root, ["add", "specs/99-fixture.md"]);
 		// With the real node baked in as an absolute candidate, a PATH without
 		// node must NOT matter: the gate must actually validate.
 		const rendered = renderHook({ runnerPath, workspaceRoot: base, interpreterCandidates: [process.execPath, "node"] });
