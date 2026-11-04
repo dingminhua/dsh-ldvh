@@ -609,6 +609,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 设置**的可信事实——工具层据此代其落盘复核条目，使「开启代理做独立
           // 审核」在机械上真正可行。
           lookupChild,
+          // 建前审核的自动派生（21 §14 Gate 1 前置，2026-11-04）：create 成功后由
+          // 插件直接派生零上下文子代理做审核，而不是等主控自觉。「闸只拒绝、不推动」
+          // 是实测到的失效面——主控建完 draft 直接跳到处置，整个审核环节被跳过。
+          // 取不到该服务时自动派生的结果为 unavailable，如实报告而非静默降级。
+          subagents: (() => {
+            try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
+          })(),
           // Durable fallback for the same channel (2026-10-18 「子代理登记表被清空」
           // 修复 · 步骤 3): the registry cannot see a child that finished before a
           // plugin rebuild, so a lookup miss asks the child's own session record.

@@ -426,3 +426,69 @@ test("F3 回归：非法格式的候选指纹被拒绝（格式校验需有守�
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// `status` 不得影响候选指纹（2026-11-04 实测：同一候选被问了两次）
+// ---------------------------------------------------------------------------
+//
+// 现场（session-5d9e6f62，20:54 → 20:59）：预检时不带 `status`，写入时带了
+// `status:"draft"`，指纹由 c6dad294… 变为 f0a3b48f…，于是
+//   ① 写入被 `workcase/candidate_changed` 拒绝（两份内容其实落成同一个对象）；
+//   ② 路由账本以指纹为键，键失配 ⇒ Human 已答过的那次询问不被复用 ⇒ 同一问题
+//      被原样再问一遍（账本里留下同 request 的两条记录）。
+//
+// 这类漂移此前**零用例**：所有既有用例的预检与写入都传同一份夹具，两侧自然同值，
+// 于是「省略 status」这一真实形态从未被覆盖。
+test("status 漂移回归：省略 status 与显式 status=draft 是同一候选（同指纹、写入放行）", async () => {
+  await withTemp("workcase-status-fp-", async (base) => {
+    const factSourceRoot = join(base, "proj", "ldvh-base");
+    const candidate = viableCandidate();
+    // 预检侧的形态：调用方没有写 status（它是可省略的初态，由 Code 钉死）。
+    const { status: _omit, ...draftWithoutStatus } = candidate.frontmatterDraft;
+    const pre = await precheckWorkcaseCreate({
+      factSourceRoot,
+      frontmatterDraft: draftWithoutStatus,
+      bodyMarkdown: candidate.bodyMarkdown,
+    });
+    assert.equal(pre.ok, true);
+    assert.equal(pre.value.mechanical_outcome, "passed", JSON.stringify(pre.value.issues));
+
+    // 写入侧的形态：同一候选，但显式带上被钉死的初态。
+    const res = await createWorkcaseObject({
+      factSourceRoot,
+      frontmatterDraft: { ...draftWithoutStatus, status: "draft" },
+      bodyMarkdown: candidate.bodyMarkdown,
+      sessionSignature: SIG(),
+      expectedCandidateFingerprint: pre.value.candidate_fingerprint,
+    });
+    assert.ok(res.ok, `同一候选不得因补写 status=draft 而被判为内容已变：${JSON.stringify(res.error)}`);
+  });
+});
+
+// 反方向的守卫：剥离不能变成「指纹不再看调用方可控内容」。
+// 去掉 status 是**唯一**例外；其余会逐字落盘的字段一旦变化仍必须被拦下，
+// 否则「提请与写入之间内容变化一律拒绝」这句承诺就被悄悄放宽了。
+test("status 剥离不越界：其余调用方字段变化仍使指纹不同（拒绝来自漂移，不是指纹失效）", async () => {
+  await withTemp("workcase-status-fp-scope-", async (base) => {
+    const factSourceRoot = join(base, "proj", "ldvh-base");
+    const candidate = viableCandidate();
+    const { status: _omit, ...draftWithoutStatus } = candidate.frontmatterDraft;
+    const pre = await precheckWorkcaseCreate({
+      factSourceRoot,
+      frontmatterDraft: draftWithoutStatus,
+      bodyMarkdown: candidate.bodyMarkdown,
+    });
+    assert.equal(pre.value.mechanical_outcome, "passed");
+
+    // 只改一个调用方可控、且会落盘的字段（gist），并补上 status=draft。
+    const res = await createWorkcaseObject({
+      factSourceRoot,
+      frontmatterDraft: { ...draftWithoutStatus, status: "draft", gist: "另一句要点，用于证明指纹仍在看内容。" },
+      bodyMarkdown: candidate.bodyMarkdown,
+      sessionSignature: SIG(),
+      expectedCandidateFingerprint: pre.value.candidate_fingerprint,
+    });
+    assert.ok(!res.ok, "status 之外的字段变化必须仍被指纹比对拦下");
+    assert.equal(res.error.code, "workcase/candidate_changed");
+  });
+});
