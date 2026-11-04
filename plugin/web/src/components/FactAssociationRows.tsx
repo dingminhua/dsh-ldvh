@@ -23,45 +23,16 @@ import type { FactCardAssociation, FactRefSource, ServingWorkItem, WorkCaseV5Gro
 
 const CommitRelationIcon = OBJECT_TYPE_ICONS.commit;
 
-export function associationLocator(association: FactCardAssociation) {
-  if (association.resolvedTarget) return association.resolvedTarget;
-  // commit 目标（02 §8.1）不是对象 locator——没有 factTypeKey/objectId 可开面板。
-  if (association.target && 'commit' in association.target) return null;
-  return association.target && !('objectUid' in association.target) ? association.target : null;
-}
+// 纯逻辑迁至 `utils/factAssociations.ts`（2026-11-04）：`associationLocator`、
+// `factCardAssociationKey`、`dedupeFactCardAssociations` 不依赖 React，抽出后可被
+// `web/tests/` 直接 import 断言行为——缺陷②正是因为只有源码正则断言才长期漏检。
+import {
+  associationLocator,
+  dedupeFactCardAssociations,
+  factCardAssociationKey,
+} from '@/utils/factAssociations';
 
-/**
- * 卡片关联行的 React key。commit 目标（02 §8.1）与对象目标分属不同命名空间，
- * 不能用同一套字段拼 key——否则 commit 行会退化成 'unavailable:unknown:0'。
- */
-function factCardAssociationKey(association: FactCardAssociation, index: number): string {
-  const target = association.target;
-  if (!target) return `unavailable:${index}`;
-  if ('commit' in target) return `commit:${target.commit}`;
-  if ('objectUid' in target) return `uid:${target.objectUid}`;
-  return `${target.governedProjectId}:${target.factTypeKey}:${target.objectId}`;
-}
-
-export function dedupeFactCardAssociations<T extends { association: FactCardAssociation; source: string }>(rows: T[]): T[] {
-  const seenTargets = new Set<string>();
-  return rows.filter((row) => {
-    const target = row.association.target;
-    if (!target) return true;
-    const targetKey = 'commit' in target
-      ? `commit\u0000${target.commit}`
-      : 'objectUid' in target
-        ? `uid\u0000${target.objectUid}`
-        : `${target.governedProjectId}\u0000${target.factTypeKey}\u0000${target.objectId}`;
-    // 去重按来源分组隔离（03 §7.2）：同一目标同时被 relations 与 refs 指向时
-    // 是两条不同语义的记录，必须各留一条。此隔离由 source 显式承载——不得
-    // 依赖 refs 投影当前恰好没有 target 字段这一偶然事实（独立复核 2026-09-16
-    // 发现 1：一旦 refs 补上 target，跨组去重会静默丢弃 refs 条目）。
-    const scopedKey = `${row.source}\u0000${targetKey}`;
-    if (seenTargets.has(scopedKey)) return false;
-    seenTargets.add(scopedKey);
-    return true;
-  });
-}
+export { associationLocator, dedupeFactCardAssociations };
 
 export function FactAssociationCardRow({ association, locale, unavailableLabel }: { association: FactCardAssociation; locale: string; unavailableLabel: string }) {
   const { t } = useI18n();
@@ -295,6 +266,13 @@ export function servingWorkToAssociation(row: ServingWorkItem): FactCardAssociat
     // 项目取**行自己的**归属（而不是卡片当前项目）：联邦视图里两者可以不同，
     // 用当前项目会把跨项目的行伪装成本项目对象（那是伪造定位，不是呈现选择）。
     available: true,
+    // `target` 必填（2026-11-04 类型收敛）：本行来自反查投影，目标恒为已解析的
+    // locator，故以 locator 形状给出。
+    target: {
+      governedProjectId: row.governed_project_id ?? '',
+      factTypeKey: row.type,
+      objectId: row.id,
+    },
     resolvedTarget: {
       governedProjectId: row.governed_project_id ?? '',
       factTypeKey: row.type,
@@ -311,6 +289,11 @@ export function servingWorkToAssociation(row: ServingWorkItem): FactCardAssociat
 export function refSourceToAssociation(source: FactRefSource): FactCardAssociation {
   return {
     available: source.available,
+    // `target` 必填（2026-11-04 类型收敛）。反查来源本就携带权威 `objectUid`，
+    // 故以 UID 形态给出——**不用** locator 形态顶替：两者在 `associationLocator`
+    // 里走不同分支（locator 可直接开面板，UID 形态需 resolvedTarget 才开），
+    // 混用会让不可用的行看起来可点。
+    target: { objectUid: source.objectUid },
     resolvedTarget: source.resolvedTarget,
     title: source.title,
     title_en: source.title_en,

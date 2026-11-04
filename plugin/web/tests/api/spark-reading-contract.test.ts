@@ -59,9 +59,15 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.match(source, /visibleRows\.map/);
   // 去重按来源分组隔离，且该隔离由 source 显式承载——不得依赖「refs 投影
   // 恰好没有 target 字段」这一偶然事实（独立复核 2026-09-16 发现 1）。
-  assert.match(source, /const scopedKey = `\$\{row\.source\}\\u0000\$\{targetKey\}`/);
-  assert.match(source, /seenTargets\.add\(scopedKey\)/);
-  assert.match(source, /source: string \}/);
+  //
+  // 2026-11-04：该实现已自 `components/FactAssociationRows.tsx` 迁至
+  // `utils/factAssociations.ts`（修 spark-b0e805d1 缺陷②：把纯逻辑抽出以便
+  // 用行为用例断言，而不是只靠源码正则）。故这两条形态断言改读新文件；
+  // **行为**本身由 `fact-association-dedupe.test.ts` 直接断言。
+  const dedupeSource = fs.readFileSync(path.resolve('src/utils/factAssociations.ts'), 'utf8');
+  assert.match(dedupeSource, /const scopedKey = `\$\{row\.source\}\\u0000\$\{associationTargetKey\(target\)\}`/);
+  assert.match(dedupeSource, /seenTargets\.add\(scopedKey\)/);
+  assert.match(dedupeSource, /source: string \}/);
   assert.match(source, /whitespace-normal break-words/);
   assert.match(source, /openPanel\(\{ type: 'object', title, objectType: legacyTarget\.factTypeKey, objectId: legacyTarget\.objectId \}\)/);
   assert.doesNotMatch(source, /StatusBadge status=\{association\.status\}/);

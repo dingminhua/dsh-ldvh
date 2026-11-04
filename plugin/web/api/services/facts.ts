@@ -412,22 +412,28 @@ async function projectFactRefs(
     if (typeof objectUid !== 'string' || !objectUid.trim() || seen.has(objectUid)) continue
     seen.add(objectUid)
     const locator = uidTargets.get(objectUid) ?? null
+    // `target` 与顶层 `objectUid` **同时**产出（2026-11-04 类型收敛，修
+    // spark-b0e805d1 缺陷②）：`target` 让 refs 与 relations 走同一形状
+    // （`FactCardAssociation.target` 已改为必填），顶层 `objectUid` 保留是因为
+    // 详情页 `projectFactReadingRefs` 按它归一；两处读到的是同一个权威 UID，
+    // 不是两份事实。
     if (!locator || locator.governedProjectId !== scope.governedProjectId || !isObjectType(locator.factTypeKey)) {
-      out.push({ objectUid, available: false })
+      out.push({ objectUid, target: { objectUid }, available: false })
       continue
     }
     const exact = await readLocalFact(locator.factTypeKey, locator.objectId, scope)
     if (exact.status !== 'ok' || exact.item.read_status !== 'readable' || exact.item.fact_object === null) {
-      out.push({ objectUid, available: false })
+      out.push({ objectUid, target: { objectUid }, available: false })
       continue
     }
     const source = exact.item.fact_object
     if (typeof source.title !== 'string' || !source.title.trim()) {
-      out.push({ objectUid, available: false })
+      out.push({ objectUid, target: { objectUid }, available: false })
       continue
     }
     out.push({
       objectUid,
+      target: { objectUid },
       available: true,
       resolvedTarget: locator,
       title: source.title,

@@ -253,18 +253,38 @@ export interface FactRefSource {
   status?: string;
 }
 
-export interface FactCardAssociation {
-  relationKey?: string;
-  target?: {
+/** 关联目标的三态（02 §8.1 / §8.2）：权威 UID／已解析 locator／commit hash。 */
+export type FactCardAssociationTarget =
+  | {
     objectUid: string;
-  } | {
+  }
+  | {
     governedProjectId: string;
     factTypeKey: string;
     objectId: string;
-  } | {
+  }
+  | {
     /** 02 §8.1「commit 形态」：解药是一次受控提交，呈现层跳提交详情页。 */
     commit: string;
   };
+
+export interface FactCardAssociation {
+  relationKey?: string;
+  /**
+   * **必填**（2026-11-04 类型收敛，修 spark-b0e805d1 缺陷②）。
+   *
+   * 此前写作 `target?`（可选），依据是「refs 投影没有 target 字段」这一**当时的
+   * 偶然事实**——而 `refs` 实为 `objectUid`，两者的差异是投影层的形状不一致，
+   * 不是「可能没有目标」。类型层面的可选性会被下游误当作「可能没有目标」：
+   * `dedupeFactCardAssociations` 曾写注「不得依赖 refs 投影当前恰好没有 target
+   * 字段这一偶然事实」（2026-09-16 独立复核据此发现跨组去重静默丢弃 refs 条目
+   * 的隐患），而该守卫的实际形态是 `if (!target) return true`——它对每条 refs
+   * 恒成立，等于对 refs 放弃了去重。
+   *
+   * 收敛方式：`projectFactRefs` 一并产出 `target: { objectUid }`，使 refs 与
+   * relations 走同一形状；字段随之改为必填，「没有目标」不再是合法状态。
+   */
+  target: FactCardAssociationTarget;
   /** Current-project locator resolved uniquely from an authoritative UID; never part of the relation identity. */
   resolvedTarget?: {
     governedProjectId: string;
