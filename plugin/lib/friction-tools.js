@@ -31,6 +31,13 @@ import {
   // 逐字等价的 copy，两份一旦漂移就会出现「详情归一了、列表没归一」这类只在
   // 某个读法上暴露的分叉。writer 侧已 export，直接复用。
   normalizeAttributionRef,
+  // 删除白名单同理（2026-11-04 修）：schema 的 enum 原先是一份手写的三个字段名，
+  // 与 writer 的两张白名单各自漂移——`impact`（update/correct 两处都收）与
+  // `occurrence`（correct 收）被 writer 接受、却被 schema 拒收。schema 是模型读
+  // 得到的唯一入口：枚举写小了不是「拦住越权」，而是让模型以为某个合法的删除不
+  // 存在，于是不去做本该做的事。改为从 writer 的具名常量取，任一方增删同时反映。
+  FRICTION_REMOVABLE_FIELDS,
+  CORRECT_REMOVABLE_FIELDS_FOR_TEST as CORRECT_REMOVABLE_FIELDS,
 } from "./friction-writer.js";
 import { objectRef, objectRefOf } from "./object-reference.js";
 import { currentRouteValues } from "./session-signature.js";
@@ -596,7 +603,7 @@ function parameterSchemaFor(operationKey) {
           change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
           relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array (26 §13; every other field is inherited byte-identically unless explicitly removed). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
           frontmatter_additions: { type: "object", description: "correct ONLY (2026-11): FILL a field newly admitted to the closed set (symmetric to frontmatter_removals). Only for a MISSING field — never to change an existing value; the value must be derivable from existing carriers, never fabricated (26 §13). Currently admits occurrence only.", additionalProperties: true },
-          frontmatter_removals: { type: "array", description: "update/correct: explicit deletion declarations. For update (specs/02 §10.5 三向声明): fields to DELETE; only attribution/attribution_ref are accepted for update, anything else is refused with zero writes; omitting a field no longer deletes it (省略即保留). For correct (2026-10): explicitly REMOVE frontmatter fields already retired from the type's closed set — currently only [\"serves\"], dropped from 26 §8 in 2026-10. Removal is the only permitted frontmatter action: you cannot add or change a value, and omitting a field inherits it byte-identically. Needed because 受控更新 is read-only on resolved records (§9.2), so a terminal object cannot otherwise shed a field the spec no longer defines. Naming a field that is absent counts as no-op (02 §10.5).", items: { type: "string", enum: ["serves","attribution","attribution_ref"] } },
+          frontmatter_removals: { type: "array", description: `update/correct: explicit deletion declarations (specs/02 §10.5 三向声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-lists (FRICTION_REMOVABLE_FIELDS for update: ${[...FRICTION_REMOVABLE_FIELDS].join("/")}; CORRECT_REMOVABLE_FIELDS for correct: ${[...CORRECT_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...new Set([...FRICTION_REMOVABLE_FIELDS, ...CORRECT_REMOVABLE_FIELDS])] } },
           human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13). NOTE: this field is a self-report — its presence and content are NOT proof that Human actually consented (the same boundary as 21 §14 correct); the mechanical gate only guarantees the record was supplied." }
         },
         required: ["action"],
