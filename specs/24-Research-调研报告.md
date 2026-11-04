@@ -241,7 +241,7 @@ Research 使用 02 §8.2 的公共关系形状，允许的 `relation_key` 闭集
 
 F1 卡片只投影最小权威字段：`object_uid`、`fact_type_key`、`title`、`status`、`research_question`、`research_purpose`、`stopping_reason`、`created_at`；不投影三态内容、发现单元、溯源锚点或子阶段，不在卡片层解释结论当前性。
 
-F2 候选发现只按确定性字段过滤：默认状态范围 `status=active`，`retired` 只在精确引用、调研历史或来源追溯时进入候选；允许按类型、状态、稳定引用、关系或本文允许字段（`title`、`research_question`、`research_purpose`）命中，候选卡返回 F1 字段、命中依据与有界确定性摘录（`title` 或 `research_question` 的定长片段）；关系导航**不设本类型专属的检索操作**，两个只读方向由通用关系机制承载：**反向**（已知目标对象反查哪些 Research 声明了指向它的关系）走 02 §9.1 的 F2 关系命中——以目标 `object_uid` 为查询指称、并限定 `fact_type_keys=[research]`，命中理由标注命中的 `relation_key`／`relation_target`；**正向**（从已知 Research 沿 `inspired-by`/`informs`/`updates` 边取得直接目标）由本类型判据表「关系展开」行（02 §12.4）与 §11 关系闭集承载，只跟随对象上实际存在的边、一条边一跳、不递归。两者只形成候选与关系边结果，不自动改变对象状态、时效或结论当前性，均为通用关系机制的派生结果，不写回对象。
+F2 候选发现只按确定性字段过滤：默认状态范围 `status=active`，`retired` 只在精确引用、调研历史或来源追溯时进入候选；允许按类型、状态、稳定引用、关系或本文允许字段（`title`、`research_question`、`research_purpose`）命中，候选卡返回 F1 字段、命中依据与有界确定性摘录（`title` 或 `research_question` 的定长片段）；关系导航**不设本类型专属的检索操作**，两个只读方向由通用关系机制承载：**反向**（已知目标对象反查哪些 Research 声明了指向它的关系）走 02 §9.1 的 F2 关系命中——以目标 `object_uid` 为查询指称、并以 `types=[research]` 收窄类型（该维度按完整 `object_uid` 整值命中，短标识与类型短名不参与），命中理由逐项标注命中的 `relation_key`／`relation_target`；**正向**（从已知 Research 沿 `inspired-by`/`informs`/`updates` 边取得直接目标）属 F4 派生：仅在查询为纯指称时触发，按本类型判据表「关系展开」行（02 §12.4）与 §11 关系闭集跟随对象上实际存在的边、一条边一跳、不递归，结果单独归类、不占 F2 名额，超出上限时按 `dropped` 如实披露。两者只形成候选与关系边结果，不自动改变对象状态、时效或结论当前性，均为通用关系机制的派生结果，不写回对象。
 
 F3 完整展开发生在三态证据、引用闭环或边界结论影响当前判断时：读取当前权威载体（单文件）全文，完成已实现机械校验（frontmatter 闭集、状态、`调查阶段` H2 存在性与子阶段一致、引用闭环回指一致、关系 key 与目标解析），再作适用与边界判断。
 

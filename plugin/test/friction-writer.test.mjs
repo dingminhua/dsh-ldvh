@@ -949,6 +949,35 @@ test("evidence_locator.commit 拒绝路径仍有覆盖：不可解析与无 reso
     });
     assert.ok(ok.ok, JSON.stringify(ok.error));
   });
+
+  // 采用面只到 informs（26 §11 2026-11-05 登记）：paired-with 无「解药」语义，
+  // 给它挂 evidence_locator 没有任何可解释的含义。**机械拒绝而非静默忽略**——
+  // 静默忽略会让写入方以为该定位已被记下（与「写入成功但字段被丢弃」同类）。
+  // 断言错误文案而不只 ok=false：只断 ok 时，别的拒绝原因也能让本例通过。
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r2 } = await createAndRead(root);
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    await createPitfallFixture(root, pitfallUid);
+    const rejected = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r2.value.object_uid,
+      expectedFingerprint: r2.value.fingerprint,
+      frontmatterAfter: {
+        ...r2.value.frontmatter,
+        relations: [{
+          relation_key: "paired-with",
+          target: { object_uid: pitfallUid },
+          evidence_locator: { commit: "7".repeat(40) },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "paired-with 携带 evidence_locator 应被拒",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.equal(rejected.ok, false, "evidence_locator on paired-with must be refused (26 §11)");
+    assert.match(JSON.stringify(rejected.error), /evidence_locator is adopted for informs only/, "拒绝原因须指向采用面，而不是别的形状错误");
+  });
 });
 
 test("commit target: unresolvable hash, missing resolver and both-forms-carrying are ALL rejected (02 §8.1/§8.2)", async () => {

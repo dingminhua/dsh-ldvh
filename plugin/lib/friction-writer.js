@@ -481,6 +481,12 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
     // 公共侧只定「附加在 object_uid target 上」与「不得与 target.commit 混用」（02 §8.1）。
     const locator = rel.evidence_locator;
     if (locator !== undefined && locator !== null) {
+      // 采用面只到 `informs`（26 §11 2026-11-05 登记）：`paired-with` 无「解药」语义，
+      // 给它挂一个「修复发生在哪次提交」的定位没有任何可解释的含义。机械拒绝而非
+      // 静默忽略——后者会让写入方以为该定位被记下了。
+      if (key !== "informs") {
+        issues.push(`relations[]: evidence_locator is adopted for informs only (26 §11); got relation_key ${JSON.stringify(key)}`);
+      }
       if (typeof locator !== "object" || locator === null) {
         issues.push(`relations[]: evidence_locator must be an object when present (02 §8.1)`);
       } else {
