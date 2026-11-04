@@ -211,7 +211,8 @@ test("改行名而数量不变也会失败：id 集合相等不是数量比较",
   const renamed = ["某个改名后的行", ...ids.slice(1)];
   const moduleIds = new Set(ids);
   const missing = renamed.filter((id) => !moduleIds.has(id));
-  assert.equal(missing.length, 1, "改行名后数量不变，但集合相等判据必须发现它");
+  // 只断言条数会放过「丢一个、多一个」的互换；必须指出丢的是哪一个。
+  assert.deepEqual(missing, ["某个改名后的行"], "改行名后数量不变，但集合相等判据必须发现它");
 });
 
 // ---------------------------------------------------------------------------

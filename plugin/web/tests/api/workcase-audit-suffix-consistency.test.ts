@@ -53,12 +53,21 @@ test('调用链：列表卡与聚焦页的状态文案都经同一入口（防�
     '聚焦卡须把 card 上的判据透传到 ObjectItem')
 })
 
-test('数据通路：两个类型都声明了 pre_audit_passed', () => {
+test('数据通路：三个类型都声明了 pre_audit_passed', () => {
   const api = read('src/utils/api.ts')
-  // ObjectItem（列表卡）与 CognitionInboxCard（聚焦卡）各一处
-  const occurrences = api.match(/pre_audit_passed\?: boolean/g) ?? []
-  assert.ok(occurrences.length >= 3,
-    `pre_audit_passed 须在 ObjectItem / CognitionInboxCard / CognitionRecentActivityItem 三处类型声明，实得 ${occurrences.length} 处`)
+  // 原断言是 `occurrences.length >= 3`，而注释写「各一处」、测试名写「两个类型」——
+  // 依据对不上，且 `>=` 让第 4 处随便加也能过。改为**按类型名逐个核对**：
+  // 每个须声明该字段的类型，其声明块内必须有这一行。
+  const required = ['ObjectItem', 'CognitionInboxCard', 'CognitionRecentActivityItem']
+  for (const name of required) {
+    const start = api.search(new RegExp(`^export (interface|type) ${name}\\b`, 'm'))
+    assert.ok(start >= 0, `api.ts 中找不到类型 ${name}（类型被改名或合并时本断言须同步）`)
+    const rest = api.slice(start + 1)
+    const end = rest.search(/^export (interface|type) /m)
+    const block = end >= 0 ? rest.slice(0, end) : rest
+    assert.match(block, /pre_audit_passed\?: boolean/,
+      `${name} 须声明 pre_audit_passed（缺它则该卡面算不出审核后缀）`)
+  }
 })
 
 // ---------------------------------------------------------------------------

@@ -40,7 +40,9 @@ test('同一 source 内的重复目标被去掉', () => {
     { association: association({ objectUid: UID }), source: 'refs' as const },
     { association: association({ objectUid: UID }), source: 'refs' as const },
   ];
-  assert.equal(dedupeFactCardAssociations(rows).length, 1);
+  const kept = dedupeFactCardAssociations(rows);
+  // 留下的必须是**那条目标**，不是随便剩余的一条——只数个数认不出留下的是谁。
+  assert.deepEqual(kept.map((r) => r.association.target?.objectUid), [UID]);
 });
 
 test('refs 条目参与去重——不再被「没有 target」放行（缺陷②回归）', () => {
@@ -50,7 +52,9 @@ test('refs 条目参与去重——不再被「没有 target」放行（缺陷�
     { association: association({ objectUid: UID }), source: 'refs' as const },
     { association: association({ objectUid: UID }), source: 'refs' as const },
   ];
-  assert.equal(dedupeFactCardAssociations(rows).length, 1, 'refs 必须真正参与去重');
+  // 反向控制同一条用例：若去重被整体关掉，kept 会是两条——故断言精确到目标身份。
+  const kept = dedupeFactCardAssociations(rows);
+  assert.deepEqual(kept.map((r) => [r.source, r.association.target?.objectUid]), [['refs', UID]], 'refs 必须真正参与去重');
 });
 
 test('不同目标各自保留，不被误去重', () => {
@@ -59,7 +63,11 @@ test('不同目标各自保留，不被误去重', () => {
     { association: association({ objectUid: UID }), source: 'refs' as const },
     { association: association({ objectUid: other }), source: 'refs' as const },
   ];
-  assert.equal(dedupeFactCardAssociations(rows).length, 2);
+  // 保留的顺序与身份一并锁住：条数相同但「留错了一条」不得通过。
+  assert.deepEqual(
+    dedupeFactCardAssociations(rows).map((r) => r.association.target?.objectUid),
+    [UID, other],
+  );
 });
 
 test('commit 目标与对象目标分属不同命名空间，同来源下不互相去重', () => {
@@ -67,5 +75,9 @@ test('commit 目标与对象目标分属不同命名空间，同来源下不互�
     { association: association({ commit: 'e4e178fd7e3293f47003ed0150ab1128cc6ae0ef' }), source: 'relations' as const },
     { association: association({ objectUid: UID }), source: 'relations' as const },
   ];
-  assert.equal(dedupeFactCardAssociations(rows).length, 2);
+  // 两个命名空间各留各的：须看到一条带 commit、一条带 objectUid，而非任意两条。
+  assert.deepEqual(
+    dedupeFactCardAssociations(rows).map((r) => (r.association.target && 'commit' in r.association.target ? 'commit' : 'objectUid')),
+    ['commit', 'objectUid'],
+  );
 });

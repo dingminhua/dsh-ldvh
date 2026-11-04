@@ -500,8 +500,11 @@ test("ResearchSession rejects bad findings and keeps good ones", () => {
     { statement: "good", state: "confirmed", sub_question_key: "sq", evidence: { text: "t", anchor: "a", source: "https://good.com", confidence: "high" } },
     { statement: "bad", state: "invalid-state" },
   ]);
-  assert.equal(r.accepted.length, 1);
-  assert.equal(r.rejected.length, 1);
+  // 条数之外还须认出**是哪一条**：两个各为 1 的结果无法区分「好的收下、坏的拒掉」
+  // 与「坏的收下、好的拒掉」——后者正是本用例要防的形态（只数个数抓不住）。
+  // rejected 条目形状是 { finding, error }（research-session.js 的拒收路径）。
+  assert.deepEqual(r.accepted.map((f) => f.statement), ["good"]);
+  assert.deepEqual(r.rejected.map((x) => x.finding?.statement), ["bad"]);
 });
 
 // ---------------------------------------------------------------------------

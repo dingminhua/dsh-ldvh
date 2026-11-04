@@ -112,8 +112,15 @@ test("引导文本中的裸规范号（specs/NN 无 §）指向的规范载体�
 	);
 });
 
-test("本守卫的边界如实声明：只查可解析性，不查语义", () => {
+test("本守卫的边界如实声明：只查可解析性，不查语义", async () => {
 	// 这是注释级守卫：防止后人把本文件读成「证明引导正确」的依据。
-	const source = `只校验指针可解析性，不校验语义恰当性`;
-	assert.ok(source.length > 0);
+	// 原实现断言一个**字面量常量**的 length > 0（恒真，与任何文件无关）。
+	// 改为读本文件自身的边界段：那段声明若被删或被改写，此用例才真的失败。
+	const self = await readFile(new URL(import.meta.url), "utf8");
+	const boundaryStart = self.indexOf("## 本文件的边界");
+	assert.ok(boundaryStart >= 0, "本文件的边界声明段已被删除——本用例正是它的守卫");
+	const boundary = self.slice(boundaryStart, self.indexOf("*/", boundaryStart));
+	assert.match(boundary, /只校验\*\*指针可解析性\*\*/, "边界段须仍声明「只校验指针可解析性」");
+	assert.match(boundary, /不校验语义恰当性/, "边界段须仍声明「不校验语义恰当性」");
+	assert.match(boundary, /不能发现「specs\/21 §6\.3 讲的不是/, "边界段须仍给出「能发现悬空、不能发现指错条文」的分界");
 });

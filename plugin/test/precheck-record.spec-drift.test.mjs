@@ -225,15 +225,48 @@ test("34 §11 环节级声明：每个环节名须逐字来自原文", async () 
 // 34 §17 反过度设计红线（实为 7 条，非 4 条——2026-10-23 核对纠正）
 // ---------------------------------------------------------------------------
 
-test("34 §17 恰为 9 条红线（原 7 条 + 召回侧 2 条，第 1 条已合并原第 8 条）", async () => {
+// §17 九条红线的**身份**（2026-11-04）。只数 |^\d+\. | 的行数抓不住任何实际漂移：
+// 删掉一条再补一条凑够 9，断言照样绿，而 `plugin/lib/precheck-record.js` 里引用的
+// 「§17 第 N 项」会整体指错条文。故此处钉住每一条的开头字形，并**逐条回指原文**。
+// 锚点取各条开头到首个 `——` 或 `；` 之前的一段（措辞改了即失败，须人工复核）。
+const SECTION_17_LEADINGS = [
+	"不建立持久搜索索引",
+	"不把预检变仪式",
+	"不为本系统新建事实类型、状态字段或专属存储",
+	"不自行增设 03 §6.1 之外的中间风险层",
+	"不把双源召回系统扩张为「规则解释者」",
+	"不以本系统的横切性为由要求其它规范重复其判据",
+	"不为「未来可能的规则冲突分析」预设冲突图或优先级表",
+	"不用相似度、embedding、关键词权重或 AI 输出自动裁决相关性、适用性或事实结论",
+	"不把召回质量当作可自动验收的指标",
+];
+
+test("34 §17 的九条红线：条数与身份都须与原文一致（序数引用才有依据）", async () => {
 	// 2026-10-25 34 号改名：原 7 条中第 1 条吸收「不建持久搜索索引」（原拟作第 8 条，
 	// 因与第 1 条同义重复而合并，01 §7.2 要求同一语义元素只完整展开一次），
 	// 另新增「不用相似度裁决」与「不把召回质量当验收指标」两条 → 共 9 条。
-	// 若将来再改条数，本断言会再次提示复核。
 	const spec = await readSpec("34-双源召回系统规范.md");
-	const section = spec.slice(spec.indexOf("## 17. 反过度设计红线"));
-	const items = section.match(/^\d+\. /gm) ?? [];
-	assert.equal(items.length, 9, "§17 实为 9 条；若规范改了条数，本断言会提示复核");
+	const start = spec.indexOf("## 17. 反过度设计红线");
+	assert.ok(start >= 0, "34 §17 标题已改：「反过度设计红线」不在原文中");
+	const section = spec.slice(start);
+	const items = [...section.matchAll(/^(\d+)\. (.+)$/gm)].map((m) => ({
+		ordinal: Number(m[1]),
+		// 粗体标记属排版，不属条文语义——去掉后再比开头字形。
+		text: m[2].replace(/\*\*/g, ""),
+	}));
+
+	// ① 序号须是 1..n 连续——序数引用（「第 N 项」）依赖它。
+	assert.deepEqual(
+		items.map((i) => i.ordinal),
+		items.map((_, idx) => idx + 1),
+		"§17 的序号须从 1 连续编号；否则 lib 里的「第 N 项」引用整体指错条文",
+	);
+	// ② 身份：逐条与原文对齐（双向——少一条、多一条、换一条都失败）。
+	assert.equal(items.length, SECTION_17_LEADINGS.length, "§17 条数与已核对的身份清单不符");
+	const mismatched = items
+		.map((item, idx) => (item.text.startsWith(SECTION_17_LEADINGS[idx]) ? null : `第 ${item.ordinal} 项开头不是「${SECTION_17_LEADINGS[idx]}」，实为「${item.text.slice(0, 24)}…」`))
+		.filter(Boolean);
+	assert.deepEqual(mismatched, [], `§17 条目身份漂移：${mismatched.join("；")}`);
 });
 
 test("§17 第 5 条（不得扩张为规则解释者）：代码中无解释执行路径", async () => {

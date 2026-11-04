@@ -118,7 +118,12 @@ test("a directory that is no longer a Git repository is skipped, not 'repaired'"
     assert.equal(summary.repaired.length, 0);
     // Either a skip (unavailable Hook) or a recorded failure (inspection failed)
     // is acceptable; silently reporting "nothing to do" is not.
-    assert.equal(summary.skipped.length + summary.failed.length >= 1, true, JSON.stringify(summary));
+    // 原写法 `assert.equal(a + b >= 1, true)` 把布尔表达式裹进 equal 里，
+    // 失败信息只剩「true != false」。改用 ok()，失败时把 summary 带出。
+    assert.ok(
+      summary.skipped.length + summary.failed.length >= 1,
+      `须留下 skip 或 failure 的痕迹，实得 ${JSON.stringify(summary)}`,
+    );
   });
 });
 
