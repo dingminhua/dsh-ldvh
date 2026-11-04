@@ -89,11 +89,12 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature, resolveAuthoritativeSessionIdentity } from "./signature-channel.js";
+import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { resolveSubGoal } from "./subgoal-writer.js";
 import { resolveRefsTargets } from "./spark-writer.js";
@@ -4342,40 +4343,37 @@ export async function listWorkcaseObjects(args) {
     return failure("invalid_request", "limit must be a positive integer");
   }
   const typeDir = join(factSourceRoot, WORKCASE_DIRECTORY);
-  let entries;
+  // 载体枚举与「哪些文件无法使用」的判定下沉到 `carrier-scan.js`（单点）。
+  // 2026-11-04：本函数与 spark/adr/pitfall/research/friction 五处曾各自持有一份
+  // `if (!nameMatch) continue`——读者接受而写者拒绝的命名形态（工具查不到、
+  // Web 报得出）与文件名/声明不符的载体都被静默吞掉。依据见该模块头注。
+  let scanned;
   try {
-    entries = await readdir(typeDir, { withFileTypes: true });
+    scanned = await scanCarrierDirectory(typeDir, "workcase");
   } catch (error) {
-    if (error?.code === "ENOENT") return success({ items: [], total: 0, complete: true, invalid: [] });
     return failure("workcase/directory_unavailable", `cannot read workcases directory: ${error.message}`);
   }
+  if (scanned.missing) return success({ items: [], total: 0, complete: true, invalid: [] });
 
-  const invalid = [];
+  const invalid = [...scanned.invalid];
   const items = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const nameMatch = entry.name.match(/^workcase-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.md$/i);
-    if (!nameMatch) continue;
-    const uid = nameMatch[1].toLowerCase();
-    let content;
-    try {
-      content = await readFile(join(typeDir, entry.name), "utf8");
-    } catch (error) {
-      invalid.push({ file: entry.name, reason: `unreadable: ${error.message}` });
-      continue;
-    }
+  for (const carrier of scanned.carriers) {
+    // 身份取载体自己声明的 object_uid（02 §7.1）；文件名只参与「是否不符」的
+    // 判定，该判定与记录在 `carrier-scan.js`。
+    const uid = carrier.uid;
+    const content = carrier.content;
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
-    if (!fmMatch) { invalid.push({ file: entry.name, reason: "no YAML frontmatter block" }); continue; }
+    if (!fmMatch) { invalid.push({ file: carrier.file, reason: "no YAML frontmatter block" }); continue; }
     let frontmatter;
     try {
       frontmatter = parseYaml(fmMatch[1]);
     } catch (error) {
-      invalid.push({ file: entry.name, reason: `frontmatter parse error: ${error.message}` });
+      invalid.push({ file: carrier.file, reason: `frontmatter parse error: ${error.message}` });
       continue;
     }
     const status = frontmatter.status;
     if (!STATUSES.has(status)) {
-      invalid.push({ file: entry.name, reason: `status ${JSON.stringify(status)} outside the closed set` });
+      invalid.push({ file: carrier.file, reason: `status ${JSON.stringify(status)} outside the closed set` });
       continue;
     }
     // F1 default candidates: draft + open (21 §13: closed 只在精确引用、

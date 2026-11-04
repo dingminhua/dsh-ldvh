@@ -23,12 +23,13 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
+import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, h3TitlesInSection, sectionContent } from "./markdown-structure.js";
 
 // ---------------------------------------------------------------------------
@@ -545,46 +546,39 @@ export async function listResearchObjects(args) {
   }
 
   const typeDir = join(factSourceRoot, RESEARCH_DIRECTORY);
-  let entries;
+  let scanned;
   try {
-    entries = await readdir(typeDir, { withFileTypes: true });
+    scanned = await scanCarrierDirectory(typeDir, "research");
   } catch (error) {
-    if (error?.code === "ENOENT") {
-      // An absent type directory is a legitimate empty set, not a defect.
-      return success({ items: [], total: 0, complete: true, invalid: [] });
-    }
     return failure("research/directory_unavailable", `cannot read researches directory: ${error.message}`);
   }
+  if (scanned.missing) {
+    // An absent type directory is a legitimate empty set, not a defect.
+    return success({ items: [], total: 0, complete: true, invalid: [] });
+  }
 
-  const invalid = [];
+  const invalid = [...scanned.invalid];
   const items = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const nameMatch = entry.name.match(/^research-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.md$/i);
-    if (!nameMatch) continue; // non-carrier files (tmp staging, .bak) are not objects
-    const uid = nameMatch[1].toLowerCase();
-    let content;
-    try {
-      content = await readFile(join(typeDir, entry.name), "utf8");
-    } catch (error) {
-      invalid.push({ file: entry.name, reason: `unreadable: ${error.message}` });
-      continue;
-    }
+  for (const carrier of scanned.carriers) {
+    // 身份取载体自己声明的 object_uid（02 §7.1）；文件名只参与「是否不符」的
+    // 判定，该判定与记录在 `carrier-scan.js`（单点）。
+    const uid = carrier.uid;
+    const content = carrier.content;
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
     if (!fmMatch) {
-      invalid.push({ file: entry.name, reason: "no YAML frontmatter block" });
+      invalid.push({ file: carrier.file, reason: "no YAML frontmatter block" });
       continue;
     }
     let frontmatter;
     try {
       frontmatter = parseYaml(fmMatch[1]);
     } catch (error) {
-      invalid.push({ file: entry.name, reason: `frontmatter parse error: ${error.message}` });
+      invalid.push({ file: carrier.file, reason: `frontmatter parse error: ${error.message}` });
       continue;
     }
     const status = frontmatter.status;
     if (!STATUSES.has(status)) {
-      invalid.push({ file: entry.name, reason: `status ${JSON.stringify(status)} outside the closed set` });
+      invalid.push({ file: carrier.file, reason: `status ${JSON.stringify(status)} outside the closed set` });
       continue;
     }
     if (!includeRetired && status !== "active") continue;
