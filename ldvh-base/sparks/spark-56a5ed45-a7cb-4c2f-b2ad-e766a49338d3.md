@@ -1,6 +1,6 @@
 ---
 title: 新事实类型候选准入
-status: open
+status: implemented
 question: 新事实类型候选（Practice/实践规范、项目文档等）是否准入，以及 mnemon 三层记忆如何承载？
 scope_boundary: 各候选按 `02 §6.2` 六问逐项判定并呈 Human 决定；与既有 27 号 Norm 类型的重叠核对完成后停止。
 intent: 保留理由——含**未定案的新事实类型候选**（Practice/实践规范、项目文档/笔记）与两条待准入纪律（设计文档不对象化、禁止藏规则）；按 02 §6.2 六问逐项判定属 Human Gate 事项，不保留则候选方向与行业对照全部丢失。
@@ -13,7 +13,7 @@ summary: |-
 
   **注意**：`specs/27-Norm-事实规范.md` 已存在（Norm 类型已立项并定稿），与本文档 2026-09-03 提出的 Practice 候选**是否同一物的不同命名或不同设计**，须核对——这是本 Spark 的首要查重点。**讨论原则（Human 定）**：以「满足什么问题」为准入唯一依据；mnemon 的形态是参照不是模板；任何新类型在 20–24 重建之后按同节奏起草规范（编号待分配，可能 25+）。
 serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
-priority: P2
+disposition: 已落实：Practice 候选经 02 §6.2 六问逐项判定不立新类型（第 3 问 Norm 可无损承载、第 5 问净价值不成立），职责由 27 号 Norm 承接，fact_type_key 九值闭集不增 practice；mnemon 三层记忆已定案不进事实对象体系（归 b8cd2268）。两项停止条件均达成。
 object_uid: 56a5ed45-a7cb-4c2f-b2ad-e766a49338d3
 fact_type_key: spark
 created_at: 2026-09-12T22:06:03.166Z
@@ -38,6 +38,10 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 补入 2026-11-02 只读重核节：首要查重点已答——27 号 Norm 第 24 行定位即本条所提 Practice 的职责（成体系方向规范、ADR 点状决定 vs Norm 面状体系），是同一物；specs/02 §7 fact_type_key 值域现为九短名，无 practice，全仓除本条外零命中，即候选既未被拒也未被采纳、被 Norm 提前满足；六问逐项判中第 3、5 问指向不立新类型。议题 1（mnemon 三层记忆）已由 f83c483 删除 32 号记忆存取草案时定案为「不进事实对象体系」。故只剩 Human 确认该判定即可收束。summary 未改
+  - at: 2026-11-04T06:09:40.625Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: Human 确认六问判定成立——Practice 由 Norm 承接、不立新类型，按停止条件转 implemented
 ---
 
 # 新事实类型候选准入
@@ -65,6 +69,14 @@ change_log:
 **议题 1（mnemon 三层记忆）——已被独立处置且方向已定**：`specs/32-记忆存取系统规范.md.draft`（621 行）曾在 2026-10-22 由 `f83c483` **整块删除**，关键变更原文记：「该系统已不在 00 §3.4 现行名录。其职责经核实全部已有确定归属——事实对象读写与召回分层由 02 §9/§10 定义、传输由 05 §9.2/§9.3 承载、价值判断分散在各业务规范；其「门 2 本地层」与「个人偏好/本机环境事实」按 **Human 决定不进事实对象体系**（可入 ADR 或事实规范），故整块废弃」。即 mnemon 三层记忆的对应承载**已由 Human 定案为「不进事实对象体系」**，该议题已闭合。该处置的独立跟踪对象是 `spark-b8cd2268`（LDVH 记忆系统）。
 
 **故本条的实质只剩一项待 Human 确认**：把「Practice 候选经 02 §6.2 六问判定不成立、其职责由 Norm 承接」这个结论**正式记录下来**，然后本条按 `scope_boundary` 收束（停止条件正是「各候选按六问逐项判定并呈 Human 决定；与既有 27 号 Norm 类型的重叠核对完成后停止」）。两项条件均已满足，缺的只是 Human 对上述判定的确认。
+
+### 2026-11-04 Human 裁定：六问判定成立，转 implemented
+
+经 Human 确认，上文「六问逐项判」的结论正式成立：**Practice 候选经 `02 §6.2` 六问判定不立新类型**——关键在第 3 问（已有类型能否无损承载：`specs/27` 的 Norm 明确以「成体系方向规范」定位，与 Practice 的「怎么做」职责面逐字对应）与第 5 问（净价值不成立：与 Norm 完全重叠，新增类型只增加维护与查重成本）。其职责由 Norm 承接，`specs/02` §7 的 `fact_type_key` 九值闭集中不增 `practice`。
+
+议题 1（mnemon 三层记忆）已由 `f83c483` 删除 32 号草案时定案为「不进事实对象体系」，其独立跟踪对象为 `spark-b8cd2268`，不在本条射程。议题 2①（设计文档不对象化、禁止藏规则）的落点归 Norm 与过程文档纪律，不产生新类型。
+
+`scope_boundary` 的两项停止条件（各候选按六问逐项判定并呈 Human 决定、与既有 27 号 Norm 的重叠核对完成）均已达成，本对象转入 `implemented`，无残留承接项。
 
 ## 调查问题
 
