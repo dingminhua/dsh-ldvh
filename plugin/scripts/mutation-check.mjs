@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyTestRun, RUN_TERMINAL } from "../lib/test-run-report.js";
 import { decideMutationWrite, decideMutationRestore } from "../lib/concurrent-write-guard.js";
+import { summarizeMutationCoverage } from "../lib/mutation-coverage.js";
 
 const run = promisify(execFile);
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,6 +34,7 @@ const GGR = join(PLUGIN, "lib", "git-gate-runner.js");
 const WM = join(PLUGIN, "lib", "web-mount.js");
 const GB = join(PLUGIN, "lib", "guidance-budget.js");
 const CWG = join(PLUGIN, "lib", "concurrent-write-guard.js");
+const MC = join(PLUGIN, "lib", "mutation-coverage.js");
 const TESTS = [
 	"test/source-recall.test.mjs",
 	"test/recall-injection.test.mjs",
@@ -60,6 +62,11 @@ const TESTS = [
 	// 是 mutation-check **自身**不得覆盖并行会话的在途改动；若它不在清单里，
 	// 「判据恒返回允许」这类破坏永远不会被发现——而那正是本账目的原始失效形态。
 	"test/concurrent-write-guard.test.mjs",
+	// 2026-11-04：变异覆盖口径本身（friction-5c5b6261 的处置）。该模块把「触及
+	// 几个模块／总共几个模块」变成可读的数；若它自己不在清单里，「报告行只报条数」
+	// 「缺口数恒报 0」这类**恰好抹平缺口**的破坏永远不会被发现——那正是本账目的
+	// 原始失效形态在元层重演。
+	"test/mutation-coverage.test.mjs",
 ];
 
 const MUTATIONS = [
@@ -197,6 +204,18 @@ const MUTATIONS = [
 	[CWG, "在途判定恒允许（他人改动被覆盖）", "  if (current !== last) {", "  if (false) {"],
 	[CWG, "首次接触被判为冲突（守卫变成停机装置）", "  if (last === null) return { ok: true, ownsWrite: true };", "  if (last === null) return { ok: false, code: \"concurrent-write/detected\", reason: \"x\" };"],
 	[CWG, "文件消失与内容被改写混同", "  if (current === null) {", "  if (false) {"],
+	// —— 变异覆盖口径（2026-11-04，friction-5c5b6261）——
+	//
+	// 这组守的不是「覆盖率够不够」（那是 Human 的判断），而是**缺口能不能被看见**：
+	// 报告行的分子分母、缺口数是否被抹平、空清单会不会静默成 0/0。
+	[MC, "报告行只报条数（去掉分母）", "`变异覆盖：${mutationCount} 条变异触及 ${coveredModules.length}/${libs.length} 个 lib 模块`", "`变异覆盖：${mutationCount} 条变异`"],
+	[MC, "缺口数恒报 0（看不见缺口）", "withOwnTestButNoMutation.length} 个模块有专用用例但零变异", "0} 个模块有专用用例但零变异"],
+	[MC, "分子恒等于分母（冒充全覆盖）", "const coveredModules = libs.filter((name) => mutationsByModule[name] !== undefined);", "const coveredModules = libs.slice();"],
+	// 空清单若被算成 0/0，读作「没有问题」；实际是「一条都没测」。这条让分母在
+	// 无变异时一起清空——正是那种静默。锚点取分母计算行的一段**可精确引用**的
+	// 片段（不含引号，避免转义形态在源码里对不上；实测过带引号的写法会锚点失配，
+	// 被记为「锚点失效」而污染结论）。
+	[MC, "空清单静默成 0/0（分母一起清空）", "const libs = [...new Set(", "const libs = mutations.length === 0 ? [] : [...new Set("],
 	[CWG, "还原侧另立一份实现（两侧口径分叉）", "export const decideMutationRestore = decideMutationWrite;", "export const decideMutationRestore = (x) => ({ ok: true, ownsWrite: true, ...x });"],
 ];
 
@@ -339,6 +358,28 @@ const notRun = rows.filter(([, s]) => s === "**未运行**" || s === "**计数�
 const caught = rows.filter(([, s]) => s === "被抓住");
 for (const [n, s, f, ev] of rows) console.log(`  ${s.padEnd(8)} ${n}${f ? `  (${f} 处失败)` : ""}${ev ? `  ← ${ev}` : ""}`);
 console.log(`\n${caught.length}/${rows.length} 被抓住`);
+
+// **覆盖口径必须与「被抓住」并列报出**（2026-11-04，friction-5c5b6261 的处置）。
+//
+// 此前这里只有「N/N 被抓住」这一行，它对「哪些模块根本没有变异」一个字都不说，
+// 于是该数字读起来像「守护有效」。实测 2026-11-04：50/50 被抓住，而清单只触及
+// 9/92 个 lib 模块、59 个模块有专用用例却零变异。两者在输出上无从区分——
+// 这正是本账目反复重现的结构性原因。故此处**无条件**报出分子与分母。
+{
+	const { readdir } = await import("node:fs/promises");
+	const coverage = summarizeMutationCoverage({
+		mutations: MUTATIONS,
+		libModules: await readdir(join(PLUGIN, "lib")),
+		testModules: await readdir(join(PLUGIN, "test")),
+	});
+	console.log(`\n${coverage.summaryLine}`);
+	// **本条不设阈值**：覆盖率应达多少是 Human 的判断（00 §4），脚本不代定。
+	// 它只保证缺口**不被数字隐去**——「N/N 被抓住」单独出现时必然误导。
+	console.log(
+		"（覆盖口径只暴露缺口，不主张守护有效：「被变异触及」≠「该模块守护有效」，"
+		+ "「有专用用例文件」≠「该模块被有效守护」。）",
+	);
+}
 if (survived.length > 0) {
 	console.log("\n存活项需人工看：可能是该行为由别处承担，也可能是缺守护。");
 	process.exitCode = 1;
