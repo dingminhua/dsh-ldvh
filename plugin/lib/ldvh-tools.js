@@ -28,7 +28,7 @@ import { probeHostAutomation } from "./host-automation-probe.js";
 import { isReviewRunning } from "./experience-review-trigger.js";
 import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { QUEUE_RELATIVE_PATH, readPendingQueue, resolvePendingEntry } from "./pending-queue.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType } from "./commit-validation.js";
 // friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
 import { detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -738,6 +738,11 @@ function makeExecute(deps) {
     // 落盘的正确版本不得替暂存的错误版本通过。
     const frictionCommits = await checkFrictionCommitTargetsForIndex(governed.project.path);
     if (!frictionCommits.ok) issues.push(...frictionCommits.issues);
+    // 02 §7.1 / §5 第 6 项：事实载体的身份一致性。Git Gate 与预检共用
+    // checkFactCarrierIdentity 这一个校验器（09 §5.5：同一 validator，不建第二套
+    // 规则），此处只换 Git 读法——读暂存区内容，不读工作树。
+    const factIdentity = await checkFactCarrierIdentityForIndex(governed.project.path);
+    if (!factIdentity.ok) issues.push(...factIdentity.issues);
     // Signature values must trace back to the authoritative session record.
     const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
     const signatureCheck = checkSignatureAgainstRoute(message, route);
@@ -928,6 +933,43 @@ function makeExecute(deps) {
       carriers.push({ path, content, baseline });
     }
     return checkDocsReferences(carriers, { exists: (p) => candidates.has(p) });
+  }
+
+  /**
+   * 02 §7.1 / §5 第 6 项 for the precheck entrypoint: read every staged fact
+   * carrier from the Index and assert its self-declared `object_uid` agrees
+   * with the identity its filename encodes, and that no uid is claimed twice.
+   * Shares checkFactCarrierIdentity with the Git Gate (09 §5.5) — only the
+   * Git reads differ, never the rule.
+   *
+   * Fail-closed on unreadable staged bytes: the check itself reports them
+   * (`facts/carrier_uid_unverifiable`), so content is passed through as the
+   * empty string rather than silently skipped.
+   */
+  async function checkFactCarrierIdentityForIndex(projectPath) {
+    const runGit = async (args) => {
+      const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
+      return result.stdout;
+    };
+    let staged = [];
+    try {
+      staged = (await runGit(["ls-files", "--cached", "-z"])).split("\0").filter(Boolean);
+    } catch {
+      staged = [];
+    }
+    const carriers = [];
+    for (const path of staged) {
+      if (factCarrierType(path) === null) continue;
+      let content = "";
+      try {
+        content = await runGit(["show", `:${path}`]);
+      } catch {
+        content = ""; // 不可读：交给校验器按 fail-closed 判定，不在此处吞掉
+      }
+      carriers.push({ path, content });
+    }
+    if (carriers.length === 0) return { ok: true, issues: [] };
+    return checkFactCarrierIdentity(carriers);
   }
 
   /**

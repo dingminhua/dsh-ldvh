@@ -940,6 +940,40 @@ test("precheck-git-commit returns failed when the trailer values are empty (no r
 
 // ----- failed: bad header / illegal body ------------------------------------
 
+test("precheck-git-commit refuses a fact carrier whose filename contradicts its object_uid (09 §5.5 same validator)", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		// 文件名编码 11111111…，frontmatter 却声明 22222222…——两侧不一致。
+		const dir = join(root, "ldvh-base", "sparks");
+		await mkdir(dir, { recursive: true });
+		await writeFile(
+			join(dir, "spark-11111111-1111-4111-8111-111111111111.md"),
+			"---\nobject_uid: 22222222-2222-4222-8222-222222222222\ntitle: probe\nstatus: open\n---\n",
+		);
+		await git(root, ["add", "ldvh-base/sparks/spark-11111111-1111-4111-8111-111111111111.md"]);
+		const message = [
+			"chore(facts): probe",
+			"",
+			"关键变更:",
+			"- ldvh-base/sparks/spark-11111111-1111-4111-8111-111111111111.md：probe",
+			"",
+			"LDVH-Provider: deepseek-harness",
+			"LDVH-Model: test",
+		].join("\n");
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
+		// 预检须与 Git Gate 给出同一结论（09 §5.5：同一 validator，不建第二套规则）。
+		assert.equal(envelope.result.mechanical_outcome, "failed");
+		assert.ok(
+			envelope.result.issues.some((i) => i.rule === "facts/carrier_uid_filename_mismatch"),
+			`issues 须点出身份不符，实得 ${JSON.stringify(envelope.result.issues.map((i) => i.rule))}`,
+		);
+	});
+});
+
 test("precheck-git-commit returns failed for a non-conventional header (no route needed)", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
