@@ -95,6 +95,9 @@ export const GATE_RULES = Object.freeze({
   "git/friction_commit_malformed": Object.freeze({ severity: "blocking", description: "a staged friction carrier's informs target is not a 40-hex commit hash (02 §8.1 commit 形态)" }),
   "git/friction_commit_unverifiable": Object.freeze({ severity: "blocking", description: "friction commit targets could not be verified because no commit resolver was supplied — fails closed rather than passing an unverified carrier (26 §11)" }),
   "validation/lint_failed": Object.freeze({ severity: "blocking", description: "the pre-commit Hook's lint step refused: either eslint reported findings, or eslint could not run at all (missing binary, broken configuration). 06 §5 requires 提交前必须通过静态分析 and 09 §5.3 puts the check at the commit seam; both cases refuse rather than pass, and the message distinguishes them because the repair differs" }),
+  "facts/carrier_uid_filename_mismatch": Object.freeze({ severity: "blocking", description: "a staged ldvh-base carrier's filename encodes one identity while its own `object_uid:` declaration states another (02 §7.1: the declaration is the identity authority; 02 §5 item 6 forbids silently consuming one of two disagreeing claims). 09 §8.1 item 2 领域增量，Human 批准 2026-11-04" }),
+  "facts/carrier_uid_duplicate": Object.freeze({ severity: "blocking", description: "two or more staged ldvh-base carriers declare the same `object_uid` (02 §5 item 6: 载体重复/身份冲突时不得静默选择一份继续消费或写入). 09 §8.1 item 2 领域增量，Human 批准 2026-11-04" }),
+  "facts/carrier_uid_unverifiable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base carrier could not be read or its frontmatter could not be parsed, so its identity declaration cannot be checked — fails closed rather than passing an unverified carrier (02 §5 item 6)" }),
 });
 
 /** Mechanical-artifact exemption for the bidirectional coverage check
@@ -818,4 +821,130 @@ export async function checkFrictionCommitTargets(carriers, { resolves } = {}) {
     }
   }
   return { ok: issues.length === 0, issues, checked };
+}
+
+// ── 事实载体的身份一致性：提交层的兜底校验 ──────────────────────────────
+//
+// 02 §7.1：`object_uid` 是事实对象的唯一身份，且它是**载体自己声明的**字段；
+// 文件名只是一个位置约定。02 §5 第 6 项进一步要求「载体重复、身份冲突或
+// 当前权威位置不唯一时，不得静默选择一份继续消费或写入」。
+//
+// 2026-11-04 核查：list 读取面此前以文件名为身份权威（`uid = nameMatch[1]`），
+// 且 `if (!nameMatch) continue` 会静默吞掉命名不符的文件；Git Gate 侧则完全
+// 没有「文件名 vs 声明」的比对（`object_uid` 只用于 `declaresObjectUid` 的
+// 「仓库里有没有这个 uid」）。两侧合起来的效果是：一份被改名、被复制或被手工
+// 粘贴的载体，可以带着错误的身份进仓，且没有任何一处会说出来。
+//
+// 本检查是同一纪律在提交缝上的第 2 层：暂存进 ldvh-base 的载体，文件名编码的
+// uid 段必须与其 `object_uid:` 声明一致；同一 uid 不得被多条暂存载体声明。
+// writer 管不到直接落盘，故提交缝是兜底位置（与 27 §11 的 norm 唯一性同层）。
+//
+// 范围边界如实声明：本检查只核「身份标识这一行的自洽」，**不核**字段合法性、
+// 状态闭集、正文结构或语义正确性——那些由各自的 writer 与其类型规范负责。
+// 它也不追溯存量：只对**本次暂存**的载体作判定。
+
+/** 载体文件名里的身份段：与 reader 侧接受形态一致（含历史 v4 期数字/ULID 形态）。 */
+const CARRIER_ID_SEGMENT =
+  "(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})";
+
+/** ldvh-base 下每个事实类型目录对应的载体名前缀。 */
+const FACT_TYPE_PREFIXES = Object.freeze({
+  "ldvh-base/adrs": "adr",
+  "ldvh-base/devlogs": "devlog",
+  "ldvh-base/frictions": "friction",
+  "ldvh-base/norms": "norm",
+  "ldvh-base/pitfalls": "pitfall",
+  "ldvh-base/researches": "research",
+  "ldvh-base/sparks": "spark",
+  "ldvh-base/subgoals": "subgoal",
+  "ldvh-base/workcases": "workcase",
+});
+
+/** 取载体路径的事实类型目录与前缀；非载体返回 null。 */
+export function factCarrierType(path) {
+  for (const [directory, prefix] of Object.entries(FACT_TYPE_PREFIXES)) {
+    if (!path.startsWith(`${directory}/`)) continue;
+    const base = path.slice(directory.length + 1);
+    if (!base.endsWith(".md")) return null;
+    return { directory, prefix, base };
+  }
+  return null;
+}
+
+/** 从载体正文取顶层 `object_uid:` 声明（缩进的不算：身份是顶层字段）。 */
+function declaredObjectUidLine(content) {
+  const fm = /^---\n([\s\S]*?)\n---\n/m.exec(content);
+  const block = fm ? fm[1] : null;
+  if (block === null) return { ok: false, reason: "no YAML frontmatter block" };
+  const line = /^object_uid:[ \t]*["']?([^"'\s]+)["']?[ \t]*$/m.exec(block);
+  if (line === null) return { ok: false, reason: "no top-level object_uid declaration" };
+  return { ok: true, uid: line[1] };
+}
+
+/**
+ * 断言暂存事实载体的身份自洽（02 §7.1 / §5 第 6 项）。
+ *
+ * `carriers` 由调用方以 `{ path, content }` 提供，使本函数保持纯函数、可单测；
+ * runner 从 Index 取暂存内容（而非工作树副本——否则一笔提交可能携带未落盘的
+ * 正确版本通过校验）。
+ *
+ * 三种拒绝：文件名与声明不符、同一 uid 被多条载体声明、以及载体不可读/不可解析
+ * 时的 fail-closed。三者各自登记为独立的 gate rule，因为修复动作不同。
+ */
+export function checkFactCarrierIdentity(carriers) {
+  const issues = [];
+  const claims = new Map();
+  const pattern = new RegExp(`^(${Object.values(FACT_TYPE_PREFIXES).join("|")})-(${CARRIER_ID_SEGMENT})\\.md$`, "i");
+
+  for (const carrier of carriers) {
+    const type = factCarrierType(carrier.path);
+    if (type === null) continue;
+    if (typeof carrier.content !== "string" || carrier.content.length === 0) {
+      issues.push(newFinding("facts/carrier_uid_unverifiable", `${carrier.path}: staged bytes are unreadable — cannot check the identity declaration (02 §5 item 6 fails closed)`, null));
+      continue;
+    }
+    const declared = declaredObjectUidLine(carrier.content);
+    if (!declared.ok) {
+      issues.push(newFinding("facts/carrier_uid_unverifiable", `${carrier.path}: ${declared.reason} — cannot check the identity declaration (02 §5 item 6 fails closed)`, null));
+      continue;
+    }
+    const nameMatch = pattern.exec(type.base);
+    if (nameMatch === null) {
+      // The filename encodes NO identity at all. That is deliberately NOT a
+      // finding here: 09 §5.3 item 6 resolves a fact reference by the carrier's
+      // declared `object_uid`, and the runner's own test asserts that "an
+      // object whose carrier is not named after its uid" must still back a
+      // reference. Refusing such a name would replace that rule with a stricter
+      // naming convention nobody approved. This check only compares two
+      // identities when the filename actually states one.
+      const key = declared.uid.toLowerCase();
+      const group = claims.get(key) ?? [];
+      group.push(carrier.path);
+      claims.set(key, group);
+      continue;
+    }
+    const nameUid = nameMatch[2];
+    if (declared.uid.toLowerCase() !== nameUid.toLowerCase()) {
+      issues.push(newFinding(
+        "facts/carrier_uid_filename_mismatch",
+        `${carrier.path}: filename encodes ${JSON.stringify(nameUid)} but the carrier declares object_uid ${JSON.stringify(declared.uid)} — one of the two is wrong, and 02 §5 item 6 forbids silently consuming one of them`,
+        null,
+      ));
+    }
+    const key = declared.uid.toLowerCase();
+    const group = claims.get(key) ?? [];
+    group.push(carrier.path);
+    claims.set(key, group);
+  }
+
+  for (const [uid, paths] of claims) {
+    if (paths.length < 2) continue;
+    issues.push(newFinding(
+      "facts/carrier_uid_duplicate",
+      `${paths.length} staged carriers declare object_uid ${JSON.stringify(uid)} (02 §5 item 6: 载体重复/身份冲突时不得静默选择一份继续消费或写入) — ${paths.join(", ")}`,
+      null,
+    ));
+  }
+
+  return { ok: issues.length === 0, issues, carriers: claims.size };
 }

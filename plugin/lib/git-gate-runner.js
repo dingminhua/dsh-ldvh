@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType } from "./commit-validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -453,6 +453,37 @@ async function runSharedChecks(root, indexFile, message) {
   if (normCarriers.length > 0) {
     const uniqueness = checkNormDirectionUniqueness(normCarriers);
     if (!uniqueness.ok) issues.push(...uniqueness.issues);
+  }
+
+  // 02 §7.1 + §5 item 6 (Human Gate 批准 2026-11-04, 09 §8.1 item 2 领域增量):
+  // 事实载体的身份一致性。`object_uid` 是载体自己声明的身份，文件名只是位置
+  // 约定；两侧不一致、或同一 uid 被多条载体声明时，提交被拒绝。
+  //
+  // 为什么在提交缝：writer 的校验覆盖不到 `git add` 直接落盘（2026-10-19 的
+  // friction-ed844630 就是这样绕过 writer 进账的），而提交缝是所有写入路径的
+  // 唯一汇聚点——与 27 §11 的 norm 唯一性检查同一层、同一理由。
+  {
+    const factCarriers = [];
+    let stagedPaths = [];
+    try {
+      stagedPaths = (await git(root, ["ls-files", "--cached", "-z"], indexFile)).split("\0").filter(Boolean);
+    } catch {
+      stagedPaths = [];
+    }
+    for (const path of stagedPaths) {
+      if (factCarrierType(path) === null) continue;
+      let content = "";
+      try {
+        content = await git(root, ["show", `:${path}`], indexFile);
+      } catch {
+        content = ""; // 不可读：交给检查按 fail-closed 判定，不在此处吞掉
+      }
+      factCarriers.push({ path, content });
+    }
+    if (factCarriers.length > 0) {
+      const identity = checkFactCarrierIdentity(factCarriers);
+      if (!identity.ok) issues.push(...identity.issues);
+    }
   }
 
   // 09 §5.3 item 5 (Human 2026-10-12): docs/ is temporary-only, so a carrier

@@ -20,6 +20,8 @@ import {
 	isExemptPath,
 	EXEMPT_BASENAMES,
 	checkNormDirectionUniqueness,
+	checkFactCarrierIdentity,
+	factCarrierType,
 	isNormCarrierPath,
 	checkDocsReferences,
 	extractDocsReferences,
@@ -464,6 +466,12 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"validation/removal_basis_section_unreadable",
 		"validation/removal_basis_unquotable",
 		"validation/lint_failed",
+		// 02 §7.1 + §5 item 6（09 §8.1 item 2 领域增量，Human 批准 2026-11-04）：
+		// 事实载体身份一致性。登记在此是刻意的——新增 gate rule 必须显式进入
+		// 这张表，否则「规则已注册」与「测试认识这条规则」会各自漂移。
+		"facts/carrier_uid_filename_mismatch",
+		"facts/carrier_uid_duplicate",
+		"facts/carrier_uid_unverifiable",
 	];
 	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
 	for (const entry of Object.values(GATE_RULES)) {
@@ -1081,4 +1089,104 @@ test("摩擦载体路径判定只认 frictions/ 下的 friction-*.md", () => {
 	assert.equal(isFrictionCarrierPath("ldvh-base/frictions/friction-abc.md"), true);
 	assert.equal(isFrictionCarrierPath("ldvh-base/frictions/notes.md"), false);
 	assert.equal(isFrictionCarrierPath("ldvh-base/pitfalls/pitfall-abc.md"), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 02 §7.1 + §5 第 6 项：事实载体身份一致性（提交层兜底）
+//
+// 来历（2026-11-04）：核查发现两侧都不说话——list 读取面以文件名为身份权威，
+// 把命名不符的载体静默跳过；Git Gate 侧则完全没有「文件名 vs 声明」的比对
+// （`object_uid` 只用于 declaresObjectUid 的「仓库里有没有这个 uid」）。
+// 于是一份被改名、被复制或手工粘贴的载体可以带着错误身份进仓。
+//
+// 本项按 09 §8.1 第 2 项属 Human Gate 领域增量，已获批准后实施。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const UID_A = "11111111-1111-4111-8111-111111111111";
+const UID_B = "22222222-2222-4222-8222-222222222222";
+
+/** A minimal carrier whose declared identity is `uid`. */
+const carrierText = (uid) => `---\nobject_uid: ${uid}\ntitle: t\nstatus: open\n---\n\nbody\n`;
+
+test("carrier identity: a clean staged carrier produces no finding", () => {
+	const result = checkFactCarrierIdentity([
+		{ path: `ldvh-base/sparks/spark-${UID_A}.md`, content: carrierText(UID_A) },
+	]);
+	assert.equal(result.ok, true, JSON.stringify(result.issues));
+	assert.deepEqual(result.issues, []);
+});
+
+test("carrier identity: filename/declaration mismatch is refused (真实错误写法)", () => {
+	const result = checkFactCarrierIdentity([
+		{ path: `ldvh-base/adrs/adr-${UID_A}.md`, content: carrierText(UID_B) },
+	]);
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.issues.map((i) => i.rule), ["facts/carrier_uid_filename_mismatch"]);
+	// The finding must name BOTH identities, or the reader cannot tell what to fix.
+	assert.ok(result.issues[0].message.includes(UID_A), result.issues[0].message);
+	assert.ok(result.issues[0].message.includes(UID_B), result.issues[0].message);
+});
+
+test("carrier identity: two carriers declaring one uid are refused (02 §5 item 6)", () => {
+	const result = checkFactCarrierIdentity([
+		{ path: `ldvh-base/pitfalls/pitfall-${UID_A}.md`, content: carrierText(UID_A) },
+		{ path: `ldvh-base/pitfalls/pitfall-${UID_B}.md`, content: carrierText(UID_A) },
+	]);
+	const rules = result.issues.map((i) => i.rule);
+	assert.ok(rules.includes("facts/carrier_uid_duplicate"), JSON.stringify(rules));
+	// The duplicate finding names every claimant, not just the second one.
+	const duplicate = result.issues.find((i) => i.rule === "facts/carrier_uid_duplicate");
+	assert.ok(duplicate.message.includes(UID_A), duplicate.message);
+	assert.ok(duplicate.message.includes(UID_B), duplicate.message);
+});
+
+test("carrier identity: an unreadable carrier fails closed rather than passing unverified", () => {
+	const result = checkFactCarrierIdentity([
+		{ path: `ldvh-base/researches/research-${UID_A}.md`, content: "" },
+	]);
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.issues.map((i) => i.rule), ["facts/carrier_uid_unverifiable"]);
+});
+
+test("carrier identity: a frontmatter without the declaration fails closed", () => {
+	const result = checkFactCarrierIdentity([
+		{ path: `ldvh-base/sparks/spark-${UID_A}.md`, content: "---\ntitle: t\n---\n\nbody\n" },
+	]);
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.issues.map((i) => i.rule), ["facts/carrier_uid_unverifiable"]);
+});
+
+// 这一条钉的是**范围的边界**，不是能力：文件名不编码身份时，本检查不得拒绝。
+// 09 §5.3 第 6 项要求引用按载体声明的 object_uid 解析，runner 侧已有测试
+// （「a fact reference resolves by the carrier's object_uid, not only by its
+// file name」）依赖「载体不必以 uid 命名」这一形态成立。把命名约定收紧成强制
+// 要求会替规范增加一条没人批准的规定——首版实现正是这样，被那条测试拦住。
+test("carrier identity: a carrier whose filename encodes no identity is NOT refused", () => {
+	const result = checkFactCarrierIdentity([
+		{ path: "ldvh-base/adrs/unnamed-carrier.md", content: carrierText(UID_A) },
+	]);
+	assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
+test("carrier identity: non-carrier paths under ldvh-base are out of scope", () => {
+	for (const path of [
+		"ldvh-base/README.md",
+		"ldvh-base/sparks/notes.txt",
+		"specs/20-Spark-火花.md",
+		"plugin/lib/spark-writer.js",
+	]) {
+		assert.equal(factCarrierType(path), null, path);
+	}
+	assert.deepEqual(factCarrierType(`ldvh-base/sparks/spark-${UID_A}.md`), {
+		directory: "ldvh-base/sparks",
+		prefix: "spark",
+		base: `spark-${UID_A}.md`,
+	});
+});
+
+test("carrier identity: identity comparison is case-insensitive (uppercase declaration)", () => {
+	const result = checkFactCarrierIdentity([
+		{ path: `ldvh-base/sparks/spark-${UID_A}.md`, content: carrierText(UID_A.toUpperCase()) },
+	]);
+	assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
