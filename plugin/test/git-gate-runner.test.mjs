@@ -20,7 +20,8 @@ import { gateEnv, git, gitOk, initRepo, pluginRoot, runNode, runnerPath, signatu
 /**
  * A repo whose staged content is a governed carrier (`specs/…`), so the
  * controlled-commit contract actually applies after the 09 §5.5 dispatch.
- * `initRepo`'s default README is an ordinary path and would be passed directly.
+ * `initRepo`'s default README is itself a 规范载体 (09 §5.3 item 5), so a governed
+ * fixture keeps every case explicit about which trigger class it exercises.
  */
 const GOVERNED_FIXTURE = "specs/99-fixture.md";
 async function initGovernedRepo(base) {
@@ -118,7 +119,7 @@ test("requires absolute workspace-root, worktree, and message-file", async () =>
 
 test("accepts a workspace-root inside or equal to the governed Git root", async () => {
 	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await initRepo(base); // README staged -> Index non-empty
+		const root = await initRepo(base); // README staged: a spec carrier, so the contract applies
 		const messageFile = join(root, "msg.txt");
 		await writeFile(messageFile, VALID_COMMIT_MESSAGE);
 
@@ -282,8 +283,12 @@ test("rejects legacy Product-Name/Model-Name trailers and accepts only LDVH-Prov
 });
 test("passes an ordinary commit without running the controlled-commit checks", async () => {
 	await withTemp("ldvh-ggr.", async (base) => {
-		// README only: no managed carrier, no spec carrier, no AGENTS.md.
-		const root = await initRepo(base);
+		// A path outside the 09 §5.5 trigger set: no managed carrier, no spec
+		// carrier (README is one — see the next test), no AGENTS.md.
+		const root = await initRepo(base, { stage: false });
+		await mkdir(join(root, "plugin", "lib"), { recursive: true });
+		await writeFile(join(root, "plugin", "lib", "ordinary.js"), "export const x = 1;\n");
+		await gitOk(root, ["add", "plugin/lib/ordinary.js"]);
 		const messageFile = join(root, "msg.txt");
 		// Even a message that violates the contract is passed here: the dispatch
 		// decides BEFORE any check runs (09 §5.5 「直接放行」), and treating this
@@ -307,6 +312,21 @@ test("a staged ldvh-base carrier triggers the controlled-commit checks", async (
 		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1, result.stderr);
 		assert.match(result.stderr, /validation\/header_invalid/);
+	});
+});
+
+test("a staged repository-root README.md is passed by the Gate (declared divergence, 09 §5.5)", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		// Pins the boundary Human chose on 2026-11-05: README is inside the
+		// precheck's 检查范围 (09 §5.3 item 5) but outside this dispatch set, so a
+		// README-only commit is passed here while the precheck still checks it.
+		// If someone widens the trigger set, this test must be the one that fails.
+		const root = await initRepo(base);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, "not a conventional header\n");
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /ordinary commit/);
 	});
 });
 

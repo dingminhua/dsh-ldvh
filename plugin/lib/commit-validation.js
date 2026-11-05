@@ -202,6 +202,10 @@ export function checkSignatureAgainstRoute(message, route) {
  * reused by both entrypoints.
  */
 export function isGovernedCommitPath(path) {
+  // The repository-root `README.md` is deliberately NOT a trigger: it is inside
+  // the precheck's 检查范围 (09 §5.3 item 5) but outside this dispatch set, and
+  // Human decided (2026-11-05, workcase-608786b8) to keep that divergence and
+  // declare it in 09 §5.5 rather than silently widening the Gate's domain.
   return path === "AGENTS.md" || path.startsWith("ldvh-base/") || path.startsWith("specs/");
 }
 
