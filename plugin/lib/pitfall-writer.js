@@ -41,6 +41,8 @@ import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
+import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
+import { carrierCoherenceMessage } from "./coherence-report.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/23 §7, §8, §9)
@@ -264,12 +266,14 @@ export function validateCarrierCoherence(frontmatter, body) {
     // `适用范围：`、并给术语补了反引号」——两者都与 scope 高度相似，前缀无从
     // 区分。故此处给出 scope 全文与正文该段全文（段落过长时才截断），
     // 让差异在报错里直接可见。
-    const clipped = (s, max) => (s.length > max ? `${s.slice(0, max)}…（共 ${s.length} 字）` : s);
-    issues.push(
-      "carrier coherence: 影响与适用范围 section must contain scope verbatim"
-      + ` (frontmatter is the single authoritative text): scope=${JSON.stringify(clipped(text, 400))}`
-      + `; section=${JSON.stringify(clipped(content, 400))}`,
-    );
+    // 2026-11-04（workcase-5c0b8c2e）：本处原自带一份 clipped 实现且不带章节号。
+    // 改为与其余八类共用 coherence-report.js，并补上 23 §8 的条款依据——此前的
+    // 「无条款号」使复核无法据报错定位规则来源，而它是本单推广面之外的样板，
+    // 措辞不统一会让读报错的人以为不同类别的拒绝依据不同。
+    issues.push(carrierCoherenceMessage({
+      section: "影响与适用范围", field: "scope", declared: text, actual: content,
+      clause: "23 §8, §14.1",
+    }));
   }
   return { ok: issues.length === 0, issues };
 }
@@ -436,11 +440,45 @@ export async function createPitfallObject(args) {
 // Read (specs/03 §9.2 precise read-back)
 // ---------------------------------------------------------------------------
 
-export async function readPitfallObject(args) {
-  const { factSourceRoot, objectUid } = args;
-  if (!assertValidUid(objectUid)) {
-    return failure("pitfall/invalid_uid", "objectUid must be a valid UUID");
+/**
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ *
+ * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `pitfall/invalid_uid`
+ * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
+ * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
+ */
+async function resolvePitfallObjectUid(factSourceRoot, input, currentProjectId = null) {
+  const parsed = parseObjectIdentifier(input);
+  if (!parsed.ok) {
+    return { ok: false, error: failure("pitfall/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
   }
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
+  if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
+    return { ok: false, error: failure("pitfall/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
+  }
+  if (objectUid !== undefined) {
+    if (declaredType !== undefined && declaredType !== "pitfall") {
+      return { ok: false, error: failure("pitfall/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "pitfall" objects`) };
+    }
+    return { ok: true, objectUid };
+  }
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "pitfall" });
+  if (!resolved.ok) {
+    const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
+    return { ok: false, error: failure("pitfall/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`) };
+  }
+  if (resolved.value.factTypeKey !== "pitfall") {
+    return { ok: false, error: failure("pitfall/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "pitfall" objects`) };
+  }
+  return { ok: true, objectUid: resolved.value.objectUid };
+}
+
+export async function readPitfallObject(args) {
+  const { factSourceRoot, objectUid: objectUidInput, currentProjectId = null } = args;
+  const uidResolution = await resolvePitfallObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   const filePath = objectFilePath(factSourceRoot, objectUid);
 
   let content;

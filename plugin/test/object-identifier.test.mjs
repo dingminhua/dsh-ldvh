@@ -6,6 +6,7 @@
 // 会漂移成第二权威。
 
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
 import {
@@ -187,4 +188,79 @@ test("类型闭集与 object-reference 一致（同一事实不得有第二个�
   }
   assert.equal(isRegisteredFactType("goal"), true, "goal 是登记类型（单例，不在此目录表内）");
   assert.equal(isRegisteredFactType("nope"), false);
+});
+
+// ---------------------------------------------------------------------------
+// 5. 项目前缀：本层可判（调用方传入当前项目 id），他项目须拒绝
+// ---------------------------------------------------------------------------
+
+test("项目前缀与当前项目不符时，解析器本身不判（它不知道当前项目）", () => {
+  // 解析器只把声明的 projectId 原样带出，不做裁决——这是分层边界。
+  const r = parseObjectIdentifier(`other-proj@spark-${UID}`);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.projectId, "other-proj");
+});
+
+test("读取入口：本项目前缀放行、他项目前缀拒绝", async () => {
+  const { readSparkObject } = await import("../lib/spark-writer.js");
+  const own = await readSparkObject({ factSourceRoot: FACT_ROOT, objectUid: `dsh-ldvh@spark-${UID}`, currentProjectId: "dsh-ldvh" });
+  assert.equal(own.ok, true, "本项目前缀应放行");
+
+  const foreign = await readSparkObject({ factSourceRoot: FACT_ROOT, objectUid: `other-proj@spark-${UID}`, currentProjectId: "dsh-ldvh" });
+  assert.equal(foreign.ok, false, "他项目前缀必须拒绝，不得静默忽略前缀");
+  assert.match(foreign.error.message, /foreign_project/);
+});
+
+test("读取入口：调用方未提供当前项目时不因前缀拒绝（向后兼容）", async () => {
+  const { readSparkObject } = await import("../lib/spark-writer.js");
+  const r = await readSparkObject({ factSourceRoot: FACT_ROOT, objectUid: `any-proj@spark-${UID}` });
+  assert.equal(r.ok, true);
+});
+
+test("读取入口：四种形态读到的正文逐字节一致", async () => {
+  const { readSparkObject } = await import("../lib/spark-writer.js");
+  const forms = [UID, `spark-${UID}`, "spark-71930c4a", `dsh-ldvh@spark-${UID}`];
+  const bodies = [];
+  for (const form of forms) {
+    const r = await readSparkObject({ factSourceRoot: FACT_ROOT, objectUid: form, currentProjectId: "dsh-ldvh" });
+    assert.equal(r.ok, true, `${form} 应可读`);
+    bodies.push(r.value.body);
+  }
+  assert.equal(new Set(bodies).size, 1, "四种形态必须读到同一份正文");
+});
+
+test("读取入口：类型前缀与实际类型不符时给出 type_prefix_mismatch", async () => {
+  const { readSparkObject } = await import("../lib/spark-writer.js");
+  const r = await readSparkObject({ factSourceRoot: FACT_ROOT, objectUid: `friction-${UID}`, currentProjectId: "dsh-ldvh" });
+  assert.equal(r.ok, false);
+  assert.match(r.error.message, /type_prefix_mismatch/);
+});
+
+// ---------------------------------------------------------------------------
+// 6. 写路径不得随读路径放宽（scope 边界：写错对象的代价与读错不对等）
+// ---------------------------------------------------------------------------
+
+test("workcase 写路径的存续门仍是 canonical-only（不得被读入口的宽松解析连带放宽）", () => {
+  // 这条用例的来源：独立复核发现 workcase-writer 的 assertValidUid 一度成为孤儿
+  // （定义在 :550 但无调用点）——因为 12 条写流程都经 loadAndCheckFingerprint →
+  // readWorkcaseObject，而后者已接宽松解析；于是写路径静默接受了四种书写形态，
+  // 越过 scope「不改写路径的 uid 入参」这一条。此用例钉住「写路径另有 canonical 门」。
+  const source = readFileSync(new URL("../lib/workcase-writer.js", import.meta.url), "utf8");
+  const start = source.indexOf("async function loadAndCheckFingerprint");
+  assert.notEqual(start, -1, "loadAndCheckFingerprint 应存在");
+  const body = source.slice(start, source.indexOf("\n}\n", start));
+  assert.match(
+    body,
+    /assertValidUid\(objectUid\)/,
+    "写路径的 CAS 入口必须保留 canonical-only 门；缺了它，读入口的四形态放宽会连带上溯到写路径",
+  );
+});
+
+test("其余八个 writer 的写路径仍各自持有 canonical-only 门", () => {
+  const writers = ["adr", "devlog", "friction", "norm", "pitfall", "research", "spark", "subgoal"];
+  for (const type of writers) {
+    const source = readFileSync(new URL(`../lib/${type}-writer.js`, import.meta.url), "utf8");
+    const uses = source.split("assertValidUid(").length - 1;
+    assert.ok(uses >= 2, `${type}-writer 应至少有「定义 + 一处写路径调用」两处 assertValidUid，实际 ${uses}`);
+  }
 });

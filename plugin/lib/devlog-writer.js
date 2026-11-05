@@ -35,6 +35,8 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
+import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
+import { carrierCoherenceMessage } from "./coherence-report.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/29 §7, §8, §9, §10, §11, §13)
@@ -140,7 +142,7 @@ function success(value) {
  * covers it, or whether `occurred_at` is really the work's time — those are
  * 29 §14.1's semantic rows, judged by AI self-check + Human.
  */
-export function validateDevLogFrontmatter(frontmatter) {
+export function validateDevLogFrontmatter(frontmatter, options = {}) {
   const issues = [];
 
   for (const k of Object.keys(frontmatter)) {
@@ -185,6 +187,11 @@ export function validateDevLogFrontmatter(frontmatter) {
   if (typeof frontmatter.summary !== "string" || frontmatter.summary.trim().length === 0) {
     issues.push("summary: required and non-empty (29 §8 — 当前语义快照：结论与适用边界)");
   }
+  // **不设 200 字符上限**（Human 2026-11-04 裁定乙，workcase-5eec3197）。
+  // DevLog 的 summary 是「结论与边界」的完整快照（29 §8），与 Spark 的索引层
+  // 定位不同：它要回答「结论是什么、在什么条件下成立、哪些已确认不成立」，
+  // 200 字装不下这些。实测本仓 11 条 DevLog 中位 174 字、最大 243 字，
+  // 本就接近该量级，硬上限收益低而切断表达的风险高。
 
   // serves (29 §8): optional object reference; resolution needs the SubGoal
   // index, so it is checked by the caller (resolveDevLogServes), not here.
@@ -442,7 +449,10 @@ export function validateCarrierCoherence(frontmatter, body) {
   const content = sectionContent(body, "结论与边界");
   if (content === null) return { ok: true, issues }; // section-presence is another check
   if (!content.includes(summary)) {
-    issues.push('carrier coherence: frontmatter summary must appear verbatim in "## 结论与边界" (29 §8 字段间不变量 1)');
+    issues.push(carrierCoherenceMessage({
+      section: "结论与边界", field: "summary", declared: summary, actual: content,
+      clause: "29 §8 字段间不变量 1",
+    }));
   }
   return { ok: issues.length === 0, issues };
 }
@@ -945,14 +955,48 @@ export async function precheckDevLogCreate({ factSourceRoot, frontmatterDraft, b
 // Read (specs/02 §9.2 precise read-back)
 // ---------------------------------------------------------------------------
 
+/**
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ *
+ * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `devlog/invalid_uid`
+ * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
+ * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
+ */
+async function resolveDevLogObjectUid(factSourceRoot, input, currentProjectId = null) {
+  const parsed = parseObjectIdentifier(input);
+  if (!parsed.ok) {
+    return { ok: false, error: failure("devlog/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
+  }
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
+  if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
+    return { ok: false, error: failure("devlog/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
+  }
+  if (objectUid !== undefined) {
+    if (declaredType !== undefined && declaredType !== "devlog") {
+      return { ok: false, error: failure("devlog/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "devlog" objects`) };
+    }
+    return { ok: true, objectUid };
+  }
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "devlog" });
+  if (!resolved.ok) {
+    const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
+    return { ok: false, error: failure("devlog/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`) };
+  }
+  if (resolved.value.factTypeKey !== "devlog") {
+    return { ok: false, error: failure("devlog/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "devlog" objects`) };
+  }
+  return { ok: true, objectUid: resolved.value.objectUid };
+}
+
 export async function readDevLogObject(args) {
-  const { factSourceRoot, objectUid } = args;
+  const { factSourceRoot, objectUid: objectUidInput, currentProjectId = null } = args;
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
-  if (!assertValidUid(objectUid)) {
-    return failure("devlog/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}`);
-  }
+  const uidResolution = await resolveDevLogObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   const filePath = objectFilePath(factSourceRoot, objectUid);
   let raw;
   try {

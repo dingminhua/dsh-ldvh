@@ -47,6 +47,7 @@ import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
 import { ID_PATTERN } from "./spec-registry.js";
+import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/27 §7, §8, §11, §13.1)
@@ -214,7 +215,11 @@ export function validateCarrierCoherence(frontmatter, body) {
   const issues = [];
   const declared = body.match(/direction_key:\s*([a-z0-9-]+)/);
   if (declared !== null && declared[1] !== frontmatter.direction_key) {
-    issues.push(`carrier coherence: body mentions direction_key "${declared[1]}" but frontmatter declares "${frontmatter.direction_key}" (frontmatter is the single authoritative text, 27 §8)`);
+    // 更正（workcase-5c0b8c2e）：原引「27 §8」，而载体内聚条款登记在 27 §7
+    // （27 §8 是字段契约，§8.1 是「没有主题指针时的口径」）。本类型的判据不变、
+    // 报错形态也不改——27 §7 明确本类型不要求正文逐字复现任何 frontmatter 标量，
+    // 它只校验「正文若声明 direction_key 须与 frontmatter 一致」，两侧都是短键。
+    issues.push(`carrier coherence: body mentions direction_key "${declared[1]}" but frontmatter declares "${frontmatter.direction_key}" (frontmatter is the single authoritative text, 27 §7)`);
   }
   return { ok: issues.length === 0, issues };
 }
@@ -423,14 +428,48 @@ export async function createNormObject(args) {
 // Read (specs/03 §9.2 precise read-back)
 // ---------------------------------------------------------------------------
 
+/**
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ *
+ * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `norm/invalid_uid`
+ * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
+ * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
+ */
+async function resolveNormObjectUid(factSourceRoot, input, currentProjectId = null) {
+  const parsed = parseObjectIdentifier(input);
+  if (!parsed.ok) {
+    return { ok: false, error: failure("norm/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
+  }
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
+  if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
+    return { ok: false, error: failure("norm/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
+  }
+  if (objectUid !== undefined) {
+    if (declaredType !== undefined && declaredType !== "norm") {
+      return { ok: false, error: failure("norm/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "norm" objects`) };
+    }
+    return { ok: true, objectUid };
+  }
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "norm" });
+  if (!resolved.ok) {
+    const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
+    return { ok: false, error: failure("norm/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`) };
+  }
+  if (resolved.value.factTypeKey !== "norm") {
+    return { ok: false, error: failure("norm/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "norm" objects`) };
+  }
+  return { ok: true, objectUid: resolved.value.objectUid };
+}
+
 export async function readNormObject(args) {
-  const { factSourceRoot, objectUid } = args;
+  const { factSourceRoot, objectUid: objectUidInput, currentProjectId = null } = args;
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
-  if (!assertValidUid(objectUid)) {
-    return failure("norm/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}`);
-  }
+  const uidResolution = await resolveNormObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   const filePath = objectFilePath(factSourceRoot, objectUid);
   let raw;
   try {

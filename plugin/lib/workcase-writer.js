@@ -98,6 +98,8 @@ import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { resolveSubGoal } from "./subgoal-writer.js";
 import { resolveRefsTargets } from "./spark-writer.js";
+import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
+import { carrierCoherenceMessage } from "./coherence-report.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/21 §7, §8, §9)
@@ -370,6 +372,12 @@ function validateStructuredWriting(frontmatter, issues, baselineSummary, baselin
   }
   if (typeof frontmatter.summary === "string" && changed(frontmatter.summary, baselineSummary)) {
     validateStructuredText(frontmatter.summary, "summary", issues);
+    // **不设 200 字符上限**（Human 2026-11-04 裁定乙，workcase-5eec3197）。
+    // 理由：WorkCase 的 summary 是**执行载体**——21 §8 要求它「使未读原计划的
+    // 后续执行者可独立执行」，压到 200 字会砍掉执行所需的上下文（判据、边界、
+    // 已验证结论）。而 §8 的分块规则（>200 字符须空行分块、首块之外每块以 ###
+    // 开头）正是为「长而可读」准备的：它约束形态，不约束长度。
+    // 两类分工：索引层（Spark）设硬上限，执行载体（WorkCase）靠分块保可读性。
   }
 }
 
@@ -2045,7 +2053,12 @@ export function validateCarrierCoherence(frontmatter, body) {
     const content = sectionContent(body, section);
     if (content === null) continue;
     if (!content.includes(text)) {
-      issues.push(`carrier coherence: frontmatter ${field} must appear verbatim in "## ${section}" (03 §6.1 单一权威)`);
+      issues.push(carrierCoherenceMessage({
+        section, field, declared: text, actual: content,
+        // 更正（workcase-5c0b8c2e）：原引「03 §6.1 单一权威」，而 03 全文「内聚」零命中；
+        // WorkCase 的载体内聚登记在 21 §8、§15.1 与 §16。
+        clause: "21 §8, §15.1, §16",
+      }));
     }
   }
   const planContent = sectionContent(body, "计划");
@@ -2139,13 +2152,47 @@ export function gate1ApprovalEvidence(frontmatter) {
 // Read (specs/03 §9.2)
 // ---------------------------------------------------------------------------
 
+
+/**
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ *
+ * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `workcase/invalid_uid`
+ * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「类型前缀与本入口
+ * 不符」四种要分开，否则调用方不知道该怎么改。
+ */
+async function resolveWorkcaseObjectUid(factSourceRoot, input, currentProjectId = null) {
+  const parsed = parseObjectIdentifier(input);
+  if (!parsed.ok) return failure("workcase/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`);
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
+  if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
+    return failure("workcase/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`);
+  }
+  if (objectUid !== undefined) {
+    if (declaredType !== undefined && declaredType !== "workcase") {
+      return failure("workcase/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "workcase" objects`);
+    }
+    return { ok: true, objectUid };
+  }
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "workcase" });
+  if (!resolved.ok) {
+    const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
+    return failure("workcase/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`);
+  }
+  if (resolved.value.factTypeKey !== "workcase") {
+    return failure("workcase/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "workcase" objects`);
+  }
+  return { ok: true, objectUid: resolved.value.objectUid };
+}
+
 export async function readWorkcaseObject(args) {
-  const { factSourceRoot, objectUid } = args;
-  const uidCheck = assertValidUid(objectUid);
-  if (uidCheck) return uidCheck;
+  const { factSourceRoot, objectUid, currentProjectId = null } = args;
+  const uidResolution = await resolveWorkcaseObjectUid(factSourceRoot, objectUid, currentProjectId);
+  if (uidResolution.ok !== true) return uidResolution;
+  const resolvedUid = uidResolution.objectUid;
   let content;
   try {
-    content = await readFile(objectFilePath(factSourceRoot, objectUid), "utf8");
+    content = await readFile(objectFilePath(factSourceRoot, resolvedUid), "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") {
       return failure("workcase/object_not_found", `cannot read object file: ${error.message}`);
@@ -2425,12 +2472,31 @@ function auditFieldGuardNote(attempted) {
  * 修正取**收敛实现**而非放宽文本：既然该值会落盘，它就属于候选内容，须受同一
  * 一致性约束。指纹因此直接覆盖调用方传入的原始 draft，不再剥离任何字段。
  *
+ * **唯一的例外是 `status`**（2026-11-04 实测修正）：它是**可省略的初态字段**，
+ * 而初态由 Code 钉死为 `draft`（§9：create 只能以 draft 出生；其它值由校验器
+ * 以 `initial_state_violation` 拒绝）。故「省略」与「显式写 draft」产出的是
+ * **同一个对象**，二者不构成两份不同的候选内容。
+ *
+ * 此前它被算进指纹，实测造成一次真实的重复提问（session-5d9e6f62，2026-11-04
+ * 20:54→20:59）：预检时不带 `status`（得指纹 c6dad294…），写入时带了
+ * `status:"draft"`（算得 f0a3b48f…），于是
+ *
+ *   ① `workcase/candidate_changed` 拒绝写入，尽管两份内容会落成同一个对象；
+ *   ② 路由账本以指纹为键，键随之失配——Human 已经答过的那次询问**不被复用**，
+ *      同一个问题被原样再问一遍（账本里因此留下同 request 的两条记录）。
+ *
+ * 剥离 `status` 不削弱一致性约束：任何非 draft 的 status 仍由**同一条校验器**
+ * （`evaluateCreateCandidate`，预检与写入共用）在两条路径上分别拒绝，绕过不了。
+ *
  * 该指纹**不是授权凭据**：它只证明「两次调用提交的是同一份候选内容」，不证明
  * 内容恰当、不证明 Human 同意、也不构成 Gate 1 的任何部分。
  */
 export function computeCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
+  // 只剥离 `status`（可省略的初态，由 Code 钉死）；`change_summary` 等其余
+  // 调用方可控字段一律保留受同一约束，理由见上。
+  const { status: _initialStatus, ...draftWithoutStatus } = frontmatterDraft ?? {};
   const candidate = {
-    frontmatter_draft: frontmatterDraft ?? null,
+    frontmatter_draft: frontmatterDraft === null || frontmatterDraft === undefined ? null : draftWithoutStatus,
     body_markdown: typeof bodyMarkdown === "string" ? bodyMarkdown : null,
   };
   return createHash("sha256").update(stableStringify(candidate), "utf8").digest("hex");
@@ -2653,6 +2719,11 @@ async function loadAndCheckFingerprint(factSourceRoot, objectUid, expectedFinger
   if (typeof expectedFingerprint !== "string" || !FINGERPRINT_PATTERN.test(expectedFingerprint)) {
     return failure("invalid_request", "expectedFingerprint is required for CAS (64-hex SHA-256 from your last precise read)");
   }
+  // 写路径只接受 canonical UUIDv4（workcase-410750b0 的 scope 边界第 4 条）：
+  // 读入口为方便模型面接受四种书写形态，写入口不随之放宽——写错对象的代价与
+  // 读错不对等。此门与其余八个 writer 的写路径守卫同口径。
+  const canonical = assertValidUid(objectUid);
+  if (canonical !== null) return canonical;
   const current = await readWorkcaseObject({ factSourceRoot, objectUid });
   if (!current.ok) return current;
   if (current.value.fingerprint !== expectedFingerprint) {
