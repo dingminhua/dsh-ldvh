@@ -600,7 +600,7 @@ async function runCommitMsgChecks(argv) {
   // "an ordinary commit", and the gate's own `git/index_empty` refusal must
   // keep firing (it is also what the Hook preflight relies on).
   if (stagedPaths.length > 0 && !touchesGovernedContent(stagedPaths)) {
-    process.stderr.write("LDVH Git Gate (commit-msg) passed: ordinary commit (no managed carrier, spec carrier, or AGENTS.md touched) — controlled-commit checks skipped per 09 §5.5\n");
+    process.stderr.write("LDVH Git Gate (commit-msg) passed: ordinary commit (no managed carrier, spec carrier, repository-root README.md, or AGENTS.md touched) — controlled-commit checks skipped per 09 §5.5\n");
     return 0;
   }
   const shared = await runSharedChecks(root, indexFile, message);

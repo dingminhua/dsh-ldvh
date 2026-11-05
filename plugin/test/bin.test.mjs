@@ -7,7 +7,7 @@ import test from "node:test";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gitOk, initRepo, runNode, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
+import { gateEnv, gitOk, initRepo, runNode, signatureEnv, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
 
 const binPath = fileURLToPath(new URL("../lib/bin.js", import.meta.url));
 
@@ -142,7 +142,10 @@ test("a legal commit passes through the installed CLI Hook (end-to-end)", async 
 		const install = await runBin(["governed-project", "install", "--project", root, "--id", "e2e", "--human-confirmed"], home);
 		assert.equal(install.code, 0, install.stderr);
 
-		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE]);
+		// The staged README is a 规范载体 (09 §5.3 item 5), so this commit is a
+		// governed one: the Hook checks the trailers' value source. Run it with a
+		// controlled route, or "who ran the suite" becomes part of the assertion.
+		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE], { env: gateEnv(signatureEnv()) });
 		assert.equal(passed.ok, true, passed.stderr);
 	});
 });
