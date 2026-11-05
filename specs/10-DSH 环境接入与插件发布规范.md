@@ -162,16 +162,16 @@ attempt 的类型契约（字段、单调性、至多一个活跃、孤立判定
 
 | 宿主时点 | attempt 变更 |
 |---|---|
-| Gate 1 批准落盘 | 分配新 `attempt_id`，写 `started_at`／`controller`／`heartbeat_at` |
+| Gate 1 批准落盘 | 分配新 `attempt_id`，写 `started_at`／`controller`／`heartbeat_at`／`session_id`；身份不可用则拒绝分配 |
 | 执行期进度写入 | 心跳：刷新 `heartbeat_at`；`attempt_id` 不变，实施者基线只在缺失时补齐、已有值不改 |
 | 复核结论（`record_review`） | 不触碰 `attempt`（21 §14 明定不改变 `attempt`） |
 | 增量申请（`request_adjustment`） | 不改 `attempt`（该动作只登记 `gate_1.amendments` 的待批条目，21 §14 乙档；attempt 时点由本节登记） |
-| 执行者接管 | `takeover`：分配严格更高的 `attempt_id`，基线随新执行者 |
-| 冷恢复重新分配 | `reallocate`：作废旧号并分配新号，基线随新执行者 |
+| 执行者接管 | `takeover`：分配严格更高的 `attempt_id`，基线随新执行者；身份不可用则拒绝 |
+| 冷恢复重新分配 | `reallocate`：作废旧号并分配新号，基线随新执行者；身份不可用则拒绝 |
 | Gate 2 关闭落盘 | 收口：删除 `attempt`，历史留在 `change_log` |
 | C2 局部重批 | 作废：删除 `attempt`，重批后新号高于旧号 |
 
-**身份不可用时的处置**：Gate 1 批准、`takeover`、`reallocate` 在会话身份不可用时不得以占位值代替，须如实省略 `session_id`／`session_source`；该形态不满足 21 §8 的执行期必填要求，属未兑现范围，须在交还中披露。**该偏离的处置按 00 §4.2／01 §9.2 由 Human 决定**（改为拒绝分配，或修订 21 §8 承认该形态）；决定前不得据该形态主张 attempt 已满足 21 §8。关闭侧只在**无可比对复核条目**时因此 fail-closed；已有带实施者基线的复核条目不因该次换号失效。
+**身份不可用时的处置**：Gate 1 批准、`takeover`、`reallocate` 在会话身份不可用时**拒绝分配**（fail-closed，零写入）——21 §8 把 `session_id` 定为执行期必填，无身份的 attempt 既不能满足该字段，也不能充当关闭侧的实施者基线。`heartbeat` 不分配新号，身份不可用时只刷新 `heartbeat_at`，不补齐基线；存量 attempt 缺 `session_id` 时由关闭侧 fail-closed 承接。**该处置由 Human 于 2026-11-05 决定**（00 §4.2），不再是待决偏离。
 
 **并发语义（无锁）**：本规范**不要求也不假定**宿主提供 attempt 锁。受控写入以内容指纹（`expected_fingerprint`）做 CAS 校验，但该校验发生在**写入之前**：它只能拒绝「持有过期指纹的写入」；两个执行者同时读到同一指纹时存在先读后写的窗口（落盘前不复验），故本规范**不把该指纹校验表述为互斥、锁或丢更新防护**。「至多一个活跃 attempt」由单字段结构与 `attempt` 仅在 `open` 期存在的校验保证，不依赖并发防护。
 

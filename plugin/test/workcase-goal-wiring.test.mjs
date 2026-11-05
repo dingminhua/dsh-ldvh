@@ -145,7 +145,7 @@ async function surface(base, goals) {
   const { ctx, tools } = collectorCtx();
   registerWorkcaseTools(ctx, {
     dshHomePath: (...segments) => join(base, ...segments),
-    sessionPersistence: sessionPersistenceWithRoutingLog(base),
+    sessionPersistence: sessionPersistenceWithRoutingLog(base, { sessionId: "session-approver-fx" }),
     ...(goals === undefined ? {} : { goals: () => goals }),
   });
   // Gate 1 前置·时序闸（21 §14，2026-10-16 建立）：建前审核须先落盘，否则 approve
@@ -238,7 +238,7 @@ test("接手（execute）时：解除武装的目标被重新武装，信封报�
     const { ctx, tools } = collectorCtx();
     registerWorkcaseTools(ctx, {
       dshHomePath: (...segments) => join(base, ...segments),
-      sessionPersistence: sessionPersistenceWithRoutingLog(base),
+      sessionPersistence: sessionPersistenceWithRoutingLog(base, { sessionId: "session-approver-fx" }),
       goals: () => goals2,
     });
     const write2 = tools.get("ldvh_workcase_write");

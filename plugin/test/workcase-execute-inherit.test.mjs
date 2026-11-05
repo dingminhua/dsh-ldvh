@@ -89,7 +89,7 @@ async function surface(base) {
   assert.ok(created.ok, `fixture draft must be created: ${JSON.stringify(created.error)}`);
   const tools = new Map();
   const ctx = { tools: { register: (d) => { tools.set(d.name, d); return () => tools.delete(d.name); } } };
-  registerWorkcaseTools(ctx, { dshHomePath: (...s) => join(base, ...s), sessionPersistence: sessionPersistenceWithRoutingLog(base), goals: () => fakeGoalsService() });
+  registerWorkcaseTools(ctx, { dshHomePath: (...s) => join(base, ...s), sessionPersistence: sessionPersistenceWithRoutingLog(base, { sessionId: "session-approver-fx" }), goals: () => fakeGoalsService() });
   return { write: tools.get("ldvh_workcase_write"), factSourceRoot, objectUid: created.value.object_uid, exec: { agent: { session: { header: { cwd: projectDir } } } } };
 }
 async function openSurface(base) {

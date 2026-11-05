@@ -720,6 +720,30 @@ test("approve: draft→open stamps gate_1 (approver, fingerprint, scope_snapshot
   });
 });
 
+test("approve: refuses to allocate an attempt without host identity (21 §8/10 §5.9)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { created } = await createDraft(root);
+    const g1 = await audited(root, { uid: created.value.object_uid });
+    const bad = await approveWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: g1.value.fingerprint,
+      approver: "human-test",
+      controller: "controller-a",
+      changeSummary: "Gate 1 批准（无身份）",
+      sessionSignature: SIG(),
+      sessionIdentity: null,
+    });
+    assert.ok(!bad.ok);
+    assert.equal(bad.error.code, "workcase/attempt_identity_unavailable");
+    // 零写入：对象留在 draft，没有 attempt。
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.frontmatter.status, "draft");
+    assert.equal(after.value.frontmatter.attempt, undefined);
+  });
+});
+
 test("approve: rejects when status is not draft (Gate 1 is the only draft→open path)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
@@ -823,11 +847,38 @@ test("execute: takeover allocates a strictly higher attempt id (21 §10.4 单调
       attemptOperation: "takeover",
       newController: "controller-b",
       sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
     });
     assert.ok(res.ok, JSON.stringify(res.error));
     const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
     assert.equal(read.value.frontmatter.attempt.attempt_id, 2);
     assert.equal(read.value.frontmatter.attempt.controller, "controller-b");
+  });
+});
+
+test("execute: takeover without host identity is rejected, and the attempt is unchanged (21 §8/10 §5.9)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    const fmNext = structuredClone(after.value.frontmatter);
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: fmNext,
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 无宿主身份的接管。\n`,
+      changeSummary: "无身份接管",
+      attemptOperation: "takeover",
+      newController: "controller-b",
+      sessionSignature: SIG(),
+      sessionIdentity: null,
+    });
+    assert.ok(!res.ok);
+    assert.equal(res.error.code, "workcase/attempt_identity_unavailable");
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read.value.frontmatter.attempt.attempt_id, 1);
+    assert.equal(read.value.frontmatter.attempt.session_id, "session-implementer-test");
   });
 });
 
@@ -857,7 +908,7 @@ test("execute: reallocate voids the attempt, allocates a strictly higher id and 
   });
 });
 
-test("execute: reallocate without host identity omits session_id, and closure fails closed (21 §10.4)", async () => {
+test("execute: reallocate without host identity is rejected, and the attempt is unchanged (21 §8/10 §5.9)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { draft } = await createDraft(root);
@@ -875,27 +926,12 @@ test("execute: reallocate without host identity omits session_id, and closure fa
       sessionSignature: SIG(),
       sessionIdentity: null,
     });
-    assert.ok(res.ok, JSON.stringify(res.error));
+    assert.ok(!res.ok);
+    assert.equal(res.error.code, "workcase/attempt_identity_unavailable");
+    // 零写入：attempt 仍是 Gate 1 分配的 1 号，实施者基线未动。
     const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
-    assert.equal(read.value.frontmatter.attempt.attempt_id, 2);
-    assert.equal(read.value.frontmatter.attempt.session_id, undefined);
-
-    // 边界（21 §14 按条目比对）：关闭侧的独立性判据只看 reviews 条目，不读当前 attempt。
-    // 此处**没有**任何可比对的复核条目，故关闭 fail-closed；若此前已有带实施者基线的
-    // 条目，该次换号不使其失效——本用例只钉住前一条路径。
-    const reviewedRes = await reviewed(root, { uid, after: read });
-    const closed = await closeWithProposal({
-      factSourceRoot: root,
-      objectUid: uid,
-      expectedFingerprint: reviewedRes.after.value.fingerprint,
-      outcome: "completed",
-      result: completedResult(2),
-      changeSummary: "尝试关闭",
-      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 无身份重分配。\n\n## 结果\n\n- 完成。\n`,
-      sessionSignature: SIG(),
-    });
-    assert.ok(!closed.ok);
-    assert.equal(closed.error.code, "workcase/review_independence_unverifiable");
+    assert.equal(read.value.frontmatter.attempt.attempt_id, 1);
+    assert.equal(read.value.frontmatter.attempt.session_id, "session-implementer-test");
   });
 });
 
@@ -1369,6 +1405,7 @@ test("rebatch: open→draft voids the attempt, drops gate_1/result, and attempt 
       controller: "controller-c",
       changeSummary: "重批后再批准",
       sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
     });
     assert.ok(re.ok, JSON.stringify(re.error));
     read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
@@ -2116,12 +2153,15 @@ test("independence: a caller-supplied (forged) identity is discarded — only th
       changeSummary: "Gate 1 批准（伪造身份用例）",
       sessionSignature: SIG(),
       // 普通对象不是品牌载体 —— 必须被解析为「无身份」，而不是被采信。
+      // 无身份分配现已 fail-closed（10 §5.9），故批准被拒、对象留在 draft。
       sessionIdentity: { sessionId: "session-forged-by-ai" },
     });
-    assert.ok(ok.ok, JSON.stringify(ok.error));
+    assert.ok(!ok.ok);
+    assert.equal(ok.error.code, "workcase/attempt_identity_unavailable");
     const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.frontmatter.status, "draft");
     assert.equal(
-      after.value.frontmatter.attempt.session_id,
+      after.value.frontmatter.attempt,
       undefined,
       "a forged plain-object identity must never be stamped (only the branded carrier is accepted)",
     );
@@ -2311,7 +2351,8 @@ test("independence: an implementer heartbeat must NOT erase the reviewer's recor
 test("independence: a legacy attempt without session_id is BACKFILLED by heartbeat (否则存量对象永远无法关闭)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
-    // 模拟「本锚点之前建立」的对象：approve 时不带身份。
+    // 模拟「本锚点之前建立」的对象：先正常批准（有身份），再在文件层抹掉两键。
+    // 无身份分配现已 fail-closed（10 §5.9），故存量形态只能这样构造。
     const { created } = await createDraft(root);
     const g1 = await audited(root, { uid: created.value.object_uid });
     const ok = await approveWorkcaseObject({
@@ -2320,11 +2361,22 @@ test("independence: a legacy attempt without session_id is BACKFILLED by heartbe
       expectedFingerprint: g1.value.fingerprint,
       approver: "human-test",
       controller: "controller-a",
-      changeSummary: "Gate 1 批准（存量对象：无身份）",
+      changeSummary: "Gate 1 批准（随后模拟存量形态）",
       sessionSignature: SIG(),
-      // 不带 sessionIdentity → attempt.session_id 缺席（存量形态）
+      sessionIdentity: IMPLEMENTER(),
     });
     assert.ok(ok.ok, JSON.stringify(ok.error));
+    // 定位锚定 attempt 块：pre_reviews 条目也带同名字段，泛匹配会误删。
+    const filePath = join(root, "workcases", `workcase-${created.value.object_uid}.md`);
+    const rawText = await readFile(filePath, "utf8");
+    const attemptStart = rawText.indexOf("attempt:");
+    assert.ok(attemptStart >= 0, "前置：attempt 块存在");
+    const attemptBlock = rawText.slice(attemptStart);
+    const stripped = attemptBlock
+      .replace(/^\s*session_id: .*\n/m, "")
+      .replace(/^\s*session_source: host\n/m, "");
+    assert.notEqual(stripped, attemptBlock, "前置：attempt 块内确有身份键可抹");
+    await writeFile(filePath, rawText.slice(0, attemptStart) + stripped, "utf8");
     let after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
     assert.equal(after.value.frontmatter.attempt.session_id, undefined);
     // 执行会话做一次心跳：应把缺失的基线补齐。

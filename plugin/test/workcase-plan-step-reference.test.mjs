@@ -146,7 +146,7 @@ async function surface(base, draftOverrides = {}) {
   const goals = fakeGoalsService();
   registerWorkcaseTools(ctx, {
     dshHomePath: (...segments) => join(base, ...segments),
-    sessionPersistence: sessionPersistenceWithRoutingLog(base),
+    sessionPersistence: sessionPersistenceWithRoutingLog(base, { sessionId: "session-approver-fx" }),
     // 宿主推进目标（21 §14）：写入点现在要求该服务存在，缺失即 fail-closed
     // （见文件末尾那条守卫）。本工件用内存实现替代宿主服务。
     goals: () => goals,

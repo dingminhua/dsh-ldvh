@@ -2976,6 +2976,19 @@ export async function approveWorkcaseObject(args) {
     );
   }
 
+  // 21 §8 把 attempt.session_id 定为执行期必填；10 §5.9（Human 2026-11-05）
+  // 因此把「无身份分配」改为 fail-closed：没有实施者基线的 attempt 既不能满足
+  // 该字段，也不能充当关闭侧的独立性比对基准。心跳不分配新号，仍允许无身份。
+  if (identity === null) {
+    return failure(
+      "workcase/attempt_identity_unavailable",
+      "refusing to allocate an attempt without the caller's authoritative session identity: "
+      + "21 §8 requires attempt.session_id at execution time, and an identity-less attempt cannot "
+      + "serve as the close gate's implementer baseline (10 §5.9, Human 2026-11-05). "
+      + "Record Gate 1 from a session whose identity comes from the host execution context.",
+    );
+  }
+
   const now = new Date().toISOString();
   const next = structuredClone(fm);
   next.status = "open";
@@ -3181,13 +3194,22 @@ export async function executeWorkcaseObject(args) {
     };
     attemptNote = `attempt ${fm.attempt.attempt_id} heartbeat refreshed`;
   } else {
+    // 21 §8 执行期必填 session_id；10 §5.9（Human 2026-11-05）把 takeover／
+    // reallocate 的无身份分配改为 fail-closed——新 attempt 必须有实施者基线。
+    if (identity === null) {
+      return failure(
+        "workcase/attempt_identity_unavailable",
+        "refusing to allocate a new attempt (takeover/reallocate) without the caller's authoritative "
+        + "session identity: 21 §8 requires attempt.session_id at execution time (10 §5.9, Human 2026-11-05). "
+        + "Heartbeat is still allowed without an identity, but it does not backfill the baseline.",
+      );
+    }
     const controller = typeof newController === "string" && newController.length > 0 ? newController : fm.attempt.controller;
     const newId = nextAttemptId(fm);
     // A new attempt means a new executing session (21 §10.4: takeover 换执行者,
     // reallocate 冷恢复后重新分配). The independence baseline moves with it: the
-    // new attempt's session_id is the CURRENT session's identity. When the
-    // identity is unavailable the key is omitted — the close gate then fails
-    // closed rather than comparing future reviewers against a stale baseline.
+    // new attempt's session_id is the CURRENT session's identity (identity-less
+    // allocation was rejected above, 10 §5.9).
     next.attempt = {
       attempt_id: newId,
       started_at: now,
