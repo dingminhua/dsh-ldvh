@@ -608,12 +608,13 @@ export function apply(ctx, config) {
       .catch((error) => ctx.logger.warn(error));
   }
 
-  // Plugin-level cleanup: stop the lifecycle registry (agent/created
-  // listener + adoption bookkeeping) and drop the session-scopes table.
-  // Per-agent hooks and tools die with their own agent fibers; the web
-  // child fiber dies with the plugin.
-  ctx.effect(() => () => {
-    try { stopLifecycle(); } catch { /* already removed */ }
-    sessionScopes.clear();
+  // Await this plugin's own per-agent effects before the plugin fiber finishes
+  // unloading; the agent fibers and other plugins' registrations stay alive.
+  ctx.effect(() => async () => {
+    try {
+      await stopLifecycle();
+    } finally {
+      sessionScopes.clear();
+    }
   }, "dsh-ldvh: lifecycle registry and session scopes");
 }

@@ -522,21 +522,15 @@ function describeStopForRunlog(error) {
 }
 
 export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget }) {
-  // Per-agent lifecycle objects (agent-lifecycle.js): single home for all
-  // per-agent state + snapshot() diagnostics. The Map is bookkeeping only;
-  // hook cleanup rides the agent fiber.
+  // Per-agent state lives on the agent fiber, but this plugin owns the single
+  // effect it installed there. Keep its disposer so plugin unload can release
+  // just that effect without disposing the agent or another plugin's effects.
   const agents = new Map();
-  // 已装 agent 的静置计时器登记（11 §6.1，2026-11-02 补）。
-  //
-  // 为什么需要第二张表：`agent.ctx.effect` 的 disposer **只在该 agent 自己的
-  // fiber 卸载时**触发；插件 fiber 卸载（重载、升级、禁用插件）走的是下面
-  // `start()` 返回的插件级 disposer，它此前只清 `children` 与 `agents` 两张表，
-  // **不枚举已装 agent 的计时器**。后果是插件重载后旧计时器仍在跑：它们在旧
-  // agent 对象上到期、照样调 `onSessionCheckpoint` 派发，与新装的计时器形成
-  // 同一会话上两套触发器——运行痕迹里表现为同一时点两份 `silence-expiry
-  // dispatching`（实测 2026-11-02 有 3 个时点成对出现），且第二路被派发占用闸
-  // 挡住后记成 `throttled dispatch-in-flight`，把「双触发器」误报成「上一次派发
-  // 未收尾」。本表就是让插件级卸载能把它们一并清掉。
+  const agentEffects = new Map();
+  let stopped = false;
+  let stopPromise = null;
+  // Keep timers separately as a fallback if an owned effect cannot clean up;
+  // plugin unload must not leave a second trigger running for the same session.
   const agentTimers = new Map();
   // Subagent lifecycles: agentId -> { dispose, record } (child.js mechanism).
   // Only LIVE children: the entry is removed when the child's fiber disposes.
@@ -574,10 +568,11 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
 
   /** Idempotent tools guard: reconcile registration with the judged state. */
   function syncTools(agent, scope) {
+    if (stopped) return;
     const agentId = agentIdOf(agent);
     if (typeof agentId !== "string") return;
     const lifecycle = agents.get(agentId);
-    if (lifecycle === undefined) return;
+    if (lifecycle === undefined || agentEffects.get(agentId)?.agent !== agent) return;
     const shouldRegister = scope.state === "governed" && agent?.ctx !== undefined;
     if (shouldRegister && lifecycle.toolsDisposer === null) {
       try {
@@ -768,12 +763,12 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
    */
   function reprimeAgent(agentId, agent) {
     const lifecycle = agents.get(agentId);
-    if (lifecycle === undefined) return;
+    if (stopped || lifecycle === undefined || agentEffects.get(agentId)?.agent !== agent) return;
     // prime：让下一次 step-1 重新评估（mnemon primePending shape）。
     lifecycle.preStep.primePending = true;
     lifecycle.activity.record("session/reprime", { source: "agent-created" });
     void resolve(agent?.session?.header?.cwd).then((scope) => {
-      if (!agents.has(agentId)) return; // disposed while judging
+      if (stopped || agents.get(agentId) !== lifecycle) return; // disposed or replaced while judging
       const sessionId = sessionIdOf(agent);
       if (typeof sessionId === "string") sessionScopes.set(sessionId, scope);
       lifecycle.setScope(scope);
@@ -784,6 +779,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
   }
 
   function install(agent) {
+    if (stopped) return;
     const agentId = agentIdOf(agent);
     if (typeof agentId !== "string") return;
     if (agents.has(agentId)) return;
@@ -846,13 +842,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
 
     const lifecycle = new AgentLifecycle(agent);
     agents.set(agentId, lifecycle);
+    const ownedEffect = { agent, dispose: null };
+    agentEffects.set(agentId, ownedEffect);
 
-    agent.ctx.effect(() => {
+    try {
+      ownedEffect.dispose = agent.ctx.effect(() => {
       // Tools at install time (audit A/C): the initial async judgement
       // registers the batch BEFORE the first assemble collects tools, so the
       // first model request already sees them on governed sessions.
       void resolve(agent?.session?.header?.cwd).then((scope) => {
-        if (!agents.has(agentId)) return; // disposed while judging (audit F)
+        if (stopped || agents.get(agentId) !== lifecycle) return; // disposed or replaced while judging
         const sessionId = sessionIdOf(agent);
         if (typeof sessionId === "string") sessionScopes.set(sessionId, scope);
         // Keep the full resolved scope for the first-turn visible-notice
@@ -867,8 +866,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         resolve,
         syncTools: (scope) => syncTools(agent, scope),
         recordScope: (scope) => {
+          if (stopped || agents.get(agentId) !== lifecycle) return;
           const sessionId = sessionIdOf(agent);
-          if (typeof sessionId === "string" && agents.has(agentId)) sessionScopes.set(sessionId, scope);
+          if (typeof sessionId === "string") sessionScopes.set(sessionId, scope);
           // Publish the notice text for the pre-step visible-row injector:
           // the full judgment card, prefixed by the migration line when the
           // state changed (guidance.js owns the shape).
@@ -2022,25 +2022,41 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       ];
 
       return () => {
+        const cleanupErrors = [];
         for (const stop of stops.reverse()) {
-          try { stop(); } catch { /* already removed */ }
+          try { stop(); } catch (error) { cleanupErrors.push(error); }
         }
-        // 清安静期计时器（11 §6.1）：会话结束/插件卸载时不得留下仍在计时的
-        // 定时器——它会拖住进程退出，或在对象已销毁后仍尝试派发。
-        // 同步卸载路径（宿主 disposer 是同步的，不能 await）。诊断排空由
-        // triggers 侧在写入时自行节流，见 triggers.js 的 pendingDiagnostics 注释。
-        try { turnTriggers.dispose(); } catch { /* 已失效 */ }
-        if (agentTimers.get(agentId) === turnTriggers) agentTimers.delete(agentId);
+        // Stop the timer synchronously and return its diagnostic drain so
+        // Cordis can await it when the agent or this plugin is disposed.
+        let timerDrain;
+        try {
+          timerDrain = turnTriggers.dispose();
+          if (agentTimers.get(agentId) === turnTriggers) agentTimers.delete(agentId);
+        } catch (error) {
+          cleanupErrors.push(error);
+          registryActivity.record("timers/dispose-failed", { agentId, message: String(error?.message ?? error), at: new Date().toISOString() });
+          try { ctx.logger.warn("[dsh-ldvh] timer disposal failed for %s: %s", agentId, String(error?.message ?? error)); } catch { /* logger is unavailable during unload */ }
+        }
         if (lifecycle.toolsDisposer !== null) {
-          try { lifecycle.toolsDisposer(); } catch { /* already removed */ }
+          try { lifecycle.toolsDisposer(); } catch (error) { cleanupErrors.push(error); }
           lifecycle.toolsDisposer = null;
         }
-        const sessionId = sessionIdOf(agent);
-        if (typeof sessionId === "string") sessionScopes.delete(sessionId);
-        agents.delete(agentId);
+        if (agentEffects.get(agentId) === ownedEffect) {
+          agentEffects.delete(agentId);
+          const sessionId = sessionIdOf(agent);
+          if (typeof sessionId === "string") sessionScopes.delete(sessionId);
+        }
+        if (agents.get(agentId) === lifecycle) agents.delete(agentId);
+        return Promise.resolve(timerDrain).then(() => {
+          if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, `LDVH agent cleanup encountered errors: ${agentId}`);
+        });
       };
     }, `dsh-ldvh: agent lifecycle ${agentId}`);
-
+    } catch (error) {
+      if (agentEffects.get(agentId) === ownedEffect) agentEffects.delete(agentId);
+      if (agents.get(agentId) === lifecycle) agents.delete(agentId);
+      throw error;
+    }
   }
 
   return {
@@ -2161,11 +2177,29 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         ctx.logger.warn("[dsh-ldvh] startup queue inventory failed: %s", String(error?.message ?? error));
       });
       return () => {
-        try { disposeCreated(); } catch { /* already removed */ }
-        try { disposeSubagentEnd(); } catch { /* already removed */ }
+        // Invalidate pending governance judgements before any asynchronous
+        // disposal can yield; a late resolve must never re-register tools.
+        if (stopped) return stopPromise ?? Promise.resolve();
+        stopped = true;
+        agents.clear();
+        const pendingDisposals = [];
+        const disposalErrors = [];
+        const reportDisposalFailure = (kind, agentId, error) => {
+          const message = String(error?.message ?? error);
+          disposalErrors.push(error instanceof Error ? error : new Error(message));
+          registryActivity.record(`${kind}/dispose-failed`, { agentId, message });
+          try { ctx.logger.warn("[dsh-ldvh] %s disposal failed for %s: %s", kind, agentId, message); } catch { /* logger is unavailable during unload */ }
+        };
+        const observeDisposal = (value, kind, agentId) => {
+          if (value && typeof value.then === "function") {
+            pendingDisposals.push(Promise.resolve(value).catch((error) => reportDisposalFailure(kind, agentId, error)));
+          }
+        };
+        try { observeDisposal(disposeCreated(), "agent-created-listener", null); } catch (error) { reportDisposalFailure("agent-created-listener", null, error); }
+        try { observeDisposal(disposeSubagentEnd(), "subagent-end-listener", null); } catch (error) { reportDisposalFailure("subagent-end-listener", null, error); }
         const clearedChildren = [...children.keys()];
-        for (const { dispose } of children.values()) {
-          try { dispose(); } catch { /* already removed */ }
+        for (const [childId, { dispose }] of children) {
+          try { observeDisposal(dispose(), "child-effect", childId); } catch (error) { reportDisposalFailure("child-effect", childId, error); }
         }
         // 清空前读数：dispose() 会把每个活体子代理经 cleanup 移入 retiredChildren
         // 再 children.delete —— 之后直接 clear 两张表。这里记录清空事件，使
@@ -2178,27 +2212,35 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           clearedRetired,
           at: new Date().toISOString()
         });
-        // 插件级卸载须清掉**已装 agent 的静置计时器**（11 §6.1，2026-11-02 补）。
-        // 单靠上面 agent.ctx.effect 的 disposer 不够：那只在该 agent 自己的 fiber
-        // 卸载时跑；插件重载时 agent 对象还活着，旧计时器会继续到期并派发，与新装
-        // 的计时器形成同一会话两套触发器。逐个 dispose 并把名单记进痕迹，使
-        // 「卸载时清了哪些」可回读；单个失败只记痕迹、不阻断其余清理。
-        const disposedTimers = [];
+        // Dispose only the effects installed by this plugin, not the agent
+        // fiber. Each effect removes its own tools, listeners and timer; unlike
+        // deleting the bookkeeping map, this releases the actual registrations.
+        const timerIds = [...agentTimers.keys()];
+        for (const [agentId, ownedEffect] of agentEffects) {
+          try {
+            if (typeof ownedEffect.dispose === "function") observeDisposal(ownedEffect.dispose(), "agent-effect", agentId);
+            else reportDisposalFailure("agent-effect", agentId, new Error("owned effect disposer unavailable"));
+          } catch (error) {
+            reportDisposalFailure("agent-effect", agentId, error);
+          }
+        }
+        // Defensive fallback for a timer whose owning effect failed to clean up.
+        const disposedTimers = timerIds.filter((id) => !agentTimers.has(id));
         for (const [timerAgentId, triggers] of agentTimers) {
           try {
-            triggers.dispose();
+            observeDisposal(triggers.dispose(), "timer-drain", timerAgentId);
             disposedTimers.push(timerAgentId);
           } catch (error) {
-            registryActivity.record("timers/dispose-failed", {
-              agentId: timerAgentId,
-              message: String(error?.message ?? error),
-              at: new Date().toISOString()
-            });
+            reportDisposalFailure("timer-drain", timerAgentId, error);
           }
         }
         registryActivity.record("timers/cleared", { disposed: disposedTimers, at: new Date().toISOString() });
         agentTimers.clear();
-        for (const agentId of [...agents.keys()]) agents.delete(agentId);
+        stopPromise = Promise.all(pendingDisposals).then(() => {
+          agentEffects.clear();
+          if (disposalErrors.length > 0) throw new AggregateError(disposalErrors, "LDVH lifecycle cleanup encountered errors");
+        });
+        return stopPromise;
       };
     },
     /** Test/introspection seam. */
