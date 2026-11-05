@@ -174,12 +174,20 @@ test("26 §12：账本里出现 observing 载体时按闭集外拒收，不被�
     assert.ok(created.ok, JSON.stringify(created.error));
 
     // 夹具：把同一份载体的 status 改成闭集外的 observing，冒充「存量留观载体」。
+    //
+    // 身份必须一并改写：复制体换了文件名（legacyUid），若仍声明源对象的
+    // object_uid，造出的就不是「一条留观载体」，而是**两条载体声明同一身份**
+    // （02 §5 第 6 项禁止的身份冲突）——那是另一件事，会让本用例在
+    // carrier-scan 的「文件名/声明一致性」上再次命中，从而无法单独验证
+    // 「闭集外 status 被拒收」这一个行为。
     const realFile = join(root, "frictions", `friction-${created.value.object_uid}.md`);
     const text = await readFile(realFile, "utf8");
     const legacyUid = randomUUID();
     await writeFile(
       join(root, "frictions", `friction-${legacyUid}.md`),
-      text.replace(/^status: open$/m, "status: observing"),
+      text
+        .replace(/^status: open$/m, "status: observing")
+        .replace(/^object_uid: .+$/m, `object_uid: ${legacyUid}`),
       "utf8",
     );
 

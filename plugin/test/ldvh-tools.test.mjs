@@ -1674,3 +1674,65 @@ test("渲染：候选为空时不伪造条目", () => {
 	assert.match(body, /0 candidate\(s\) at L0/);
 	assert.doesNotMatch(body, /^- [^ ]/m, "零候选不得印出任何条目行");
 });
+
+// ---------------------------------------------------------------------------
+// workcase-e487cdf4：陈旧模块报告的渲染必须逐字段可读
+// ---------------------------------------------------------------------------
+
+test("渲染：陈旧模块报告的每个字段都须在模型侧可见（不能只印 completed）", () => {
+	// 这条用例的来源：**真机实测**。宿主重启后调用 ldhv_inspect_loaded_modules，
+	// 模型侧只看到一行「LDVH inspect-loaded-modules: completed」——checked／stale／
+	// unreadable 一个字段都没有，因为 renderEnvelope 只认几个固定结构。那使
+	// 「查过了」与「没查」在模型侧不可区分，与 friction-8608a8a6（候选只回计数）
+	// 及探针那次同型。此用例钉住：报告字段必须逐项渲染。
+	const fake = {
+		envelope: {
+			operation_key: "inspect-loaded-modules",
+			outcome: "completed",
+			result: {
+				process_start_ms: 1793792277000,
+				library_dir: "/repo/plugin/lib",
+				checked: 94,
+				stale: [
+					{ file: "/repo/plugin/lib/adr-writer.js", mtime_ms: 1793800000000 },
+					{ file: "/repo/plugin/lib/spark-writer.js", mtime_ms: 1793800000001 }
+				],
+				unreadable: ["/repo/plugin/lib/broken.js"],
+				informational: { effect: "informational-only", caveat: "空列表不证明一致" }
+			},
+			gaps: []
+		}
+	};
+	const rendered = renderEnvelope("inspect-loaded-modules", fake)[0].text;
+	assert.ok(rendered.includes("checked: 94"), "受检数必须可见");
+	assert.ok(rendered.includes("/repo/plugin/lib"), "受检目录必须可见");
+	assert.ok(rendered.includes("1793792277000"), "进程启动时刻必须可见");
+	assert.ok(rendered.includes("stale: 2"), "陈旧计数必须可见");
+	assert.ok(rendered.includes("adr-writer.js"), "陈旧文件须逐个列名，不能只给计数");
+	assert.ok(rendered.includes("spark-writer.js"), "陈旧文件须逐个列名");
+	assert.ok(rendered.includes("unreadable: 1"), "不可读计数必须可见");
+	assert.ok(rendered.includes("broken.js"), "不可读文件须列名");
+	assert.ok(rendered.includes("informational-only"), "效力标注必须可见");
+	assert.ok(rendered.includes("空列表不证明一致"), "盲区声明必须可见，否则读者会把它当保证");
+});
+
+test("渲染：stale 为空时也必须印出计数与被检数（空结果同样要可区分于未运行）", () => {
+	const fake = {
+		envelope: {
+			operation_key: "inspect-loaded-modules",
+			outcome: "completed",
+			result: {
+				process_start_ms: 1,
+				library_dir: "/repo/plugin/lib",
+				checked: 94,
+				stale: [],
+				unreadable: [],
+				informational: { effect: "informational-only", caveat: "c" }
+			},
+			gaps: []
+		}
+	};
+	const rendered = renderEnvelope("inspect-loaded-modules", fake)[0].text;
+	assert.ok(rendered.includes("checked: 94"), "零陈旧时仍须印受检数，否则无法区分「查了没发现」与「没查」");
+	assert.ok(rendered.includes("stale: 0"));
+});
