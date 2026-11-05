@@ -31,6 +31,8 @@ import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, h3TitlesInSection, sectionContent } from "./markdown-structure.js";
+import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
+import { carrierCoherenceMessage } from "./coherence-report.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/24 §8, §13)
@@ -505,11 +507,176 @@ export function validateIndexBodyCoherence(frontmatter, body) {
     const qSection = sections.find((s) => s.split("\n")[0].trim() === "研究问题");
     const qContent = qSection ? qSection.slice(qSection.indexOf("\n") + 1).trim() : "";
     if (!qContent.includes(question)) {
-      issues.push(`question-coherence: 研究问题 section must contain research_question verbatim (24 §8 invariant 10): "${question.slice(0, 40)}..."`);
+      issues.push(carrierCoherenceMessage({
+        section: "研究问题", field: "research_question", declared: question, actual: qContent,
+        clause: "24 §8 invariant 10",
+      }));
     }
   }
 
   return { ok: issues.length === 0, issues };
+}
+
+// ---------------------------------------------------------------------------
+// 终态事实更正 (24 §13 `correct`; 24 §8 第 4 项「只允许配套更正或退出说明的更新」)
+// ---------------------------------------------------------------------------
+
+/**
+ * `correct` 入口可写的 frontmatter 字段（24 §13 白名单）。
+ *
+ * 为什么是这五项：24 §8 的字段间不变量把索引层与正文锁在一起，改错述时
+ * 两处必须同改，否则机械校验立刻拒绝——
+ *  - `confirmed_statements`：不变量 7 要求每条声明与正文「关键发现」的某个
+ *    发现单元 H3 标题**逐字相同**，改一条声明必须同改对应标题；
+ *  - `research_question`：不变量 10 要求正文「研究问题」段逐字包含它，
+ *    问题本身写错时两处须同改（frontmatter 是唯一权威文本）；
+ *  - `uncertain` / `gaps` / `implications`：与 `confirmed_statements` 通过
+ *    `implications[].finding_ref` 及缺口优先级校验相互约束。
+ *
+ * **`stopping_reason` 不在其列，且必须显式拒绝**：它是「为什么停在这个
+ * 轮次」的判断，改动它属**判断变更**而非事实更正——那不是本入口的业务，
+ * 也没有任何机械判据能区分「更正一个写错的停止理由」与「把结论改成另一个
+ * 结论」。因此由 24 §13 明文排除，调用方传入即拒绝。
+ */
+export const RESEARCH_CORRECTABLE_FIELDS = new Set([
+  "confirmed_statements", "uncertain", "gaps", "implications", "research_question",
+]);
+
+/**
+ * Correct a retired Research report in place: fix wrongly recorded material
+ * without touching the terminal judgment (24 §8 第 4 项 / 24 §13).
+ *
+ * Shipped rule vs implementation: 24 §8 item 4 already permitted 「只允许配套
+ * 更正或退出说明的更新」 on a retired report, but `update` refused every
+ * retired object unconditionally (the status is inherited from disk, so any
+ * update re-enters `nextStatus === "retired"`). The permission existed only on
+ * paper; this entry is its carrier.
+ *
+ * Frontmatter side is a **whitelist** (see RESEARCH_CORRECTABLE_FIELDS) rather
+ * than "no input at all" as in 22 §13 for ADR: Research's index/body
+ * invariants make a body-only channel unable to perform a legitimate
+ * correction (24 §8 items 7 and 10 tie the two layers verbatim). Everything
+ * outside the whitelist — status, retirement_reason, retired_at, urls,
+ * research_purpose, stopping_reason, sub-stage — is inherited verbatim.
+ */
+export async function correctResearchObject(args) {
+  const {
+    factSourceRoot, objectUid, expectedFingerprint,
+    frontmatterAfter = null, analysisBodyAfter, surveyBodyAfter = null,
+    changeSummary, humanAuthorization, sessionSignature = null,
+  } = args;
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+
+  if (!assertValidUid(objectUid)) {
+    return failure("research/invalid_uid", "objectUid must be a valid UUID");
+  }
+  if (typeof changeSummary !== "string" || changeSummary.trim().length === 0) {
+    return failure("research/change_summary_required", "changeSummary is required for correct");
+  }
+  // 24 §13：更正与其它受控更新同权限，缺 Human 授权即 fail-closed。
+  // 如实声明边界：本字段是自报，机械层只保证「授权记录被提交」。
+  if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
+    return failure(
+      "research/human_authorization_required",
+      "humanAuthorization is required for action=correct (24 §13 终态事实更正：Human 确认；无授权记录的更正请求 fail-closed)",
+    );
+  }
+  if (typeof analysisBodyAfter !== "string" || analysisBodyAfter.length === 0) {
+    return failure("invalid_request", "analysisBodyAfter is required (the complete target body)");
+  }
+
+  const current = await readResearchObject({ factSourceRoot, objectUid });
+  if (!current.ok) return current;
+
+  if (current.value.fingerprint !== expectedFingerprint) {
+    return failure("research/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
+  }
+
+  const fm = structuredClone(current.value.frontmatter);
+  // 入口只对 retired 开放；active 的内容修正走既有 update。
+  if (fm.status !== "retired") {
+    return failure(
+      "research/correction_requires_retired",
+      `action=correct applies to status=retired only; this object is ${JSON.stringify(fm.status)} — active 的内容修正走 update`,
+    );
+  }
+
+  // 白名单外的字段一律拒绝（含 stopping_reason，见常量注释）。
+  if (frontmatterAfter !== null) {
+    if (typeof frontmatterAfter !== "object" || Array.isArray(frontmatterAfter)) {
+      return failure("invalid_request", "frontmatterAfter must be an object when provided (24 §13)");
+    }
+    for (const field of Object.keys(frontmatterAfter)) {
+      if (field === "status" || field === "retirement_reason" || field === "retired_at") {
+        return failure(
+          "research/correction_terminal_field_immutable",
+          `correct may not touch ${JSON.stringify(field)} — 24 §13: 终态判定与 retirement 字段逐字继承，本入口不得改变记录为何退出`,
+        );
+      }
+      if (field === "stopping_reason") {
+        return failure(
+          "research/correction_judgment_field_immutable",
+          "correct may not touch \"stopping_reason\" — 它是停止判断而非错述；改动它属判断变更，不是本入口的业务 (24 §13)",
+        );
+      }
+      if (!RESEARCH_CORRECTABLE_FIELDS.has(field)) {
+        return failure(
+          "research/correction_field_not_permitted",
+          `correct may only write ${[...RESEARCH_CORRECTABLE_FIELDS].join("/")}; got ${JSON.stringify(field)} (24 §13)`,
+        );
+      }
+      fm[field] = structuredClone(frontmatterAfter[field]);
+    }
+  }
+
+  // Sub-stage immutability (24 §13: 子阶段不可变)
+  const wasExploratory = current.value.exploratory;
+  const isExploratory = typeof surveyBodyAfter === "string" && surveyBodyAfter.length > 0;
+  if (wasExploratory !== isExploratory) {
+    return failure("research/substage_immutable", `cannot change sub-stage through correct (was ${wasExploratory ? "exploratory" : "directed"})`);
+  }
+  const body = isExploratory
+    ? insertSurveySection(analysisBodyAfter, surveyBodyAfter.trim())
+    : analysisBodyAfter;
+
+  const bodyCheck = validateBodyStructure(body, true);
+  if (!bodyCheck.ok) {
+    return failure("research/body_invalid", "corrected body failed structure checks", { issues: bodyCheck.issues });
+  }
+  const coherenceCheck = validateIndexBodyCoherence(fm, body);
+  if (!coherenceCheck.ok) {
+    return failure("research/coherence_invalid", "index-body coherence failed on correction", { issues: coherenceCheck.issues });
+  }
+
+  // no-op 拒绝 (02 §10.5)：正文与白名单字段均未变时不得追加假流水。
+  const trimEnd = (text) => text.replace(/\s+$/, "");
+  const bodyUnchanged = trimEnd(body) === trimEnd(current.value.body);
+  const changedFields = Object.keys(frontmatterAfter ?? {});
+  if (bodyUnchanged && changedFields.length === 0) {
+    return failure(
+      "research/no_op",
+      "correction would not change the body or any correctable field — 02 §10.5 不记录 no-op；refusing to append a change_log entry that claims a correction happened",
+    );
+  }
+
+  const prevLog = Array.isArray(fm.change_log) ? fm.change_log : [];
+  fm.change_log = [...prevLog, {
+    at: new Date().toISOString(),
+    ...sig.signature,
+    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/retirement_reason/retired_at/urls/research_purpose/stopping_reason 逐字继承落盘对象，可写范围仅 ${[...RESEARCH_CORRECTABLE_FIELDS].join("／")} 与正文（24 §13）。经 Human 授权：${humanAuthorization.trim()}`,
+  }];
+
+  const fmCheck = validateResearchFrontmatter(fm);
+  if (!fmCheck.ok) {
+    return failure("research/frontmatter_invalid", "corrected frontmatter failed mechanical checks", { issues: fmCheck.issues });
+  }
+
+  const filePath = objectFilePath(factSourceRoot, objectUid);
+  const content = buildFileContent(fm, body);
+  await atomicWriteFile(filePath, content);
+
+  return success({ fingerprint: fileFingerprint(content) });
 }
 
 // ---------------------------------------------------------------------------
@@ -796,11 +963,45 @@ function insertSurveySection(analysisBody, surveyH3Content) {
 // Read (specs/03 §9.2 precise read-back)
 // ---------------------------------------------------------------------------
 
-export async function readResearchObject(args) {
-  const { factSourceRoot, objectUid } = args;
-  if (!assertValidUid(objectUid)) {
-    return failure("research/invalid_uid", "objectUid must be a valid UUID");
+/**
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ *
+ * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `research/invalid_uid`
+ * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
+ * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
+ */
+async function resolveResearchObjectUid(factSourceRoot, input, currentProjectId = null) {
+  const parsed = parseObjectIdentifier(input);
+  if (!parsed.ok) {
+    return { ok: false, error: failure("research/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
   }
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
+  if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
+    return { ok: false, error: failure("research/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
+  }
+  if (objectUid !== undefined) {
+    if (declaredType !== undefined && declaredType !== "research") {
+      return { ok: false, error: failure("research/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "research" objects`) };
+    }
+    return { ok: true, objectUid };
+  }
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "research" });
+  if (!resolved.ok) {
+    const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
+    return { ok: false, error: failure("research/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`) };
+  }
+  if (resolved.value.factTypeKey !== "research") {
+    return { ok: false, error: failure("research/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "research" objects`) };
+  }
+  return { ok: true, objectUid: resolved.value.objectUid };
+}
+
+export async function readResearchObject(args) {
+  const { factSourceRoot, objectUid: objectUidInput, currentProjectId = null } = args;
+  const uidResolution = await resolveResearchObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   const filePath = objectFilePath(factSourceRoot, objectUid);
 
   let content;
