@@ -182,20 +182,32 @@ function SubGoalRow({ subGoal, onOpen }: { subGoal: SubGoalRowData; onOpen: () =
         {/* 展开/收起按钮：与子目标卡内「展开其余 N 条」同一枚形态（`SubGoalDisclosureButton`），
             但这里的语义是「展开本行的判据与名下工作」。
 
-            `py-0.5`：按钮内容盒（`ldvh-meta` 的 20px 行盒）居中后，光心正落在标题
-            那条线上；`py-1` 时内容盒低 2px，按钮文字比标题低半行——同一行里两处文字
-            错开半行，是最容易被眼睛抓住的那种不齐。按钮仍有 24px 高（≥ WCAG 2.2
-            的 24×24 最小目标尺寸）。 */}
+            Human 2026-11-04 定案：**只留箭头，不再写「展开」「收起」二字**。箭头
+            本身就是全站折叠状态的既有符号（`docs/09` §5：`ChevronDown`/`ChevronUp`
+            只表达折叠状态），再配两个词是同一件事说两遍；而这一行右侧已经有进度
+            组占宽，两个汉字是这一格里唯一不承载判定的内容。文字没有丢——它转到
+            `title` 与 `aria-label` 上，鼠标悬停与读屏仍读得到「展开/收起」。
+
+            `py-0.5`：内容盒（`ldvh-meta` 的 20px 行盒）居中后，光心正落在标题那条
+            线上；`py-1` 时内容盒低 2px，比标题低半行——同一行里两处错开半行，是最
+            容易被眼睛抓住的那种不齐。
+
+            **`h-6` 不是可选项**：撤掉文字后按钮里只剩一枚 12px 图标，只靠内边距
+            撑不出目标尺寸——实测 `py-0.5` 时按钮高 16px（2×2 + 12），低于 WCAG 2.2
+            的 24×24 最小目标尺寸，且 `items-start` 下它的光心比标题高 4px。写成
+            定高 24px 后，命中区与标题行盒等高、光心自动重合。`py-0.5` 予以保留：
+            它在 `h-6` 内居中的效果与原来一致，行盒不变。 */}
         <button
           type="button"
           aria-expanded={expanded}
+          aria-label={t(expanded ? 'focusV2.subGoalCollapse' : 'focusV2.subGoalExpand')}
+          title={t(expanded ? 'focusV2.subGoalCollapse' : 'focusV2.subGoalExpand')}
           onClick={() => setExpanded((current) => !current)}
-          className="flex min-w-0 shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-left ldvh-meta text-ldvh-text-secondary/85 transition-colors hover:bg-ldvh-border/25 hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+          className="flex h-6 min-w-0 shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 ldvh-meta text-ldvh-text-secondary/85 transition-colors hover:bg-ldvh-border/25 hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
         >
           {expanded
             ? <ChevronUp size={12} aria-hidden="true" className="shrink-0" />
             : <ChevronDown size={12} aria-hidden="true" className="shrink-0" />}
-          <span className="min-w-0 truncate">{t(expanded ? 'focusV2.subGoalCollapse' : 'focusV2.subGoalExpand')}</span>
         </button>
       </div>
 

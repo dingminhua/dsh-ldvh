@@ -378,6 +378,30 @@ test('目标区行内垂直基准＝标题那一条线（2026-11-03 定案）', 
   assert.match(goalSection, /px-1\.5 py-0\.5/, '展开按钮内边距须取 py-0.5（按钮文字落在标题线上）');
   assert.doesNotMatch(goalSection, /px-1\.5 py-1\b/, '展开按钮不得取 py-1（会低半行）');
 
+  // ## 聚焦页的展开按钮只留箭头（Human 2026-11-04 定案）
+  //
+  // 范围仅此一处：子目标卡里的「展开其余 N 条」、列表的「显示 N 条变更流水」等
+  // **带内容量的**展开控件保持文字（那里的字在说「会展开多少条」，不是「展开」
+  // 这个动作的名字）。本条只钉聚焦页目标区这一枚。
+  //
+  // 撤字不等于撤掉可读名：文字转到 `title` 与 `aria-label`，否则这枚图标按钮对
+  // 读屏与悬停都是无名图标——而这一行右侧就是进度组，读者猜不出它开的是什么。
+  assert.match(goalSection, /aria-label=\{t\(expanded \? 'focusV2\.subGoalCollapse' : 'focusV2\.subGoalExpand'\)\}/,
+    '撤掉屏幕文字后，可读名须落在 aria-label 上');
+  assert.match(goalSection, /title=\{t\(expanded \? 'focusV2\.subGoalCollapse' : 'focusV2\.subGoalExpand'\)\}/,
+    '撤掉屏幕文字后，悬停提示须落在 title 上');
+  assert.doesNotMatch(goalSection, /<span className="min-w-0 truncate">\{t\(expanded/,
+    '目标区行内不得再渲染「展开/收起」文字');
+
+  // ## 只剩箭头时命中区须定高 24px
+  //
+  // 这不是风格偏好，是实测抓到的真错：撤字后按钮里只剩 12px 图标，`py-0.5` 只
+  // 撑出 16px 高（2×2 + 12）——Playwright 量到的就是 16px，低于 WCAG 2.2 的
+  // 24×24 最小目标尺寸，且 `items-start` 下光心比标题高 4px。故按**定高类**断言，
+  // 不按注释断言（注释不承载判据）。
+  assert.match(goalSection, /flex h-6 min-w-0 shrink-0 items-center justify-center rounded-md px-1\.5 py-0\.5/,
+    '只剩箭头后按钮须定高 24px（靠内边距撑不出最小目标尺寸）');
+
   // ## 行仍取 items-start（不 items-center）
   //
   // 标题换行时，各项须对齐标题的**首行**，而不是整块居中到两行中间。
