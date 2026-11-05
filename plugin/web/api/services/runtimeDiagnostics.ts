@@ -268,6 +268,25 @@ async function zstdAvailable(): Promise<boolean> {
   }
 }
 
+/** zstd 帧起始魔数（RFC 8878 §3.1.1），十进制 0xFD2FB528 的小端字节序。 */
+const ZSTD_FRAME_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
+
+/**
+ * 找出 buffer 中所有 zstd 帧的起始偏移。
+ *
+ * **为什么需要这个**：宿主的会话日志是**逐次追加、每次独立压一帧**的，一份日志
+ * 因此是多帧 zstd（实测 2026-11-04 某会话 2.7MB / **1409 帧**）。
+ */
+function zstdFrameOffsets(buffer: Buffer): number[] {
+  const offsets: number[] = []
+  for (let i = 0; i + 4 <= buffer.length; i += 1) {
+    if (buffer[i] === 0x28 && buffer[i + 1] === 0xb5 && buffer[i + 2] === 0x2f && buffer[i + 3] === 0xfd) {
+      offsets.push(i)
+    }
+  }
+  return offsets
+}
+
 async function decompress(filePath: string): Promise<string> {
   // **优先用 Node 内置 zstd，CLI 只作回退**：与 zstdAvailable 同一取舍，
   // 否则「探测可用」与「实际怎么解」会分叉（本机无 CLI 时前者为真、后者抛错）。
@@ -275,9 +294,40 @@ async function decompress(filePath: string): Promise<string> {
     zstdDecompressSync?: (input: Buffer) => Buffer
   }).zstdDecompressSync
   if (typeof native === 'function') {
-    return native(await readFile(filePath)).toString('utf8')
+    const buffer = await readFile(filePath)
+    // **逐帧解，不能整份喂**（2026-11-04 修）。
+    //
+    // `zlib.zstdDecompressSync(wholeFile)` 在多帧输入上**只解第一帧就返回**，
+    // 且不报错——实测 2.7MB 日志只解出 212 字节（正好是 `{"type":"session",...}`
+    // 那一行），没有任何 `tool/call` / `tool/result` 事件。于是诊断页把 500 个
+    // 会话全扫一遍、每份都只拿到一行，最终得到「调用 0、失败 0」——一个看起来
+    // 像「扫过了、很健康」的假零。
+    //
+    // 这与本模块 2026-10-28 修的「CLI 缺席被当作能力不存在」是**同一判据的
+    // 两次违反**：那次把能读的日志显示成没有数据，这次把「读不全」显示成没有
+    // 数据。故此处不再假设「内置 API 能解整份文件」，而是显式按帧切分。
+    const offsets = zstdFrameOffsets(buffer)
+    if (offsets.length <= 1) {
+      // 单帧（或没有帧）时整份喂即可，避开逐帧的额外开销。
+      return native(buffer).toString('utf8')
+    }
+    const chunks: Buffer[] = []
+    for (let k = 0; k < offsets.length; k += 1) {
+      const start = offsets[k]
+      const end = k + 1 < offsets.length ? offsets[k + 1] : buffer.length
+      // 单帧解不开不拖垮整份：登记后继续，末尾按已解出的部分返回。
+      try {
+        chunks.push(native(buffer.subarray(start, end)))
+      } catch {
+        // 静默跳过会在「少统计」时不吭声，故由调用方以 sessionsScanned 之外的
+        // 计数体现；此处只保证不让一份坏帧毁掉整份日志。
+      }
+    }
+    return Buffer.concat(chunks).toString('utf8')
   }
   // `-dc` 解压到 stdout；`--no-progress` 避免把进度写进 stderr 干扰诊断。
+  // CLI **本身支持多帧**（实测同一份日志输出 9.4MB 而非 212 字节），故回退路径
+  // 无须按帧切分。
   const { stdout } = await execFileAsync('zstd', ['-dc', '--no-progress', filePath], {
     timeout: 60_000,
     maxBuffer: 256 * 1024 * 1024,

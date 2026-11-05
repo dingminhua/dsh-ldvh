@@ -105,3 +105,59 @@ test('数据边界随响应给出——空结果必须能与“没有调用”�
   assert.equal(report.scope.sessionDirExists, false);
   assert.ok(report.scope.limits.length > 0, '空结果也必须带上覆盖范围说明');
 });
+
+/**
+ * **多帧压缩日志必须整份解出**（2026-11-04 登记）。
+ *
+ * 宿主的会话日志是**逐次追加、每次独立压一帧**的，一份日志因此是多帧 zstd。
+ * `zlib.zstdDecompressSync(整份)` 在多帧输入上**只解第一帧就返回且不报错**——
+ * 实测某 2.7MB 日志只解出 212 字节（正好是 `{"type":"session",...}` 那一行），
+ * 页面于是把「读不全」显示成「没有调用」：扫描 500 个会话、调用数恒为 0。
+ *
+ * 本用例构造一份**两帧**日志：第一帧只有 session 头（模拟真实形态），第二帧
+ * 才是工具调用。若实现退回「整份喂内置 API」，第二帧丢失、`calls` 归零，
+ * 本用例即失败——这正是原来缺失的那条防线（既有用例全部用未压缩明文，
+ * 故该缺陷从未被任何用例触达）。
+ */
+test('多帧 zstd 日志须整份解出——只解第一帧会把「读不全」显示成「没有调用」', async () => {
+  const { zstdCompressSync } = await import('node:zlib') as typeof import('node:zlib');
+  const compress = (zstdCompressSync as unknown as ((input: Buffer) => Buffer) | undefined);
+  if (typeof compress !== 'function') return; // 无内置 zstd 的运行时跳过（CLI 回退路径由实现负责）
+
+  const home = await mkdtemp(path.join(tmpdir(), 'ldvh-diag-multiframe-'));
+  const workspaceRoot = path.join(home, 'multiframe-project');
+  const sessionId = 'session-multiframe';
+  const dir = path.join(home, 'sessions', sessionDirNameFor(workspaceRoot), sessionId);
+  await mkdir(dir, { recursive: true });
+
+  // 第一帧：session 头。真实日志的第一帧就只有这一行。
+  const headerFrame = compress(Buffer.from(
+    eventLine({ type: 'session', version: 4, id: sessionId }),
+    'utf8',
+  ));
+  // 第二帧：真正的工具调用与结果——它在单帧解压时**全部丢失**。
+  const body = [
+    eventLine({ type: 'tool/call', time: 1_700_000_000_000, data: { name: 'ldvh_spark_write', callId: 'c9' } }),
+    eventLine({
+      type: 'tool/result',
+      time: 1_700_000_001_000,
+      data: {
+        toolCallId: 'c9',
+        message: {
+          content: [{ type: 'text', text: 'LDVH spark-write-object: rejected\ngap: spark/coherence_invalid: carrier coherence failed' }],
+        },
+      },
+    }),
+  ].join('');
+  const bodyFrame = compress(Buffer.from(body, 'utf8'));
+
+  await writeFile(path.join(dir, 'session.v4.jsonl.zstd'), Buffer.concat([headerFrame, bodyFrame]));
+
+  const report = await buildGateReport({ workspaceRoot, dshHome: home });
+
+  assert.equal(report.totals.calls, 1, '第二帧里的调用必须被读到（只解首帧时为 0）');
+  assert.equal(report.totals.failed, 1);
+  assert.equal(report.byTool[0]?.tool, 'ldvh_spark_write');
+  // 帧边界不得把两段内容粘成一行坏 JSON——故失败明细须正常解析出来。
+  assert.match(report.recentFailures[0]?.detail ?? '', /coherence_invalid/);
+});
