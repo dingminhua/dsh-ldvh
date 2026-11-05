@@ -21,6 +21,7 @@ import {
   createAdrObject,
   readAdrObject,
   updateAdrObject,
+  correctAdrObject,
   listAdrObjects,
   isSingleSentence,
   adrFileName,
@@ -1077,5 +1078,273 @@ test("absorbed: 旧理由带关系被拒绝（outdated + 关系 → 22 §9.1 禁
       updated.error.details.issues.some((i) => i.includes("may only appear on status=retired")),
       JSON.stringify(updated.error.details.issues),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 终态事实更正 correct (22 §13; specs/02 §10.5 事实更正 ≠ 内容更新)
+//
+// 22 §9.2 承诺「错误的终态记录按事实更正修正」，而 update 对 retired 一律拒绝
+// ——该承诺此前无任何承载。本条覆盖四个边界：
+//   ① retired 正文可改，终态判定与全部 frontmatter 逐字不变
+//   ② 判定字段不可改（入口结构性不接收 frontmatter 输入）
+//   ③ 缺 Human 授权 → fail-closed
+//   ④ 正文未变 → no-op 拒绝（不追加假流水）
+// ---------------------------------------------------------------------------
+
+async function createRetired(root, overrides = {}) {
+  const { draft, read } = await createAndRead(root, overrides);
+  const retired = await updateAdrObject({
+    factSourceRoot: root,
+    objectUid: read.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    frontmatterAfter: { ...read.value.frontmatter, status: "retired", retirement_reason: "outdated" },
+    bodyMarkdownAfter: validBodyMarkdown(draft),
+    changeSummary: "决策不再适用",
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.ok(retired.ok, JSON.stringify(retired.error));
+  const afterRetire = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+  assert.ok(afterRetire.ok, JSON.stringify(afterRetire.error));
+  return { draft, read: afterRetire };
+}
+
+/** 把正文的「决策背景」段替换成给定时长文本，保持其余段与载体内聚不变。 */
+function bodyWithBackground(draft, background) {
+  const base = validBodyMarkdown(draft);
+  return base.replace(/## 决策背景\n[^\n]*/, `## 决策背景\n${background}`);
+}
+
+test("correct ①: retired 正文可更正，且 status/decision/scope/retirement_reason/retired_at 逐字不变", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { draft, read } = await createRetired(root);
+    const before = read.value.frontmatter;
+
+    const corrected = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: before && read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: bodyWithBackground(draft, "更正后的背景：原文把归档上线时间写错了，此处据实修正。"),
+      changeSummary: "更正决策背景的错述",
+      humanAuthorization: "老丁 2026-11-04 授权更正该条 retired ADR 的背景段错述",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(corrected.ok, JSON.stringify(corrected.error));
+
+    const read2 = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.ok(read2.ok, JSON.stringify(read2.error));
+
+    // 正文确实变了
+    assert.ok(read2.value.body.includes("更正后的背景"), "corrected body must carry the new text");
+
+    // 终态判定与全部 frontmatter 逐字继承
+    for (const field of ["status", "decision", "scope", "retirement_reason", "retired_at", "title", "created_at", "object_uid"]) {
+      assert.deepEqual(read2.value.frontmatter[field], before[field], `${field} must be inherited verbatim`);
+    }
+    assert.equal(read2.value.frontmatter.status, "retired");
+
+    // 恰好追加一条 change_log，且带授权文本
+    assert.equal(read2.value.frontmatter.change_log.length, before.change_log.length + 1);
+    const entry = read2.value.frontmatter.change_log.at(-1);
+    assert.match(entry.summary, /事实更正（非状态转换）/);
+    assert.match(entry.summary, /老丁 2026-11-04 授权/);
+    assert.equal(read2.value.body_valid, true);
+  });
+});
+
+test("correct ②: 判定字段不可改 —— 入口结构性不接收 frontmatter（传了也无效果）", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { draft, read } = await createRetired(root);
+    const before = read.value.frontmatter;
+
+    // 调用方即使塞入 frontmatterAfter，writer 也没有对应参数可承载它：
+    // decision/scope 保持落盘值，不会被这次调用改写。
+    const corrected = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: bodyWithBackground(draft, "另一处背景更正。"),
+      changeSummary: "更正背景",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+      // 越权尝试：writer 的签名里没有这个参数，JS 层被忽略。
+      frontmatterAfter: { ...before, decision: "改掉的决策。", scope: "改掉的适用范围。" },
+    });
+    assert.ok(corrected.ok, JSON.stringify(corrected.error));
+
+    const read2 = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.equal(read2.value.frontmatter.decision, before.decision, "decision must not change through correct");
+    assert.equal(read2.value.frontmatter.scope, before.scope, "scope must not change through correct");
+    assert.equal(read2.value.frontmatter.status, "retired");
+  });
+});
+
+test("correct ②b: 非 retired 对象拒绝（把内容更新伪装成事实更正的路径被封）", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { draft, read } = await createAndRead(root); // active
+    const corrected = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: bodyWithBackground(draft, "试图在 active 上走更正入口。"),
+      changeSummary: "越界尝试",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(corrected.ok, false);
+    assert.equal(corrected.error.code, "adr/correction_requires_retired", JSON.stringify(corrected.error));
+
+    const read2 = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.equal(read2.value.fingerprint, read.value.fingerprint, "rejected call must leave zero write");
+  });
+});
+
+test("correct ③: 缺 Human 授权 → fail-closed 且零写入", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { draft, read } = await createRetired(root);
+    for (const auth of [undefined, "", "   "]) {
+      const corrected = await correctAdrObject({
+        factSourceRoot: root,
+        objectUid: read.value.object_uid,
+        expectedFingerprint: read.value.fingerprint,
+        bodyMarkdownAfter: bodyWithBackground(draft, "无授权时的更正尝试。"),
+        changeSummary: "无授权",
+        humanAuthorization: auth,
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.equal(corrected.ok, false, `auth=${JSON.stringify(auth)} must be refused`);
+      assert.equal(corrected.error.code, "adr/human_authorization_required");
+    }
+    const read2 = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.equal(read2.value.fingerprint, read.value.fingerprint, "all refusals must leave zero write");
+  });
+});
+
+test("correct ④: 正文未变 → no-op 拒绝，不追加声称更正过的流水", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { read } = await createRetired(root);
+    // read.body carries the H1 (`# <title>`); body_markdown_after starts at
+    // `## 决策背景` (the H1 is regenerated from title by assembleBody).
+    const bodyOnly = read.value.body.replace(/^#\s.*\n+/, "");
+    // 提交与落盘正文完全相同的内容
+    const same = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: bodyOnly,
+      changeSummary: "声称改了但没改",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(same.ok, false);
+    assert.equal(same.error.code, "adr/no_op", JSON.stringify(same.error));
+
+    const withTrailing = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: `${bodyOnly}\n\n   `,
+      changeSummary: "只差尾随空白",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(withTrailing.ok, false, "trailing-whitespace-only difference is still a no-op");
+    assert.equal(withTrailing.error.code, "adr/no_op");
+
+    const read2 = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.equal(read2.value.fingerprint, read.value.fingerprint, "no-op refusals must leave zero write");
+  });
+});
+
+test("correct ⑤: CAS 基线不符 → cas_conflict 且零写入", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { draft, read } = await createRetired(root);
+    const corrected = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: "0".repeat(64),
+      bodyMarkdownAfter: bodyWithBackground(draft, "陈旧基线下的更正。"),
+      changeSummary: "陈旧指纹",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(corrected.ok, false);
+    assert.equal(corrected.error.code, "adr/cas_conflict");
+  });
+});
+
+test("correct ⑥: 正文结构破坏被拒绝（固定 H2 骨架仍适用）", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { read } = await createRetired(root);
+    const broken = read.value.body.replace("## 备选与理由", "## 备选");
+    const corrected = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: broken,
+      changeSummary: "破坏结构",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(corrected.ok, false);
+    assert.equal(corrected.error.code, "adr/body_invalid", JSON.stringify(corrected.error));
+  });
+});
+
+test("correct ⑦: 改掉决定段逐字行 → 载体内聚失败（decision 不许事后篡改）", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { read } = await createRetired(root);
+    const tampered = read.value.body.replace(/## 决定\n[^\n]*/, "## 决定\n改用另一套完全不同的方案。");
+    const corrected = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: tampered,
+      changeSummary: "试图改写决定",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(corrected.ok, false);
+    assert.equal(corrected.error.code, "adr/coherence_invalid", JSON.stringify(corrected.error));
+  });
+});
+
+test("correct ⑧: 把 read.body（含 H1）原样回传也能正常判定 no-op，不会拼出两个 H1", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { read } = await createRetired(root);
+    assert.ok(read.value.body.startsWith("# "), "read.body carries the H1 by contract");
+
+    // 直接回传 read.body：契约上 body_markdown_after 从 '## 决策背景' 起，
+    // 但调用方按直觉回传含 H1 的全文很常见。writer 剥掉与 title 逐字相同的
+    // 前置 H1 后应判为 no-op，而不是拼出双 H1 再报「首个 heading 非法」。
+    const same = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: read.value.body,
+      changeSummary: "原样回传",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(same.ok, false, "unchanged body must be a no-op, not a structural error");
+    assert.equal(same.error.code, "adr/no_op", JSON.stringify(same.error));
+
+    // 带 H1 的真实改动也应落地，且载体里只有一个 H1
+    const edited = read.value.body.replace("## 决策背景", "## 决策背景\n补写一行更正说明。");
+    const corrected = await correctAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: edited,
+      changeSummary: "补写更正说明",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(corrected.ok, JSON.stringify(corrected.error));
+    const read2 = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    const h1Count = (read2.value.body.match(/^# /gm) ?? []).length;
+    assert.equal(h1Count, 1, "the carrier must carry exactly one H1");
+    assert.ok(read2.value.body.includes("补写一行更正说明。"));
+    assert.equal(read2.value.body_valid, true);
   });
 });

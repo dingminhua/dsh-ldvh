@@ -11,9 +11,11 @@
 //     active-only by default (22 §12: retired stays out of ordinary
 //     candidates).
 //   - adr-write-object (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal incl. dedup result) and CAS update
+//     (after Human-confirmed proposal incl. dedup result), CAS update
 //     with change_log: active→active is errata-only (mechanically gated,
-//     22 §9.3), active→retired is the terminal transition.
+//     22 §9.3), active→retired is the terminal transition; and `correct`
+//     (22 §13), the terminal-record fact correction that fixes a wrong
+//     retired body without touching any frontmatter field.
 //
 // Authorities: specs/05 §6 (operation declaration + common envelope),
 // §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
@@ -25,6 +27,7 @@ import {
   createAdrObject,
   readAdrObject,
   updateAdrObject,
+  correctAdrObject,
   listAdrObjects,
 } from "./adr-writer.js";
 import { objectRef, objectRefOf } from "./object-reference.js";
@@ -49,7 +52,7 @@ const OPERATIONS = {
   "adr-write-object": {
     toolName: "ldvh_adr_write",
     writeShaped: true,
-    summary: "Controlled write of ADR fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; active→active is errata-only (decision/scope field-identical, 22 §9.3), active→retired is terminal (specs/03 §9.4–§9.5, specs/22 §13)",
+    summary: "Controlled write of ADR fact objects: create (after Human-confirmed proposal incl. dedup result), CAS update with change_log (active→active is errata-only — decision/scope field-identical, 22 §9.3; active→retired is terminal, specs/03 §9.4–§9.5), and correct — the 22 §13 terminal-record fact correction that rewrites a retired ADR's body while every frontmatter field (decision/scope/status/retirement_reason/relations/retired_at) is inherited verbatim; correct takes no frontmatter input at all, requires Human authorization and rejects no-op writes",
     effect: "may_change_state"
   }
 };
@@ -116,7 +119,7 @@ async function executeReadObject(args, exec, deps) {
     return invalidRequest("adr-read-object", "object_uid is required", null);
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const read = await readAdrObject({ factSourceRoot, objectUid });
+  const read = await readAdrObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
     // Distinguish "not found / bad uid shape" (rejected) from carrier-level
     // defects (unavailable — the object exists but cannot be consumed).
@@ -212,8 +215,8 @@ async function executeListObject(args, exec, deps) {
 
 async function executeWriteObject(args, exec, deps) {
   const action = args?.action;
-  if (action !== "create" && action !== "update") {
-    return invalidRequest("adr-write-object", `action must be create|update; got ${JSON.stringify(action)}`, action ?? null);
+  if (action !== "create" && action !== "update" && action !== "correct") {
+    return invalidRequest("adr-write-object", `action must be create|update|correct; got ${JSON.stringify(action)}`, action ?? null);
   }
   const governed = await governedProject(deps.dshHomePath, exec);
   if (!governed.ok) {
@@ -291,6 +294,79 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
+  if (action === "correct") {
+    // 22 §13 终态事实更正。**本分支刻意不读 frontmatter_after / frontmatter_removals**：
+    // 该入口结构性不接收 frontmatter 输入，decision/scope/status/retirement_reason/
+    // relations/retired_at 由 writer 从句盘对象逐字继承（22:171「ADR 不原地改写决策」）。
+    // 调用方传入这些参数不会有任何效果——不是「校验后拒绝」，是无路可达。
+    if (typeof args?.object_uid !== "string" || args.object_uid.length === 0) {
+      return invalidRequest("adr-write-object", "object_uid is required for action=correct", "correct");
+    }
+    if (typeof args?.expected_fingerprint !== "string" || args.expected_fingerprint.length === 0) {
+      return invalidRequest("adr-write-object", "expected_fingerprint is required for action=correct (CAS baseline — from your last precise read)", "correct");
+    }
+    if (typeof args?.body_markdown_after !== "string" || args.body_markdown_after.length === 0) {
+      return invalidRequest("adr-write-object", "body_markdown_after (the complete target body starting with '## 决策背景') is required for action=correct", "correct");
+    }
+    if (typeof args?.change_summary !== "string" || args.change_summary.length === 0) {
+      return invalidRequest("adr-write-object", "change_summary (one short semantic summary for the change_log) is required for action=correct", "correct");
+    }
+    const auth = args?.human_authorization;
+    if (typeof auth !== "string" || auth.trim().length === 0) {
+      return invalidRequest("adr-write-object", "human_authorization is required for action=correct (22 §13 终态事实更正：Human 确认；无授权记录的更正请求 fail-closed)", "correct");
+    }
+    // 22 §13 说 correct「不接收 frontmatter_after / frontmatter_removals」。schema 仍列出这两个
+    // 参数（update 需要它们，参数表按 operation 合并），因此必须**显式拒绝**而不是静默忽略：
+    // 忽略会让调用方以为字段改成了、实际被吞掉——那是「看起来生效其实没生效」，比直接报错危险。
+    for (const rejected of ["frontmatter_after", "frontmatter_removals"]) {
+      if (args?.[rejected] !== undefined) {
+        return invalidRequest(
+          "adr-write-object",
+          `${rejected} is not accepted by action=correct — 22 §13：终态事实更正结构性不接收任何 frontmatter 输入（decision/scope/status/retirement_reason/relations/retired_at 逐字继承落盘对象）。要改内容用 action=update；要改决策用新 ADR + superseded-by`,
+          "correct",
+        );
+      }
+    }
+    const corrected = await correctAdrObject({
+      factSourceRoot,
+      objectUid: args.object_uid,
+      expectedFingerprint: args.expected_fingerprint,
+      bodyMarkdownAfter: args.body_markdown_after,
+      changeSummary: args.change_summary,
+      humanAuthorization: auth,
+      sessionSignature: sig.ok ? sig.value : null,
+    });
+    if (!corrected.ok) {
+      return writeRejected("adr-write-object", corrected, factSourceRoot);
+    }
+    // 03 §9.4 item 5 / 22 §13：写后精确回读，与 create/update 同规格。
+    const back = await readAdrObject({ factSourceRoot, objectUid: args.object_uid });
+    if (!back.ok || back.value.fingerprint !== corrected.value.fingerprint) {
+      return envelope("adr-write-object", "partial", {
+        result: { object_uid: args.object_uid, fingerprint: corrected.value.fingerprint, read_back: "failed" },
+        scope: { requested: "correct", completed: ["correct"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
+        sources: [{ kind: "fact-object", path: join(factSourceRoot, "adrs") }],
+        gaps: [`corrected but read-back failed: ${back.ok ? "fingerprint mismatch" : back.error.message}`],
+        verification: { checks: ["correct"], passed: false },
+        follow_up: ["STOP further writes and success claims (03 §9.7); re-read the object before anything else"]
+      });
+    }
+    return envelope("adr-write-object", "completed", {
+      result: {
+        action: "correct",
+        object_uid: args.object_uid,
+        fingerprint: corrected.value.fingerprint,
+        read_back: { ok: true, fingerprint: back.value.fingerprint, body_valid: back.value.body_valid },
+        changes: [{ object_uid: args.object_uid, change: "corrected", summary: args.change_summary }]
+      },
+      scope: { requested: "correct", completed: ["correct", "read-back"], not_completed: [] },
+      sources: [{ kind: "fact-object", path: back.value.file, content_fingerprint: corrected.value.fingerprint }],
+      gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
+      verification: { checks: ["cas-baseline", "retired-required", "body-structure", "carrier-coherence", "no-op-rejection", "atomic-write", "read-back"], passed: true },
+      follow_up: ["the object stays retired — a correction never reopens a terminal record (22 §9.2); a decision change is still a NEW ADR + superseded-by"]
+    });
+  }
+
   // action === "update"
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
@@ -364,6 +440,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     "adr/relations_invalid", "adr/relation_target_unresolvable",
     "adr/initial_state_violation", "adr/status_transition_invalid", "adr/status_terminal",
     "adr/errata_boundary", "adr/cas_conflict", "adr/change_summary_required", "adr/invalid_uid",
+    "adr/human_authorization_required", "adr/correction_requires_retired", "adr/no_op",
     "invalid_request",
   ]);
   const outcome = mechanicalCodes.has(code) ? "rejected" : "unavailable";
@@ -377,10 +454,16 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     follow_up: code === "adr/cas_conflict"
       ? ["re-read the object (adr-read-object), reconcile the concurrent change, and retry with the fresh fingerprint"]
       : code === "adr/status_terminal"
-        ? ["retired ADRs are read-only (22 §9.2); decision changes go through a NEW ADR + superseded-by (or an absorbed-into edge when a Norm now carries the rule)"]
-        : code === "adr/errata_boundary"
-          ? ["decision/scope semantics changed — create a NEW ADR carrying the revision and retire this one via superseded-by (22 §9.3)"]
-          : ["fix the reported mechanical issues and retry; zero write has occurred"]
+        ? ["retired ADRs are read-only for update (22 §9.2); a wrong retired body goes through action=correct (22 §13); a decision change goes through a NEW ADR + superseded-by (or an absorbed-into edge when a Norm now carries the rule)"]
+        : code === "adr/correction_requires_retired"
+          ? ["action=correct applies only to status=retired; for an active ADR use action=update — its active→active lane is the errata channel (22 §9.3)"]
+          : code === "adr/human_authorization_required"
+            ? ["ask Human for the correction authorization, then retry with human_authorization carrying who/when/what it covers (22 §13)"]
+            : code === "adr/no_op"
+              ? ["the submitted body is identical to the stored one — nothing to correct; do not re-submit the same body"]
+              : code === "adr/errata_boundary"
+                ? ["decision/scope semantics changed — create a NEW ADR carrying the revision and retire this one via superseded-by (22 §9.3)"]
+                : ["fix the reported mechanical issues and retry; zero write has occurred"]
   });
 }
 
@@ -443,8 +526,8 @@ function parameterSchemaFor(operationKey) {
     properties: {
       title: { type: "string", description: "≤ 30 characters; decision-direction title for locating and Human scanning" },
       status: { type: "string", enum: ["active", "retired"], description: "create must be active; update may transition active→retired (terminal, read-only afterwards — 22 §9)" },
-      decision: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 决定 body section" },
-      scope: { type: "string", description: "applicability statement; must appear verbatim in the 适用范围 body section" },
+      decision: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 决定 body section (carrier coherence, 22 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
+      scope: { type: "string", description: "applicability statement; must appear verbatim in the 适用范围 body section (carrier coherence, 22 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       trigger_signal: { type: "string", description: "when to revisit this decision (e.g. 「当 X 出现时重审」); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the decision; when non-empty the body must carry a 证据 section" },
       relations: { type: "array", items: relationEntry, description: "relation target of the retirement; each key has cardinality 1 and must match the reason: superseded→superseded-by (target resolves to an ADR), absorbed→absorbed-into (target resolves to a Norm); only on retired, forbidden on active/outdated/out-of-scope/abolished (22 §9.1, §11)" },
@@ -459,7 +542,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          object_uid: { type: "string", description: "Canonical object_uid of the ADR object to read" }
+          object_uid: { type: "string", description: "Canonical object_uid of the ADR object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." }
         },
         required: ["object_uid"],
         additionalProperties: false
@@ -477,15 +560,16 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["create", "update"] },
+          action: { type: "string", enum: ["create", "update", "correct"] },
           frontmatter_draft: adrFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 决策背景' (H2 sections 决策背景/决定/备选与理由/后果/适用范围, plus 证据 iff urls non-empty; the H1 is generated from title)" },
-          object_uid: { type: "string", description: "update: target object" },
-          expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
-          frontmatter_after: (() => { const { required: _r, ...rest } = adrFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
-          frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
-          body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown)" },
-          change_summary: { type: "string", description: "update: the semantic summary for the change_log entry. For a retirement it carries the 22 §10 evidence statement and may run to several sentences; for other updates one or two sentences suffice. It remains a summary — never a copy of the object body." }
+          object_uid: { type: "string", description: "update/correct: target object" },
+          expected_fingerprint: { type: "string", description: "update/correct: CAS baseline fingerprint from your last precise read" },
+          frontmatter_after: (() => { const { required: _r, ...rest } = adrFrontmatter; return { ...rest, description: `update ONLY — action=correct REFUSES this parameter outright (22 §13: the correction entry structurally takes no frontmatter input, so every field is inherited verbatim from the on-disk object; passing it is an error, not a silent no-op). ${FRONTMATTER_AFTER_DESCRIPTION}` }; })(),
+          frontmatter_removals: { type: "array", items: { type: "string" }, description: `update ONLY — action=correct REFUSES this parameter outright (22 §13: 终态事实更正不接收也不删除任何 frontmatter 字段；传入即报错，不静默忽略). ${FRONTMATTER_REMOVALS_DESCRIPTION}` },
+          body_markdown_after: { type: "string", description: "update/correct: the complete target body markdown (same shape as body_markdown)" },
+          change_summary: { type: "string", description: "update/correct: the semantic summary for the change_log entry. For a retirement it carries the 22 §10 evidence statement and may run to several sentences; for other updates and for corrections one or two sentences suffice. It remains a summary — never a copy of the object body." },
+          human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a retired record. It is written verbatim into the change_log summary; a correction request without it fails closed (22 §13). NOTE: this field is a self-report — its presence and content are NOT proof that Human actually consented (the same boundary as 21 §14 and 26 §13 correct); the mechanical gate only guarantees the record was supplied." }
         },
         required: ["action"],
         additionalProperties: false

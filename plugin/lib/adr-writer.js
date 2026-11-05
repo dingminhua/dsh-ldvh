@@ -41,6 +41,8 @@ import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
 import { readNormObject } from "./norm-writer.js";
+import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
+import { carrierCoherenceMessage } from "./coherence-report.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/22 §7, §8, §9, §11)
@@ -400,7 +402,9 @@ export function validateCarrierCoherence(frontmatter, body) {
     const content = sectionContent(body, section);
     if (content === null) continue; // section presence checked in body structure
     if (!content.includes(text)) {
-      issues.push(`carrier coherence: ${section} section must contain ${field} verbatim (frontmatter is the single authoritative text): "${text.slice(0, 40)}…"`);
+      issues.push(carrierCoherenceMessage({
+        section, field, declared: text, actual: content, clause: "22 §8, §14.1",
+      }));
     }
   }
   return { ok: issues.length === 0, issues };
@@ -473,6 +477,31 @@ function assertValidUid(objectUid) {
 /** Assemble the file body: generated H1 + caller-provided markdown. */
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
+}
+
+/**
+ * 调用方常把 `read.body` 原样回传，而 read 的 body **含 H1**（它是完整载体正文），
+ * 而 writer 的入参契约是从 `## 决策背景` 开始的正文片段。直接交回 assembleBody
+ * 会拼出两个 H1，`validateAdrBodyStructure` 随即报「首个 heading 必须是 # <title>」
+ * ——错误信息指向症状而非病因，调用方会以为是 title 变了。这里主动剥掉「与 title
+ * 逐字相同的前置 H1」，使两种形态都可用。
+ *
+ * **只在 `correct` 路径调用（:871）**，`update`（:780）刻意不调用：update 是既有
+ * 通道、本单 scope 未授权改它的入参契约（复核据此指出原注释写「create/update/
+ * correct 同享」属表述过宽，实现并未越界）。若将来要统一，须单独授权。
+ *
+ * 只剥**恰好一个**、且必须与 title 逐字相同：title 不同则不动，交由结构校验
+ * 如实报错（不要静默改写一段本该被拒绝的输入）。
+ */
+function stripRedundantH1(bodyMarkdown, title) {
+  const text = bodyMarkdown.trim();
+  const h1 = `# ${title}`;
+  if (!text.startsWith(h1)) return bodyMarkdown;
+  const rest = text.slice(h1.length);
+  // 只有 H1 后面是空行或文末时才算「这就是那行标题」，避免把
+  // `# 标题A` 误当成 `# 标题` 的前缀剥掉。
+  if (rest.length > 0 && !/^\s*\n/.test(rest)) return bodyMarkdown;
+  return rest.replace(/^\s*\n/, "");
 }
 
 /** Count urls entries (0 when absent). */
@@ -565,11 +594,45 @@ export async function createAdrObject(args) {
 // Read (specs/03 §9.2 precise read-back)
 // ---------------------------------------------------------------------------
 
-export async function readAdrObject(args) {
-  const { factSourceRoot, objectUid } = args;
-  if (!assertValidUid(objectUid)) {
-    return failure("adr/invalid_uid", "objectUid must be a valid UUID");
+/**
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ *
+ * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `adr/invalid_uid`
+ * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
+ * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
+ */
+async function resolveAdrObjectUid(factSourceRoot, input, currentProjectId = null) {
+  const parsed = parseObjectIdentifier(input);
+  if (!parsed.ok) {
+    return { ok: false, error: failure("adr/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
   }
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
+  if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
+    return { ok: false, error: failure("adr/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
+  }
+  if (objectUid !== undefined) {
+    if (declaredType !== undefined && declaredType !== "adr") {
+      return { ok: false, error: failure("adr/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "adr" objects`) };
+    }
+    return { ok: true, objectUid };
+  }
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "adr" });
+  if (!resolved.ok) {
+    const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
+    return { ok: false, error: failure("adr/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`) };
+  }
+  if (resolved.value.factTypeKey !== "adr") {
+    return { ok: false, error: failure("adr/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "adr" objects`) };
+  }
+  return { ok: true, objectUid: resolved.value.objectUid };
+}
+
+export async function readAdrObject(args) {
+  const { factSourceRoot, objectUid: objectUidInput, currentProjectId = null } = args;
+  const uidResolution = await resolveAdrObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   const filePath = objectFilePath(factSourceRoot, objectUid);
 
   let content;
@@ -639,8 +702,9 @@ export async function updateAdrObject(args) {
     return failure("adr/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
 
-  // 22 §9.2: terminal states are read-only (终态不重开；错误终态记录按 05
-  // 事实更正修正，不是本入口的领域状态转换)
+  // 22 §9.2: terminal states are read-only for *update* (终态不重开). 错误终态
+  // 记录不走这里，而是走 22 §13 的 correct 入口（见本文件 correctAdrObject）
+  // ——那是事实更正而非状态转换，故不得在本入口承载。
   const prevStatus = current.value.frontmatter.status;
   if (prevStatus === "retired") {
     return failure("adr/status_terminal", "status=retired is terminal and the object is read-only (22 §9.2); decision changes go through a NEW ADR + superseded-by");
@@ -731,6 +795,116 @@ export async function updateAdrObject(args) {
   }
 
   // Atomic single-file write
+  const filePath = objectFilePath(factSourceRoot, objectUid);
+  const content = buildFileContent(fm, body);
+  await atomicWriteFile(filePath, content);
+
+  return success({ fingerprint: fileFingerprint(content) });
+}
+
+// ---------------------------------------------------------------------------
+// 终态事实更正 (22 §13 `correct`; specs/02 §10.5 事实更正与内容更新是不同动作)
+// ---------------------------------------------------------------------------
+
+/**
+ * Correct the BODY of a retired ADR: fix a wrong / oversized / factually
+ * incorrect record without touching the terminal judgment.
+ *
+ * Why this exists (22 §9.2): the spec says a wrong terminal record is fixed
+ * by 事实更正, not by a state transition — but until now `update` refused every
+ * `retired` object unconditionally, so that promise had no carrier at all.
+ *
+ * The shape follows 21 §14 `correct` (WorkCase), NOT 26 §13: **this entry
+ * takes no frontmatter input whatsoever**. decision / scope / status /
+ * retirement_reason / relations / retired_at are inherited verbatim from the
+ * on-disk object. That is a structural guarantee, not a checked one — the
+ * function has no parameter that could carry a field value, so "correcting
+ * the decision" is unreachable rather than forbidden (22:171 「ADR 不原地改写
+ * 决策」). It also means retired_at is NEVER re-stamped: the original
+ * retirement instant is part of the record.
+ *
+ * Body side: the fixed H2 skeleton, the conditional 证据 section and carrier
+ * coherence all still apply. Coherence ties 决定/适用范围 to the (unchanged)
+ * frontmatter texts, so those two sections' verbatim lines stay put while the
+ * surrounding narrative (决策背景 / 备选与理由 / 后果 / 证据) may be corrected.
+ */
+export async function correctAdrObject(args) {
+  const {
+    factSourceRoot, objectUid, expectedFingerprint,
+    bodyMarkdownAfter, changeSummary, humanAuthorization, sessionSignature = null,
+  } = args;
+  // 03 §6.1 / 09: a change_log entry is signed BY CODE and may not be written
+  // unsigned — same rule as create/update, no exception for corrections.
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+
+  if (!assertValidUid(objectUid)) {
+    return failure("adr/invalid_uid", "objectUid must be a valid UUID");
+  }
+  if (typeof changeSummary !== "string" || changeSummary.trim().length === 0) {
+    return failure("adr/change_summary_required", "changeSummary is required for correct (the change_log summary)");
+  }
+  // 22 §13: 更正与其它受控更新同权限——缺 Human 授权即 fail-closed。
+  // 如实声明边界：本字段是自报；机械层只保证「授权记录被提交」，不证明
+  // Human 真的同意过（与 21 §14 correct 同一道边界）。
+  if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
+    return failure(
+      "adr/human_authorization_required",
+      "humanAuthorization is required for action=correct (22 §13 终态事实更正：Human 确认；无授权记录的更正请求 fail-closed)",
+    );
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return failure("invalid_request", "bodyMarkdownAfter is required (the complete target body starting with '## 决策背景')");
+  }
+
+  const current = await readAdrObject({ factSourceRoot, objectUid });
+  if (!current.ok) return current;
+
+  if (current.value.fingerprint !== expectedFingerprint) {
+    return failure("adr/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
+  }
+
+  // 入口只对 retired 开放 (22 §13)。draft/active 的内容修正走既有 update：
+  // 把内容更新路由到本入口，就是「把内容更新伪装成事实更正」的反向越界。
+  const fm = structuredClone(current.value.frontmatter);
+  if (fm.status !== "retired") {
+    return failure(
+      "adr/correction_requires_retired",
+      `action=correct applies to status=retired only; this object is ${JSON.stringify(fm.status)}. `
+      + "active 的内容修正走 update 的勘误通道（22 §9.3）；本入口不得承载内容更新",
+    );
+  }
+
+  const body = assembleBody(fm.title, stripRedundantH1(bodyMarkdownAfter, fm.title));
+  const bodyCheck = validateAdrBodyStructure(body, fm.title, urlsCount(fm));
+  if (!bodyCheck.ok) {
+    return failure("adr/body_invalid", "corrected body failed structure checks", { issues: bodyCheck.issues });
+  }
+  const coherenceCheck = validateCarrierCoherence(fm, body);
+  if (!coherenceCheck.ok) {
+    return failure("adr/coherence_invalid", "carrier coherence failed on correction", { issues: coherenceCheck.issues });
+  }
+
+  // no-op 拒绝 (02 §10.5 不记录 no-op)：正文未变时不得追加一条声称更正过的
+  // change_log——那会在记录历史里留下「改过但其实没改」的假流水。比对去尾随
+  // 空白：落盘内容末尾恒有一个换行，直接比对会把每次调用都当成有改动。
+  const trimEnd = (text) => text.replace(/\s+$/, "");
+  if (trimEnd(body) === trimEnd(current.value.body)) {
+    return failure(
+      "adr/no_op",
+      "correction would not change the body — 02 §10.5 不记录 no-op；refusing to append a change_log entry that claims a correction happened",
+    );
+  }
+
+  // 恰好一条 change_log；授权文本逐字留痕，与 21/26 的 correct 同措辞形态，
+  // 使读者一眼分辨这是「终态事实更正」而非一次状态推进。
+  const prevLog = Array.isArray(fm.change_log) ? fm.change_log : [];
+  fm.change_log = [...prevLog, {
+    at: new Date().toISOString(),
+    ...sig.signature,
+    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/decision/scope/retirement_reason/relations/retired_at 逐字继承落盘对象，本入口不接收任何 frontmatter 字段（22 §13）；可改范围仅为正文叙述段，决定段与适用范围段的逐字行不变。经 Human 授权：${humanAuthorization.trim()}`,
+  }];
+
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);

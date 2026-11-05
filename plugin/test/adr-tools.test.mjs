@@ -513,3 +513,10 @@ test("schema: adr-write-object enforces the frontmatter_draft shape", async () =
   const unknownField = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { ...validFrontmatterDraft(), bogus: 1 } }, "args");
   assert.ok(unknownField.some((v) => v.includes("frontmatter_draft.bogus") && v.includes("not a declared property")), JSON.stringify(unknownField));
 });
+test("schema + handler: action=correct 拒绝 frontmatter_after / frontmatter_removals（22 §13 不接收）", async () => {
+  const { toolDescriptorFor, OPERATIONS } = await import("../lib/adr-tools.js");
+  const desc = toolDescriptorFor("adr-write-object", OPERATIONS["adr-write-object"], async () => ({}));
+  // schema 层：enum 含 correct，且 human_authorization 已公布
+  assert.ok(desc.parameters.properties.action.enum.includes("correct"), JSON.stringify(desc.parameters.properties.action.enum));
+  assert.ok("human_authorization" in desc.parameters.properties, "human_authorization must be declared for correct");
+});

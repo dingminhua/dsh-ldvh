@@ -168,13 +168,15 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 
 `abolished` 的适用边界（否定式判据）：**不得用它撤下仍在独立承担约束、且没有其它承载继续承担该约束的决策**。是否「另有承载」以 §10 的据实说明为准；说明中列不出任何继续承担该约束的既有承载时，该决策不属于 `abolished` 的适用对象——其内容仍须由某条 active 决策或某方向 Norm 承担（走 `superseded` / `absorbed`），确实已随前提变化而失效的走 `outdated`，适用范围已整体移出项目的走 `out-of-scope`。本条界线不新增机械门禁：`abolished` 与这三者的分界只能由 Human 决定与 AI 据实说明判定，机械层只校验闭集、字段与关系形态。
 
-终态不重开。决策要再变更时创建新 ADR；错误的终态记录按 05 的事实更正规则修正，不伪装成状态转换。决策语义的任何实质修订 = 新 ADR + 旧 ADR retired（superseded）——ADR 不原地改写决策（决策记录的可信度依赖「当时的决定不被事后篡改」）。**决策向规范的迁移不是实质修订**：`absorbed` 要求 decision 与 scope 逐字不变，改变的是承载其约束力的对象，不是决定本身；一旦迁移时决策内容也要变，仍走新 ADR + 旧 ADR retired（superseded）。
+终态不重开。决策要再变更时创建新 ADR；错误的终态记录按**本条 §13 的「终态事实更正」**修正，不伪装成状态转换（该动作的通用纪律见 02 §10.5，但**可更正到什么范围由本类型自己的 §13 条目定义**——02 §10.5 只承载 CAS 更新与更正的共用发布不变量，不承载任何类型的终态更正正文规则）。决策语义的任何实质修订 = 新 ADR + 旧 ADR retired（superseded）——ADR 不原地改写决策（决策记录的可信度依赖「当时的决定不被事后篡改」）。**决策向规范的迁移不是实质修订**：`absorbed` 要求 decision 与 scope 逐字不变，改变的是承载其约束力的对象，不是决定本身；一旦迁移时决策内容也要变，仍走新 ADR + 旧 ADR retired（superseded）。
 
 ### 9.3 勘误级更新
 
 正文错别字、引用路径修正、表述澄清（不改变决策语义与适用范围判断）走 02 §10.5 受控更新，change_log 留痕并注明勘误性质。判断标准：更新后的 decision/scope 逐字段不变（机械可比对）——变了就不是勘误，走替代路径。
 
 机械比对只覆盖 decision/scope 两个字段，正文其余段落（决策背景、备选与理由、后果、适用范围展开、证据）的语义不变性是 AI 审核义务而非机械保证：勘误提交方必须确认更新不改变任何段的实质语义；存疑时一律走替代路径（新 ADR + 旧 retired），不得以「字段未变」为由放行实质性改写。
+
+**本入口只对 `active` 开放**（`active → active`）。`retired` 对象的正文更正**不走本入口，走 §13 的「终态事实更正」**——两者不是同一动作的两种叫法，差别在可改范围与前置：勘误级更新接收完整 `frontmatter_after`（故必须机械证明 decision/scope 未变，靠 §14.1 的勘误边界校验），而终态事实更正**结构性不接收任何 frontmatter 输入**（decision/scope 无路可达，不靠校验拦）。把终态更正路由到本入口，等于要求调用方先提交一份必须与基线逐字相同的 decision/scope——那不但做不到「修正错述」，还会让调用方以为字段可写；反之把 `active` 的内容更新路由到 §13 入口，则是把内容更新伪装成事实更正，两条都是越界。
 
 ## 10. 来源与证据
 
@@ -226,6 +228,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 - **创建**：AI 产出提案对象（含查重结论与完整四要素），Human 确认后经受控创建入口落盘——典型入口是主控方案收敛的分流（04 §6.1；已定决策→ADR），Human 直接裁定后记录是第二入口。机械校验：字段闭集合法、decision 单句、title ≤ 30 字、urls 形状、载体结构（H2 固定序 + urls 非空时「证据」段必在）、载体内聚（decision/scope 逐字）。创建后精确回读。
 - **勘误级更新**：02 §10.5 受控更新；CAS 以完整文件为单位；每次恰好一条 change_log（注明勘误性质）；decision/scope 逐字段不变（机械比对，变了拒绝——走替代路径）。
 - **终态流转（retired）**：Human Gate；AI 先精确读取 F3，核对 retirement_reason 与证据；superseded 时校验替代者 ADR 存在可解析，absorbed 时校验承接它的 Norm 存在可解析；**outdated / out-of-scope / abolished 无去向要求**——不得带 relations，且理由须据实可述（§10）并在说明中交代前提变化或被废除记录的影响承载；Code 检查闭集、字段、关系、CAS 与回读。**§10 的据实说明落在本次流转的 `change_log.summary` 上**：Code 原样保留；该流水仍是一条语义摘要（不复制完整正文或完整 diff，02 §7.1 的公共字段语义不变），篇幅随据实交代承载所需，不设一句话上限。
+- **终态事实更正**（`correct`；Human 决定 2026-11-04 建立）：**非状态转换**，是 §9.2「错误的终态记录按事实更正修正」这一承诺的受控入口。触发形态：`retired` 记录的**正文**本身有缺陷（错述、超限引用、与事实不符的叙述），而 `status` 与 `retirement_reason`/`relations`/`retired_at` 所载的判定不变。**入口只对 `status = retired` 开放**：`active` 的内容修正走 §9.3 勘误级更新，把内容更新路由到本入口即「把内容更新伪装成事实更正」的反向越界（§9.3 末段）。**必须 Human 授权**：调用方须提供非空 `human_authorization`，其文本**逐字**落入 `change_log`（更正与其它受控更新同权限，02 §10.5）；缺授权即拒绝，不得以「格式治理」名义批量绕过。**如实声明边界**：该字段是自报，机械层只保证「授权记录被提交」，**不证明** Human 真的同意过。**无字段写入能力**：入口**不接收 `frontmatter_after`，也不接收 `frontmatter_removals`**——`decision`/`scope`/`status`/`retirement_reason`/`relations`/`retired_at` 逐字继承落盘对象，`change_log` 追加**恰好一条**，摘要沿用「事实更正（非状态转换）——」前缀。这是**结构性保证而非校验结果**：入口没有可承载字段值的参数，故「改写决策」不是被拒绝，而是无路可达（§9.2「ADR 不原地改写决策」）。**正文可改范围**：固定 H2 骨架与载体内聚仍然适用——「决定」段须逐字保留 `decision`、「适用范围」段须逐字保留 `scope`，故这两段的逐字行不可动；可更正的是决策背景、备选与理由、后果、证据等叙述段。**无写入变更即拒绝**：提交正文与落盘正文相同（含仅尾随空行差异）时拒绝为 no-op，不追加声称更正过的条目（02 §10.5 不记录 no-op）。**入参的两种等价形态**：`body_markdown_after` 的规范形态是从 `## 决策背景` 起的正文片段（H1 由 title 生成）；若调用方把精确读取返回的 `body`（含 `# <title>` 那一行）原样回传，Code 在拼装前剥掉**与 title 逐字相同的那一个前置 H1**，再走同一套结构校验——两种形态等价，不会拼出双 H1。剥除只对「与 title 逐字相同」的行生效；title 不同则不动，交由结构校验如实报错（不静默改写一段本该被拒绝的输入）。**机械拒绝的越权动作**：任何 frontmatter 改动（无通道）、非终态对象（`correction_requires_retired`）、缺 Human 授权（`human_authorization_required`）、缺变更摘要（`change_summary_required`）、陈旧指纹（`cas_conflict`）。写后精确回读。**本条机械保证范围**：只证明「该次写入带 Human 授权、只改正文、终态字段逐字未变、恰好一条 change_log」；**不证明**更正内容正确、更正确有必要或正文缺陷已实质消除——那属 AI 语义审核与 Human 阅读（04 §6）。**残留（如实登记）**：本入口只覆盖**正文**；`superseded-by`/`absorbed-into` 的**目标写错**属「改终态判定」，不由本入口承载，目前无通道，须另行裁定。
 - **删除**：不存在删除操作。retired ADR 随 `ldvh-base/adrs/` 保留为历史基线。
 
 ## 14. 类型特有验证与类型退出
@@ -237,7 +240,8 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 - 证据段条件：`urls` 非空 ⇒ 正文「证据」段存在（二元可判定：frontmatter 数组长度 > 0 与 H2 存在性）；
 - 勘误边界：更新的 decision/scope 与 CAS 基线逐字段一致（防语义变更伪装勘误）；正文其余段的语义不变性是 AI 审核义务（§9.3），不在机械层；
 - 终态完整性：retired 必有 reason + retired_at；superseded 必有且恰有一条 superseded-by 且目标可解析，absorbed 必有且恰有一条 absorbed-into 且目标可解析；`outdated` / `out-of-scope` / `abolished` 无去向要求——不得带关系，理由的据实性由 §10 承担（语义判断，不在机械层）；
-- 状态-关系不变量：active 不得带终态字段与关系；`outdated` / `out-of-scope` / `abolished` 的 retired 不得带关系；每一条关系键都须与其理由对应（superseded→superseded-by、absorbed→absorbed-into），交叉错配拒绝。
+- 状态-关系不变量：active 不得带终态字段与关系；`outdated` / `out-of-scope` / `abolished` 的 retired 不得带关系；每一条关系键都须与其理由对应（superseded→superseded-by、absorbed→absorbed-into），交叉错配拒绝；
+- 终态事实更正边界（§13 的 `correct`）：对象为 `retired`；带非空 `human_authorization` 与 `change_summary`；提交正文与落盘正文不同（no-op 拒绝）；**终态字段逐字未变**——`decision`/`scope`/`status`/`retirement_reason`/`relations`/`retired_at` 与 CAS 基线逐字段一致，且 `frontmatter_after`/`frontmatter_removals` 两参数**不被入口接收**（结构性不可达，不是「校验后拒绝」）；正文固定 H2 骨架与载体内聚仍须通过（故「决定」段与「适用范围」段的逐字行不可改）；`change_log` 恰好 +1 且带授权文本。
 
 ### 14.2 存量对象迁移
 
@@ -253,7 +257,8 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 |---|---|---|---|---|---|---|
 | 载体结构 | 创建、更新或精确读取时 | H1 恰好一个且与 title 一致、正文自 H2 起、H2 固定序完整、各段非空 | 当前载体与本文 §8 | 机械（结构解析） | 当次载体结构合法性 | 拒绝创建/更新；修复后重走 |
 | 载体内聚 | 创建与更新时 | decision/scope 在正文对应段逐字出现 | frontmatter 与正文对照 | 机械（逐字比对） | 索引与主体一致性 | 拒绝；补齐后重走 |
-| 勘误边界 | 更新时 | decision/scope 与 CAS 基线逐字段一致 | 更新前后 frontmatter 对照 | 机械（字段比对） | 当次更新的勘误性质 | 拒绝；语义变更走替代路径 |
+| 勘误边界 | 更新时（仅 `active` 勘误级更新） | decision/scope 与 CAS 基线逐字段一致 | 更新前后 frontmatter 对照 | 机械（字段比对） | 当次更新的勘误性质；**不覆盖**终态更正（见下行） | 拒绝；语义变更走替代路径 |
+| 终态事实更正边界 | 每次 `correct` 写入前 | 对象为 `retired`；带非空 Human 授权与变更摘要；提交正文与落盘正文不同；终态字段逐字未变 | 对象全文 + 写入前后 frontmatter 比对 + `change_log` 条数 | 机械（状态检查、必填项、正文比对、CAS、写后回读 + 逐字字段比对） | 该次写入只改正文、`status`/`decision`/`scope`/`retirement_reason`/`relations`/`retired_at` 逐字未变、`change_log` 恰好 +1 且带授权文本；**不证明**更正内容正确、更正确有必要或缺陷已实质消除 | 拒绝且零写入；正文缺陷须实质消除后重走 |
 | 查重已执行 | 创建时 | 创建提案含查重结论 | 提案记录 | AI 语义审核 | 当次查重范围 | 补查重后重走创建 |
 | 终态完整性 | 终态流转时 | reason/retired_at 齐备；superseded / absorbed 时对应关系键齐备且目标可解析；outdated / out-of-scope / abolished 时不带关系 | 对象全文与目标读取结果 | 机械（字段+关系校验） | 当次终态机械范围 | 拒绝流转；补齐后重走 |
 | 决策语义质量 | 创建与终态时 | decision 可判定、备选与理由据实、scope 边界明确 | Human 确认记录 | AI 语义审核 + Human 终审 | 当次决策记录质量 | 拒绝或退回修订 |
@@ -280,8 +285,9 @@ Human 决定只证明决定及其作用范围，不替代查重判断、载体�
 2. decision 为空或不可读、scope 缺失；
 3. 准备以更新改写 decision/scope 语义（勘误边界违例）；
 4. 终态流转存在 retirement_reason 缺口，或 superseded / absorbed 的去向缺口（不带对应关系键），或 superseded-by / absorbed-into 目标不可解析；
-5. AI 未经 Human 确认直接创建或流转（授权缺失）；
-6. 装配/预检消费时 ADR 状态与引用不一致（引用了 retired 决策为现行依据；仅溯源或沿革性引用除外，见 §9.2）。
+5. AI 未经 Human 确认直接创建、流转或**做终态事实更正**（授权缺失）；
+6. 装配/预检消费时 ADR 状态与引用不一致（引用了 retired 决策为现行依据；仅溯源或沿革性引用除外，见 §9.2）；
+7. 拟更正的正文缺陷落在「决定」段或「适用范围」段的逐字行上（载体内聚不允许改动 `decision`/`scope` 的权威文本）：这不是可更正的错述，而是**决策语义变更**——须走新 ADR + 旧 retired（`superseded`），不得以更正名义改写；同理，拟借更正改动 `retirement_reason` / `relations` / `retired_at` 时一律停止，该入口无此通道（§13 已登记该残留）。
 
 暂停期间只允许不越过停止边界的证据补取、引用修复、授权补走与条件核实。恢复须与触发原因逐项对应；同一停止条件恢复后再次触发的，按 00 §5.7 的恢复与再次触发进入 Human Gate。
 
@@ -290,6 +296,6 @@ Human 决定只证明决定及其作用范围，不替代查重判断、载体�
 1. 不设 `context`/`alternatives` frontmatter 字段——分析主体住正文，frontmatter 只留薄索引（`trigger_signal` 是短句信号非分析叙述，条件字段不违本线）；
 2. 不设 `priority`、`tags`、`confidence` 类装饰字段——决策的重要性由消费点引用体现；
 3. 不建 `supersedes` / `absorbs` 正向键 + 目录扫描校验——`superseded-by` 与 `absorbed-into` 均为旧→新的单向，终态校验按目标 `fact_type_key` 直读对应载体，只查本对象与目标；
-4. 不为「决策微调」开第二个更新通道——勘误级（逐字段不变）与替代（新对象）两路覆盖全部变更语义；
+4. 不为「决策微调」开第二个更新通道——勘误级（逐字段不变）与替代（新对象）两路覆盖全部**变更语义**；§13 的「终态事实更正」**不是第三个更新通道**：按 02 §11，事实更正与内容更新是不同动作，它不承载任何变更语义（decision/scope 结构性不可达、不新增不删除字段），只修正已落盘记录中的错述，故不落入本线所禁的「为微调开第二通道」（本线与 §13 的关系在 2026-11-04 建立该入口时一并写明，避免读者以为红线被破）；
 5. 不建决策族谱索引或时间线投影——谱系由 superseded-by 链、absorbed-into 边与 Web 派生呈现承载，不写回对象；反查 Norm 承接了哪些 ADR 同样由派生索引承担，不在 Norm 侧加反向字段；
 6. 不把 ADR 变成规则源——决策被承接为可强制执行规则时由规范源承载（00 §3.2），ADR 保持记录身份，`absorbed` 是这一让渡关系的记录方式而非把 ADR 升格为规范；
