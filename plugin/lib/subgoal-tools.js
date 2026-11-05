@@ -125,7 +125,7 @@ async function executeReadObject(args, exec, deps) {
     return invalidRequest("subgoal-read-object", "object_uid is required", null);
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const read = await readSubGoalObject({ factSourceRoot, objectUid });
+  const read = await readSubGoalObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
     const rejectedCodes = new Set(["subgoal/invalid_uid", "subgoal/not_found"]);
     const outcome = rejectedCodes.has(read.error.code) ? "rejected" : "unavailable";
@@ -594,7 +594,7 @@ function parameterSchemaFor(operationKey) {
       order: { type: "integer", description: "optional display order (28 §8): positive integer, may be omitted, need not be unique or contiguous; it carries NO reference duty, so it may be changed freely at any time" },
       parent_goal: { type: "string", enum: ["project-goal"], description: "the goal key this sub-goal serves; must match the goal carrier's goal_key (28 §8)" },
       status: { type: "string", enum: ["active", "achieved", "retired"], description: "create must be active (28 §9.2 — the only legal initial state); update may transition active→achieved or active→retired, both terminal and read-only afterwards" },
-      criterion: { type: "string", description: "the decidable achievement condition — one sentence stating WHAT MATERIAL must appear for this sub-goal to count as achieved (28 §8/§10.2). 'Complete workcase X' / 'close N workcases' is NOT a criterion (28 §6.3)" },
+      criterion: { type: "string", description: "the decidable achievement condition — one sentence stating WHAT MATERIAL must appear for this sub-goal to count as achieved (28 §8/§10.2). This statement must appear VERBATIM in the 达成条件 body section (carrier coherence, 28 §8 字段间不变量 1; frontmatter is the single authoritative text — the body only expands it). 'Complete workcase X' / 'close N workcases' is NOT a criterion (28 §6.3)" },
       criterion_kind: { type: "string", enum: ["metric", "closure-records", "executable-check"], description: "how the criterion is proven (28 §10.2): metric = an observable value reaches a threshold; closure-records = a chain of closing records constitutes the material; executable-check = a reproducible check passes. This makes 'how would we prove it' a required answer at creation — it does NOT make the criterion decidable by itself" },
       alignment: { type: "string", description: "why this sub-goal serves the goal statement — must point at specific content of the goal statement, not a generic phrase (28 §8; red line 7). Non-empty is mechanically checkable; whether it is TRUE is a semantic judgement (28 §15)" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=retired, forbidden otherwise (28 §8)" },
@@ -611,7 +611,7 @@ function parameterSchemaFor(operationKey) {
   if (operationKey === "subgoal-read-object") {
     return {
       type: "object",
-      properties: { object_uid: { type: "string", description: "Canonical object_uid of the SubGoal object to read" } },
+      properties: { object_uid: { type: "string", description: "Canonical object_uid of the SubGoal object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." } },
       required: ["object_uid"],
       additionalProperties: false
     };

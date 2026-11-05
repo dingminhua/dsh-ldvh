@@ -129,7 +129,7 @@ async function executeReadObject(args, exec, deps) {
     return invalidRequest("friction-read-object", "object_uid is required", null);
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const read = await readFrictionObject({ factSourceRoot, objectUid });
+  const read = await readFrictionObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
     // Distinguish "not found / bad uid shape" (rejected) from carrier-level
     // defects (unavailable — the object exists but cannot be consumed).
@@ -543,7 +543,7 @@ function parameterSchemaFor(operationKey) {
     properties: {
       title: { type: "string", description: "≤ 30 characters; obstacle short title for locating and Human scanning" },
       status: { type: "string", enum: ["open", "resolved", "voided", "accepted"], description: "create must be open (26 §9 2026-10 修订：观察态已退出闭集，账目初态即待修态); transitions: →resolved (informs 1..n), →voided (no relations, requires disposition), →accepted (no informs, requires non-empty disposition and a 处置 section; the 复审触发 inside it is AI/Human-verified, not machine-checked — 26 §15 内容项); resolved/voided/accepted terminal & read-only. 机械通道不改变任何既有账目的状态——阈值晋升只发生在观察缓冲侧 (11 §12bis.1)" },
-      phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section" },
+      phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section (carrier coherence, 26 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; free text — the root is often a spec/tool/process with no object identity; omit when not yet attributable (backfill via supplement update)" },
       // 26 §8/§11（2026-10 订正）：规范形态是对象 { object_uid }（锚点型，与
       // relations 的 target 同一承载）；裸 string 保留为存量兼容分支，排名在
@@ -575,7 +575,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          object_uid: { type: "string", description: "Canonical object_uid of the Friction object to read" }
+          object_uid: { type: "string", description: "Canonical object_uid of the Friction object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." }
         },
         required: ["object_uid"],
         additionalProperties: false

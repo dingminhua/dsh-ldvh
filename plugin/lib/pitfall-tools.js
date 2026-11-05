@@ -117,7 +117,7 @@ async function executeReadObject(args, exec, deps) {
     return invalidRequest("pitfall-read-object", "object_uid is required", null);
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const read = await readPitfallObject({ factSourceRoot, objectUid });
+  const read = await readPitfallObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
     // Distinguish "not found / bad uid shape" (rejected) from carrier-level
     // defects (unavailable — the object exists but cannot be consumed).
@@ -433,7 +433,7 @@ function parameterSchemaFor(operationKey) {
     properties: {
       title: { type: "string", description: "≤ 30 characters; failure-mechanism short title (highlight the platform when environment-specific)" },
       status: { type: "string", enum: ["active", "discarded"], description: "**REQUIRED on create — there is no default; omitting it is rejected with pitfall/status_required.** create: status=active is the only initial state (23 §13 — both the Human entry and the 11 §10.2 mechanical channel create active; the draft candidate state was cancelled 2026-11-03); update: the only legal transition is active→discarded (terminal, read-only afterwards) — 23 §9/§13" },
-      scope: { type: "string", description: "impact & applicability statement; must appear verbatim in the 影响与适用范围 body section" },
+      scope: { type: "string", description: "impact & applicability statement; must appear verbatim in the 影响与适用范围 body section (carrier coherence, 23 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       trigger_signal: { type: "string", description: "when to re-examine this experience (dependency version change, environment migration, etc.); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the experience; when non-empty the body must carry a 证据 section" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=discarded, forbidden while active (23 §8)" },
@@ -447,7 +447,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          object_uid: { type: "string", description: "Canonical object_uid of the Pitfall object to read" }
+          object_uid: { type: "string", description: "Canonical object_uid of the Pitfall object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." }
         },
         required: ["object_uid"],
         additionalProperties: false

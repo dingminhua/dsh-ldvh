@@ -130,7 +130,7 @@ async function executeReadObject(args, exec, deps) {
     return invalidRequest("norm-read-object", "object_uid is required", null);
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const read = await readNormObject({ factSourceRoot, objectUid });
+  const read = await readNormObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
     // Distinguish "not found / bad uid shape" (rejected) from carrier-level
     // defects (unavailable — the object exists but cannot be consumed).
@@ -507,7 +507,7 @@ function parameterSchemaFor(operationKey) {
     properties: {
       title: { type: "string", description: "≤ 40 characters; direction-spec short title for locating and Human scanning (27 §8)" },
       status: { type: "string", enum: ["active", "retired"], description: "create must be active (27 §8.1 — the only legal initial state); update may transition active→retired (terminal, read-only afterwards)" },
-      direction_key: { type: "string", description: "lowercase kebab-case direction key matching ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$ (01.Att.02 §2 identifier format); at most one ACTIVE Norm per direction_key (27 §11). Immutable across updates — direction drift is a retire+create path, not an update" },
+      direction_key: { type: "string", description: "lowercase kebab-case direction key matching ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$ (01.Att.02 §2 identifier format); at most one ACTIVE Norm per direction_key (27 §11). Immutable across updates — direction drift is a retire+create path, not an update. Carrier coherence (27 §7): this type's body is rule prose, not a projection of any frontmatter scalar, so the body is NOT required to reproduce direction_key verbatim. The only mechanical coherence check is the converse — if the body declares a direction_key in text, it must match this field; a mismatch is rejected" },
       retirement_reason: { type: "string", enum: ["superseded", "outdated", "out-of-scope"], description: "required iff status=retired, forbidden while active (27 §8/§8.1)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
@@ -522,7 +522,7 @@ function parameterSchemaFor(operationKey) {
   if (operationKey === "norm-read-object") {
     return {
       type: "object",
-      properties: { object_uid: { type: "string", description: "Canonical object_uid of the Norm object to read" } },
+      properties: { object_uid: { type: "string", description: "Canonical object_uid of the Norm object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." } },
       required: ["object_uid"],
       additionalProperties: false
     };

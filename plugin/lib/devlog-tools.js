@@ -145,7 +145,7 @@ async function executeReadObject(args, exec, deps) {
     return invalidRequest("devlog-read-object", "object_uid is required", null);
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const read = await readDevLogObject({ factSourceRoot, objectUid });
+  const read = await readDevLogObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
     const rejectedCodes = new Set(["devlog/invalid_uid", "devlog/not_found"]);
     const outcome = rejectedCodes.has(read.error.code) ? "rejected" : "unavailable";
@@ -572,7 +572,7 @@ function parameterSchemaFor(operationKey) {
       title: { type: "string", description: "≤ 40 characters; entry short title for locating and Human scanning — does NOT carry the conclusion (29 §8)" },
       status: { type: "string", enum: ["active", "absorbed", "superseded", "dropped"], description: "create must be active (29 §9.2 — the only legal initial state); update may transition active→absorbed/superseded/dropped, all terminal and read-only afterwards" },
       occurred_at: { type: "string", description: "RFC3339 — WHEN THE WORK HAPPENED, not when the entry was written (29 §10.4). Required; must not be later than created_at. Using the recording time here is a defect the mechanical layer cannot detect (29 §15)" },
-      summary: { type: "string", description: "当前语义快照 (29 §8/§9.3): the conclusion itself + its current applicability boundary + confirmed non-holds. Must appear VERBATIM in the 结论与边界 body section (carrier coherence). A 细化档 update (boundary/number refinement, conclusion unchanged) is a supplement-level write; a 替换档 one (loosening/tightening/replacing the conclusion) additionally needs Human confirmation — Code does NOT judge which one it is (29 §15)" },
+      summary: { type: "string", description: "当前语义快照 (29 §8/§9.3): the conclusion itself + its current applicability boundary + confirmed non-holds. Must appear VERBATIM in the 结论与边界 body section (carrier coherence, 29 §8 字段间不变量 1; frontmatter is the single authoritative text — the body only expands it). A 细化档 update (boundary/number refinement, conclusion unchanged) is a supplement-level write; a 替换档 one (loosening/tightening/replacing the conclusion) additionally needs Human confirmation — Code does NOT judge which one it is (29 §15)" },
       serves: { type: "string", description: "optional SubGoal object_uid (canonical UUIDv4); must resolve to an active|achieved SubGoal (28 §12.3). Omit when not applicable — an entry without serves has an empty topic and the presentation layer must say so (29 §8.1)" },
       refs: { type: "array", items: { type: "object" }, description: "关联的事实对象引用（29 §8 / §12.3bis；采用面扩展经 Human 决定，02 §8.2）: array of {object_uid} — 目标须为同项目存在且可读的事实对象（**不校验目标状态**——关联是历史事实），上限 10 项，禁重复、禁携带目标标题或关系解释；**只载内容关联**，生命周期关系走 relations、外部资料走 urls、载体内部锚点走 serves；解析失败零写入拒绝，不得降级为空数组；不存在时省略（空数组会伪造一个条件字段）" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=dropped, forbidden otherwise (29 §8)" },
@@ -590,7 +590,7 @@ function parameterSchemaFor(operationKey) {
   if (operationKey === "devlog-read-object") {
     return {
       type: "object",
-      properties: { object_uid: { type: "string", description: "Canonical object_uid of the DevLog object to read" } },
+      properties: { object_uid: { type: "string", description: "Canonical object_uid of the DevLog object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." } },
       required: ["object_uid"],
       additionalProperties: false
     };
