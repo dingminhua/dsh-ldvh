@@ -69,13 +69,19 @@ test('refs project into factRefs without merging into relations', async () => {
     // refs 走独立字段 factRefs：可解析目标带定位与标题，不可解析目标保留条目。
     const refs = result.data.factRefs as Array<Record<string, unknown>>;
     assert.equal(refs.length, 2);
+    // `target` 为必填（2026-11-04 类型收敛，修 spark-b0e805d1 缺陷②）：refs 与
+    // relations 走同一形状，使下游去重不再依赖「refs 恰好没有 target」这一偶然
+    // 事实。顶层 `objectUid` 保留（详情页按它归一），两者是同一权威 UID。
     assert.deepEqual(refs[0], {
       objectUid: SPARK_UID,
+      target: { objectUid: SPARK_UID },
       available: true,
       resolvedTarget: { governedProjectId: 'fixture', factTypeKey: 'research', objectId: `research-${SPARK_UID}` },
       title: 'Study fixture',
       status: 'active',
     });
+    // 不可解析目标同样携带 `target`——「没有目标」不再是一个合法状态。
+    assert.deepEqual(refs[1].target, { objectUid: MISSING_UID });
     assert.equal(refs[1].objectUid, MISSING_UID);
     assert.equal(refs[1].available, false);
     assert.equal('title' in refs[1], false);
