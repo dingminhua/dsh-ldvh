@@ -32,7 +32,9 @@ import { readFile } from "node:fs/promises";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
-import { registerWorkcaseTools, pickReviewSummary, anchorConclusionExcerpt, AUDIT_THREE_LABELS } from "../lib/workcase-tools.js";
+import { registerWorkcaseTools, toolDescriptorFor, writeRejected, pickReviewSummary, anchorConclusionExcerpt, AUDIT_THREE_LABELS } from "../lib/workcase-tools.js";
+import { createHostSeams } from "../lib/host-seams.js";
+import { readWorkcaseObject } from "../lib/workcase-writer.js";
 import { createLifecycleRegistry } from "../lib/lifecycle.js";
 import { createSessionScopes } from "../lib/session-scopes.js";
 
@@ -212,6 +214,230 @@ test("create: an affirmative routing decision lets the write proceed past the ga
   });
 });
 
+test("create: an answered WorkCase route with failed recording is partial and exposes the created object", async () => {
+  await withTemp("workcase-route-record-create-", async (base) => {
+    const seam = routingSeam(() => ({
+      granted: true, routedTo: "workcase", answer: "建工单走流程",
+      recordError: "route-ledger/unavailable: synthetic recording failure",
+    }));
+    const { write, exec } = await setup(base, { hostSeams: seam });
+    const args = createArgs();
+    const result = await write.execute(args, exec);
+    const env = result.envelope;
+    const rendered = JSON.stringify(write.output.render(args, result));
+
+    assert.equal(env.outcome, "partial");
+    assert.ok(env.result.object_uid, "the object was created and must remain locatable");
+    assert.equal(env.result.read_back.ok, true);
+    assert.match(await readFile(env.result.actual_ref, "utf8"), /测试工单/);
+    assert.ok(env.scope.not_completed.includes("routing-decision-record"));
+    assert.equal(env.result.auto_audit.status, "failed", "the isolated fixture has no audit provider");
+    assert.ok(env.scope.not_completed.includes("auto-audit"));
+    assert.equal(env.result.fingerprint, undefined, "the current fingerprint is unverified after an audit failure");
+    assert.equal(env.sources[0].content_fingerprint, undefined);
+    assert.equal(env.verification.passed, false);
+    assert.match(env.gaps.join(" | "), /re-read the object to obtain its current fingerprint/);
+    assert.match(env.gaps.join(" | "), /auto_audit\/unavailable/);
+    assert.match(env.gaps.join(" | "), /durable recording was not confirmed/);
+    assert.match(env.gaps.join(" | "), /synthetic recording failure/);
+    assert.match(rendered, /synthetic recording failure/);
+    assert.match(rendered, new RegExp(env.result.object_uid.slice(0, 8)));
+    assert.match(rendered, /read_back: ok/);
+    assert.match(rendered, /do not (?:automatically )?(?:re-ask|retry)/i);
+    assert.equal(seam.calls.length, 1);
+  });
+});
+
+test("create: direct choice with failed recording stays direct and exposes the missing record", async () => {
+  await withTemp("workcase-route-record-direct-", async (base) => {
+    const seam = routingSeam(() => ({
+      granted: false, routedTo: "direct", answer: "直接执行", reason: "Human chose 直接执行",
+      recordError: "route-ledger/unavailable: synthetic recording failure",
+    }));
+    const { write, exec } = await setup(base, { hostSeams: seam });
+    const args = createArgs();
+    const result = await write.execute(args, exec);
+    const env = result.envelope;
+    const rendered = JSON.stringify(write.output.render(args, result));
+
+    assert.equal(env.outcome, "rejected");
+    assert.equal(env.result, null, "the direct choice must not create an object");
+    assert.match(env.gaps.join(" | "), /Human chose 直接执行/);
+    assert.match(env.gaps.join(" | "), /synthetic recording failure/);
+    assert.match(rendered, /synthetic recording failure/);
+    assert.match(rendered, /handle the work directly/);
+    assert.match(rendered, /do not (?:automatically )?(?:re-ask|retry)/i);
+    assert.equal(seam.calls.length, 1);
+  });
+});
+
+test("create: write rejection after an answered route still discloses failed recording", async () => {
+  await withTemp("workcase-route-record-rejected-", async (base) => {
+    const seam = routingSeam(() => ({
+      granted: true, routedTo: "workcase", answer: "建工单走流程",
+      recordError: "route-ledger/unavailable: synthetic recording failure",
+    }));
+    const { write, exec } = await setup(base, { hostSeams: seam });
+    const args = createArgs({ expected_candidate_fingerprint: "a".repeat(64) });
+    const result = await write.execute(args, exec);
+    const env = result.envelope;
+    const rendered = JSON.stringify(write.output.render(args, result));
+
+    assert.equal(env.outcome, "rejected");
+    assert.equal(env.result, null);
+    assert.match(env.gaps.join(" | "), /candidate_changed/);
+    assert.match(env.gaps.join(" | "), /建工单走流程/, "the answered route must remain visible even though the write was rejected");
+    assert.match(env.gaps.join(" | "), /synthetic recording failure/);
+    assert.ok(env.gaps.join(" | ").includes("a".repeat(64)), "the actual routing key must be available for reconciliation");
+    assert.ok(env.follow_up.some((item) => item.includes("re-run ldvh_workcase_precheck_create")));
+    assert.match(rendered, /建工单走流程/);
+    assert.match(rendered, /synthetic recording failure/);
+    assert.ok(rendered.indexOf("do not automatically re-ask") < rendered.indexOf("then retry"), "the reconciliation warning must precede writer retry guidance");
+    assert.match(rendered, /only after reconciling the routing record/i);
+    assert.match(rendered, /re-run ldvh_workcase_precheck_create/);
+    assert.match(rendered, /do not (?:automatically )?(?:re-ask|retry)/i);
+    assert.equal(seam.calls.length, 1);
+  });
+});
+
+test("create: read-back failure after writing reports the side effect and failed routing record", async () => {
+  await withTemp("workcase-route-record-readback-", async (base) => {
+    const routingRecordGap = "Human routing decision was answered (建工单走流程) but its durable recording was not confirmed; do not automatically re-ask";
+    const failure = { ok: false, error: { code: "workcase/read_back_failed", message: "synthetic read-back failure" } };
+    const factSourceRoot = join(base, "ldvh-base");
+    const env = writeRejected("workcase-write-object", failure, factSourceRoot, { routingRecordGap });
+    const descriptor = toolDescriptorFor("workcase-write-object", { toolName: "fixture" }, async () => env);
+    const rendered = JSON.stringify(descriptor.output.render({}, { envelope: env }));
+
+    assert.equal(env.outcome, "execution_error");
+    assert.ok(env.scope.completed.includes("write"), "the atomic write completed before read-back failed");
+    assert.ok(env.scope.not_completed.includes("read-back"));
+    assert.ok(env.scope.not_completed.includes("routing-decision-record"));
+    assert.match(env.gaps.join(" | "), /file was written.*read-back failed/i);
+    assert.match(env.gaps.join(" | "), /synthetic read-back failure/);
+    assert.match(rendered, /file was written.*read-back failed/i);
+    assert.ok(rendered.includes(`Inspect ${join(factSourceRoot, "workcases")} and reconcile`));
+    assert.match(rendered, /do not automatically re-ask/i);
+    assert.doesNotMatch(JSON.stringify(env.follow_up), /zero write has occurred/i);
+  });
+});
+
+test("create: an unexpected writer exception retains the answered route and unknown side-effect boundary", async () => {
+  await withTemp("workcase-route-record-exception-", async (base) => {
+    const args = createArgs();
+    const seam = routingSeam(() => {
+      Object.defineProperty(args.frontmatter_draft, "title", {
+        configurable: true,
+        get() { throw new Error("synthetic writer exception"); },
+      });
+      return {
+        granted: true, routedTo: "workcase", answer: "建工单走流程",
+        recordError: "route-ledger/unavailable: synthetic recording failure",
+      };
+    });
+    const { write, exec } = await setup(base, { hostSeams: seam });
+    const result = await write.execute(args, exec);
+    const rendered = JSON.stringify(write.output.render(args, result));
+    assert.equal(result.envelope.outcome, "execution_error");
+    assert.match(result.envelope.gaps.join(" | "), /synthetic writer exception/);
+    assert.match(result.envelope.gaps.join(" | "), /synthetic recording failure/);
+    assert.match(result.envelope.gaps.join(" | "), /建工单走流程/);
+    assert.match(result.envelope.gaps.join(" | "), /(?:write|creation).*(?:unknown|unverified)/i);
+    assert.match(rendered, /do not automatically re-ask/i);
+    assert.equal(seam.calls.length, 1);
+  });
+});
+
+test("create: an unexpected audit exception preserves the created object and failed routing record", async () => {
+  await withTemp("workcase-route-record-audit-exception-", async (base) => {
+    const seam = routingSeam(() => ({
+      granted: true, routedTo: "workcase", answer: "建工单走流程",
+      recordError: "route-ledger/unavailable: synthetic recording failure",
+    }));
+    const subagents = Object.defineProperty({}, "startActivation", {
+      get() { throw new Error("synthetic audit exception"); },
+    });
+    const { write, exec } = await setup(base, { hostSeams: seam, subagents });
+    const args = createArgs();
+    const result = await write.execute(args, exec);
+    const env = result.envelope;
+    const rendered = JSON.stringify(write.output.render(args, result));
+    assert.equal(env.outcome, "partial");
+    assert.ok(env.result.object_uid, "the already-created object must remain locatable");
+    assert.equal(env.result.read_back.ok, true);
+    assert.match(await readFile(env.result.actual_ref, "utf8"), /测试工单/);
+    assert.equal(env.result.auto_audit.status, "failed");
+    assert.equal(env.result.fingerprint, undefined, "an audit exception may have followed a write");
+    assert.equal(env.sources[0].content_fingerprint, undefined);
+    assert.match(env.gaps.join(" | "), /synthetic recording failure/);
+    assert.match(env.gaps.join(" | "), /synthetic audit exception/);
+    assert.match(env.gaps.join(" | "), /re-read its fingerprint/);
+    assert.ok(env.scope.not_completed.includes("routing-decision-record"));
+    assert.ok(env.scope.not_completed.includes("auto-audit-outcome-verification"));
+    assert.match(rendered, /synthetic recording failure/);
+    assert.match(rendered, /synthetic audit exception/);
+    assert.equal(seam.calls.length, 1);
+  });
+});
+
+test("create: after failed routing recording and a successful audit, the exposed fingerprint is current", async () => {
+  await withTemp("workcase-route-record-audit-success-", async (base) => {
+    const seam = routingSeam(() => ({
+      granted: true, routedTo: "workcase", answer: "建工单走流程",
+      recordError: "route-ledger/unavailable: synthetic recording failure",
+    }));
+    const { write, exec } = await setup(base, { hostSeams: seam, subagents: subagentSeam() });
+    const args = createArgs();
+    const result = await write.execute(args, exec);
+    const env = result.envelope;
+    const readBack = await readWorkcaseObject({ factSourceRoot: join(base, "proj", "ldvh-base"), objectUid: env.result.object_uid });
+    assert.equal(env.outcome, "partial");
+    assert.equal(env.result.auto_audit.status, "passed");
+    assert.equal(readBack.ok, true);
+    assert.equal(env.result.fingerprint, readBack.value.fingerprint);
+    assert.equal(env.sources[0].content_fingerprint, readBack.value.fingerprint);
+    assert.deepEqual(env.scope.not_completed, ["routing-decision-record"]);
+    assert.match(JSON.stringify(write.output.render(args, result)), new RegExp(readBack.value.fingerprint));
+  });
+});
+
+test("create: a real routing seam propagates a synthetic ledger write failure to the tool result", async () => {
+  for (const [optionIndex, expectedOutcome] of [[0, "partial"], [1, "rejected"]]) {
+    await withTemp("workcase-route-record-integrated-", async (base) => {
+      let asks = 0;
+      let resolutions = 0;
+      const service = { ask: async (request) => {
+        asks += 1;
+        const question = request.questions[0];
+        return { answers: [{ id: question.id, selected: [question.options[optionIndex].label] }] };
+      } };
+      const hostSeams = createHostSeams();
+      const installed = hostSeams.install({ get: (key) => key === "userQuestions" ? service : undefined }, {
+        dshHomePath: (...parts) => {
+          resolutions += 1;
+          if (resolutions === 2) throw new Error("synthetic ledger resolver failure");
+          return join(base, ...parts);
+        },
+      });
+      try {
+        const { write, exec } = await setup(base, { hostSeams });
+        const args = createArgs();
+        const result = await write.execute(args, exec);
+        const rendered = JSON.stringify(write.output.render(args, result));
+        assert.equal(result.envelope.outcome, expectedOutcome);
+        assert.match(result.envelope.gaps.join(" | "), /route-ledger\/unavailable/);
+        assert.match(rendered, /route-ledger\/unavailable/);
+        assert.match(rendered, /do not automatically re-ask/i);
+        assert.equal(asks, 1, "the fixture must make exactly one synthetic ask");
+        if (optionIndex === 0) assert.equal(result.envelope.result.read_back.ok, true);
+        else assert.equal(result.envelope.result, null);
+      } finally {
+        installed.dispose();
+      }
+    });
+  }
+});
+
 test("create: the superseded self-filled confirmation field is not persisted", async () => {
   await withTemp("workcase-route-f-", async (base) => {
     const seam = routingSeam(() => ({ granted: true, routedTo: "workcase", answer: "建工单走流程" }));
@@ -334,6 +560,7 @@ test("create: 首次提问的结果记为 routing.decided=asked（且模型侧�
     // 信封里有而渲染层不输出 = 模型侧不存在（pitfall-b878f526 的同一形态）。
     const rendered = JSON.stringify(write.output.render(createArgs(), result));
     assert.match(rendered, /routing: asked/, `渲染行必须露出来源，实际：${rendered.slice(0, 400)}`);
+    assert.doesNotMatch(rendered, /next: /, "normal successful routes keep their existing rendering");
   });
 });
 

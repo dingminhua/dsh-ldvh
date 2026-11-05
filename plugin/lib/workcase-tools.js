@@ -747,8 +747,12 @@ async function executeWriteObject(args, exec, deps) {
   let result;
   // create 的路由答复来源（asked / reused）；其余 action 保持 null，不进信封。
   let routingOutcome = null;
+  // 人已答但答复未能持久化时，整个工具结果必须携带此缺口（不能当成未答）。
+  let routingRecordGap = null;
   // create 之后自动派生的建前审核结果；其余 action 保持 null，不进信封。
   let autoAudit = null;
+  let autoAuditGap = null;
+  let autoAuditGapScope = null;
   if (action === "create") {
     const draft = args?.frontmatter_draft;
     const bodyMarkdown = args?.body_markdown;
@@ -836,27 +840,53 @@ async function executeWriteObject(args, exec, deps) {
       // 它取自本候选内容（与写入侧比对用的是同一个值），不是会话或时间。
       candidateKey: candidateFingerprint,
     });
+    if (typeof routing.recordError === "string" && routing.recordError.length > 0) {
+      const answered = typeof routing.answer === "string" && routing.answer.length > 0 ? routing.answer : (routing.routedTo ?? "unknown");
+      const routeKey = /^[a-f0-9]{64}$/.test(candidateFingerprint) ? candidateFingerprint : "invalid key; inspect the original request";
+      routingRecordGap = `Human routing decision was answered (${answered}) but its durable recording was not confirmed (route candidate key: ${routeKey}): ${routing.recordError}; do not automatically re-ask or retry this candidate until the record and any side effects have been reconciled`;
+    }
     if (routing.granted !== true) {
       return envelope("workcase-write-object", "rejected", {
         result: null,
-        scope: { requested: "create", completed: ["pre-mechanical-check"], not_completed: ["create"] },
+        scope: {
+          requested: "create",
+          completed: ["pre-mechanical-check", ...(routingRecordGap !== null && routing.routedTo === "direct" ? ["human-routing"] : [])],
+          not_completed: ["create", ...(routingRecordGap === null ? [] : ["routing-decision-record"])],
+        },
         sources: [],
-        gaps: [`21 §6.3/§14 C1 requires an explicit Human routing decision: ${routing.reason}`],
+        gaps: [
+          routingRecordGap !== null && routing.routedTo === "direct"
+            ? `21 §6.3: ${routing.reason}`
+            : `21 §6.3/§14 C1 requires an explicit Human routing decision: ${routing.reason}`,
+          ...(routingRecordGap === null ? [] : [routingRecordGap]),
+        ],
         verification: { checks: ["governance-scope", "pre-mechanical-check", "human-routing"], passed: false },
         // 路由到「直接执行」是合法结论，不是错误：此时不应创建对象，
         // 而应在当次行动内处理（21 §6.3 不对象化）。
         follow_up: routing.routedTo === "direct"
-          ? ["handle the work directly in this action — do not create a WorkCase object (21 §6.3)"]
-          : ["obtain the Human's routing decision, then retry"]
+          ? ["handle the work directly in this action — do not create a WorkCase object (21 §6.3)", ...(routingRecordGap === null ? [] : [routingRecordGap])]
+          : (routingRecordGap === null ? ["obtain the Human's routing decision, then retry"] : [routingRecordGap])
       });
     }
-    result = await createWorkcaseObject({
-      factSourceRoot,
-      frontmatterDraft: draft,
-      bodyMarkdown,
-      sessionSignature: sig.value,
-      expectedCandidateFingerprint: candidateFingerprint,
-    });
+    try {
+      result = await createWorkcaseObject({
+        factSourceRoot,
+        frontmatterDraft: draft,
+        bodyMarkdown,
+        sessionSignature: sig.value,
+        expectedCandidateFingerprint: candidateFingerprint,
+      });
+    } catch (error) {
+      if (routingRecordGap === null) throw error;
+      return envelope("workcase-write-object", "execution_error", {
+        result: null,
+        scope: { requested: "create", completed: ["pre-mechanical-check", "human-routing"], not_completed: ["create-outcome-unverified", "routing-decision-record"] },
+        sources: [],
+        gaps: [`WorkCase creation threw unexpectedly; write outcome is unknown: ${String(error?.message ?? error)}`, routingRecordGap],
+        verification: { checks: ["pre-mechanical-check", "human-routing", "routing-decision-record"], passed: false },
+        follow_up: ["reconcile the fact source and any possible side effects before taking further action", routingRecordGap],
+      });
+    }
     // 路由这一步的**两个分支必须可分辨**：`asked`（本次真的把问题呈到 Human
     // 面前）与 `reused`（同一候选的既有答复被复用，未再提问）。宿主 §6.3 询问
     // 不进入会话事件流，若结果里也不区分，事后无从判断「这次到底问没问」——
@@ -876,10 +906,26 @@ async function executeWriteObject(args, exec, deps) {
     // 落盘。边界：不替 Human 批准 Gate 1、不改候选、不推进状态；`needs_revision`
     // 时只落盘结论并交还，对象保持 draft。
     if (result.ok === true) {
-      autoAudit = await runAutoAuditAfterCreate({
-        deps, exec, factSourceRoot, result: result.value, draft, bodyMarkdown,
-        sessionSignature: sig.value, sessionIdentity: ident.value,
-      });
+      try {
+        autoAudit = await runAutoAuditAfterCreate({
+          deps, exec, factSourceRoot, result: result.value, draft, bodyMarkdown,
+          sessionSignature: sig.value, sessionIdentity: ident.value,
+        });
+      } catch (error) {
+        if (routingRecordGap === null) throw error;
+        autoAuditGap = `auto-audit threw unexpectedly; audit outcome is unverified: ${String(error?.message ?? error)}; inspect the object and audit records and re-read its fingerprint before further action`;
+        autoAuditGapScope = "auto-audit-outcome-verification";
+        autoAudit = { status: "failed", code: "auto_audit/unexpected", message: autoAuditGap };
+      }
+      if (routingRecordGap !== null && autoAudit?.status === "failed" && autoAuditGap === null) {
+        autoAuditGap = `auto-audit did not produce a verified record (${autoAudit.code ?? "unknown"}): ${autoAudit.message ?? "details unavailable"}; re-read the object to obtain its current fingerprint before further action`;
+        autoAuditGapScope = "auto-audit";
+      }
+      if (routingRecordGap !== null && (autoAudit?.status === "passed" || autoAudit?.status === "rejected")
+          && !/^[a-f0-9]{64}$/.test(autoAudit.fingerprint ?? "")) {
+        autoAuditGap = "auto-audit returned no verified current fingerprint; re-read the object before further action";
+        autoAuditGapScope = "current-fingerprint-verification";
+      }
     }
   } else {
     // All remaining actions are CAS-guarded transitions on an existing object.
@@ -1294,18 +1340,23 @@ async function executeWriteObject(args, exec, deps) {
   }
 
   if (!result.ok) {
-    return writeRejected("workcase-write-object", result, factSourceRoot);
+    return writeRejected("workcase-write-object", result, factSourceRoot, { routingRecordGap });
   }
   // create 的次序纪律必须**从结果中可读**：成功信封登记预检这一步，读者才能
   // 看出「先检查、后提请」确实发生过，而不是只能看到路由被问过。仅在被拒绝时
   // 登记（下方早退分支）会让合格路径的次序成为不可观测的行为。
   const isCreate = args.action === "create";
-  return envelope("workcase-write-object", "completed", {
+  // 审核可能改写对象；留痕缺口路径只暴露最后一次已验证的当前指纹。
+  // 审核未核实则不把建单时的旧指纹冒充当前指纹。
+  const resultFingerprint = routingRecordGap === null
+    ? result.value.fingerprint
+    : autoAuditGap !== null ? null : (autoAudit?.fingerprint ?? result.value.fingerprint);
+  return envelope("workcase-write-object", routingRecordGap === null ? "completed" : "partial", {
     result: {
       action: args.action,
       object_uid: result.value.object_uid,
       actual_ref: result.value.file,
-      fingerprint: result.value.fingerprint,
+      ...(resultFingerprint === null ? {} : { fingerprint: resultFingerprint }),
       read_back: result.value.read_back === "ok" ? { ok: true } : { ok: false },
       changes: [{ object_uid: result.value.object_uid, change: args.action }],
       // 21 §8「执行」节记账纪律的前置提示（workcase-1c6afa19 计划步骤 2 的返
@@ -1333,17 +1384,23 @@ async function executeWriteObject(args, exec, deps) {
       completed: isCreate
         ? ["pre-mechanical-check", "human-routing", args.action, "read-back"]
         : [args.action, "read-back", ...(GOAL_WRITE_POINTS.includes(args.action) ? ["host-goal"] : [])],
-      not_completed: [],
+      not_completed: [
+        ...(routingRecordGap === null ? [] : ["routing-decision-record"]),
+        ...(autoAuditGapScope === null ? [] : [autoAuditGapScope]),
+      ],
     },
-    sources: [{ kind: "fact-object", path: result.value.file, content_fingerprint: result.value.fingerprint }],
-    gaps: [],
+    sources: [{ kind: "fact-object", path: result.value.file, ...(resultFingerprint === null ? {} : { content_fingerprint: resultFingerprint }) }],
+    gaps: [
+      ...(routingRecordGap === null ? [] : [routingRecordGap]),
+      ...(autoAuditGap === null ? [] : [autoAuditGap]),
+    ],
     verification: {
       checks: isCreate
-        ? ["pre-mechanical-check", "human-routing", "cas-baseline", "closed-set", "field-invariants", "c2-fingerprint", "body-structure", "carrier-coherence", "atomic-write", "read-back"]
+        ? ["pre-mechanical-check", "human-routing", "cas-baseline", "closed-set", "field-invariants", "c2-fingerprint", "body-structure", "carrier-coherence", "atomic-write", "read-back", ...(routingRecordGap === null ? [] : ["routing-decision-record"])]
         : ["cas-baseline", "closed-set", "field-invariants", "c2-fingerprint", "body-structure", "carrier-coherence", "atomic-write", "read-back"],
-      passed: true,
+      passed: routingRecordGap === null,
     },
-    follow_up: [
+    follow_up: routingRecordGap !== null ? [routingRecordGap, ...(autoAuditGap === null ? [] : [autoAuditGap])] : [
       "use the NEW fingerprint from this result for the next action; committing goes through the controlled-commit contract (specs/06)",
       args.action === "approve"
         ? "Gate 1 approval covers only the scope_snapshot recorded — executing beyond it is a scope violation (21 §10.1)"
@@ -1474,7 +1531,9 @@ async function runAutoAuditAfterCreate({ deps, exec, factSourceRoot, result, dra
   };
 }
 
-function writeRejected(operationKey, failureResult, factSourceRoot) {
+// Exported for direct fault-path tests: read-back failure occurs after atomic write
+// and is otherwise difficult to reproduce without a timing-dependent FS race.
+export function writeRejected(operationKey, failureResult, factSourceRoot, { routingRecordGap = null } = {}) {
   const code = failureResult.error.code;  const mechanicalCodes = new Set([
     "workcase/frontmatter_invalid", "workcase/body_invalid", "workcase/coherence_invalid",
     "workcase/initial_state_violation", "workcase/transition_invalid", "workcase/c2_fingerprint_invalidated",
@@ -1496,7 +1555,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
           : code === "workcase/serves_unresolvable"
             ? ["goal.md is missing or the SubGoal object_uid does not resolve — Gate 1 is fail-closed without a resolvable target (21 §10.1); omit serves or fix the reference"]
             : ["fix the reported mechanical issues and retry; zero write has occurred"];
-  return envelope(operationKey, outcome, {
+  const rejected = envelope(operationKey, outcome, {
     result: null,
     scope: { requested: "write", completed: [], not_completed: ["write"] },
     sources: [{ kind: "fact-object", path: join(factSourceRoot, "workcases") }],
@@ -1504,6 +1563,29 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     verification: { checks: [], passed: false },
     follow_up: followUp
   });
+  if (routingRecordGap === null) return rejected;
+
+  rejected.scope.requested = "create";
+  rejected.scope.completed = ["pre-mechanical-check", "human-routing"];
+  rejected.scope.not_completed.push("routing-decision-record");
+  rejected.gaps[0] = `Writer error (any retry only after reconciling the routing record and side effects): ${rejected.gaps[0]}`;
+  rejected.gaps.unshift(routingRecordGap);
+  rejected.verification.checks = ["pre-mechanical-check", "human-routing", "routing-decision-record"];
+  // Preserve concrete recovery directions, but only after reconciling the
+  // answered decision and possible side effects; never urge an automatic retry.
+  const recovery = followUp.filter((item) => !item.includes("zero write has occurred"));
+  rejected.follow_up = [routingRecordGap, ...recovery.map((item) => `After reconciliation: ${item}`)];
+  if (code === "workcase/read_back_failed") {
+    // writeValidated returns this code only after atomicWriteFile resolved.
+    // The writer does not return the uid on this failure, so never invent it.
+    const directory = join(factSourceRoot, "workcases");
+    rejected.outcome = "execution_error";
+    rejected.scope.completed.push("write");
+    rejected.scope.not_completed = ["read-back", "routing-decision-record"];
+    rejected.gaps.unshift(`A WorkCase file was written but read-back failed; its identity is not available in this result. Inspect ${directory} before any further attempt`);
+    rejected.follow_up = [`Inspect ${directory} and reconcile the written object before any further action`, routingRecordGap];
+  }
+  return rejected;
 }
 
 // ---------------------------------------------------------------------------
@@ -1556,6 +1638,13 @@ function renderEnvelope(operationKey, value) {
     if (auto.status === "failed" && typeof auto.message === "string") lines.push(`auto_audit_detail: ${auto.message}`);
   }
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  // 留痕未确认时，恢复出口也必须到模型侧；与 gap 逐字相同的项不重复输出。
+  if (Array.isArray(env.scope?.not_completed) && env.scope.not_completed.includes("routing-decision-record")) {
+    const gaps = new Set(env.gaps ?? []);
+    for (const item of env.follow_up ?? []) {
+      if (!gaps.has(item)) lines.push(`next: ${typeof item === "string" ? item : JSON.stringify(item)}`);
+    }
+  }
   return text(lines.join("\n"));
 }
 
