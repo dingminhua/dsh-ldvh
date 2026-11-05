@@ -49,6 +49,9 @@ import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { listResolvableSubGoals, resolveSubGoal } from "./subgoal-writer.js";
+import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
+import { carrierCoherenceMessage } from "./coherence-report.js";
+import { summaryLimitIssue } from "./summary-limit.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/20 §7, §8, §9, §11)
@@ -147,7 +150,7 @@ export function isSingleSentence(text) {
   return true;
 }
 
-export function validateSparkFrontmatter(frontmatter) {
+export function validateSparkFrontmatter(frontmatter, options = {}) {
   const issues = [];
 
   // Closed-set check (20 §8): unknown fields reject the object
@@ -182,6 +185,14 @@ export function validateSparkFrontmatter(frontmatter) {
     if (typeof frontmatter[field] !== "string" || frontmatter[field].length === 0) {
       issues.push(`${field}: required non-empty string`);
     }
+  }
+
+  // summary 200 字符上限（Human 2026-11-04 裁定 B1，workcase-5eec3197）：
+  // 与 disposition 同一判定单位与拒绝纪律。update 路径由调用方按「本次是否改动
+  // summary」决定是否跳过（B1：存量放行，不锁死 66 条现存超限对象）。
+  if (typeof frontmatter.summary === "string" && frontmatter.summary.length > 0) {
+    const limitIssue = summaryLimitIssue(frontmatter.summary, { clause: "20 §8" });
+    if (limitIssue !== null && options?.skipSummaryLimit !== true) issues.push(limitIssue);
   }
 
   // serves shape; target resolution happens in the create/update flows (needs
@@ -575,7 +586,9 @@ export function validateCarrierCoherence(frontmatter, body) {
     const content = sectionContent(body, section);
     if (content === null) continue; // section presence checked in body structure
     if (!content.includes(text)) {
-      issues.push(`carrier coherence: ${section} section must contain ${field} verbatim (frontmatter is the single authoritative text): "${text.slice(0, 40)}…"`);
+      issues.push(carrierCoherenceMessage({
+        section, field, declared: text, actual: content, clause: "20 §14.1",
+      }));
     }
   }
   return { ok: issues.length === 0, issues };
@@ -774,11 +787,45 @@ export async function createSparkObject(args) {
 // Read (specs/03 §9.2 precise read-back)
 // ---------------------------------------------------------------------------
 
-export async function readSparkObject(args) {
-  const { factSourceRoot, objectUid } = args;
-  if (!assertValidUid(objectUid)) {
-    return failure("spark/invalid_uid", "objectUid must be a valid UUID");
+/**
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ *
+ * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `spark/invalid_uid`
+ * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
+ * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
+ */
+async function resolveSparkObjectUid(factSourceRoot, input, currentProjectId = null) {
+  const parsed = parseObjectIdentifier(input);
+  if (!parsed.ok) {
+    return { ok: false, error: failure("spark/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
   }
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
+  if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
+    return { ok: false, error: failure("spark/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
+  }
+  if (objectUid !== undefined) {
+    if (declaredType !== undefined && declaredType !== "spark") {
+      return { ok: false, error: failure("spark/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "spark" objects`) };
+    }
+    return { ok: true, objectUid };
+  }
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "spark" });
+  if (!resolved.ok) {
+    const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
+    return { ok: false, error: failure("spark/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`) };
+  }
+  if (resolved.value.factTypeKey !== "spark") {
+    return { ok: false, error: failure("spark/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "spark" objects`) };
+  }
+  return { ok: true, objectUid: resolved.value.objectUid };
+}
+
+export async function readSparkObject(args) {
+  const { factSourceRoot, objectUid: objectUidInput, currentProjectId = null } = args;
+  const uidResolution = await resolveSparkObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   const filePath = objectFilePath(factSourceRoot, objectUid);
 
   let content;
@@ -1150,7 +1197,17 @@ export async function updateSparkObject(args) {
   }];
 
   // Validate
-  const fmCheck = validateSparkFrontmatter(fm);
+  //
+  // 200 字符上限的**适用范围**（Human 2026-11-04 裁定 B1 + 乙，workcase-5eec3197）：
+  // 只校验本次**改动**了 summary 的写入，逐字未改的既有 summary 放行。这是
+  // 21 §15.1 已确立的先例（「只校验相对基线新增或改动的字段，逐字未改的既有
+  // 字段放行——否则……将使受影响对象永久无法关闭」），照搬到本类型同理：
+  // 实测有 66 条现存 Spark 的 summary 超过 200 字，若对存量无条件生效，
+  // 它们会立即变成只读（任何一次 update 都会校验该字段）。
+  const summaryUnchanged = typeof fm.summary === "string"
+    && typeof current.value.frontmatter.summary === "string"
+    && fm.summary === current.value.frontmatter.summary;
+  const fmCheck = validateSparkFrontmatter(fm, { skipSummaryLimit: summaryUnchanged });
   if (!fmCheck.ok) {
     return failure("spark/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }

@@ -129,7 +129,7 @@ async function executeReadObject(args, exec, deps) {
     return invalidRequest("spark-read-object", "object_uid is required", null);
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const read = await readSparkObject({ factSourceRoot, objectUid });
+  const read = await readSparkObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
     // Distinguish "not found / bad uid shape" (rejected) from carrier-level
     // defects (unavailable — the object exists but cannot be consumed).
@@ -794,10 +794,10 @@ function parameterSchemaFor(operationKey) {
     properties: {
       title: { type: "string", description: "≤ 30 characters; candidate locating and Human scanning" },
       status: { type: "string", enum: ["open", "implemented", "discarded"], description: "create must be open; update may transition open→implemented/discarded. A terminal status does NOT change again (20 §9.2: 终态不可重开, 终态不可重开但内容可更正) — content correction is still allowed" },
-      question: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 调查问题 body section" },
-      scope_boundary: { type: "string", description: "when to stop (boundary, not goal achievement); must appear verbatim in the 调查边界 body section" },
+      question: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 调查问题 body section (carrier coherence, 20 §14.1; frontmatter is the single authoritative text — the body only expands it)" },
+      scope_boundary: { type: "string", description: "when to stop (boundary, not goal achievement); must appear verbatim in the 调查边界 body section (carrier coherence, 20 §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       intent: { type: "string", description: "why this is worth keeping + the follow-up direction" },
-      summary: { type: "string", description: "complete current semantic snapshot; must appear verbatim in the 当前理解 body section" },
+      summary: { type: "string", description: "complete current semantic snapshot; must appear verbatim in the 当前理解 body section (carrier coherence, 20 §14.1; frontmatter is the single authoritative text — the body only expands it). Length cap (20 §8, established 2026-11-04): ≤ 200 characters (UTF-16 code units, same unit as disposition/gist/Goal statement); over-limit writes are rejected, never truncated (truncation would break carrier coherence). Scope: only a summary you ADD or CHANGE is checked — an untouched existing summary passes (B1, so the 66 pre-existing over-limit Sparks stay editable)" },
       evolution: { type: "array", items: evolutionEntry, description: "substantive-pivot log (cap 20); when non-empty the body must carry a 演变 H2 section" },
       serves: { type: "string", description: "SubGoal object_uid (canonical UUIDv4, 28 §12.3); must resolve to an active/achieved SubGoal object; omit when not applicable" },
       refs: { type: "array", items: refsEntry, description: "related fact objects (03 §7.2 关联引用型, 20 §8): any type; target status is NOT checked (an association survives the target closing); every target must resolve to an existing, readable, same-project object_uid or the write is rejected; cap 10; state-neutral; omit when none. Surfaced on the F1 list card for Human scanning." },
@@ -814,7 +814,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          object_uid: { type: "string", description: "Canonical object_uid of the Spark object to read" }
+          object_uid: { type: "string", description: "Canonical object_uid of the Spark object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." }
         },
         required: ["object_uid"],
         additionalProperties: false
