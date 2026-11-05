@@ -217,8 +217,35 @@ export function resetObservations() {
  * Registry of what this process actually consumed, exposed for diagnostics
  * (lifecycle snapshot / web state route). Keys match specs/08 §6's table.
  */
-export function createHostSeams() {  const consumed = Object.create(null);
+export function createHostSeams() {
+  const consumed = Object.create(null);
   const mark = (key, detail) => { consumed[key] = { consumed: true, ...detail }; };
+  let questionContext = null;
+  let questionGeneration = 0;
+  let usedQuestionService = null;
+
+  // The service is optional and may become available after this plugin starts.
+  // Resolve it at use time; a missing service or lookup failure never grants.
+  function currentUserQuestions() {
+    try {
+      const service = questionContext?.get("userQuestions");
+      return typeof service?.ask === "function" ? service : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Cordis may return a new traceable proxy on every get(). Its exported
+  // original symbol identifies the underlying service; if identity cannot be
+  // established, diagnostics stay conservative without affecting the Gate.
+  function questionServiceIdentity(service) {
+    try {
+      const original = service?.[Symbol.for("cordis.original")] ?? service;
+      return original !== null && (typeof original === "object" || typeof original === "function") ? original : null;
+    } catch {
+      return null;
+    }
+  }
 
   /**
    * `ctx.tools.guard` — a monotonic guard over LDVH tool dispatch.
@@ -390,9 +417,6 @@ export function createHostSeams() {  const consumed = Object.create(null);
     if (userQuestions === undefined || typeof userQuestions.ask !== "function") {
       return { consumed: false, detail: "ctx.userQuestions.ask is unavailable in this composition" };
     }
-    mark("ctx.userQuestions.ask", {
-      detail: "07 §5.6 registration consent is routed through the host answerer before any write"
-    });
     // The `agent` argument is MANDATORY in every real composition, not an
     // optimisation. The answerer lives in the browser
     // (`dsh-client-ui-user-questions` registers `user-questions/request` via
@@ -416,7 +440,7 @@ export function createHostSeams() {  const consumed = Object.create(null);
     // THIS agent is selected rather than a sibling's. The agent must be the
     // live registry instance; `dsh-user-questions` rejects anything else with
     // CALLER_NOT_LIVE.
-    return { consumed: true, ask: (request, agent) => userQuestions.ask(agent === undefined ? request : { ...request, agent }) };
+    return { consumed: false, available: true, detail: "userQuestions service is available; actual use is tracked when a request is sent" };
   }
 
   /**
@@ -432,12 +456,13 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * of leaving it pending forever — this ask has no wall-clock deadline.
    */
   async function requestRegistrationConsent({ action, projectId, projectPath, agent, signal }) {
-    if (typeof seams.ask !== "function") {
+    const ask = seams.ask;
+    if (typeof ask !== "function") {
       return { granted: false, reason: "no human-answerer entry is available; 07 §5.6 requires explicit intent, so consent cannot be assumed" };
     }
     const verb = action === "unregister" ? "取消登记" : "登记为 LDVH 管辖项目";
     try {
-      const answer = await seams.ask({
+      const answer = await ask({
         questions: [{
           id: CONSENT_QUESTION_ID,
           header: "LDVH 管辖登记",
@@ -567,8 +592,14 @@ export function createHostSeams() {  const consumed = Object.create(null);
       }
     }
 
+    // The ledger read above can yield while the provider changes. Resolve the
+    // current service immediately before asking; never replay an in-flight question.
+    const ask = seams.ask;
+    if (typeof ask !== "function") {
+      return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
+    }
     try {
-      const answer = await seams.ask({
+      const answer = await ask({
         questions: [{
           id: ROUTE_QUESTION_ID,
           header: "需要你的判断",
@@ -646,7 +677,8 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * caller cannot satisfy this gate with an empty or generic report.
    */
   async function requestSparkConsent({ action, objectTitle, summary, agent, signal }) {
-    if (typeof seams.ask !== "function") {
+    const ask = seams.ask;
+    if (typeof ask !== "function") {
       return { granted: false, reason: "no human-answerer entry is available; 20 §16 requires an explicit Human confirmation, so consent cannot be assumed" };
     }
     const verb = action === "terminal" ? "转入终态" : "创建";
@@ -666,7 +698,7 @@ export function createHostSeams() {  const consumed = Object.create(null);
     if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
     const assembled = assembleBoundedAsk({ head, detail: report });
     try {
-      const answer = await seams.ask({
+      const answer = await ask({
         questions: [{
           id: SPARK_CONSENT_QUESTION_ID,
           header: "Spark 授权",
@@ -695,9 +727,23 @@ export function createHostSeams() {  const consumed = Object.create(null);
   const seams = {
     observations: 0,
     consumed,
-    /** Set by install(); `null` when no answerer is available (consent fails closed). */
-    ask: null,
-    humanGateAvailable: false,
+    /** Current service adapter, or null; service presence does not prove a Human is connected. */
+    get ask() {
+      const service = currentUserQuestions();
+      if (service === null) return null;
+      return (request, agent) => {
+        const result = service.ask(agent === undefined ? request : { ...request, agent });
+        // Diagnostics must never discard an already-dispatched Human request.
+        try {
+          const identity = questionServiceIdentity(service);
+          usedQuestionService = identity === null ? null : new WeakRef(identity);
+        } catch {
+          usedQuestionService = null;
+        }
+        return result;
+      };
+    },
+    get humanGateAvailable() { return currentUserQuestions() !== null; },
     /**
      * The host home resolver captured at install; `null` until then.
      *
@@ -770,15 +816,23 @@ export function createHostSeams() {  const consumed = Object.create(null);
         // would leak past plugin stop (the 08 §6 + cordis fiber discipline).
         if (typeof outcome.dispose === "function") disposers.push(outcome.dispose);
       }
-      seams.ask = results["ctx.userQuestions.ask"]?.ask;
+      const questionEpoch = ++questionGeneration;
+      questionContext = ctx;
+      usedQuestionService = null;
       // 路由询问的持久载体需要 home 解析器（21 §6.3 先读后问）。在此保存：install
       // 是唯一能拿到它的地方，而 `requestWorkcaseRouting` 在之后被调用。
       seams.dshHomePath = typeof dshHomePath === "function" ? dshHomePath : null;
-      seams.humanGateAvailable = typeof seams.ask === "function";
       seams.emitter = ctx;
       return {
         results,
         dispose() {
+          // An older installation must not detach a newer one. Clear the
+          // current owner synchronously before releasing any other effects.
+          if (questionEpoch === questionGeneration) {
+            questionContext = null;
+            usedQuestionService = null;
+            delete consumed["ctx.userQuestions.ask"];
+          }
           for (const dispose of disposers) {
             try { dispose(); } catch { /* already removed */ }
           }
@@ -797,6 +851,21 @@ export function createHostSeams() {  const consumed = Object.create(null);
     snapshot() {
       const all = ["ctx.tools.register", "ctx.tools.guard", "ctx.invariants.register", "fs/observed", "ctx.userQuestions.ask"];
       return all.map((key) => {
+        if (key === "ctx.userQuestions.ask") {
+          const service = currentUserQuestions();
+          const identity = service === null ? null : questionServiceIdentity(service);
+          const used = identity !== null && usedQuestionService?.deref() === identity;
+          return {
+            seam: key,
+            state: service === null ? "absent" : (used ? "consumed" : "available"),
+            consumed: used,
+            detail: service === null
+              ? "the userQuestions service is unavailable; new requests fail closed"
+              : (used
+                  ? "a request was sent through the current userQuestions service; a Human answer is not guaranteed"
+                  : "the current userQuestions service is available but has not been used")
+          };
+        }
         if (key === "ctx.tools.register") {
           return { seam: key, state: "consumed", consumed: true, detail: "LDVH operations registered through ctx.tools.register" };
         }

@@ -318,11 +318,12 @@ test("item4: the entry refuses a non-Git directory (07 §5.5)", async () => {
 
 function fullComposition() {
 	const seen = { guard: 0, invariants: 0, on: [], userQuestions: 0 };
+	const userQuestions = { ask: async (request) => { seen.userQuestions += 1; seen.lastAsk = request; return { answers: [{ id: "ldvh-registration-consent", selected: "确认" }] }; } };
 	const ctx = {
 		get: (key) => ({
 			tools: { guard: (fn) => { seen.guard += 1; seen.guardFn = fn; return () => {}; } },
 			invariants: { register: (name, factory) => { seen.invariants += 1; seen.invariantFactory = factory; seen.invariantName = name; return () => {}; } },
-			userQuestions: { ask: async (request) => { seen.userQuestions += 1; seen.lastAsk = request; return { answers: [{ id: "ldvh-registration-consent", selected: "确认" }] }; } },
+			userQuestions,
 			// The host fs service is what supplies a REAL FsVersion (stat →
 			// {version, type}); without it LDVH cannot observe at all.
 			fs: {
@@ -349,9 +350,12 @@ test("item6: every seam whose requirement is met reports consumed (08 §6)", asy
 	assert.deepEqual(seen.on.slice().sort(), ["edit-intent", "fs/observed", "fs/write-intent"].map((e) => (e === "edit-intent" ? "fs/edit-intent" : e)).sort());
 
 	const status = Object.fromEntries(seams.snapshot().map((s) => [s.seam, s]));
-	for (const key of ["ctx.tools.register", "ctx.tools.guard", "ctx.invariants.register", "fs/observed", "ctx.userQuestions.ask"]) {
+	for (const key of ["ctx.tools.register", "ctx.tools.guard", "ctx.invariants.register", "fs/observed"]) {
 		assert.equal(status[key].state, "consumed", `${key} should be consumed: ${JSON.stringify(status[key])}`);
 	}
+	assert.equal(status["ctx.userQuestions.ask"].state, "available", "a callable reference alone is not consumption");
+	await seams.requestRegistrationConsent({ action: "register", projectId: "p1", projectPath: "/p" });
+	assert.equal(seams.snapshot().find((s) => s.seam === "ctx.userQuestions.ask").state, "consumed");
 	install.dispose();
 });
 
