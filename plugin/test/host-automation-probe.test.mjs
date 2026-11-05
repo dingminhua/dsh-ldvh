@@ -8,10 +8,18 @@
 //
 // 故这里用**假宿主**覆盖几类真实世界会出现的失败形态：
 //   ① 服务未装配 → 必须报 `services-missing`，**不得**继续假装能跑；
-//   ② `schedule.create` 拒收 `every_seconds` → 必须如实记录该步失败；
+//   ② `schedule.create` 拒收 `timing: { kind: 'every' }` → 必须如实记录该步失败；
 //   ③ 宿主把 `kind` 存成别的形态 → 必须报「kind≠every」；
 //   ④ 新建会话的 `cwd` 与请求不符 → 必须报不一致（这是「只在本项目内创建」的机械证据）；
 //   ⑤ 清理指引必须给出**确切**的删除参数，否则「跑完留下一堆东西」。
+//
+// ## 0.2.2-rc.1 契约变更后本文件同步的三处
+//
+// 宿主把 `schedule` 重建为「独立任务 + 显式目标」形态：`create(request, actorSessionId?, signal?)`
+// （会话进 `request.target`、计时进 `request.timing`），`delete` 移除并入
+// `edit({ action: 'delete' })`。假宿主必须**按新签名**接收，否则测的是一份已不存在的接口，
+// 绿了也不代表能跑。⑥ 新增：探针若退回旧签名（把会话当第一个实参、计时放顶层），
+// 假宿主会因读不到 `request.timing` 而判失败——这条防止「改测试不改实现」的反向漂移。
 //
 // **真实宿主上的结论只能由真实宿主给出**——本文件不主张任何关于宿主行为的事实。
 import { test } from "node:test";
@@ -29,19 +37,28 @@ function fakeHost(overrides = {}) {
   };
   let seq = 0;
   const schedule = {
-    create: async (sessionId, request) => {
+    // 0.2.2-rc.1 签名：create(request, actorSessionId?, signal?)。
+    // 刻意**不**兼容旧签名：若探针退回旧形态，`request` 会是 sessionId 字符串，
+    // `request.timing` 读不到 → 下面抛错 → 用例红。
+    create: async (request) => {
+      if (typeof request !== "object" || request === null || typeof request.timing !== "object") {
+        throw new Error("invalid_rule: schedule.create expects a request object carrying `timing`");
+      }
+      if (request.timing.kind !== "every") {
+        throw new Error(`invalid_rule: expected an every selector, got ${String(request.timing.kind)}`);
+      }
       const record = {
         id: `sched-${++seq}`,
-        kind: request.every_seconds !== undefined ? "every" : "at",
+        kind: "every",
         title: request.title,
         prompt: request.prompt,
-        everySeconds: request.every_seconds,
+        everySeconds: request.timing.every_seconds,
         scheduledAt: new Date().toISOString(),
       };
-      state.schedules.push({ sessionId, record });
+      state.schedules.push({ target: request.target, record });
       return record;
     },
-    delete: async () => ({ deleted: true }),
+    edit: async () => ({ deleted: true }),
     ...(overrides.schedule ?? {}),
   };
   const sessionController = {
@@ -101,18 +118,18 @@ test("写模式：创建会话与周期任务，并给出**确切**的清理参�
 
   // 清理指引必须**精确到可执行**，否则跑完会留下东西。
   const kinds = result.cleanup.map((c) => c.kind);
-  assert.ok(kinds.includes("schedule.delete"), "须给出任务删除指引");
+  assert.ok(kinds.includes("schedule.edit"), "须给出任务删除指引（0.2.2-rc.1 无 schedule.delete，删除并入 edit）");
   assert.ok(kinds.includes("session.delete"), "须给出会话删除指引");
-  const schedCleanup = result.cleanup.find((c) => c.kind === "schedule.delete");
-  assert.equal(schedCleanup.request.sessionId, result.created.sessionId);
+  const schedCleanup = result.cleanup.find((c) => c.kind === "schedule.edit");
+  assert.equal(schedCleanup.request.action, "delete", "清理动作须是 edit 的 delete");
   assert.equal(schedCleanup.request.id, result.created.scheduleId);
 });
 
-test("宿主拒收 every_seconds：如实记录失败，不伪造成功", async () => {
+test("宿主拒收 every 选择器：如实记录失败，不伪造成功", async () => {
   const { ctx } = fakeHost({
     schedule: {
       create: async () => {
-        throw new Error("invalid_rule: every_seconds is not supported");
+        throw new Error("invalid_rule: the every selector is not supported");
       },
     },
   });
@@ -129,7 +146,7 @@ test("宿主把周期任务存成别的形态：报 kind≠every（判别式是�
   const { ctx } = fakeHost({
     schedule: {
       // 宿主「接受」了请求，但存下来的是 at 形态——这种静默降级最危险。
-      create: async (sessionId, request) => ({
+      create: async (request) => ({
         id: "sched-quiet",
         kind: "at",
         title: request.title,
@@ -184,7 +201,7 @@ test("formatProbeReport 可读，且把须清理项列出来", async () => {
   const text = formatProbeReport(result);
   assert.match(text, /宿主能力探针/);
   assert.match(text, /须清理/);
-  assert.match(text, /schedule\.delete/);
+  assert.match(text, /schedule\.edit/);
   // 报告须能一眼看出成败：每一步都有 ✅ 或 ❌。
   for (const step of result.steps) {
     assert.ok(text.includes(step.name), `报告须包含步骤：${step.name}`);

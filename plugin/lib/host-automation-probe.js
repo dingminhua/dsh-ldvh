@@ -4,8 +4,24 @@
 // ## 为什么要有这个脚本
 //
 // §6.1 修订后，审核周期任务依赖宿主的两条能力：
-//   ① `schedule.create(sessionId, { every_seconds, title, prompt })` —— 周期投递；
+//   ① `schedule.create({ title, prompt, timing: { kind: 'every', every_seconds }, target })`
+//      —— 周期投递（**DSH 0.2.2-rc.1 起的签名**；旧签名 `create(sessionId, { every_seconds })`
+//      已不存在，见下「宿主契约变更」）；
 //   ② `sessionController.create({ cwd })` + `list()` 读投影标题 —— 专属会话的建立与查找。
+//
+// ## 宿主契约变更（0.2.2-rc.1，2026-11-05 实测）
+//
+// 上游把 `schedule` 服务整体重建为「独立任务 + 显式投递目标」形态，本探针依赖的三处
+// 全部改变：
+//   - `create(sessionId, request, signal)` → `create(request, actorSessionId?, signal)`：
+//     会话不再是第一个实参，而是 `request.target`（`{ kind: 'session', sessionId }`）；
+//   - 计时选择器由 request 顶层的 `every_seconds` 收进 `request.timing`
+//     （`{ kind: 'every', every_seconds }`），与 `at`/`after`/`daily`/`weekly`/`cron`/`rrule`
+//     同构——旧的「并列顶层字段 + 互斥计数」形态已删除；
+//   - `delete(request, signal)` **被移除**，删除并入 `edit({ id, action: 'delete' })`。
+//     故清理指引不再给出 `schedule.delete`，改给 `schedule.edit` 的 delete 动作。
+//
+// 三处都属**破坏性**变更：按旧签名调用会抛 TypeError/输入错误，而不是静默降级。
 //
 // 这两条我此前**只在宿主包的声明里读到过**，没在真实宿主上跑通。若直接写进插件再发现
 // 接口不匹配，返工成本高（插件里到处是接线）。故先单独验证：**只读 + 只创建一次**，
@@ -53,7 +69,10 @@ export async function probeHostAutomation(ctx, { projectRoot, title = "LDVH 经�
     return result;
   }
   step("schedule.create 可调用", typeof schedule.create === "function", typeof schedule.create);
-  step("schedule.delete 可调用", typeof schedule.delete === "function", typeof schedule.delete);
+  // `schedule.delete` 在 0.2.2-rc.1 已被移除，删除并入 `edit({ action: 'delete' })`。
+  // 这里探测的是**当前契约**：`edit` 是否存在且接受 delete 动作（后者只能由调用验证，
+  // 故此处只断言方法存在，并把「删除走 edit」写进清理指引）。
+  step("schedule.edit 可调用", typeof schedule.edit === "function", typeof schedule.edit);
   step("sessionController.create 可调用", typeof sessionController.create === "function", typeof sessionController.create);
   step("sessionController.list 可调用", typeof sessionController.list === "function", typeof sessionController.list);
 
@@ -106,10 +125,13 @@ export async function probeHostAutomation(ctx, { projectRoot, title = "LDVH 经�
   // ── 4. 在该会话上建周期任务（写；须清理）──────────────────────────────
   if (sessionId !== null) {
     try {
-      const record = await schedule.create(sessionId, {
+      // 0.2.2-rc.1 签名：create(request, actorSessionId?, signal?)。
+      // 会话进 `target`，计时进 `timing`——两者都从旧形态的顶层字段移入。
+      const record = await schedule.create({
         title,
         prompt: "[dsh-ldvh:experience-review-probe] 这是一次探针投递，请忽略。",
-        every_seconds: 3600,
+        timing: { kind: "every", every_seconds: 3600 },
+        target: { kind: "session", sessionId },
       });
       result.created.scheduleId = record?.id ?? null;
       step(
@@ -126,7 +148,8 @@ export async function probeHostAutomation(ctx, { projectRoot, title = "LDVH 经�
 
   // ── 5. 清理指引（**不自动删**：删除动作留给调用方决定）────────────────
   if (result.created.scheduleId !== null) {
-    result.cleanup.push({ kind: "schedule.delete", request: { sessionId, id: result.created.scheduleId } });
+    // 0.2.2-rc.1 起没有 `schedule.delete`：删除是 `edit` 的一个动作。
+    result.cleanup.push({ kind: "schedule.edit", request: { id: result.created.scheduleId, action: "delete" } });
   }
   if (result.created.sessionId !== null) {
     result.cleanup.push({ kind: "session.delete", sessionId: result.created.sessionId });

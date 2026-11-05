@@ -244,15 +244,22 @@ window.__ModuleLoader__.load({
       "[data-question-key] [class*=\"options\"]{gap:0;margin:10px 0 0;padding:0 12px}" +
       /* 正文（detail）与选项同灰度同字号，糊成一坨 → 收成引用块。 */
       "[data-question-key] [class*=\"detail\"]{margin:10px 12px 2px;padding:10px 12px;border-left:2px solid var(--dsw-alias-border-l4);border-radius:0 var(--dsw-radius-sm,8px) var(--dsw-radius-sm,8px) 0;background:color-mix(in srgb,var(--dsw-alias-bg-module-platform) 55%,transparent);font-size:13px;line-height:21px}" +
-      /* 选项：1px 间隙 + 透明边框 = 两行没有边界的灰字 → 可点卡片。 */
-      "[data-question-key] [role=\"radio\"],[data-question-key] [role=\"checkbox\"]{position:relative;box-sizing:border-box;min-height:48px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md,12px);background:color-mix(in srgb,var(--dsw-alias-bg-module-platform) 45%,transparent);text-align:left;cursor:pointer;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}" +
-      "[data-question-key] [role=\"radio\"]+[role=\"radio\"],[data-question-key] [role=\"checkbox\"]+[role=\"checkbox\"],[data-question-key] [role=\"radio\"]+[role=\"checkbox\"],[data-question-key] [role=\"checkbox\"]+[role=\"radio\"]{margin-top:6px}" +
-      "[data-question-key] [role=\"radio\"]:hover:not(:disabled),[data-question-key] [role=\"checkbox\"]:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l4);transform:translateY(-.5px)}" +
-      "[data-question-key] [role=\"radio\"]:active:not(:disabled),[data-question-key] [role=\"checkbox\"]:active:not(:disabled){transform:translateY(0)}" +
+      /* 选项：1px 间隙 + 透明边框 = 两行没有边界的灰字 → 可点卡片。
+         **0.2.2-rc.1 起选项是两层**：外层 `div[data-option-row]`（宿主自己的
+         `.optionRow`：0.5px 透明边、圆角、hover 底），内层 `button.option`
+         才是 `[role=radio]` / `[role=checkbox]`。旧的单层写法（role 直接在
+         按钮上）已不存在，故卡片外观必须挂到**外层行**，内层按钮退成纯内容
+         （否则出现双边框、悬停高亮只覆盖内框、选中态画在行内）。 */
+      "[data-question-key] [data-option-row]{position:relative;box-sizing:border-box;min-height:48px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md,12px);background:color-mix(in srgb,var(--dsw-alias-bg-module-platform) 45%,transparent);transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}" +
+      "[data-question-key] [data-option-row]+[data-option-row]{margin-top:6px}" +
+      /* 内层按钮只留内容盒：撤掉宿主自己的边框/底色，避免双框。 */
+      "[data-question-key] [data-option-row] [role=\"radio\"],[data-question-key] [data-option-row] [role=\"checkbox\"]{position:relative;box-sizing:border-box;min-height:0;padding:10px 12px;border:0;background:transparent;box-shadow:none;text-align:left;cursor:pointer}" +
+      "[data-question-key] [data-option-row]:hover:not(:has([role=\"radio\"]:disabled)):not(:has([role=\"checkbox\"]:disabled)){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l4);transform:translateY(-.5px)}" +
+      "[data-question-key] [data-option-row]:active:not(:has([role=\"radio\"]:disabled)):not(:has([role=\"checkbox\"]:disabled)){transform:translateY(0)}" +
       /* 选中态：强调色描边 + 淡底 + 外圈光晕，序号块反白——一眼看出选的是哪项。 */
-      "[data-question-key] [role=\"radio\"][aria-checked=\"true\"],[data-question-key] [role=\"checkbox\"][aria-checked=\"true\"]{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent)}" +
+      "[data-question-key] [data-option-row][class*=\"optionSelected\"]{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent)}" +
       "[data-question-key] [role=\"radio\"]:focus-visible,[data-question-key] [role=\"checkbox\"]:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}" +
-      "[data-question-key] [role=\"radio\"]:disabled,[data-question-key] [role=\"checkbox\"]:disabled{cursor:default;opacity:.55;transform:none}" +
+      "[data-question-key] [data-option-row]:has([role=\"radio\"]:disabled),[data-question-key] [data-option-row]:has([role=\"checkbox\"]:disabled){cursor:default;opacity:.55;transform:none}" +
       /* 序号块：20px 方角灰底 → 18px 圆片，选中时取强调色。 */
       "[data-question-key] [class*=\"number\"]{width:18px;flex:0 0 18px;height:18px;margin-top:3px;border:1px solid var(--dsw-alias-border-l4);border-radius:999px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:11px;font-weight:600;line-height:16px;transition:background-color .14s ease,border-color .14s ease,color .14s ease}" +
       "[data-question-key] [aria-checked=\"true\"] [class*=\"number\"]{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground)}" +
@@ -261,9 +268,11 @@ window.__ModuleLoader__.load({
       "[data-question-key] [class*=\"checkbox\"]::before{width:18px;height:18px;border:1px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-xs,4px)}" +
       "[data-question-key] [class*=\"checkbox\"][class*=\"checkboxChecked\"]{color:var(--dsw-alias-label-primary-foreground)}" +
       "[data-question-key] [class*=\"checkbox\"][class*=\"checkboxChecked\"]::before{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary)}" +
-      /* 备选项文案：label 与 description 原样同为 14px，主次不分。 */
+      /* 备选项文案：label 与 description 原样同为 14px，主次不分。
+         **排除 `descriptionToggle`**：宿主 0.2.2-rc.1 新增的「展开说明」按钮类名
+         含 `description` 子串，不排除会把按钮当正文排版（字号/行高串到图标按钮上）。 */
       "[data-question-key] [class*=\"optionLabel\"]{font-size:14px;font-weight:600;line-height:22px}" +
-      "[data-question-key] [class*=\"description\"]{font-size:13px;line-height:20px}" +
+      "[data-question-key] [class*=\"description\"]:not([class*=\"descriptionToggle\"]){font-size:13px;line-height:20px}" +
       /* 自由作答行：与选项同形，虚线边区分「这不是一个选项」。 */
       "[data-question-key] [class*=\"customRow\"]{box-sizing:border-box;min-height:48px;margin-top:6px;padding:10px 12px;border:1px dashed var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md,12px);background:transparent;transition:background-color .14s ease,border-color .14s ease}" +
       "[data-question-key] [class*=\"customRow\"]:hover,[data-question-key] [class*=\"customRow\"]:focus-within,[data-question-key] [class*=\"customRow\"][class*=\"customRowActive\"]{border-style:solid;border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent)}" +

@@ -824,6 +824,27 @@ test("只改观感：不得出现接管行为或隐藏内容的声明", () => {
   assert.ok(/visibility:hidden/.test(css), "单题 pager 用 visibility 隐藏（保留占位，理由见源码注释）");
 });
 
+test("选项卡片外观挂在外层行 `[data-option-row]` 上（0.2.2-rc.1 的双层结构）", () => {
+  // 宿主 0.2.2-rc.1 把选项拆成 div.optionRow（外层，带 0.5px 透明边与圆角）
+  // 包 button.option（内层，才是 [role=radio] / [role=checkbox]）。
+  // 旧覆写直接把边框/底色画在 [role=radio] 上，在新结构下会变成**内层一个框、
+  // 外层宿主自己一个框**的双边框，且 hover/选中态只覆盖内框。
+  // 这条断言把「外观挂外层、内层退成内容盒」钉住；退回单层写法即红。
+  const css = gateCssText();
+  assert.ok(/\[data-option-row\]\{[^}]*border:1px solid/.test(css), "外层行须承接卡片边框");
+  assert.ok(/\[data-option-row\][^{]*\{[^}]*min-height:48px/.test(css), "外层行须承接最小高度");
+  assert.match(css, /\[data-option-row\] \[role="radio"\][^{]*\{[^}]*border:0/, "内层按钮须撤掉自己的边框（否则双框）");
+  assert.match(css, /\[data-option-row\]\[class\*="optionSelected"\]/, "选中态须落在外层行上");
+});
+
+test("`description` 覆写排除 `descriptionToggle`（新宿主的子串碰撞）", () => {
+  // 宿主 0.2.2-rc.1 新增 .descriptionToggle（展开说明的图标按钮），类名含
+  // `description` 子串。不带 :not 的 `[class*="description"]` 会把 13px/20px
+  // 的正文排版套到图标按钮上。
+  const css = gateCssText();
+  assert.match(css, /\[class\*="description"\]:not\(\[class\*="descriptionToggle"\]\)/, "须排除 descriptionToggle");
+});
+
 test("召回预算档位：客户端选项须与服务端 INJECTION_BUDGET_TIERS **同源**", async () => {
   // 与 IDLE_DEFAULT_STORED 同一纪律：两处各写一套必然漂移，漂移后「设置页选
   // 20K、实际生效 10K」，而用户永远看不到真实值。
