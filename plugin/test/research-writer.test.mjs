@@ -8,6 +8,7 @@ import {
   createResearchObject,
   readResearchObject,
   updateResearchObject,
+  correctResearchObject,
   validateResearchFrontmatter,
   validateBodyStructure,
   extractFindingUnits,
@@ -747,4 +748,210 @@ test("frontmatter fields are written in the canonical reading order regardless o
   assert.ok(keys.indexOf("research_question") < keys.indexOf("confirmed_statements"));
   assert.ok(keys.indexOf("stopping_reason") < keys.indexOf("confirmed_statements"));
   assert.ok(keys.indexOf("urls") < keys.indexOf("object_uid"));
+});
+
+// ---------------------------------------------------------------------------
+// 终态事实更正 correct (24 §13; 24 §8 第 4 项「只允许配套更正或退出说明的更新」)
+//
+// 24 §8 第 4 项原文就允许 retired 报告的配套更正，而 update 因 status 从磁盘
+// 继承，对 retired 对象的任何写入都命中「cannot be re-entered」——该许可此前
+// 只是一句话，没有承载。本条覆盖四个边界：
+//   ① retired 正文可更正，终态判定与不可写字段逐字不变
+//   ② 判断字段（stopping_reason）拒绝 —— 属判断变更而非错述
+//   ③ 缺 Human 授权 → fail-closed
+//   ④ 正文未变 → no-op 拒绝
+// ---------------------------------------------------------------------------
+
+async function createRetiredResearch() {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(created.ok, JSON.stringify(created.error));
+  const uid = created.value.object_uid;
+  const read1 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
+  assert.ok(read1.ok);
+
+  const retired = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: uid,
+    expectedFingerprint: read1.value.fingerprint,
+    frontmatterAfter: { ...read1.value.frontmatter, status: "retired", retirement_reason: "outdated" },
+    analysisBodyAfter: validAnalysisBody,
+    changeSummary: "retire: 资料过时",
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(retired.ok, JSON.stringify(retired.error));
+
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
+  assert.ok(read2.ok, JSON.stringify(read2.error));
+  return read2;
+}
+
+test("correct ①: retired 正文可更正，status/retirement_reason/retired_at/urls/stopping_reason 逐字不变", async () => {
+  const read = await createRetiredResearch();
+  const before = read.value.frontmatter;
+
+  const corrected = await correctResearchObject({
+    factSourceRoot: root,
+    objectUid: read.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    analysisBodyAfter: read.value.body.replace("## 未证实与缺口\n（无——两个发现均有源码级证据）", "## 未证实与缺口\n（更正：原句误写为「两个」，实为三条证据，此处据实修正）"),
+    changeSummary: "更正未证实与缺口段的错述",
+    humanAuthorization: "老丁 2026-11-04 授权更正该条 retired Research 的缺口段错述",
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(corrected.ok, JSON.stringify(corrected.error));
+
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+  assert.ok(read2.ok);
+  assert.ok(read2.value.body.includes("更正：原句误写为"), "body must carry the correction");
+
+  for (const field of ["status", "retirement_reason", "retired_at", "urls", "research_purpose", "stopping_reason", "research_question"]) {
+    assert.deepEqual(read2.value.frontmatter[field], before[field], `${field} must be inherited verbatim`);
+  }
+  assert.equal(read2.value.frontmatter.status, "retired");
+  assert.equal(read2.value.frontmatter.change_log.length, before.change_log.length + 1);
+  assert.match(read2.value.frontmatter.change_log.at(-1).summary, /事实更正（非状态转换）/);
+  assert.match(read2.value.frontmatter.change_log.at(-1).summary, /老丁 2026-11-04 授权/);
+});
+
+test("correct ②: stopping_reason 被拒绝 —— 属判断变更，不是错述更正", async () => {
+  const read = await createRetiredResearch();
+  const corrected = await correctResearchObject({
+    factSourceRoot: root,
+    objectUid: read.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    frontmatterAfter: { stopping_reason: "round-cap" },
+    analysisBodyAfter: read.value.body,
+    changeSummary: "试图改停止理由",
+    humanAuthorization: "老丁 2026-11-04 授权",
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(!corrected.ok);
+  assert.equal(corrected.error.code, "research/correction_judgment_field_immutable", JSON.stringify(corrected.error));
+
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+  assert.equal(read2.value.fingerprint, read.value.fingerprint, "rejected call must leave zero write");
+});
+
+test("correct ②b: 终态字段与白名单外字段一律拒绝，且零写入", async () => {
+  const read = await createRetiredResearch();
+  for (const [field, value] of [["status", "active"], ["retirement_reason", "abolished"], ["urls", []]]) {
+    const corrected = await correctResearchObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { [field]: value },
+      analysisBodyAfter: read.value.body,
+      changeSummary: "越界尝试",
+      humanAuthorization: "老丁 2026-11-04 授权",
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+    });
+    assert.ok(!corrected.ok, `${field} must be refused`);
+  }
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+  assert.equal(read2.value.fingerprint, read.value.fingerprint, "all refusals must leave zero write");
+});
+
+test("correct ②c: 非 retired 对象拒绝（内容更新不得伪装成事实更正）", async () => {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(created.ok);
+  const read = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  const corrected = await correctResearchObject({
+    factSourceRoot: root,
+    objectUid: read.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    analysisBodyAfter: read.value.body + "\n",
+    changeSummary: "越界尝试",
+    humanAuthorization: "老丁 2026-11-04 授权",
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(!corrected.ok);
+  assert.equal(corrected.error.code, "research/correction_requires_retired");
+});
+
+test("correct ③: 缺 Human 授权 → fail-closed 且零写入", async () => {
+  const read = await createRetiredResearch();
+  for (const auth of [undefined, "", "  "]) {
+    const corrected = await correctResearchObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      analysisBodyAfter: read.value.body + "\n补一行。",
+      changeSummary: "无授权",
+      humanAuthorization: auth,
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+    });
+    assert.ok(!corrected.ok, `auth=${JSON.stringify(auth)} must be refused`);
+    assert.equal(corrected.error.code, "research/human_authorization_required");
+  }
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+  assert.equal(read2.value.fingerprint, read.value.fingerprint, "all refusals must leave zero write");
+});
+
+test("correct ④: 正文与白名单字段均未变 → no-op 拒绝，不追加假流水", async () => {
+  const read = await createRetiredResearch();
+  const same = await correctResearchObject({
+    factSourceRoot: root,
+    objectUid: read.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    analysisBodyAfter: read.value.body,
+    changeSummary: "声称改了但没改",
+    humanAuthorization: "老丁 2026-11-04 授权",
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(!same.ok);
+  assert.equal(same.error.code, "research/no_op", JSON.stringify(same.error));
+
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+  assert.equal(read2.value.fingerprint, read.value.fingerprint, "no-op refusal must leave zero write");
+});
+
+test("correct ⑤: 改 confirmed_statements 但不同改关键发现 H3 → 索引-正文一致性拒绝（不变量 7）", async () => {
+  const read = await createRetiredResearch();
+  const corrected = await correctResearchObject({
+    factSourceRoot: root,
+    objectUid: read.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    frontmatterAfter: { confirmed_statements: ["F1 被改过的标题"] },
+    analysisBodyAfter: read.value.body,
+    changeSummary: "只改索引不同改正文",
+    humanAuthorization: "老丁 2026-11-04 授权",
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(!corrected.ok);
+  assert.equal(corrected.error.code, "research/coherence_invalid", JSON.stringify(corrected.error));
+});
+
+test("correct ⑥: 同改 confirmed_statements 与正文 H3 标题 → 通过（不变量 7 是可满足的）", async () => {
+  const read = await createRetiredResearch();
+  const oldTitle = "F1 队长式委派：单队长 spawn 成员、成员可续聊、任务 DAG 驱动调度";
+  const newTitle = "F1 队长式委派：单队长 spawn 成员、成员可续聊、任务 DAG 驱动调度（订正：DAG 由事件触发）";
+  const corrected = await correctResearchObject({
+    factSourceRoot: root,
+    objectUid: read.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    frontmatterAfter: {
+      confirmed_statements: read.value.frontmatter.confirmed_statements.map((s) => (s === oldTitle ? newTitle : s)),
+    },
+    analysisBodyAfter: read.value.body.replace(oldTitle, newTitle),
+    changeSummary: "订正 F1 的表述错述",
+    humanAuthorization: "老丁 2026-11-04 授权",
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(corrected.ok, JSON.stringify(corrected.error));
+
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+  assert.ok(read2.value.frontmatter.confirmed_statements.includes(newTitle));
+  assert.ok(read2.value.body.includes(newTitle));
+  assert.equal(read2.value.frontmatter.status, "retired");
+  assert.equal(read2.value.body_valid, true);
 });
