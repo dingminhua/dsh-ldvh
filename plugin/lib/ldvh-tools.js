@@ -30,7 +30,7 @@ import { collectExistingPitfalls, reviewPendingEntries } from "./observation-rev
 import { QUEUE_RELATIVE_PATH, readPendingQueue, resolvePendingEntry } from "./pending-queue.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
 // friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
-import { detectStaleValidatorModules } from "./module-freshness.js";
+import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
@@ -64,6 +64,11 @@ const OPERATIONS = {
   "discover-ldvh-capabilities": {
     toolName: "ldvh_discover_capabilities",
     summary: "Discover LDVH public operations with declared/implemented/callable availability (specs/05 §6.2)",
+    effect: "read"
+  },
+  "inspect-loaded-modules": {
+    toolName: "ldvh_inspect_loaded_modules",
+    summary: "Report which plugin/lib modules on disk are newer than this host process (mtime vs process start). Purely informational: it never gates a write and cannot say which version is actually loaded (workcase-e487cdf4; specs/09 §5.4)",
     effect: "read"
   },
   "precheck-git-commit": {
@@ -571,6 +576,52 @@ function makeExecute(deps) {
     });
   }
 
+  /**
+   * 报告 `plugin/lib` 下哪些模块比本宿主进程新（workcase-e487cdf4）。
+   *
+   * **结论是 informational，不参与任何判定**：它不改写预检 `verdict`、不拒绝任何
+   * 写入、也不回答「载入的是哪一版代码」。判据只有一条确定性事实——文件 mtime 晚于
+   * 进程启动时刻，则该文件在进程内的那份代码必然不是磁盘上的现行版本；反向不成立
+   * （mtime 未变检不出），故 `stale` 为空**不等于**进程与磁盘一致。
+   *
+   * 与 precheck 的关系：`ldvh-tools.js` 与 `commit-validation.js` 陈旧时预检会把
+   * `failed` 降级为 `unverifiable`（那是判定语义，另一条路径）。本工具是**全量
+   * 可见性**入口，覆盖面从 2 个文件扩到整个目录，但不改变预检的任何行为。
+   */
+  async function executeInspectLoadedModules(_args, _exec) {
+    const report = detectStaleLibraryModules();
+    return envelope("inspect-loaded-modules", "completed", {
+      result: {
+        process_start_ms: report.start_ms,
+        library_dir: report.library_dir,
+        checked: report.checked,
+        stale: report.stale.map((entry) => ({
+          file: entry.file,
+          mtime_ms: entry.mtime_ms,
+        })),
+        unreadable: report.unreadable,
+      },
+      scope: { requested: null, completed: ["plugin/lib"], not_completed: [] },
+      sources: [{ kind: "file-system", path: report.library_dir }],
+      gaps: [],
+      verification: {
+        checks: ["mtime-vs-process-start"],
+        // 本工具不「通过/不通过」任何东西：它只报告。把 stale 非空写成 passed:false
+        // 会让调用方把它读成一个门禁结论——那正是 scope 第三条所禁止的。
+        passed: true,
+      },
+      follow_up: report.stale.length === 0 ? [] : ["restart-host-to-load-disk-version"],
+      informational: {
+        // 显式标注：结论不具判定效力（scope 第三条）。字段名自带语义，
+        // 避免下游把 stale 列表当成拒绝理由。
+        effect: "informational-only",
+        caveat:
+          "An empty stale list does NOT prove the process matches disk: the mtime rule cannot see edits that preserved mtime. "
+          + "This report never gates a write and cannot say which version is actually loaded.",
+      },
+    });
+  }
+
   async function executeDiscoverCapabilities(args, exec) {
     const requestedOperation = typeof args?.operation_key === "string" && args.operation_key.length > 0 ? args.operation_key : null;
     const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
@@ -588,7 +639,13 @@ function makeExecute(deps) {
       // 工具**。若让它出现在这里，它会被显示为「已声明=false」——而读者会据以认为
       // 「这是一条规范要求但实现没声明」的缺口，那是假缺口。05 §6.2 明写「操作目录
       // 不等于许可白名单」，反向亦然：不在目录里不等于它不存在。
-      .filter(([key]) => key !== "probe-host-automation")
+      // **实现侧诊断工具不进 discovery**：`probe-host-automation`（上面已述）与
+      // `inspect-loaded-modules`（workcase-e487cdf4）同属此类——两者都不在任何规范
+      // 声明表里。若让它们出现在枚举中，会被显示为「已声明=false」，读者会据以认为
+      // 存在「规范要求但实现没声明」的缺口，那是假缺口。05 §6.2 明写「操作目录不等于
+      // 许可白名单」，反向亦然：不在目录里不等于它不存在。二者仍注册为 DSH 工具、
+      // 仍可调用，只是不参与按规范声明做的可用性判定。
+      .filter(([key]) => key !== "probe-host-automation" && key !== "inspect-loaded-modules")
       .filter(([key]) => requestedOperation === null || key === requestedOperation)
       .map(([key, operation]) => {
         const declaration = declarations.get(key) ?? null;
@@ -1728,6 +1785,7 @@ function makeExecute(deps) {
     "read-specification-candidates": executeReadSpecificationCandidates,
     "read-specification-content": executeReadSpecificationContent,
     "discover-ldvh-capabilities": executeDiscoverCapabilities,
+    "inspect-loaded-modules": executeInspectLoadedModules,
     "precheck-git-commit": executePrecheckGitCommit,
     "register-governed-project": executeRegisterGovernedProject,
     "unregister-governed-project": executeUnregisterGovernedProject,
@@ -1985,6 +2043,10 @@ function parameterSchemaFor(operationKey) {
         },
         additionalProperties: false
       };
+    case "inspect-loaded-modules":
+      // 只读、无参数：结论是「磁盘上哪些模块比本进程新」，不接受任何筛选——
+      // 让它可以被参数收窄，就等于给了「看不见」一条路（workcase-e487cdf4）。
+      return { type: "object", properties: {}, additionalProperties: false };
     case "observation-buffer-list":
       // 11 §12ter.1：status 可选闭集四值、limit 可选正整数（只可降低返回条数，
       // 不得绕过 §12bis 的容量上限与淘汰规则）。
@@ -2140,6 +2202,28 @@ export function renderEnvelope(operationKey, value) {
       lines.push(`  · ${row.id} every=${row.everySeconds}s${row.mine === true ? " (ours)" : ""}`);
     }
     lines.push(`verdict: ${env.result.verdict}`);
+  }
+  // **陈旧模块报告**（workcase-e487cdf4）：它的字段是 process_start_ms / library_dir /
+  // checked / stale / unreadable，与上面几种结构都不同。不补这段的后果**已实测**：
+  // 真机调用 `ldvh_inspect_loaded_modules` 时模型侧只看到一行
+  // 「LDVH inspect-loaded-modules: completed」——查了几个文件、有没有陈旧、哪些陈旧，
+  // 一个字段都读不到。那使「查过了」与「没查」在模型侧不可区分，与探针那次同型
+  // （friction-8608a8a6 的教训：只回计数即失败，此处连计数都没有）。
+  if (env.result !== null && typeof env.result === "object" && env.result.checked !== undefined && env.result.library_dir !== undefined) {
+    lines.push(`checked: ${env.result.checked} module(s) under ${env.result.library_dir}`);
+    lines.push(`process_start_ms: ${env.result.process_start_ms}`);
+    const stale = Array.isArray(env.result.stale) ? env.result.stale : [];
+    lines.push(`stale: ${stale.length}`);
+    for (const entry of stale) {
+      const name = String(entry?.file ?? "(unknown)").split("/").pop();
+      const when = entry?.mtime_ms === undefined ? "?" : new Date(entry.mtime_ms).toISOString();
+      lines.push(`  · ${name} mtime=${when}`);
+    }
+    const unreadable = Array.isArray(env.result.unreadable) ? env.result.unreadable : [];
+    lines.push(`unreadable: ${unreadable.length}`);
+    for (const file of unreadable) lines.push(`  ! ${file}`);
+    if (env.result.informational?.effect !== undefined) lines.push(`effect: ${env.result.informational.effect}`);
+    if (env.result.informational?.caveat !== undefined) lines.push(`caveat: ${env.result.informational.caveat}`);
   }
   return text(lines.join("\n"));
 }

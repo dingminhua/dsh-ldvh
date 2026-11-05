@@ -25,7 +25,8 @@
 //     不得据此把 `failed` 改判为 `passed`。
 //   * 模块文件读不到时**不判陈旧**（不可读 ≠ 陈旧），而是把它记进 `unreadable`
 //     由调用方如实披露——把「读不到」当「陈旧」会在每次正常提交时报错。
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -97,4 +98,54 @@ export const VALIDATOR_MODULE_FILES = Object.freeze([
 export function detectStaleValidatorModules({ files = VALIDATOR_MODULE_FILES, clock, statMtimeMs = statMtimeOrNull } = {}) {
   const startMs = processStartMs(clock);
   return { ...detectStaleModules({ files, startMs, statMtimeMs }), start_ms: Math.round(startMs) };
+}
+
+/**
+ * `plugin/lib` 下全部模块（workcase-e487cdf4）。
+ *
+ * 与 {@link VALIDATOR_MODULE_FILES} 的关系：后者是**precheck 专用子集**（只有那两个
+ * 文件的旧代码会改变 precheck 结论）；本集合是**全量**——`plugin/lib` 里任何模块比
+ * 进程新，都意味着运行实例的某部分行为与磁盘不一致。二者判据同一（都是文件 mtime
+ * 对进程启动时刻），区别只在受检范围，故共用 {@link detectStaleModules}，不另立判据。
+ *
+ * 为什么需要全量：precheck 之外还有九十余个模块（工具注册、各类写入器、召回、投影），
+ * 它们的陈旧此前无人可见——改完某个写入器后工具面仍跑旧逻辑，而没有任何地方提示。
+ *
+ * 排除项只有本模块自身：它陈旧时其判据仍成立（比的是「文件 mtime 对进程启动」，
+ * 这个逻辑不随版本变化），把它算进去会在每次改本文件后自我误报。
+ *
+ * 该集合运行时枚举、**不写死清单**——写死会在新增模块时静默漏检，而那正是本单要
+ * 消除的失败形态。
+ *
+ * @param {string} [libraryDir] 省略时取本模块所在目录。
+ * @returns {string[]} 绝对路径清单（已排除本模块）。
+ */
+export function listLibraryModuleFiles(libraryDir) {
+  const self = fileURLToPath(import.meta.url);
+  // `new URL(".", ...)` 的 fileURLToPath 带尾斜杠，直接拼会产出 `lib//x.js`；
+  // 用 dirname(自身路径) 与 join 保证与 `self` 同一规范化形态，排除才可比。
+  const dir = libraryDir ?? dirname(self);
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => join(dir, name))
+    .filter((file) => file !== self);
+}
+
+/**
+ * 全量检测：`plugin/lib` 下哪些模块比本进程新。
+ *
+ * 与 {@link detectStaleValidatorModules} 同形返回，便于调用方统一处理；差别只在
+ * 受检集合。**结论只用于如实报告**：本函数不参与任何判定语义，不得据以拒绝写入
+ * 或改写预检 `verdict`（workcase-e487cdf4 的 scope 第三条边界）。
+ *
+ * @param {{libraryDir?: string, clock?: object, statMtimeMs?: (f: string) => number|null}} [options]
+ */
+export function detectStaleLibraryModules({ libraryDir, clock, statMtimeMs = statMtimeOrNull } = {}) {
+  const files = listLibraryModuleFiles(libraryDir);
+  const startMs = processStartMs(clock);
+  return {
+    ...detectStaleModules({ files, startMs, statMtimeMs }),
+    start_ms: Math.round(startMs),
+    library_dir: libraryDir ?? dirname(fileURLToPath(import.meta.url)),
+  };
 }
