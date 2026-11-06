@@ -25,6 +25,11 @@ function association(target: FactCardAssociation['target']): FactCardAssociation
   return { available: true, target };
 }
 
+function objectUidOf(target: FactCardAssociation['target']): string {
+  assert.ok('objectUid' in target, '保留下来的目标必须是 UID');
+  return target.objectUid;
+}
+
 test('relations 与 refs 指向同一目标时各留一条（去重按 source 分组隔离，03 §7.2）', () => {
   const rows = [
     { association: association({ objectUid: UID }), source: 'relations' as const },
@@ -42,7 +47,7 @@ test('同一 source 内的重复目标被去掉', () => {
   ];
   const kept = dedupeFactCardAssociations(rows);
   // 留下的必须是**那条目标**，不是随便剩余的一条——只数个数认不出留下的是谁。
-  assert.deepEqual(kept.map((r) => r.association.target?.objectUid), [UID]);
+  assert.deepEqual(kept.map((r) => objectUidOf(r.association.target)), [UID]);
 });
 
 test('refs 条目参与去重——不再被「没有 target」放行（缺陷②回归）', () => {
@@ -54,7 +59,7 @@ test('refs 条目参与去重——不再被「没有 target」放行（缺陷�
   ];
   // 反向控制同一条用例：若去重被整体关掉，kept 会是两条——故断言精确到目标身份。
   const kept = dedupeFactCardAssociations(rows);
-  assert.deepEqual(kept.map((r) => [r.source, r.association.target?.objectUid]), [['refs', UID]], 'refs 必须真正参与去重');
+  assert.deepEqual(kept.map((r) => [r.source, objectUidOf(r.association.target)]), [['refs', UID]], 'refs 必须真正参与去重');
 });
 
 test('不同目标各自保留，不被误去重', () => {
@@ -65,7 +70,7 @@ test('不同目标各自保留，不被误去重', () => {
   ];
   // 保留的顺序与身份一并锁住：条数相同但「留错了一条」不得通过。
   assert.deepEqual(
-    dedupeFactCardAssociations(rows).map((r) => r.association.target?.objectUid),
+    dedupeFactCardAssociations(rows).map((r) => objectUidOf(r.association.target)),
     [UID, other],
   );
 });
