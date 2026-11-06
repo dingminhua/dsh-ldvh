@@ -2,6 +2,9 @@ import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
 import type { ObjectItem } from '@/utils/api';
 import { stripCardMarkdown } from '@/utils/cardText';
+import { useProjectScope } from '@/utils/projectContext';
+import { groupWorkCaseAssociations, type WorkCaseAssociationGroup } from '@/utils/workcaseAssociationGroups';
+import { workCaseAssociationLabels } from '@/utils/workcaseAssociationLabels';
 import {
   FACT_ASSOCIATION_ROWS_LIST_CLASS,
   FACT_ASSOCIATION_ROWS_ZONE_CLASS,
@@ -97,6 +100,7 @@ export interface WorkCaseClosedSummaryProps {
 
 export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseClosedSummaryProps) {
   const { t, locale } = useI18n();
+  const { selectedProjectId } = useProjectScope();
 
   const cancellation = obj.cancellation ?? null;
   // 去向（`21 §8` 残留段的**去向子项**）：与「待批准关闭」期**同一处承载**（正文，关闭
@@ -106,16 +110,18 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
   // 事后补记声明（`21 §8`）：让卡面读者知道这段去向不是关闭当时的提请内容。
   const adviceNote = typeof obj.advice_note === 'string' ? obj.advice_note : null;
   const refSources = Array.isArray(obj.factRefSources) ? obj.factRefSources : [];
-  // `routed-to` 的目标关联行（`10 §5.5`「已关闭」卡表：去向项中「转入 Spark」项**就地
-  // 渲染为目标关联行**——图标 + 标题 + 目标状态，可点开面板）。指向的唯一承载是
-  // `relations.routed-to`（`21 §12`：对象标识问题，不靠散文回指）。
-  //
-  // 顺序依据是**写法约定、非机械可核验事实**（`§15.1` 明文）：去向子项不携带目标标识，
-  // 机械层只能数出「各有几条」。故此处按序**陈列**候选配对，不得把它表述为
-  // 「已验证的对应关系」（`§13` 对呈现层的同款禁令）。
-  const routedTo = Array.isArray(obj.factAssociations)
-    ? obj.factAssociations.filter((association) => association.relationKey === 'routed-to')
-    : [];
+  const directionGroups = groupDirectionRows(advice);
+  const sparkAdviceCount = directionGroups.find((group) => group.kind === '转入 Spark')?.rows.length ?? 0;
+  // 展示按可核实的同项目对象身份聚合；关系与两个 refs 方向仍是独立事实。
+  // routed-to 与去向条目的顺序对应只是候选，不得表现成已经核实的履行关系。
+  const associationGroups = groupWorkCaseAssociations(
+    Array.isArray(obj.factAssociations) ? obj.factAssociations : [],
+    Array.isArray(obj.factRefs) ? obj.factRefs : [],
+    refSources.map(refSourceToAssociation),
+    sparkAdviceCount,
+    selectedProjectId,
+  );
+  const associationLabels = (group: WorkCaseAssociationGroup) => workCaseAssociationLabels(group, t);
 
   // **残留块已整块删除（Human 裁定 2026-09-30，方案甲）**：已关闭卡**一律不呈现**
   // 独立的残留块——「到了已关闭，就不应该有单独残留的信息了，应该都是被消化的信息，
@@ -131,7 +137,7 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
   if (
     cancellation === null &&
     advice.length === 0 &&
-    refSources.length === 0
+    associationGroups.other.length === 0
   ) {
     return null;
   }
@@ -196,7 +202,7 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
           {adviceNote && (
             <div className="ldvh-meta-muted px-0.5">{stripCardMarkdown(adviceNote)}</div>
           )}
-          {groupDirectionRows(advice).map((group) => {
+          {directionGroups.map((group) => {
             // 「转入 Spark」的分区标题下**就地渲染为目标关联行**（`10 §5.5` 已关闭卡表）。
             //
             // **按序配对**：第 k 条「转入 Spark」陈列第 k 条 `routed-to`。该顺序是
@@ -208,8 +214,8 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
             // 卡片上重复出现 N 次（N = 转入条数），与 `§13`「每条建议 ↔ 一条关系」
             // 的陈列口径不符，也会把「有几条去向」这一信息淹没。
             //
-            // 计数不一致时（`§15.1` 门禁④已拒绝该形态，故正常不可达）**不多画**：
-            // 只画能配上的那几条，缺失即缺失——不猜、也不复制最后一条。
+            // 投影可能把指向同一目标的多条关系去重；数量不一致时不做候选配对，
+            // 保留读到的对象并提示不确定，避免把后续目标贴到错误的去向条目。
             const isSpark = group.kind === '转入 Spark';
             return (
               <div
@@ -229,7 +235,7 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
                   </span>
                 </div>
                 {group.rows.map((item, index) => {
-                  const target = isSpark ? routedTo[index] : undefined;
+                  const target = isSpark ? associationGroups.inline[index] : null;
                   return (
                     <div
                       key={`${item.kind ?? 'other'}-${index}`}
@@ -243,19 +249,27 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
                           不出现「gap 与 margin 叠加」「符号偏高」两个已实测的偏差——取值
                           依据见 `WORKCASE_DIRECTION_ROW_BULLET_CLASS` 的登记。 */}
                       <span aria-hidden="true" className={WORKCASE_DIRECTION_ROW_BULLET_CLASS} />
-                      <span>{stripCardMarkdown(item.text)}</span>
-                      {target && (
-                        <div className="mt-0.5 grid min-w-0 gap-0.5">
-                          {/* 行式由**统一关联行**给出（10 §5.5：同类信息只有一处行式）——
-                              此前本组件自建 WorkCaseRoutedToRow（图标 12px、无类型色、状态写成
-                              文字），与统一行（图标 13px、类型色、行末状态图标）不一致。 */}
-                          <FactAssociationCardRow
-                            association={target}
-                            locale={locale}
-                            unavailableLabel={t('objectList.workcaseRoutedToUnavailable')}
-                          />
-                        </div>
-                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block break-words">{stripCardMarkdown(item.text)}</span>
+                        {target && (
+                          <div
+                            className="mt-0.5 grid min-w-0 gap-0.5"
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            {/* 行式由**统一关联行**给出（10 §5.5：同类信息只有一处行式）——
+                                此前本组件自建 WorkCaseRoutedToRow（图标 12px、无类型色、状态写成
+                                文字），与统一行（图标 13px、类型色、行末状态图标）不一致。 */}
+                            <FactAssociationCardRow
+                              association={target.association}
+                              locale={locale}
+                              unavailableLabel={t('objectList.workcaseRoutedToUnavailable')}
+                              contextLabels={associationLabels(target)}
+                              disableOpen={target.identityConflict}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -265,32 +279,30 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
         </div>
       )}
 
-      {/* ③ 反向普通引用：只呈现「哪些可读事实对象声明引用了本 WC」。
-          这是实时反查得到的可见性线索，不是建议履行、语义覆盖或关闭证明。
-          不与上面的 outgoing factRefs / formal relations 合并。
-
-          **无标题、无块边框（Human 2026-09-30：「那就不要标题，学习 spark 的做法」）**：
-          区域形态与 Spark 卡的引用区**同一处来源**（`FACT_ASSOCIATION_ROWS_ZONE_CLASS`／
-          `FACT_ASSOCIATION_ROWS_LIST_CLASS`，在 `ObjectList.tsx` 单点给出）——顶部分割线
-          + 行间分割线，没有标题、没有块边框、没有底色。
-
-          为什么去掉标题：行本身**自描述**（类型图标说出对象类型、行末状态图标说出状态），
-          旧标题「声明引用此工单的对象」是一句规范腔长句，不增加行所没有的信息，却制造
-          命名难题——任何概括词要么太长、要么冒领方向语义（如误写成「转入 Spark」会宣称
-          本单残留已转入该 Spark，而它的承载是**本单的** `relations.routed-to`；反向引用
-          是**别人**的 `refs`，方向相反，见 `10 §5.5` 与 `api/services/facts.ts` 的登记）。
-          无标题即无冒领面。 */}
-      {refSources.length > 0 && (
-        <section data-workcase-ref-sources className={FACT_ASSOCIATION_ROWS_ZONE_CLASS}>
+      {/* 投影可能按目标去重，数量不一致时不得将后续目标错配到另一条去向。 */}
+      {associationGroups.pairingMismatch && (
+        <p role="status" className="ldvh-meta-muted px-0.5 break-words">
+          {t('objectList.workcaseAssociation.pairingMismatch')}
+        </p>
+      )}
+      {/* 除去向内就地呈现的对象外，剩余对象在此统一列出。来源方向和关系键只作
+          事实标签，不把反向引用解释为去向履行；身份不确定的条目不会被静默合并。 */}
+      {associationGroups.other.length > 0 && (
+        <section
+          data-workcase-associations
+          className={FACT_ASSOCIATION_ROWS_ZONE_CLASS}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
           <div className={FACT_ASSOCIATION_ROWS_LIST_CLASS}>
-            {refSources.map((source) => (
-              // 行式由**统一关联行**给出（Human 2026-09-30：「学习 spark 的引用方案」）——
-              // 此前本组件自建一套行式，与 Spark/关联块不一致。此处只做形状适配。
+            {associationGroups.other.map((associationGroup) => (
               <FactAssociationCardRow
-                key={source.objectUid}
-                association={refSourceToAssociation(source)}
+                key={associationGroup.key}
+                association={associationGroup.association}
                 locale={locale}
-                unavailableLabel={t('objectList.workcaseRefSourceUnavailable')}
+                unavailableLabel={t('objectList.associationUnavailable')}
+                contextLabels={associationLabels(associationGroup)}
+                disableOpen={associationGroup.identityConflict}
               />
             ))}
           </div>

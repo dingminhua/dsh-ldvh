@@ -373,10 +373,12 @@ test('已关闭卡：「转入 Spark」项就地渲染为目标关联行（10 §
   //
   // **2026-09-30 修订**（去向分区后）：判定从「逐条的 `item.kind`」改为**分区级**的
   // `group.kind === '转入 Spark'`——同一词的条目已合入一个分区，目标行挂在分区内
-  // 各条正文之下（`routedTo[index]` 按序配对），配对纪律不变（写法约定、非机械事实）。
+  // 各条正文之下。聚合器只在数量一致时给出按序候选，不一致则保留目标并提示。
   assert.match(code, /group\.kind === '转入 Spark'/, '仅「转入 Spark」分区须就地渲染目标行');
-  assert.match(code, /routedTo\[index\]/, '目标须按分区内条目序与 routed-to 候选配对');
-  assert.match(code, /relationKey === 'routed-to'/, '目标须取 relations.routed-to（指向的唯一承载，21 §12）');
+  assert.match(code, /associationGroups\.inline\[index\]/, '目标须消费聚合器按分区内条目序提供的候选');
+  assert.match(code, /associationGroups\.pairingMismatch/, '数量不一致时必须披露配对不确定');
+  const grouping = readSource('web/src/utils/workcaseAssociationGroups.ts');
+  assert.match(grouping, /relationKey === 'routed-to'/, '目标须取 relations.routed-to（指向的唯一承载，21 §12）');
   // **2026-09-30 修订**：目标行改由**统一关联行**给出（10 §5.5「同类信息只有一处行式」）——
   // 自建的 `WorkCaseRoutedToRow` 已删除。故不再断言"存在某自建组件"，而是断言：
   // ① 该处用的是统一关联行；② 图标/标题/状态三项由统一行提供（在 ObjectList 单点实现）。

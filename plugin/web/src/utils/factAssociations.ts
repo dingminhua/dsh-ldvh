@@ -20,6 +20,8 @@ export function associationTargetKey(target: FactCardAssociation['target']): str
 
 export function associationLocator(association: FactCardAssociation) {
   if (association.resolvedTarget) return association.resolvedTarget;
+  // 旧窗口或不可读投影可能缺 target；保留不可打开的关联行，不伪造定位符。
+  if (!association.target || typeof association.target !== 'object') return null;
   // commit 目标（02 §8.1）不是对象 locator——没有 factTypeKey/objectId 可开面板。
   if ('commit' in association.target) return null;
   return 'objectUid' in association.target ? null : association.target;

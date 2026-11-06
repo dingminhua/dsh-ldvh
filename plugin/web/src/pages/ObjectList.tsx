@@ -282,6 +282,7 @@ export function WorkCaseListCard({
       onOpen={onOpen}
       showNonActiveReason={false}
       displayStatus={obj.group ?? 'unknown'}
+      showAssociations={obj.group !== 'closed'}
     >
       <WorkCaseCardBodyWithT obj={obj} />
     </ObjectCardFrame>
@@ -322,6 +323,7 @@ export function ObjectCardFrame({
   children,
   showNonActiveReason = true,
   displayStatus,
+  showAssociations = true,
 }: {
   obj: ObjectItem;
   locale: string;
@@ -329,6 +331,7 @@ export function ObjectCardFrame({
   children?: ReactNode;
   showNonActiveReason?: boolean;
   displayStatus?: string;
+  showAssociations?: boolean;
 }) {
   const { t } = useI18n();
   const { selectedProjectId } = useProjectScope();
@@ -459,7 +462,7 @@ export function ObjectCardFrame({
       </div>
       {showNonActiveReason && nonActiveReason && <StatusReasonNote reason={nonActiveReason} />}
       {children}
-      <FactAssociationsCardContent associations={obj.factAssociations} refs={obj.factRefs} />
+      {showAssociations && <FactAssociationsCardContent associations={obj.factAssociations} refs={obj.factRefs} />}
       {/* Keep the identity → title → update rhythm stable; grid stretch leaves any spare space below. */}
       <div className="mt-1 flex min-w-0 items-center justify-end pt-0.5 text-right opacity-70">
         <ObjectUpdatedMeta source={obj} updatedAt={obj.updated} />

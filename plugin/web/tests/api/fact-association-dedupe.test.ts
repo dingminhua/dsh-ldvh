@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dedupeFactCardAssociations } from '../../src/utils/factAssociations.ts';
+import { associationLocator, dedupeFactCardAssociations } from '../../src/utils/factAssociations.ts';
 import { type FactCardAssociation } from '../../src/utils/api.ts';
 
 /**
@@ -73,6 +73,14 @@ test('不同目标各自保留，不被误去重', () => {
     dedupeFactCardAssociations(rows).map((r) => objectUidOf(r.association.target)),
     [UID, other],
   );
+});
+
+test('缺失 target 的旧投影保留为不可定位关联，不影响合法定位符', () => {
+  const legacy = { available: false } as FactCardAssociation;
+  const locator = { governedProjectId: 'project', factTypeKey: 'spark', objectId: 'spark-123' };
+  assert.equal(associationLocator(legacy), null);
+  assert.deepEqual(associationLocator(association(locator)), locator);
+  assert.equal(associationLocator(association({ objectUid: UID })), null);
 });
 
 test('commit 目标与对象目标分属不同命名空间，同来源下不互相去重', () => {

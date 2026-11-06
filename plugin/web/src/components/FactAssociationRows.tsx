@@ -34,7 +34,7 @@ import {
 
 export { associationLocator, dedupeFactCardAssociations };
 
-export function FactAssociationCardRow({ association, locale, unavailableLabel }: { association: FactCardAssociation; locale: string; unavailableLabel: string }) {
+export function FactAssociationCardRow({ association, locale, unavailableLabel, contextLabels = [], disableOpen = false }: { association: FactCardAssociation; locale: string; unavailableLabel: string; contextLabels?: Array<{ text: string; title?: string }>; disableOpen?: boolean }) {
   const { t } = useI18n();
   const commitHash = association.available && association.target && 'commit' in association.target
     ? association.target.commit
@@ -53,8 +53,9 @@ export function FactAssociationCardRow({ association, locale, unavailableLabel }
   const navigate = useNavigate();
   // commit 目标可点（跳提交详情页）；对象目标仍走面板打开。二者互斥——commit 无
   // 对象 locator，不能落进面板路径（canOpen 为 false 就静默不可点）。
-  const canOpen = Boolean(association.available && (legacyTarget || commitHash));
-  const associationState = getFactAssociationState(association);
+  const canOpen = !disableOpen && Boolean(association.available && (legacyTarget || commitHash));
+  // 身份存在歧义时也不把某个不确定目标的状态冒充为该关联的状态。
+  const associationState = disableOpen ? null : getFactAssociationState(association);
   const isDiscarded = associationState === 'discarded';
   const associationStateTooltip = associationState === null ? null : {
     pending: t('objectList.associationState.pending'),
@@ -88,7 +89,18 @@ export function FactAssociationCardRow({ association, locale, unavailableLabel }
       <span
         title={commitHash ?? undefined}
         className={`ldvh-meta-primary min-w-0 flex-1 whitespace-normal break-words ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}`}
-      >{title}</span>
+      >
+        {title}
+        {contextLabels.length > 0 && (
+          <span className="ml-1.5 inline-flex flex-wrap items-center gap-1 align-middle">
+            {contextLabels.map((label, index) => (
+              <span key={`${label.text}:${index}`} title={label.title} className="rounded border border-ldvh-border/70 px-1 text-[10px] leading-4 text-ldvh-text-secondary">
+                {label.text}
+              </span>
+            ))}
+          </span>
+        )}
+      </span>
       {associationState !== null && associationStateTooltip !== null && <FactAssociationStateIcon state={associationState} tooltip={associationStateTooltip} />}
     </div>
   );
