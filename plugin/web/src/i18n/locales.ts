@@ -1541,13 +1541,12 @@ export const UI_LOCALES = {
     'objectList.workcaseRefSourceUnavailable': '引用来源不可用',
     'objectList.workcaseRefSourceStatus': '状态：{status}',
     'objectList.workcaseRefSourceUid': '对象 UID：{uid}',
-    'objectList.workcaseAssociation.outgoing': '本单引用',
-    'objectList.workcaseAssociation.incoming': '引用本单',
-    'objectList.workcaseAssociation.relation': '关系：{key}',
-    'objectList.workcaseAssociation.relationUnknown': '关系类型未标明',
+    // 2026-11-07 Human 裁定删除行内的方向与关系键标注（`outgoing`／`incoming`／
+    // `relation`／`relationUnknown`／`routedTo`／`routedToCandidate`）：卡面关联行只留
+    // 「类型图标 ＋ 标题 ＋ 状态图标」，同一行不再并排三段规范腔标签。词条一并删除而非
+    // 留作死键——残留词条会让后来者以为该标注仍在某处呈现，且删键后 `LocaleKey` 会当场
+    // 拒绝任何恢复该标注的引用（编译期兜底）。事实侧不受影响，详情面仍有关系键 chip。
     'objectList.workcaseAssociation.identityConflict': '身份未能确认，暂不可打开',
-    'objectList.workcaseAssociation.routedTo': '去向：routed-to（按序候选）',
-    'objectList.workcaseAssociation.routedToCandidate': '去向按顺序候选配对，未经验证',
     'objectList.workcaseAssociation.pairingMismatch': '去向条目与关联目标数量不一致，未进行配对。',
     'objectDetail.workcaseServes': '服务子目标',
     'objectDetail.workcaseScope': '授权范围',
@@ -2579,13 +2578,10 @@ export const UI_LOCALES = {
      'objectList.workcaseRefSourceUnavailable': 'Reference source unavailable',
      'objectList.workcaseRefSourceStatus': 'Status: {status}',
      'objectList.workcaseRefSourceUid': 'Object UID: {uid}',
-     'objectList.workcaseAssociation.outgoing': 'WorkCase references',
-     'objectList.workcaseAssociation.incoming': 'References WorkCase',
-     'objectList.workcaseAssociation.relation': 'Relation: {key}',
-     'objectList.workcaseAssociation.relationUnknown': 'Relation type unspecified',
+     // 2026-11-07: the inline direction / relation-key labels were removed from the
+     // card row (Human decision). The keys are deleted rather than left dead so that
+     // `LocaleKey` refuses any attempt to reintroduce them at compile time.
      'objectList.workcaseAssociation.identityConflict': 'Identity unconfirmed; cannot open',
-     'objectList.workcaseAssociation.routedTo': 'Direction: routed-to (ordered candidate)',
-     'objectList.workcaseAssociation.routedToCandidate': 'Paired by order as a candidate; not verified',
      'objectList.workcaseAssociation.pairingMismatch': 'The numbers of direction entries and association targets differ; no pairing was made.',
     'objectDetail.workcaseServes': 'Serves sub-goal',
     'objectDetail.workcaseScope': 'Authorization scope',
