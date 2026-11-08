@@ -1,22 +1,24 @@
 // LDVH minimal rule-guidance text.
 //
 // Status: this text is the "插件 AI 面向语义文本" protected class (specs/10
-// §7.6, decision #14). Any content change here must follow 00 §4.3: show the
+// §7.6, decision #14). Any content change here must follow 00 §3.3: show the
 // existing text and the exact candidate, state the difference and reason, pass
 // independent review, obtain the Human's explicit consent (逐段同意), and form a
 // standalone commit containing only this protected document.
 //
 // Contract (specs/01 §10.4): the minimal guidance names the SIX 00 anchor
-// groups — identity block, §2 root scheme, §3 constitution, §4 Human decision
-// rights, §5 AI responsibilities (incl. §5.6/§5.7/§5.8), §6 dual-track values
-// — WITHOUT copying rule text (no second rule source, specs/10 §5.3
-// single-authority red line). Anchor names calibrate to the current 00 text.
+// groups — identity block, §1 three core values, §2 method & constitution,
+// §3 Human decision rights, §4 AI responsibilities (incl. §4.6/§4.7/§4.8),
+// §5 value discipline — WITHOUT copying rule text (no second rule source,
+// specs/10 §5.3 single-authority red line). Anchor names calibrate to the
+// current 00 text.
 //
 // 2026-10-25 修正（第四十四次独立审核 M-3）：本注释此前写「seven anchors」、
 // 把 §5.6-5.8 列为第 7 项，并引用了 00 里已不存在的 §7；另把出处误标为
 // 「08 §7.6」与「08 §5.3」——08 无 §7.6（其 §7 是「管辖判定消费方」），其
 // §5.3 是「判定方式」而非引导面。正确出处是 specs/10 §7.6（受保护文档承接）
-// 与 specs/10 §5.3（引导面）。01 §10.4 实列六组（§5 组内含 §5.6/§5.7/§5.8）。
+// 与 specs/10 §5.3（引导面）。01 §10.4 实列六组（2026-10-25 当时为 §5 组内含
+// §5.6/§5.7/§5.8；00 重构后现行编号为 §4 组内含 §4.6/§4.7/§4.8）。
 // 同一漂移的注疏侧记录见 plugin/lib/guidance.js:9-13。
 //
 // 2026-10-26 定口径（第四十四次独立审核 F1-1 的收口）：本文件内的 `specs/...`
@@ -106,12 +108,11 @@ export function migrationLineFor(fromState, toState) {
 
 const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md）：
 1. 身份块——每个 specs/ 载体首部 ldvh_spec/ldvh_attachment 声明身份、依据与关系
-2. §2 根方案——能力承载、业务系统与制度构成的工作模型 + 两类语义构成要素 + 规范源（元规范与事实规范两级承载）/事实源 + 插件四种价值交付
-3. §3 构成解析——能力承载（LDVH CLI 确定性服务/宿主原生机制）+ 业务系统（目标规划/火花记录/工单执行/调研吸收/双源召回/经验积累/摩擦销账，见 §3.4 名录）+ 检查机制（主控自查/代理审核/机械校验，见 §3.3）
-4. §4 Human 决定权——根决定清单、Human Gate 与受保护文档
-5. §5 AI 责任——主控发起的行动由单一主控 AI 最终负责、宿主发起的辅助任务由机械校验保障（00 §5.5）、非全知、委派不转责、反稀释（01 §5 第 13 项）
-6. §6 双轨价值——V1–V8 / HV1–HV5
-7. §5.6 据实声明、§5.7 必停情形与恢复、§5.8 交还与撤回——据实声明锚点、必停情形根触发、最小交还结构
+2. §1 三大核心价值与最终目标——项目可厘清（§1.1）、任务高效准确完成（§1.2）、经验与摩擦自动积累（§1.3）；三者关系与价值边界见 §1.5，三类问题见 §1.4
+3. §2 方法与构成——根方案六条（§2.1）+ 能力承载（LDVH CLI 确定性服务/宿主原生机制，§2.3）+ 规范源与事实源（元规范与事实规范两级承载，§2.4）+ 检查机制（主控自查/代理审核/机械校验，§2.5）+ 业务系统（目标规划/火花记录/工单执行/调研吸收/双源召回/经验积累/摩擦销账，§2.6 名录）+ 技术与机械保障（§2.7）+ 插件四种价值交付（§2.8）+ 下位承接（§2.9）
+4. §3 Human 权利——根决定清单（§3.2）、Human Gate、受保护内容（§3.3）、可决提请与回应效力（§3.4）
+5. §4 AI 责任与义务——主控发起的行动由单一主控 AI 最终负责、宿主发起的辅助任务由机械校验保障（00 §4.5）、非全知、委派不转责、反稀释（01 §5 第 13 项）；§4.6 据实声明、§4.7 必停情形与恢复、§4.8 交还与撤回
+6. §5 价值纪律——机制准入（§5.1）、价值不因材料存在而成立（§5.2）、冲突与变更（§5.3）
 规则读取：ldvh_read_specification_candidates / ldvh_read_specification_content（L0–L4 渐进披露）；
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
 建工单：**须先经 ldvh_workcase_write 的路由询问取得 Human 选择，不得未经询问擅自创建**；**不得在 ldvh_workcase_write 之外另发等效询问**（宿主询问不写会话事件流，日志里看不到不等于「没问过」，不得据此补问、不得擅自重建；同一候选内容指纹相同重试时接缝复用既有答复而不再提问，确需重问须先确认候选内容已变）；
