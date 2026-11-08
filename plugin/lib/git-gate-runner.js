@@ -499,7 +499,7 @@ async function runSharedChecks(root, indexFile, message) {
   // passed. That was a fail-OPEN accident (see the header). It stays skipped
   // here by DECISION, not by accident: wiring this check onto the message-free
   // path list would EXTEND a rule into a Hook that never enforced it, which is
-  // a 00 §4.2 decision for the Human, not a repair. commit-msg still runs it.
+  // a 00 §3.2 decision for the Human, not a repair. commit-msg still runs it.
   if (hasMessage) {
     const changedCarriers = await collectChangedCarriers(root, message, diff, indexFile);
     if (changedCarriers.length > 0) {

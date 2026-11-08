@@ -54,7 +54,7 @@ const SPARK_STATUSES = ['open', 'implemented', 'discarded'] as const;
  * 从名下工作行算出火花落实比值。
  *
  * `unreadable` 传 `serving_unreadable`：某类型读取失败时**不能**当作「没有」——
- * 那会把「读不到」显示成 0/N（00 §5.6 据实声明）。
+ * 那会把「读不到」显示成 0/N（00 §4.6 据实声明）。
  */
 export function summarizeServingSparkProgress(
   rows: readonly Pick<ServingWorkItem, 'type' | 'status'>[],

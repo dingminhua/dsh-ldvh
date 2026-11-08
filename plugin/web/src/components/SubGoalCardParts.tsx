@@ -118,7 +118,7 @@ export function SubGoalDisclosureButton({
  * 1. **空集是歧义，不是进度 0**（28 §8.1）：真的还没拆解，与拆解了却没人写
  *    `serves`，在机械层长得一模一样。故空集既不画 0 也不画条，而是显式说明这两种
  *    可能——用一个状态值去猜测缺声明的原因，会把它固化成一条不可核对的事实。
- * 2. **读不到不等于没有**（00 §5.6）：无法枚举的类型单列，绝不并进空集。
+ * 2. **读不到不等于没有**（00 §4.6）：无法枚举的类型单列，绝不并进空集。
  * 3. **进度只数火花**：分子＝已落实，分母＝待处理＋已落实（Human 定案
  *    2026-11-02）。分母排除 `discarded`——废弃一条火花不使这条子目标少一件该
  *    做的事（20 §9）。口径的完整推导见 `utils/servingSparkProgress.ts`。
@@ -231,7 +231,7 @@ export function SubGoalServingWorkZone({
         );
       })}
       {unreadableTypes.length > 0 && (
-        // 读不到不等于没有（00 §5.6）：无法枚举的类型单列，绝不并进空集。
+        // 读不到不等于没有（00 §4.6）：无法枚举的类型单列，绝不并进空集。
         <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-2 py-1.5 ${LDVH_WARN_TITLE_CLASS}`}>
           {t('objectList.subGoalServingUnreadable')}：{unreadableTypes.join('；')}
         </p>

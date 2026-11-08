@@ -162,7 +162,7 @@ export interface ObjectItem {
   serving_work?: ServingWorkItem[];
   /** 名下没有任何 `serves` 指向本条子目标。空集是**歧义**，不是进度 0（28 §8.1）。 */
   serving_empty?: boolean;
-  /** 反查时读不到的类型与原因；「读不到」不得并入空集（00 §5.6）。 */
+  /** 反查时读不到的类型与原因；「读不到」不得并入空集（00 §4.6）。 */
   serving_unreadable?: string[];
   /** Spark-specific（20 §8：v5 字段闭集） */
   evolution?: Array<Record<string, unknown>>;
@@ -796,7 +796,7 @@ export interface CognitionGoalData {
       /** 名下工作行（`serves` 反查，28 §8.1 的派生）。聚焦页每条子目标的火花
        *  落实比值就取它——与子目标列表卡、详情面同一次反查、同一套口径。 */
       serving_work?: ServingWorkItem[];
-      /** 反查时读不到的类型；「读不到」不得并入空集（00 §5.6）。 */
+      /** 反查时读不到的类型；「读不到」不得并入空集（00 §4.6）。 */
       serving_unreadable?: string[];
       /** True when the row still comes from the migrated-away `## 子目标` section. */
       legacy?: boolean;

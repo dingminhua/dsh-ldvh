@@ -65,7 +65,7 @@ test('空集不折算成 0%：三种「算不出」各有自己的状态（28 §
   // ② 火花全废弃——不是「没拆解」，是「拆了、都处置掉了」
   assert.equal(summarizeServingSparkProgress([spark('discarded')]).kind, 'allDiscarded');
 
-  // ③ 读不到——不能当作「没有」（00 §5.6）
+  // ③ 读不到——不能当作「没有」（00 §4.6）
   const unavailable = summarizeServingSparkProgress([spark('open')], ['spark: read failed']);
   assert.equal(unavailable.kind, 'unavailable');
   if (unavailable.kind === 'unavailable') {
@@ -156,7 +156,7 @@ test('比值条的文案把三种「算不出」各说各的（不合成一句�
   assert.match(zh['objectList.subGoalSparkProgressAllDiscarded'], /已废弃/);
   assert.match(zh['objectList.subGoalSparkProgressAllDiscarded'], /分母/);
 
-  // 读不到：不得当作没有（00 §5.6）。
+  // 读不到：不得当作没有（00 §4.6）。
   assert.match(zh['objectList.subGoalSparkProgressUnavailable'], /读不到不等于没有/);
   assert.match(en['objectList.subGoalSparkProgressUnavailable'], /unreadable is not the same as none/i);
 

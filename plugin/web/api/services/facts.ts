@@ -829,7 +829,7 @@ export function projectCurrentWorkCaseCard(
  * 与一句显式的歧义说明，不得把 0 条折算成「进度 0%」。
  *
  * 读取失败**不得**当作空集：无法枚举某类型时该类型记为 unreadable 并列出，
- * 否则「读不到」会被读者读成「没有」（00 §5.6）。
+ * 否则「读不到」会被读者读成「没有」（00 §4.6）。
  */
 type ServingWorkRow = {
   object_uid?: string
@@ -854,7 +854,7 @@ type ServingWorkRow = {
  * 而反查口径完全相同——同一份判据算 N 遍。故在此单点扫描、按 uid 归组，列表与
  * 详情共用同一份结果与同一套判据。
  *
- * 读取失败**不得**当作空集（00 §5.6）：无法枚举某类型时该类型记入 `unreadable`
+ * 读取失败**不得**当作空集（00 §4.6）：无法枚举某类型时该类型记入 `unreadable`
  * 并列出，否则「读不到」会被读者读成「没有」。
  */
 async function deriveServingWorkIndex(scope: LocalFactScope): Promise<{

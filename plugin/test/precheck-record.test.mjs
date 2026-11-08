@@ -1492,7 +1492,7 @@ test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的五项（平铺一组）", () => {
 	// 无生产消费方，且使 checkHumanGate 把合法的 §15.1 事项报成「未知项」（第四次
 	// 审核 M-10）。§15.1 第 6 项（承载形态对齐）已按第四次审核 B-2 移出 Human Gate
 	// 清单（它不是当次待决事项；若将来处置走既有规范修改入口——00 侧按
-	// 00 §4.3，03 侧按 01 §11 与 09，见 34 §10／§15.1 末段）。
+	// 00 §3.3，03 侧按 01 §11 与 09，见 34 §10／§15.1 末段）。
 	assert.equal(HUMAN_GATE_ITEMS.length, 5);
 	assert.deepEqual(
 		HUMAN_GATE_ITEMS.map((i) => i.key),

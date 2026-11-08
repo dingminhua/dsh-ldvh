@@ -225,7 +225,7 @@ test('行内进度条：三种「算不出」给短词，完整理由挂 title�
   assert.ok(en['focusV2.subGoalProgressUnavailable'].length > 0);
 
   // 完整说明仍须存在（挂在 title 上）：短词若没有配套说明，「读不到」会被
-  // 读成一个状态而不是一个读取故障（00 §5.6）。
+  // 读成一个状态而不是一个读取故障（00 §4.6）。
   assert.match(String(zh['objectList.subGoalSparkProgressUnavailable']), /读不到不等于没有/);
 
   // 分母为 0 时不画条：行内形态也必须守住这条（0/0 不是 0%）。

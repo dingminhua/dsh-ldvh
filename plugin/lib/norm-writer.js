@@ -32,7 +32,7 @@
  * ERR_DIRECTION_ALREADY_EXISTS. The second (Git Gate) and third (consumption
  * fail-closed) layers live elsewhere — see 27 §11; until all three exist the
  * spec forbids claiming the uniqueness constraint is mechanically guaranteed
- * (00 §7.1), so this module never asserts that.
+ * (00 §4.6), so this module never asserts that.
  *
  * Red lines honoured (27 §17): no relations field, no norm_source field, no
  * direction_key hierarchy, no cache/index projection.
@@ -580,7 +580,7 @@ export async function updateNormObject(args) {
     transition = "errata";
     // 27 §13.2: the mechanically decidable half is direction_key stability.
     // The body-text "管辖边界不变" half is AI/Human scope and is NOT claimed
-    // here (00 §7.1 — no mechanical claim beyond what is actually decidable).
+    // here (00 §4.6 — no mechanical claim beyond what is actually decidable).
     if (frontmatterAfter.direction_key !== undefined && frontmatterAfter.direction_key !== before.direction_key) {
       return failure("norm/direction_key_immutable", `direction_key cannot change in place (27 §13.2): direction drift is a retire+create path, not an update`, { before: before.direction_key, after: frontmatterAfter.direction_key });
     }

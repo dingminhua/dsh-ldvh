@@ -585,7 +585,7 @@ export async function updateGoalObject(args) {
     // That check no longer exists — 2026-11-01 废止了 SG-n 与 `serves` 的锚点形态，
     // `serves` 改用 `object_uid`，所以旧锚点**不再有下游引用可断**。机械层因此
     // 无法（也不应假装能）判断这些条目是否已经迁入 SubGoal：如实登记被丢弃的
-    // 条目文本，交给 Human 核对（00 §5.6）。
+    // 条目文本，交给 Human 核对（00 §4.6）。
     droppedLegacy = prevLegacy.map((s) => `${s.anchor ?? "?"} ${s.text ?? ""}`.trim());
   } else if (!prevHasLegacy && nextHasLegacy) {
     return failure(

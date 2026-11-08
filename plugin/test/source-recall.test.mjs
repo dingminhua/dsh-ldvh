@@ -2,7 +2,7 @@
 //
 // 权威：specs/34 §7「输入来源」、§8.1 第 2 项（适用识别＝从来源中找出）、
 // §13「召回的命中不等于适用」、§17 第 1 项（不建全量索引）；
-// specs/00 §3.2（两类语义构成要素与规范源、事实源）。
+// specs/00 §2.4（两类语义构成要素与规范源、事实源）。
 //
 // 本文件守的是「能不能找出相关的东西」这一层。它**不**守适用判断——34 §13
 // 明文召回命中不等于适用，故本文件不含任何「召回到即适用」的断言。
@@ -428,7 +428,7 @@ test("规范正文层必须参与匹配（曾因读 body 而规范只有 text �
 	assert.ok(r.specs.some((s) => s.tier === 4), "应有正文层（tier 4）命中");
 });
 
-test("规范正文层：受保护内容的出处能被召回（00 §4.3）", async () => {
+test("规范正文层：受保护内容的出处能被召回（00 §3.3）", async () => {
 	const r = await recallForAction({ action: "受保护内容怎么改", root: ROOT, limit: 5, budgetBytes: 20000 });
 	assert.ok(r.specs.length > 0, "应命中规范");
 	assert.ok(
@@ -1289,7 +1289,7 @@ test("10 §5.3：未实现的「既有行动结构路由」须如实登记，不
 	//   03:447 声明旧 action-template-foundation 已退出，其可复用行动结构内容
 	//   「在相应业务系统规范按 §9 承接之前，不取得规范效力」；ldvh-base/ 下
 	//   也无 action/template 类事实载体。
-	// 按 00 §5.6 据实声明：登记为未兑现，不伪造空路由字段冒充已实现。
+	// 按 00 §4.6 据实声明：登记为未兑现，不伪造空路由字段冒充已实现。
 	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
 	const items = r.limitations.unimplemented;
 	assert.ok(Array.isArray(items) && items.length > 0, "须登记未兑现项");
@@ -1898,7 +1898,7 @@ test("M-21：一源不可读但另一源有非截断命中时，须报 partial �
 		// **N-1（第六次审核）：取值如实，清单也须如实**——34 §12「取值须与
 		// 未检查范围逐类对应」、§14 三态行「逐类列出未读取……的范围」。
 		// 修复前：sourceNotRead=[]、gaps 不登记事实源不可读、note 仍无条件
-		// 声称「扫描项目内 ldvh-base/」（与 00 §5.6 据实声明相抵）。
+		// 声称「扫描项目内 ldvh-base/」（与 00 §4.6 据实声明相抵）。
 		assert.ok(
 			Array.isArray(r.uncheckedRange?.sourceNotRead) && r.uncheckedRange.sourceNotRead.length > 0,
 			"一源不可读时 sourceNotRead 不得为空（34 §12 逐类对应）",
@@ -1913,7 +1913,7 @@ test("M-21：一源不可读但另一源有非截断命中时，须报 partial �
 		);
 		assert.ok(
 			(r.uncheckedRange?.note ?? "").includes("未扫描"),
-			`note 不得在 ldvh-base/ 不存在时声称扫描了它（00 §5.6）：${r.uncheckedRange?.note}`,
+			`note 不得在 ldvh-base/ 不存在时声称扫描了它（00 §4.6）：${r.uncheckedRange?.note}`,
 		);
 	} finally {
 		await rm(e, { recursive: true, force: true });

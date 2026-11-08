@@ -100,7 +100,7 @@ test('compact width only changes the shell navigation and secondary reading plac
   //
   // **扫描口径：全仓 `src/`，不是抽样**（独立复核 2026-10-16 指出：原实现只采样
   // copyButton/objectDetail/cognitionCenter/objectList 四个文件，却宣称「全仓业务组件
-  // 对 lg: 使用为零」——宣称超出断言覆盖，属 00 §5.6 意义上的超范围声明）。现改为
+  // 对 lg: 使用为零」——宣称超出断言覆盖，属 00 §4.6 意义上的超范围声明）。现改为
   // 遍历 `src/**/*.{ts,tsx}`，并按「壳层文件」排除**仅有的两处**合法使用点：
   // `Layout.tsx`（图标栏切换）与 `ReadingPanel.tsx`（抽屉切换 + 命中区降档），
   // 即 docs/01 §1.6.1 第 1 条唯一许可的两个位置。排除面写死在下方数组里，

@@ -1082,7 +1082,7 @@ export function SubGoalReadingLayout({
           </ul>
         )}
         {servingUnreadable.length > 0 && (
-          // 读不到不等于没有（00 §5.6）：无法枚举的类型单列，绝不并进空集。
+          // 读不到不等于没有（00 §4.6）：无法枚举的类型单列，绝不并进空集。
           <p className={`ldvh-meta mt-2 rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
             {t('objectDetail.subGoalServingUnreadable')}：{servingUnreadable.join('；')}
           </p>

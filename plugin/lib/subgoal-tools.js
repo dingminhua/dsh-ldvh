@@ -23,7 +23,7 @@
 // transitions are Human decisions — this tool is the mechanical carrier, not
 // the decision).
 //
-// WHAT THIS LAYER DOES NOT DO (28 §18 red line 9, specs/00 §5.6): it does not
+// WHAT THIS LAYER DOES NOT DO (28 §18 red line 9, specs/00 §4.6): it does not
 // judge whether a sub-goal actually serves the goal statement. That is a
 // semantic judgement. The tool guarantees only that the `alignment` statement
 // EXISTS and that the reference resolves — never that it is true.

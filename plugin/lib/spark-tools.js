@@ -473,7 +473,7 @@ async function executeWriteObject(args, exec, deps) {
     // 20 §16 Gate 1/2: creation requires an explicit Human confirmation through
     // the host answerer. Fail closed when the ask entry is absent — silence is
     // not consent, and an unconfirmed candidate must not silently become an
-    // object (00 §4.4: without a scope-clear response the matter stays paused).
+    // object (00 §3.4: without a scope-clear response the matter stays paused).
     const consent = await requestSparkGate(deps, exec, {
       action: "create",
       objectTitle: typeof draft.title === "string" ? draft.title : null,

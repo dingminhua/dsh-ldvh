@@ -1044,7 +1044,7 @@ export const UI_LOCALES = {
     'objectList.subGoalSparkProgress': '火花落实',
     'objectList.subGoalSparkProgressEmpty': '名下没有火花——分母为空，不是 0%',
     'objectList.subGoalSparkProgressAllDiscarded': '名下火花均已废弃，不再计入分母（已废弃＝被合并或拆分，不代表这件事少了一件）',
-    'objectList.subGoalSparkProgressUnavailable': '火花读取失败，无法算出这个比值——读不到不等于没有（00 §5.6）',
+    'objectList.subGoalSparkProgressUnavailable': '火花读取失败，无法算出这个比值——读不到不等于没有（00 §4.6）',
     'objectList.subGoalSparkProgressUnknown': '{count} 条火花状态在闭集外，未计入分母',
     // 聚焦页目标区的**行内**短词（Human 定案 2026-11-02「目标块的 sg 都要附带进度条」）。
     // 行内只有 20px 高，长句会把子目标标题挤成两行；完整理由仍由上面四条承载并挂
@@ -2121,7 +2121,7 @@ export const UI_LOCALES = {
     'objectList.subGoalSparkProgress': 'Sparks implemented',
     'objectList.subGoalSparkProgressEmpty': 'No sparks serving this sub-goal — the denominator is empty, not 0%',
     'objectList.subGoalSparkProgressAllDiscarded': 'All serving sparks are discarded and excluded from the denominator (discarded means merged or split, not that the work went away)',
-    'objectList.subGoalSparkProgressUnavailable': 'Sparks could not be read, so this ratio cannot be computed — unreadable is not the same as none (00 §5.6)',
+    'objectList.subGoalSparkProgressUnavailable': 'Sparks could not be read, so this ratio cannot be computed — unreadable is not the same as none (00 §4.6)',
     'objectList.subGoalSparkProgressUnknown': '{count} spark(s) have a status outside the closed set and are excluded',
     'focusV2.subGoalProgressEmpty': 'Not broken down',
     'focusV2.subGoalProgressAllDiscarded': 'All settled',

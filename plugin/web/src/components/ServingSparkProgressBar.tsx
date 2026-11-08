@@ -20,7 +20,7 @@ import { summarizeServingSparkProgress, type ServingSparkProgress } from '@/util
  * - `empty`（名下没有火花）→ 去拆解；
  * - `allDiscarded`（火花都处置掉了）→ 这条判据不再靠火花推进；
  * - `unavailable`（火花读不到）→ 去查读取。
- * 合成一句「暂无」会让读者把「读不到」当成「没有」（00 §5.6）。
+ * 合成一句「暂无」会让读者把「读不到」当成「没有」（00 §4.6）。
  */
 export default function ServingSparkProgressBar({
   rows,

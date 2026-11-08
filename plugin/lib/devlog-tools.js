@@ -23,7 +23,7 @@
 // terminal transitions are Human decisions — this tool is the mechanical
 // carrier, not the decision).
 //
-// WHAT THIS LAYER DOES NOT DO (29 §14.1 semantic rows, specs/00 §5.6): it does
+// WHAT THIS LAYER DOES NOT DO (29 §14.1 semantic rows, specs/00 §4.6): it does
 // not judge whether `summary` is really a conclusion rather than a narrative,
 // whether the conclusion still holds, whether an `absorbed-into` target really
 // covers it, or whether a `summary` update is 细化 (refinement) or 替换

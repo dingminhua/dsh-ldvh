@@ -8,7 +8,7 @@
  *
  * **它不是什么**：
  * - 不是规则源。页面上的每一句都是对当前规范源的**通俗转述**，不产生规范效力；
- *   规则以规范源为准，事实以事实源为准（00 §3.2、§3.3）。
+ *   规则以规范源为准，事实以事实源为准（00 §2.4、§3.3）。
  * - 不是对象卡片的又一版。页内没有一条事实对象记录，因此不套对象卡框契约
  *   （`docs/01` §1.10 第 9 条针对的是「呈现一条对象记录」）；本页用的是
  *   `ldvh-panel` 面板与 `ldvh-section-grid` 卡片网格（§1.8.1）。
@@ -176,7 +176,7 @@ const GATES: { icon: string; title: LocaleKey; trigger: LocaleKey; respond: Loca
   { icon: 'registration', title: 'help.gates.registration.title', trigger: 'help.gates.registration.trigger', respond: 'help.gates.registration.respond' },
 ];
 
-/** 必停情形（00 §5.7）——到这些点上它会停下，而不是硬答。 */
+/** 必停情形（00 §4.7）——到这些点上它会停下，而不是硬答。 */
 const STOP_ITEMS: LocaleKey[] = [
   'help.gates.stop.1',
   'help.gates.stop.2',
@@ -196,7 +196,7 @@ const ENTRY_MAP: { icon: string; to: string; title: LocaleKey; body: LocaleKey }
 ];
 
 /**
- * 七大业务系统（03 §9.1–§9.7，00 §3.4）。
+ * 七大业务系统（03 §9.1–§9.7，00 §2.6）。
  *
  * **每个系统给四行**：它管什么 / 你怎么用 / 落到哪里 / 它不保证什么。最后一行不是客套
  * ——每个系统的边界都是一条防自欺条款（「登记了」不等于「推进了」），与「怎么判断它说
@@ -288,7 +288,7 @@ const SYSTEM_MAP: {
   },
 ];
 
-/** 声明的三层（00 §5.6 据实声明）。三层是**分级**的：可信度不同，视觉上要能看出来。 */
+/** 声明的三层（00 §4.6 据实声明）。三层是**分级**的：可信度不同，视觉上要能看出来。 */
 const TRUST_LAYERS: {
   key: string;
   title: LocaleKey;
@@ -324,7 +324,7 @@ const TRUST_LAYERS: {
   },
 ];
 
-/** 都不能单独证明完成的那些事（00 §5.6 末段）。七条都是短句，标签阵列一屏扫完。 */
+/** 都不能单独证明完成的那些事（00 §4.6 末段）。七条都是短句，标签阵列一屏扫完。 */
 const NOT_PROOF_ITEMS: LocaleKey[] = [
   'help.trust.notproof.1',
   'help.trust.notproof.2',
@@ -534,7 +534,7 @@ function StageCard({ stage }: { stage: StageShape }) {
  * **定义行的值走 `ldvh-body`（主色）**：此前值用次级灰，标签也用灰，整页一个明度，
  * 眼睛没有落点。标签留 `ldvh-caption-strong`（12px 次级），值回主色，一拉开就有层级。
  *
- * **边界块（limit）是独立的一格**：它是防自欺条款（00 §5.6），与职责不是同一量级，
+ * **边界块（limit）是独立的一格**：它是防自欺条款（00 §4.6），与职责不是同一量级，
  * 所以用虚线框 + 弱底色退半步，但必须留在卡里。
  */
 function EntryCard({

@@ -6,7 +6,7 @@
 //      installed — an orphan (string lineage alone) gets NOTHING, because a
 //      lineage claim is not authority (mnemon's rule);
 //   3. delegation: the child INHERITS the parent's governance scope (管辖沿
-//      委派链传递, 00 §5 委派不转责) — the child does not re-judge from its
+//      委派链传递, 00 §4 委派不转责) — the child does not re-judge from its
 //      own cwd, it receives the parent's judged state as delegation;
 //   4. independent per-agent lifecycle on the child fiber with the same
 //      cleanup discipline (effect stops reversed, children Map swept);

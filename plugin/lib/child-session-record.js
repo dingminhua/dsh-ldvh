@@ -28,7 +28,7 @@
 //     handling: a text-less turn never clears an earlier real product).
 //
 // Disclosure boundary: this module reports「读不到」as a reason, never as a
-// silent fallback to something weaker (00 §5.6 据实声明). The RegExp-free,
+// silent fallback to something weaker (00 §4.6 据实声明). The RegExp-free,
 // host-handle-only read keeps `session-signature.js`'s 入口优先级 discipline:
 // the host's own `open(id, "read")` is the authority; a backend that does not
 // expose it fails closed with a reason the caller can report to Human.

@@ -150,7 +150,7 @@ export async function scanCarrierDirectory(typeDir, type, { read } = {}) {
     if (nameUid === null) {
       // A `.md` file in the type directory that the reader would also refuse.
       // It stays a finding: someone put it here, and "I can't read it" must be
-      // distinguishable from "it isn't there" (00 §5.6).
+      // distinguishable from "it isn't there" (00 §4.6).
       invalid.push({
         file: entry.name,
         reason: `filename does not match the carrier pattern for ${type} (expected ${type}-<uuid>.md)`,

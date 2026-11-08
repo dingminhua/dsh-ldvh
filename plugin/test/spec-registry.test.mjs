@@ -501,7 +501,7 @@ test("parseIdentityBlock rejects related_specs that names the document itself", 
 
 test("parseIdentityBlock rejects `dimensions` as an unknown field", () => {
 	// The `dimensions` identity field was retired by Human decision: it carried
-	// no judgement and duplicated the rosters of 00 §3.1/§3.3/§3.4/§3.6, which
+	// no judgement and duplicated the rosters of 00 §2.3/§3.3/§3.4/§3.6, which
 	// drifted each time a business system changed. Re-declaring it must fail as
 	// an unknown field rather than be silently tolerated (01.Att.02 §1).
 	const yaml = `ldvh_spec:

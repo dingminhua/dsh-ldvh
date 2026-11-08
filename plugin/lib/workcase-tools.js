@@ -527,7 +527,7 @@ const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch
  * 中既无字段、也无校验——`独立复核的安排` 因此可被静默遗漏（本会话
  * WC-D `99957f65` 的实测实例）。
  *
- * 校验只覆盖「存在且非空」；内容是否恰当属 Human 判断（00 §4.2/§5）。
+ * 校验只覆盖「存在且非空」；内容是否恰当属 Human 判断（00 §3.2/§5）。
  */
 const GATE1_REQUEST_KEYS = [
   "unauthorized_action_guard",
@@ -947,7 +947,7 @@ async function executeWriteObject(args, exec, deps) {
       // re-demanded here; the rest had NO carrier at all, which is how the
       // 独立复核安排 requirement was silently omitted (Friction recorded
       // 2026-09-16). Mechanical check is presence + non-empty only — whether
-      // the content is adequate stays with the Human (00 §4.2/§5).
+      // the content is adequate stays with the Human (00 §3.2/§5).
       const gate1Request = args?.gate1_request;
       const missing = GATE1_REQUEST_KEYS.filter((key) => (
         typeof gate1Request?.[key] !== "string" || gate1Request[key].trim().length === 0
@@ -1153,11 +1153,11 @@ async function executeWriteObject(args, exec, deps) {
         // `reviewer_child_agent_id` 回传。此前另一受管辖根会话亦可作入口(本调用方
         // 即该根会话)，但同编排下的另一会话不满足 04 §7.3 的上下文隔离要求。
         //
-        // 此处 fail-closed 而非降级放行：按 00 §5.7 停止并报告，保持 open 交还 Human，
+        // 此处 fail-closed 而非降级放行：按 00 §4.7 停止并报告，保持 open 交还 Human，
         // 不得以主控自查或本调用方自身文本冒充独立复核（02 §16 三形态互不替代）。
         return invalidRequest("workcase-write-object",
           "record_review now requires `reviewer_child_agent_id`: 独立复核的唯一承载形式是受管辖隔离子代理（独立上下文，04 §7.3）。"
-          + "未提供子代理 id 时本调用方将以自身会话身份盖戳，产出的是主控自查而非独立复核——按 00 §5.7 停止并报告，"
+          + "未提供子代理 id 时本调用方将以自身会话身份盖戳，产出的是主控自查而非独立复核——按 00 §4.7 停止并报告，"
           + "不得以自查冒充。请派一个隔离子代理做独立复核（须后台派生以取得其 agent_id），完成后以 `reviewer_child_agent_id` 回传；"
           + "若无法创建子代理或 id 不可回传，保持 open 交还 Human，不要关闭。",
           "record_review",
@@ -1272,9 +1272,9 @@ async function executeWriteObject(args, exec, deps) {
         // 否则「主控自己写一段审核结论」即可满足覆盖闸，闸门形同虚设。
         return invalidRequest("workcase-write-object",
           "record_audit requires `auditor_child_agent_id`: 建前独立审核的唯一承载形式是受管辖隔离子代理（独立上下文，21 §14）。"
-          + "未提供子代理 id 时本调用方将以自身会话身份盖戳，产出的是主控自查而非独立审核——按 00 §5.7 停止并报告，"
+          + "未提供子代理 id 时本调用方将以自身会话身份盖戳，产出的是主控自查而非独立审核——按 00 §4.7 停止并报告，"
           + "不得以自查冒充。请派一个隔离子代理做建前独立审核（须后台派生以取得其 agent_id），完成后以 "
-          + "`auditor_child_agent_id` 回传；若无法创建子代理或 id 不可回传，按 00 §5.7 停止并报告。",
+          + "`auditor_child_agent_id` 回传；若无法创建子代理或 id 不可回传，按 00 §4.7 停止并报告。",
           "record_audit",
         );
       }
@@ -1376,7 +1376,7 @@ async function executeWriteObject(args, exec, deps) {
       // 也不区分，事后无从判断「这次到底问过没有」——重复提问正是靠它才可辨认。
       ...(routingOutcome === null ? {} : { routing: routingOutcome }),
       // 建前审核的自动派生结果。三种状态都可读（passed/rejected/failed），
-      // 任一路径都不把「没审成」说成「审过了」（00 §5.6）。
+      // 任一路径都不把「没审成」说成「审过了」（00 §4.6）。
       ...(autoAudit === null ? {} : { auto_audit: autoAudit }),
     },
     scope: {
@@ -1424,7 +1424,7 @@ async function executeWriteObject(args, exec, deps) {
  *   - `rejected` 审核体判 needs_revision 且已落盘 → 对象仍在 draft，须回收敛；
  *   - `failed`   派生/结算/落盘任一步失败 → 对象仍在 draft，**如实报告须人处理**。
  *
- * 任一路径都不得把「没审成」说成「审过了」（00 §5.6 据实声明）。
+ * 任一路径都不得把「没审成」说成「审过了」（00 §4.6 据实声明）。
  */
 async function runAutoAuditAfterCreate({ deps, exec, factSourceRoot, result, draft, bodyMarkdown, sessionSignature, sessionIdentity }) {
   const attempt = { initiated_by: "plugin", started_at: new Date().toISOString() };
@@ -1759,7 +1759,7 @@ function parameterSchemaFor(operationKey) {
     by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）。**先决：须同时给出 human_authorization（Human 的授权记录，缺之 fail-closed，与 correct 同规格）**；**注意：`by` 是自报文本**——「谁批的」的可核痕迹来自 Code 托管的决定者会话身份（**在能取得 host 来源身份时**盖戳进 decision.session_id；取不到时该痕迹缺失，返回值的 decider_identity 会显式报 unavailable），规范已如实声明该边界" },
     human_authorization: { type: "string", description: "Human 的授权记录（谁／何时／覆盖什么）。**两处用法**：① `decide_adjustment` 必填，与 correct 同规格，缺之 fail-closed（21 §14）；② `close` 时**条件必填**——当本单 `reviews` 已达 3 条（21 §9.1 上限）时，关闭须带此记录，否则拒绝（`workcase/review_round_cap_human_required`）；未达上限的常规关闭不要求它。它会被写进 change_log；**它不证明 Human 真的批过**，只让「没有转述的批准」在机械上不可发生（工具面无法证明调用者是 Human）" },
     summary: { type: "string", description: "record_review / record_audit: the conclusion summary to record (≤600 chars; review carries the 02 §16 seven elements 对象/基线/方法/覆盖/未覆盖/发现/保证边界, audit the 21 §8 three dimensions 对象恰当性／方案可行性／scope 清晰度). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When the subagent id is given, this must be a span taken from that subagent's captured conclusion (防「代述」冒充): wording, punctuation and order verbatim, while whitespace shape (trailing spaces, indentation, line breaks) is ignored for matching and the text recorded is the source span itself. Omit it to adopt the conclusion paragraph carrying those elements." },
-    reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — REQUIRED (04 §7.3: 受管辖隔离子代理是独立复核的唯一承载形式). Pass its agent id (from a BACKGROUND subagent spawn — a synchronous spawn's id is reclaimed on return and cannot be relayed). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omitting it is refused: recording your own session's review is 主控自查, not 独立复核 — stop and report to Human (00 §5.7) instead." },
+    reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — REQUIRED (04 §7.3: 受管辖隔离子代理是独立复核的唯一承载形式). Pass its agent id (from a BACKGROUND subagent spawn — a synchronous spawn's id is reclaimed on return and cannot be relayed). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omitting it is refused: recording your own session's review is 主控自查, not 独立复核 — stop and report to Human (00 §4.7) instead." },
     auditor_child_agent_id: { type: "string", description: "record_audit: relay an ISOLATED SUBAGENT's pre-Gate-1 audit — REQUIRED, same mechanism and same rationale as reviewer_child_agent_id (21 §14「建前审核记录」). Pass a BACKGROUND-spawned audit subagent's agent id; the identity and conclusion text are taken from the host's own subagent registry, so the implementer cannot forge the auditor's identity nor substitute its own conclusion. Omitting it is refused — otherwise a self-written audit would satisfy the coverage gate and the gate would be vacuous. This channel acts on status=draft only (the audit axis targets a candidate that has not yet taken effect)." },
     verdict: { type: "string", enum: ["pass", "needs_revision"], description: "record_audit: the audit verdict (21 §8 closed set). The Gate 1 coverage gate accepts ONLY \"pass\"; an unknown or missing value fails closed. `candidate_fingerprint` is computed by Code (same function as gate_1.authorization_fingerprint) and cannot be supplied by the caller — otherwise the「which version was audited」criterion would be handed to the party being judged." },
     covered_partitions: { type: "array", items: { type: "string" }, description: "record_audit: 本次审核**覆盖的分区 id**（21 §9.2 分区口径：`plan` 每步骤 `plan#N` + `scope` 每条目 `scope:<标签>#N`）。省略或传显式 `null` 即覆盖当前全部分区——与改造前的整份审语义一致，旧调用无须改动；**空数组与除 `null` 外的非数组值一律拒绝**（`invalid_request`），不静默当作省略。分区指纹由 Code 按当前候选计算，调用方只给 id，不能自填指纹。用于增量审核：只审改动分区，未变分区沿用既有 `pass`。未知 id 一律拒绝（fail closed），因为分区 id 随内容变化。" },

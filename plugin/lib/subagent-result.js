@@ -157,7 +157,7 @@ export function registerSubagentResultTool(ctx, deps) {
             // real state (still running), not a missing capability.
             conclusion: record.conclusion,
             conclusionLength: snap.conclusionLength,
-            // Provenance of the record itself (00 §5.6 据实声明): "registry" =
+            // Provenance of the record itself (00 §4.6 据实声明): "registry" =
             // observed live by this plugin instance; "session-record" = the
             // registry had lost it (plugin rebuilt after the child finished) and
             // the child's own session record was read instead. The identity and
@@ -207,7 +207,7 @@ export function registerSubagentResultTool(ctx, deps) {
                 startedAt: snap.startedAt,
                 conclusion: adopted.conclusion,
                 conclusionLength: snap.conclusionLength,
-                // Provenance (00 §5.6) describes the RECORD, not this lookup:
+                // Provenance (00 §4.6) describes the RECORD, not this lookup:
                 // "session-record" means the registry had once lost it and the
                 // child's own host log was read to recover it. `resolved.source`
                 // cannot serve here — after the first recovery the record sits in

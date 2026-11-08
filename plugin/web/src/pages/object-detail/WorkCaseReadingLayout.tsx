@@ -690,7 +690,7 @@ function WorkCaseBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string
       <BodySectionNode obj={obj} locale={locale} heading="结果" />
 
       {/* 8 结果与验证 / 9 残留 / 9' 去向 —— 同一字段组的部分，按字段有无渲染。
-          `ResidualNode` 在详情面**不收窄**（`10 §5.5` 已按 `00 §7.2` 暂停消费该收窄的
+          `ResidualNode` 在详情面**不收窄**（`10 §5.5` 已按 `00 §4.7` 暂停消费该收窄的
           详情面部分；理由见其注释），`DirectionsNode` 两期都呈现（去向不由 `result`
           字段承载）。 */}
       {hasResult ? (
@@ -748,7 +748,7 @@ function BodySectionNode({
   //   ① 为正文节开同款窄例外（须同时处理 `docs/01` 的呈现纪律）；
   //   ② 维持正文节完整渲染，明确 A 的适用范围**仅限字段侧**（则详情面仍会看到残留文本，
   //      须向 Human 说明该期待未被满足）。
-  // **在裁决前受影响范围按 `00 §7.2` 暂停消费**，实现侧暂按路径 ② 保持现状（即本节点照常渲染）。
+  // **在裁决前受影响范围按 `00 §4.7` 暂停消费**，实现侧暂按路径 ② 保持现状（即本节点照常渲染）。
   //
   // **恢复条件**：Human 裁决后——若走 ①，本节点改为在 `closure_narrows_residual === true` 时
   // 过滤掉「## 结果」节内的残留与去向文本（判据已就位，不必新增）；若走 ②，本节点不变，

@@ -45,7 +45,7 @@ const BENCH = Object.freeze([
 	},
 	{
 		q: "受保护内容怎么改",
-		why: "受保护内容的规定在 00 §4.3，必须命中 00",
+		why: "受保护内容的规定在 00 §3.3，必须命中 00",
 		must: ["理念与构成"],
 		mustNot: [],
 		maxSpecs: 5,

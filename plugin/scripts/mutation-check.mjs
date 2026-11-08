@@ -373,7 +373,7 @@ console.log(`\n${caught.length}/${rows.length} 被抓住`);
 		testModules: await readdir(join(PLUGIN, "test")),
 	});
 	console.log(`\n${coverage.summaryLine}`);
-	// **本条不设阈值**：覆盖率应达多少是 Human 的判断（00 §4），脚本不代定。
+	// **本条不设阈值**：覆盖率应达多少是 Human 的判断（00 §3），脚本不代定。
 	// 它只保证缺口**不被数字隐去**——「N/N 被抓住」单独出现时必然误导。
 	console.log(
 		"（覆盖口径只暴露缺口，不主张守护有效：「被变异触及」≠「该模块守护有效」，"

@@ -893,7 +893,7 @@ function SubGoalTerminalCardContent({ obj }: { obj: ObjectItem }) {
  *    无块边框、无底色）——与 Spark 引用区同一处来源；
  *  ② 行式沿用 `FactAssociationCardRow`（类型图标 + 标题 + 行末状态图标，可点开
  *    扩展阅读）——不得自建第二套；
- *  ③ 空集是**歧义**不是进度 0（28 §8.1），读不到是**第三态**不得并入空集（00 §5.6）。
+ *  ③ 空集是**歧义**不是进度 0（28 §8.1），读不到是**第三态**不得并入空集（00 §4.6）。
  *
  * **与 `docs/03` §3.2「不设类型分组标题」的关系（如实登记）**：那条约束的是
  * **正式 `relations` 关联区**——那里的行由类型图标自描述，分组标题不增加信息。
@@ -914,7 +914,7 @@ function SubGoalServingWorkCardZone({ obj }: { obj: ObjectItem }) {
   //   `docs/03` §3.2 明文「不设类型分组标题」。
   // - **空集必须显式标注歧义**（28 §8.1）：真的还没拆解，与拆解了却没人写 serves，
   //   在机械层长得一模一样。故既不画 0 也不画进度条。
-  // - **读不到不等于没有**（00 §5.6）：无法枚举的类型单列，绝不并进空集。
+  // - **读不到不等于没有**（00 §4.6）：无法枚举的类型单列，绝不并进空集。
   const rows: ServingWorkItem[] = Array.isArray(obj.serving_work) ? obj.serving_work : [];
   const unreadable = Array.isArray(obj.serving_unreadable) ? obj.serving_unreadable : [];
   return <SubGoalServingWorkZone rows={rows} unreadable={unreadable} />;

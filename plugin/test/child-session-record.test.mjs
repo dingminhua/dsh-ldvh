@@ -10,7 +10,7 @@
 //      unrelated conversation can never be cited as this caller's reviewer;
 //   3. the conclusion is the child's OWN last text (a text-less final turn never
 //      clears an earlier real product — same rule as child.js live capture);
-//   4. every failure is a stated reason, never a weaker substitute (00 §5.6).
+//   4. every failure is a stated reason, never a weaker substitute (00 §4.6).
 
 import assert from "node:assert/strict";
 import test from "node:test";

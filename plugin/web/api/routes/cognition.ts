@@ -58,7 +58,7 @@ const RECENT_ACTIVITY_WINDOWS: Record<RecentActivityWindow, number> = {
 // 2026-09-27 移除：`SPARK_SILENT_THRESHOLD_DAYS = 5` 曾把「距最近一次 change_log
 // 流水 ≥5 天」的 open Spark 判定为「沉默」并单列成组。该**阈值判据无规范来源**
 // （specs/ 全库零授权；20 §12 登记该消费点时已注明「其阈值与判据不由本文定义」），
-// 属 00 §4.2 应由 Human 决定的事项与 00 §7.1「声称有机械保障而来源不存在」的形态。
+// 属 00 §3.2 应由 Human 决定的事项与 00 §4.6「声称有机械保障而来源不存在」的形态。
 // Human 决定（2026-09-27）移除该判定。
 //
 // 保留的是**派生量与按时间筛选**：`silentDays()` 由 change_log 末条流水算出「多久
@@ -996,7 +996,7 @@ type GoalSubGoal = {
     group?: string
     href: string
   }>
-  /** 反查时读不到的类型与原因；「读不到」不得并入空集（00 §5.6）。 */
+  /** 反查时读不到的类型与原因；「读不到」不得并入空集（00 §4.6）。 */
   serving_unreadable?: string[]
   /**
    * True when this row was recovered from the migrated-away `## 子目标` section
@@ -1228,7 +1228,7 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
     // 28 §8.1 的派生在聚焦页目标区同样成立：每条子目标的火花落实比值取自
     // `serves` 反查，与子目标列表卡、详情面**同一次反查、同一套口径**
     //（`deriveServingWorkIndexForScope` 是单点实现）。反查失败的类型单列进
-    // `serving_unreadable`，绝不并进空集——「读不到」不是「没有」（00 §5.6）。
+    // `serving_unreadable`，绝不并进空集——「读不到」不是「没有」（00 §4.6）。
     const servingIndex = await deriveServingWorkIndexForScope(factScope)
     const subGoalsWithServing = record.subGoals.map((sg) => {
       // legacy 行没有 object_uid，也就没有可反查的身份：不给它编一个空集。

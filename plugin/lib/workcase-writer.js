@@ -4023,7 +4023,7 @@ export async function closeWorkcaseObject(args) {
   // 在同一次调用里完成——AI 只需一次工具调用即可把对象从 `open` 直接推到 `closed`，
   // 其间**没有任何 Human 决定的落点**。实测发生（workcase-88f3e568）：AI 记录独立
   // 复核后 3 分 42 秒即自行关闭，`outcome=completed` 被当成既成事实——**判定权被
-  // 执行者自行行使**（00 §4 Human 决定权）。机械层当时未拦，因为既有的三条前置
+  // 执行者自行行使**（00 §3 Human 决定权）。机械层当时未拦，因为既有的三条前置
   // 条件（reviews 非空／复核独立／无待批增量）**都只校验内容是否齐备，不校验
   // 「谁在何时发起关闭」**——而"须经 Human 批准"是语义要求，需要一个机械落点。
   //
@@ -4119,7 +4119,7 @@ export async function closeWorkcaseObject(args) {
       + `back with reviewer_child_agent_id — that is now the ONLY accepted carrying form (04 §7.3, Human 决定 `
       + `2026-10-09); recording your own session's review is 主控自查, not 独立复核. The subagent must be spawned `
       + `asynchronously so its agent_id can be relayed. Then close. If no such subagent can be spawned, do NOT close `
-      + `— hold open and hand back to Human (00 §5.7, 21 §18).`,
+      + `— hold open and hand back to Human (00 §4.7, 21 §18).`,
     );
   }
 
@@ -4145,7 +4145,7 @@ export async function closeWorkcaseObject(args) {
       + "isolation requirement, so they are not independent review. Spawn an isolated subagent asynchronously (so its "
       + "agent_id is retained), then record it via `record_review` with `reviewer_child_agent_id`. If no subagent "
       + "can be spawned, or its agent_id cannot be relayed, do NOT close — hold open and hand back to Human "
-      + "(00 §5.7, 21 §18).",
+      + "(00 §4.7, 21 §18).",
     );
   }
 

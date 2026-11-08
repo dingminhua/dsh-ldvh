@@ -35,7 +35,7 @@
  *
  * 载体不可读或不可写时**不得**降级为「未问过」（那会导致重复提问），也**不得**
  * 降级为「已获授权」（那会免去 Human 决定）。两侧都是错的，故一律返回 failure，
- * 由调用方如实报告并停止本次 create（00 §5.7）。
+ * 由调用方如实报告并停止本次 create（00 §4.7）。
  */
 
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
