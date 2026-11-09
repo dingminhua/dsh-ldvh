@@ -26,6 +26,8 @@
 // data exists, so the gaps list below only names what is genuinely still out
 // of scope (per-child tool-level provenance), not these two.
 
+import { defineTool } from "@deepseek-ai/dsh-tools";
+import { toParameterSpec } from "./parameter-spec-adapter.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 
 const OPERATIONS = {
@@ -104,10 +106,13 @@ export function registerSubagentResultTool(ctx, deps) {
   const operationKey = "collect-subagent-results";
   const operation = OPERATIONS[operationKey];
 
-  return ctx.tools.register({
+  // Register through defineTool so the DSH argument check actually runs: the
+  // bare-descriptor path only asserts output/timeoutMs shape and stores the
+  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
+  return ctx.tools.register(defineTool({
     name: operation.toolName,
     description: operation.summary,
-    parameters: parameterSchemaFor(operationKey),
+    parameters: toParameterSpec(parameterSchemaFor(operationKey)),
     timeoutMs: 10000,
     async execute(args, exec) {
       try {
@@ -278,5 +283,5 @@ export function registerSubagentResultTool(ctx, deps) {
       schema: OUTPUT_SCHEMA,
       render: (args, value) => renderEnvelope(operationKey, value)
     }
-  });
+  }));
 }
