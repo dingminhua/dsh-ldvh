@@ -3,10 +3,13 @@
 //
 // 条文要求两件事：
 //   ① 通道之外的同名字段不构成赋值——「以为改成了、实际没改」不得以静默方式发生；
-//   ② 该形态的第一道承载是**参数层**：工具 inputSchema 顶层声明
-//      additionalProperties: false，使通道外字段在参数校验处即被拒绝。
+//   ② 该形态目前**在参数层拦不住**：宿主参数根是隐式开放对象、不可关闭
+//      （传入 additionalProperties 会被宿主拒绝编译），故顶层同名字段不会在参数层被拒。
+//      实际表现为：handler 只消费已知通道参数，于是该键被静默丢弃——这正是 ① 要防的形态，
+//      而它今天是**无机械拦截**的，只能靠 handler 不消费未知键。
 //
-// 本套用例锁的是 ② 的前半（声明存在）与 ① 的不可达（顶层字段进不了 handler）。
+// 本套用例锁的是：参数根确实开放（宿主行为变化时立刻转红，提醒重估承载层次），
+// 以及顶层不出现任何 frontmatter 字段名（② 的另一半仍成立）。
 // 它**不**证明每个写入入口都已严格（新增写工具须自行加入本表），也不证明
 // 宿主侧的参数校验实现——后者由宿主契约保证，本仓库只能核对声明。
 import assert from "node:assert/strict";
@@ -36,7 +39,7 @@ async function writeDescriptors() {
   return out;
 }
 
-test("写入工具的通道外字段：由 writer 的字段闭集承担，而非参数层", async () => {
+test("写入工具的顶层参数根是开放的（通道外字段不在参数层被拒，且无替代守护）", async () => {
   const descriptors = await writeDescriptors();
   assert.ok(descriptors.length >= 6, "expected at least six fact write tools");
 

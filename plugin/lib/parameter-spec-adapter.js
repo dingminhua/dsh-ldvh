@@ -27,6 +27,29 @@
  * relation entries, url entries).
  */
 
+/**
+ * Every constraint keyword actually dropped during a `toParameterSpec` call,
+ * as `path.keyword`. The adapter records into this module-level list so dropping
+ * is observable from the one place it happens, instead of requiring callers to
+ * re-walk the schema (`droppedConstraints()` still exists for that).
+ *
+ * This is deliberately a process-level accumulator rather than a return value:
+ * `toParameterSpec` must keep returning the plain property map that
+ * `defineTool({ parameters })` consumes. Call `takeDroppedKeywords()` to read and
+ * clear it (tests do), or read `lastDroppedKeywords()` without clearing.
+ */
+let droppedDuringAdaptation = [];
+/** Read and clear the keywords dropped since the previous call. */
+export function takeDroppedKeywords() {
+  const seen = droppedDuringAdaptation;
+  droppedDuringAdaptation = [];
+  return seen;
+}
+/** Read the keywords dropped by the most recent adaptation, without clearing. */
+export function lastDroppedKeywords() {
+  return [...droppedDuringAdaptation];
+}
+
 /** Keywords the host accepts on an author node (see dsh-tools schema subset). */
 const SUPPORTED_KEYWORDS = new Set([
   "type",
@@ -52,17 +75,21 @@ const SUPPORTED_KEYWORDS = new Set([
  * never enforced before this adapter existed either, and forwarding them would
  * make `defineTool()` throw at definition time and take the whole tool down.
  */
-function toSpecNode(node, requiredNames) {
+function toSpecNode(node, requiredNames, nodePath = "") {
   if (node === null || typeof node !== "object") return node;
-  if (Array.isArray(node)) return node.map((entry) => toSpecNode(entry, []));
+  if (Array.isArray(node)) return node.map((entry, index) => toSpecNode(entry, [], `${nodePath}[${index}]`));
 
   const out = {};
   const required = new Set(requiredNames);
   for (const [key, value] of Object.entries(node)) {
     if (key === "required") continue; // handled via the sibling list
-    if (!SUPPORTED_KEYWORDS.has(key)) continue; // minimum/pattern/... are not in the host subset
+    if (!SUPPORTED_KEYWORDS.has(key)) {
+      // Record instead of silently dropping: see droppedDuringAdaptation's doc.
+      droppedDuringAdaptation.push(`${nodePath === "" ? "" : `${nodePath}.`}${key}`);
+      continue;
+    }
     if (key === "properties" && value !== null && typeof value === "object") {
-      out.properties = toSpecProperties(value, required);
+      out.properties = toSpecProperties(value, required, nodePath);
       continue;
     }
     if (key === "items") {
@@ -71,7 +98,7 @@ function toSpecNode(node, requiredNames) {
       // drop that constraint silently: the item's `required` key is skipped by
       // the loop above and no caller re-supplies it, so e.g. a `relations` entry
       // missing `target` would pass the parameter layer (spark-5b0b380e review).
-      out.items = toSpecNode(value, Array.isArray(value?.required) ? value.required : []);
+      out.items = toSpecNode(value, Array.isArray(value?.required) ? value.required : [], `${nodePath}.items`);
       continue;
     }
     // `oneOf` branches are value schemas in their own right: a branch that is an
@@ -80,7 +107,7 @@ function toSpecNode(node, requiredNames) {
     // ("oneOf[1].required is not supported by the value schema DSL"), and passing
     // `[]` would silently drop it — hence the branch's own list is forwarded.
     if (key === "oneOf" && Array.isArray(value)) {
-      out.oneOf = value.map((branch) => toSpecNode(branch, Array.isArray(branch?.required) ? branch.required : []));
+      out.oneOf = value.map((branch, index) => toSpecNode(branch, Array.isArray(branch?.required) ? branch.required : [], `${nodePath}.oneOf[${index}]`));
       continue;
     }
     out[key] = value;
@@ -96,10 +123,10 @@ function toSpecNode(node, requiredNames) {
 }
 
 /** Convert a properties map, stamping `required: true` on the named members. */
-function toSpecProperties(properties, requiredNames) {
+function toSpecProperties(properties, requiredNames, nodePath = "") {
   const out = {};
   for (const [key, value] of Object.entries(properties ?? {})) {
-    const converted = toSpecNode(value, Array.isArray(value?.required) ? value.required : []);
+    const converted = toSpecNode(value, Array.isArray(value?.required) ? value.required : [], nodePath === "" ? key : `${nodePath}.${key}`);
     if (requiredNames.has(key)) converted.required = true;
     out[key] = converted;
   }
@@ -128,6 +155,13 @@ function toSpecProperties(properties, requiredNames) {
  * here. This also means a top-level key that DUPLICATES a frontmatter field name
  * (e.g. `status`) is silently dropped rather than rejected — nothing mechanical
  * catches that form today (spark-5b0b380e review, 重要).
+ *
+ * One behaviour that changed and is DELIBERATE, not an oversight: an explicitly
+ * passed `null` for a declared optional parameter is now rejected, where the
+ * former unenforced path treated it as absent. That matches 02 §7.2/§8 — 「不适用
+ * 字段省略，不使用 null、空字符串、空列表」 — so `null` is a request-shape error,
+ * not an accepted way to say "omit". Callers that genuinely mean "no value" must
+ * omit the key.
  *
  * Returns the implicit property map directly: the DSL has no root object node,
  * so the root `type`/`additionalProperties` of the JSON Schema have no carrier.
@@ -193,7 +227,17 @@ const CODE_MANAGED_PROPERTY_SPECS = Object.freeze({
  * would believe it enforced something. `droppedConstraints()` lets a test (or a
  * reviewer) see exactly what a schema loses on the way through.
  */
-const DROPPED_KEYWORDS = new Set(["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "pattern", "minLength", "maxLength", "minItems", "maxItems", "uniqueItems", "multipleOf", "format"]);
+const DROPPED_KEYWORDS = new Set([
+  // 数值/字符串/数组的约束
+  "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+  "pattern", "minLength", "maxLength", "format",
+  "minItems", "maxItems", "uniqueItems", "contains",
+  // 对象侧的组合约束（宿主 DSL 只认 properties/required/additionalProperties）
+  "minProperties", "maxProperties", "patternProperties", "propertyNames",
+  "dependencies", "dependentRequired", "dependentSchemas",
+  // 组合与引用：宿主只认 oneOf，其余一律丢
+  "anyOf", "allOf", "not", "if", "then", "else", "$ref", "$defs", "definitions",
+]);
 
 /**
  * Report every constraint keyword a schema would lose in adaptation.
@@ -217,9 +261,4 @@ export function droppedConstraints(schema, path = "") {
   };
   walk(schema, path);
   return found;
-}
-
-/** Names of parameter keys the DSL will enforce as required (for assertions/tests). */
-export function requiredParameterNames(schema) {
-  return Array.isArray(schema?.required) ? [...schema.required] : [];
 }

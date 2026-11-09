@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { droppedConstraints, toParameterSpec } from "../lib/parameter-spec-adapter.js";
+import { droppedConstraints, takeDroppedKeywords, toParameterSpec } from "../lib/parameter-spec-adapter.js";
 
 // ---------------------------------------------------------------------------
 // 适配器把既有 JSON Schema 参数表转成宿主 defineTool 的 schema DSL
@@ -147,4 +147,21 @@ test("被丢弃的约束可被枚举，不是静默消失", async () => {
     droppedConstraints(authored).sort(),
     ["properties.limit.minimum", "properties.name.pattern"],
   );
+});
+
+test("适配过程实际丢弃的关键字可被读取（不只是可选复查）", async () => {
+  takeDroppedKeywords(); // 清空历史
+  toParameterSpec({
+    type: "object",
+    properties: {
+      limit: { type: "integer", minimum: 1 },
+      refs: { type: "array", maxItems: 10, items: { type: "object", properties: { a: { type: "string", pattern: "^x" } } } },
+    },
+  });
+  // 这是机制的承载：丢弃发生在 toSpecNode 内部并就地记录，不依赖调用方另走一遍。
+  assert.deepEqual(
+    takeDroppedKeywords().sort(),
+    ["limit.minimum", "refs.items.a.pattern", "refs.maxItems"],
+  );
+  assert.deepEqual(takeDroppedKeywords(), [], "读取后应清空，避免跨用例串味");
 });
