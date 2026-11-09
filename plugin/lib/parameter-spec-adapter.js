@@ -66,15 +66,21 @@ function toSpecNode(node, requiredNames) {
       continue;
     }
     if (key === "items") {
-      out.items = toSpecNode(value, []);
+      // An `items` schema carries its OWN sibling `required` (an array item that
+      // is an object lists its mandatory keys there). Passing `[]` here would
+      // drop that constraint silently: the item's `required` key is skipped by
+      // the loop above and no caller re-supplies it, so e.g. a `relations` entry
+      // missing `target` would pass the parameter layer (spark-5b0b380e review).
+      out.items = toSpecNode(value, Array.isArray(value?.required) ? value.required : []);
       continue;
     }
     // `oneOf` branches are value schemas in their own right: a branch that is an
     // object carries its own `required` array, which must become per-property
     // annotations. Passing it through untouched is rejected by the host DSL
-    // ("oneOf[1].required is not supported by the value schema DSL").
+    // ("oneOf[1].required is not supported by the value schema DSL"), and passing
+    // `[]` would silently drop it — hence the branch's own list is forwarded.
     if (key === "oneOf" && Array.isArray(value)) {
-      out.oneOf = value.map((branch) => toSpecNode(branch, []));
+      out.oneOf = value.map((branch) => toSpecNode(branch, Array.isArray(branch?.required) ? branch.required : []));
       continue;
     }
     out[key] = value;
@@ -104,15 +110,24 @@ function toSpecProperties(properties, requiredNames) {
  * Adapt a whole parameter schema (including its own `required` array) into the
  * DSL property map that `defineTool({ parameters })` expects.
  *
- * BOTH top-level and nested `required` are carried over and enforced. Missing a
- * required PARAMETER now fails in the DSH layer instead of reaching the handler.
- * That is a deliberate contract change: the host error is a hard stop, whereas
- * the LDVH envelope used to explain what to do next. Callers that relied on the
- * envelope for a missing top-level argument must read the `ToolArgsError` text.
+ * REQUIREDNESS IS SPLIT BETWEEN TWO LAYERS, deliberately:
+ *
+ *   - NESTED `required` (object shape) IS enforced here. A `frontmatter_draft`, a
+ *     relation entry or a `oneOf` branch that misses a mandatory key fails in the
+ *     DSH layer. This is the class of error the handler cannot explain well, and
+ *     the class that went entirely unchecked before this adapter existed.
+ *   - TOP-LEVEL `required` (which ARGUMENTS the caller must supply) is NOT
+ *     enforced here — the caller passes an empty set. The fact tools already
+ *     answer a missing argument with a structured `invalid_request` envelope
+ *     carrying `gaps` and a `follow_up` that tells the model what to do next,
+ *     which is strictly more useful than the host's bare "missing required
+ *     property". Those hints must not degrade into a dead end.
  *
  * What this does NOT change: the host parameter root is an implicitly OPEN
- * object, so UNDECLARED top-level keys are still accepted here. Channel-外
- * fields are caught downstream by the writer's field closure, not by the schema.
+ * object and cannot be closed, so UNDECLARED top-level keys are still accepted
+ * here. This also means a top-level key that DUPLICATES a frontmatter field name
+ * (e.g. `status`) is silently dropped rather than rejected — nothing mechanical
+ * catches that form today (spark-5b0b380e review, 重要).
  *
  * Returns the implicit property map directly: the DSL has no root object node,
  * so the root `type`/`additionalProperties` of the JSON Schema have no carrier.
@@ -168,6 +183,41 @@ const CODE_MANAGED_PROPERTY_SPECS = Object.freeze({
     description: "Code-managed: the writer appends exactly one entry",
   },
 });
+
+/**
+ * Keywords this adapter DROPS because the host DSL has no carrier for them.
+ *
+ * Dropping is not a regression — the parameter schemas were never executed
+ * before this adapter existed, so these constraints never took effect either.
+ * But it must not be silent: a future schema that adds `minimum`/`pattern`
+ * would believe it enforced something. `droppedConstraints()` lets a test (or a
+ * reviewer) see exactly what a schema loses on the way through.
+ */
+const DROPPED_KEYWORDS = new Set(["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "pattern", "minLength", "maxLength", "minItems", "maxItems", "uniqueItems", "multipleOf", "format"]);
+
+/**
+ * Report every constraint keyword a schema would lose in adaptation.
+ *
+ * @param {object} schema - the JSON Schema parameter object as authored.
+ * @returns {string[]} paths of dropped keywords, e.g. `limit.minimum`.
+ */
+export function droppedConstraints(schema, path = "") {
+  const found = [];
+  const walk = (node, at) => {
+    if (node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach((entry, index) => walk(entry, `${at}[${index}]`));
+      return;
+    }
+    for (const [key, value] of Object.entries(node)) {
+      const here = at === "" ? key : `${at}.${key}`;
+      if (DROPPED_KEYWORDS.has(key)) found.push(here);
+      else walk(value, here);
+    }
+  };
+  walk(schema, path);
+  return found;
+}
 
 /** Names of parameter keys the DSL will enforce as required (for assertions/tests). */
 export function requiredParameterNames(schema) {

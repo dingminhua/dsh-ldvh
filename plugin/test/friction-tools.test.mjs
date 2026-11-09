@@ -800,30 +800,25 @@ test("toolDescriptor.execute: unexpected exception → execution_error envelope 
 // Schema layer tests (26 §8 field contract in tool schema)
 // ---------------------------------------------------------------------------
 
-test("tool schema: friction-read-object rejects unknown fields (26 §8 closed set)", async () => {
+test("tool schema: friction-read-object 的通道外字段由 writer 承担（参数层不拒）", async () => {
   await withTemp("friction-tools.", async (base) => {
     const deps = { dshHomePath: () => "x", workspaceRoot: base, sessionPersistence: () => undefined };
     const byName = makeDescriptors(deps);
     const desc = byName["ldvh_friction_read"];
     assert.ok(desc);
 
-    // object_uid is the ONLY accepted field.
+    // object_uid is the ONLY accepted parameter.
     //
     // 参数表已改为 defineTool 编译产物：`type` 仍是 "object"，但参数根是**隐式开放对象**
-    // ——宿主不输出 `additionalProperties`，也不允许关闭它（spark-5b0b380e 核实）。因此
-    // 「顶层多余字段」在参数层不会产生违规；拦住它的是 writer 的字段闭集。本用例据实断言
-    // 这一分层，而不是继续断言一个已不成立的「参数层封闭」。
+    // ——宿主不输出 `additionalProperties`，也不允许关闭它。因此「顶层多余字段」在参数层
+    // 不会产生违规；读工具的 handler 只取它认识的键，多余键无人过问也不会落盘。
+    // 本用例据实断言这一分层，不再维持一个已不成立的「参数层封闭」假设。
     const bad = { object_uid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", bogus: 1 };
     assert.equal(desc.parameters.type, "object");
     assert.equal(
       validateJsonSchemaValue(desc.parameters, bad, "args").length,
       0,
       "宿主参数根隐式开放，顶层多余字段不会在参数层被拒——这是宿主设计，不是缺陷",
-    );
-    // 真正拦住它的层次：writer 的字段闭集（此处以 schema 的嵌套封闭性代表同一机制）。
-    assert.equal(
-      validateJsonSchemaValue(desc.parameters, { object_uid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", bogus: 1 }, "args").length,
-      0,
     );
   });
 });

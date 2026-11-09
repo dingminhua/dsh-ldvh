@@ -17,6 +17,8 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { defineTool } from "@deepseek-ai/dsh-tools";
+import { toParameterSpec } from "./parameter-spec-adapter.js";
 import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerprint, projectLayer, parseOperationDeclarations as parseDeclarationTable } from "./spec-registry.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
@@ -1824,10 +1826,13 @@ function makeExecute(deps) {
  * and they now forward it to the ask seam.
  */
 export function toolDescriptor(operationKey, operation, handler) {
-  return {
+  // Register through defineTool so the DSH argument check actually runs: the
+  // bare-descriptor path only asserts output/timeoutMs shape and stores the
+  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
+  return defineTool({
     name: operation.toolName,
     description: operation.summary,
-    parameters: parameterSchemaFor(operationKey),
+    parameters: toParameterSpec(parameterSchemaFor(operationKey)),
     ...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 },
     async execute(args, exec) {
       try {
@@ -1852,7 +1857,7 @@ export function toolDescriptor(operationKey, operation, handler) {
       schema: OUTPUT_SCHEMA,
       render: (args, value) => renderEnvelope(operationKey, value)
     }
-  };
+  });
 }
 
 /**
