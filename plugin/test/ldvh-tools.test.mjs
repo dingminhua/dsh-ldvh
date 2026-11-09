@@ -20,7 +20,8 @@ import { join } from "node:path";
 import { guidanceTextFor, GUIDANCE_SECTION_NAME, GUIDANCE_SECTION_ORDER } from "../lib/guidance-text.js";
 import { makeExecute, OPERATIONS, renderEnvelope, toolDescriptor } from "../lib/ldvh-tools.js";
 import { registerProject } from "../lib/governed-projects.js";
-import { git, initRepo, withTemp } from "./helpers.mjs";
+import { snapshotIdentity, SOURCE_FINGERPRINT } from "../lib/commit-validation.js";
+import { execFileAsync, git, initRepo, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
@@ -1735,4 +1736,274 @@ test("渲染：stale 为空时也必须印出计数与被检数（空结果同�
 	const rendered = renderEnvelope("inspect-loaded-modules", fake)[0].text;
 	assert.ok(rendered.includes("checked: 94"), "零陈旧时仍须印受检数，否则无法区分「查了没发现」与「没查」");
 	assert.ok(rendered.includes("stale: 0"));
+});
+
+// ---------------------------------------------------------------------------
+// 规范读取面的模型可见性（渲染层行为回归）
+//
+// spark-a569c490：handler 已返回内容，模型可见渲染却只输出 completed。
+// 本段贯穿 handler → descriptor.execute → output.render，断言读取结果进入文本
+// 而非仅存在于信封中；L0 反向控制防止所有层一律输出正文。覆盖范围限于这些
+// 规范读取夹具，不证明其他工具的投影完整。
+// ---------------------------------------------------------------------------
+
+/** 走真实描述符链渲染一次调用，返回 { envelope, text }。 */
+async function renderThroughTool(operationKey, handler, args, exec) {
+	const descriptor = toolDescriptor(operationKey, OPERATIONS[operationKey], handler);
+	const value = await descriptor.execute(args, exec);
+	const blocks = await descriptor.output.render(args, value);
+	assert.ok(Array.isArray(blocks) && blocks.length > 0, "output.render 必须返回非空内容块数组");
+	assert.ok(blocks.every((b) => b?.type === "text" && typeof b.text === "string"), "模型侧唯一读入口是文本块");
+	return { envelope: value.envelope, text: blocks.map((b) => b.text).join("\n") };
+}
+
+/** 在一次受辖夹具上跑读取面可见性断言。 */
+async function withSpecFixture(run) {
+	await withTemp("ldvh-tools.render.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		await run({ handlers, exec: { agent: { session: { header: { cwd: root } } } }, root });
+	});
+}
+
+test("渲染可见性：L0 候选保持简洁——键与标题可见，正文与目录不得倾倒", async () => {
+	await withSpecFixture(async ({ handlers, exec }) => {
+		const { envelope, text } = await renderThroughTool("read-specification-candidates", handlers["read-specification-candidates"], {}, exec);
+		assert.equal(envelope.outcome, "completed");
+		for (const c of envelope.result.candidates) {
+			assert.ok(text.includes(c.responsibility_key), `候选键必须可见：${c.responsibility_key}`);
+			assert.ok(text.includes(c.title), `候选标题必须可见：${c.title}`);
+			// 01.Att.03 §4：L0 须可见类型、key、编号、标题、路径。
+			// 断言限定在**该候选自己的行**内：编号（如 11）会偶然出现在指纹串里，
+			// 全局 text.includes 查编号等于没查。
+			const line = text.split("\n").find((l) => l.includes(c.responsibility_key) && !l.startsWith("sources:"));
+			assert.ok(line !== undefined, `该候选必须独占一行：${c.responsibility_key}`);
+			assert.ok(line.includes(c.carrier_kind), `候选类型必须可见：${c.responsibility_key}`);
+			assert.ok(line.includes(c.spec_id), `候选编号必须可见：${c.responsibility_key}`);
+			assert.ok(line.includes(c.canonical_path), `候选路径必须可见：${c.responsibility_key}`);
+			// positioning 属 L1，不进 L0
+			assert.ok(!text.includes(c.positioning), `L0 不得出现候选 positioning：${c.responsibility_key}`);
+		}
+		// L0 反向控制：不承载正文，也不携带 L2 目录
+		assert.ok(!text.includes("正文段落。"), "L0 不得倾倒正文");
+		assert.ok(!text.includes("子节正文。"), "L0 不得倾倒正文");
+		assert.ok(!text.includes("2. 职责边界"), "L0 不得携带 L2 的 section_outline");
+		// 但 L0 仍须披露来源视图与继续读取的入口（01 §10.3）
+		assert.ok(text.includes("sources:"), "L0 必须披露来源视图");
+		const snapshot = envelope.sources[0].snapshot;
+		assert.ok(snapshot, "数据面必须绑定扫描快照");
+		assert.ok(text.includes(snapshot.candidate_set_fingerprint), "候选集合指纹必须对模型可见");
+		for (const [path, fingerprint] of Object.entries(snapshot.content_fingerprints)) {
+			assert.ok(text.includes(path), `载体定位必须可见：${path}`);
+			assert.ok(text.includes(fingerprint), `载体内容指纹必须可见：${path}`);
+		}
+		assert.ok(text.includes("follow_up:"), "L0 必须给出继续读取的入口");
+		for (const next of envelope.follow_up) assert.ok(text.includes(next), `follow_up 条目必须可见：${next}`);
+	});
+});
+
+test("渲染可见性：L1 候选的定位与范围必须完整可见（不只键与标题）", async () => {
+	await withSpecFixture(async ({ handlers, exec }) => {
+		const { envelope, text } = await renderThroughTool("read-specification-candidates", handlers["read-specification-candidates"], { responsibility_key: "sample-spec-1", layer: "L1" }, exec);
+		assert.equal(envelope.outcome, "completed");
+		assert.equal(envelope.result.layer, "L1");
+		const c = envelope.result.candidates[0];
+		assert.equal(c.positioning, "p1");
+		assert.equal(c.scope, "s1");
+		for (const [label, value] of [["responsibility_key", c.responsibility_key], ["title", c.title], ["spec_id", c.spec_id], ["canonical_path", c.canonical_path], ["positioning", c.positioning], ["scope", c.scope]]) {
+			assert.ok(text.includes(value), `L1 的 ${label} 必须对模型可见（实际值 ${value}）`);
+		}
+	});
+});
+
+test("渲染可见性：L2 的 section_outline 逐条可见（模型据此拼出 L3 的 heading_path）", async () => {
+	await withSpecFixture(async ({ handlers, exec }) => {
+		const { envelope, text } = await renderThroughTool("read-specification-candidates", handlers["read-specification-candidates"], { responsibility_key: "sample-spec-1", layer: "L2" }, exec);
+		assert.equal(envelope.outcome, "completed");
+		const outline = envelope.result.candidates[0].section_outline;
+		assert.ok(Array.isArray(outline) && outline.length >= 3, "L2 必须在数据面给出目录");
+		for (const entry of outline) {
+			assert.ok(text.includes(entry.text), `目录条目标题必须可见：${entry.text}`);
+			assert.ok(text.includes(String(entry.line)), `目录条目行号必须可见：${entry.text}@${entry.line}`);
+		}
+		assert.ok(text.includes("2. 职责边界"), "L2 必须能看见将用于 L3 的 H2 标题");
+	});
+});
+
+test("渲染可见性：L2 不指定 key 时，全部候选各自的目录都必须可见", async () => {
+	await withSpecFixture(async ({ handlers, exec }) => {
+		const { envelope, text } = await renderThroughTool("read-specification-candidates", handlers["read-specification-candidates"], { layer: "L2" }, exec);
+		assert.equal(envelope.outcome, "completed");
+		assert.equal(envelope.result.layer, "L2");
+		assert.ok(envelope.result.candidates.length >= 2, "本夹具至少有两个候选");
+		// 不设字节阈值：只主张「都在」，不主张「多大都在」
+		for (const c of envelope.result.candidates) {
+			const where = `候选 ${c.responsibility_key}`;
+			assert.ok(text.includes(c.responsibility_key), `${where}：键必须可见`);
+			assert.ok(text.includes(c.title), `${where}：标题必须可见`);
+			assert.ok(text.includes(c.positioning), `${where}：positioning 必须可见`);
+			// scope 是可选字段（附件可无 scope）：有则必须可见，无则不凭空断言
+			if (c.scope !== undefined) assert.ok(text.includes(c.scope), `${where}：scope 必须可见`);
+			assert.ok(Array.isArray(c.section_outline), `${where}：数据面必须给出目录`);
+			for (const entry of c.section_outline) {
+				assert.ok(text.includes(entry.text), `${where}：目录条目标题必须可见 —— ${entry.text}`);
+				assert.ok(text.includes(String(entry.line)), `${where}：目录条目行号必须可见 —— ${entry.text}@${entry.line}`);
+			}
+		}
+	});
+});
+
+test("渲染可见性：L3 的正文与定位信息（起止行号、节指纹、载体指纹）必须可见", async () => {
+	await withSpecFixture(async ({ handlers, exec }) => {
+		const { envelope, text } = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1", heading_path: "2. 职责边界" }, exec);
+		assert.equal(envelope.outcome, "completed");
+		assert.equal(envelope.result.layer, "L3");
+		assert.ok(text.includes(envelope.result.content), "L3 切片须完整逐字可见");
+		// 逐字正文：模型要读的就是这一段
+		assert.ok(text.includes("2. 职责边界"), "L3 的所读标题必须可见");
+		assert.ok(text.includes("子节正文。"), "L3 的所读正文必须逐字可见");
+		assert.ok(text.includes("又一正文。"), "L3 的所读正文必须逐字可见（不得只给首段）");
+		// 定位信息：起止行号与两个指纹（01 §10.3 要求披露来源视图与内容指纹）
+		assert.ok(text.includes(String(envelope.result.start_line)), "L3 的起始行号必须可见");
+		assert.ok(text.includes(String(envelope.result.end_line)), "L3 的结束行号必须可见");
+		assert.ok(text.includes(envelope.result.section_fingerprint), "L3 的节指纹必须可见");
+		assert.ok(text.includes(envelope.result.content_fingerprint), "载体内容指纹必须可见");
+		assert.ok(text.includes(envelope.result.canonical_path), "载体定位路径必须可见");
+	});
+});
+
+test("渲染可见性：L4 的全文必须可见（逐字，不得只回一行 completed）", async () => {
+	await withSpecFixture(async ({ handlers, exec }) => {
+		const { envelope, text } = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1" }, exec);
+		assert.equal(envelope.outcome, "completed");
+		assert.equal(envelope.result.layer, "L4");
+		assert.ok(text.includes(envelope.result.content), "L4 全文须完整逐字可见");
+		assert.ok(text.includes("规范示例一"), "L4 全文必须包含标题");
+		assert.ok(text.includes("正文段落。"), "L4 全文必须包含首节正文");
+		assert.ok(text.includes("子节正文。"), "L4 全文必须包含中段正文");
+		assert.ok(text.includes("最后正文。"), "L4 全文必须包含末节正文");
+		assert.ok(text.includes(envelope.result.content_fingerprint), "L4 必须披露载体内容指纹（01 §10.3）");
+		assert.ok(text.includes(envelope.result.canonical_path), "L4 必须披露载体定位路径");
+	});
+});
+
+test("渲染可见性：读取失败时，原因与自愈方向（follow_up）必须可见", async () => {
+	await withSpecFixture(async ({ handlers, exec }) => {
+		// 未知 key → rejected：原因与「去枚举键」的入口都要看得见
+		const unknown = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "no-such-key" }, exec);
+		assert.equal(unknown.envelope.outcome, "rejected");
+		assert.ok(unknown.text.includes("rejected"), "失败响应的结果分类必须可见");
+		assert.ok(unknown.text.includes("no-such-key"), "被拒的键必须出现在可见文本里");
+		assert.ok(unknown.text.includes("read-specification-candidates"), "rejected 的自愈方向（去枚举键）必须可见，否则模型只看到一句拒绝");
+		// heading_path 写错 → rejected：精确原因与「去 L2 取目录」的入口都要看得见
+		const badHeading = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1", heading_path: "不存在的节" }, exec);
+		assert.equal(badHeading.envelope.outcome, "rejected");
+		assert.ok(badHeading.text.includes("heading_not_found"), "失败原因码必须可见");
+		assert.ok(badHeading.text.includes("L2"), "自愈方向（回到 L2 取目录）必须可见");
+	});
+});
+
+test("渲染可见性：非受辖会话的 unavailable 响应必须把治理状态说清", async () => {
+	await withTemp("ldvh-tools.render.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const elsewhere = await initRepo(base, { name: "elsewhere" });
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const exec = { agent: { session: { header: { cwd: elsewhere } } } };
+		const { envelope, text } = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1" }, exec);
+		assert.equal(envelope.outcome, "unavailable");
+		assert.ok(text.includes("unavailable"), "结果分类必须可见");
+		assert.ok(text.includes("not_governed"), "不可用的原因（治理状态）必须可见");
+	});
+});
+
+/** 与预检入口读暂存区时完全相同的命令，取未经 trim 的原始 diff。 */
+async function stagedDiff(root) {
+	const { stdout } = await execFileAsync("git", ["-C", root, "diff", "--cached", "--binary", "--no-ext-diff"], { encoding: "utf8" });
+	return stdout;
+}
+
+test("渲染可见性：预检身份只在 passed 时显示，其余状态不得显示任何 hash", async () => {
+	await withTemp("ldvh-tools.render.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		await writeFile(join(root, "feature.txt"), "new content\n");
+		await git(root, ["add", "feature.txt"]);
+		const logPath = await writeSessionLog(base, "session.jsonl", [{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } }]);
+		const okMessage = [
+			"chore(code): 新增特性文件",
+			"",
+			"关键变更:",
+			"- create feature.txt with the new line",
+			"- seed README.md test carrier",
+			"",
+			"LDVH-Provider: deepseek-harness",
+			"LDVH-Model: test",
+		].join("\n");
+		const exec = { agent: { session: { header: { cwd: root } } } };
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => stubSessionPersistence(logPath) });
+
+		// (1) passed：两个标识都要可读，且 source_fingerprint 须明示它是 protocol tag
+		const passed = await renderThroughTool("precheck-git-commit", handlers["precheck-git-commit"], { message: okMessage }, exec);
+		assert.equal(passed.envelope.result.mechanical_outcome, "passed");
+		assert.match(passed.envelope.result.snapshot_identity, /^[0-9a-f]{64}$/);
+		assert.ok(passed.text.includes(passed.envelope.result.snapshot_identity), "snapshot_identity 必须对模型可见");
+		assert.ok(passed.text.includes(passed.envelope.result.source_fingerprint), "source_fingerprint 必须对模型可见");
+		assert.ok(passed.text.includes("protocol tag"), "source_fingerprint 须明示它是 protocol tag");
+		assert.ok(passed.text.includes("not a source-code fingerprint"), "须明示它不是源码指纹");
+
+		// (2) 真实 failed：信封不带标识，文本不得出现任何 hash；错误仍须可见
+		const badMessage = "not a conventional header";
+		const failed = await renderThroughTool("precheck-git-commit", handlers["precheck-git-commit"], { message: badMessage }, exec);
+		assert.equal(failed.envelope.result.mechanical_outcome, "failed");
+		assert.equal(failed.envelope.result.snapshot_identity, undefined);
+		assert.ok(!failed.text.includes(SOURCE_FINGERPRINT), "failed 时不得打印 source_fingerprint");
+		assert.ok(!failed.text.includes(snapshotIdentity(await stagedDiff(root), badMessage)), "failed 时不得打印任何 snapshot_identity");
+		assert.ok(failed.text.includes("failed"), "失败结论必须可见");
+		for (const issue of failed.envelope.result.issues) assert.ok(failed.text.includes(issue.rule), `失败原因须可见：${issue.rule}`);
+
+		// (3) 真实 unverifiable（路由不可得）：同理，且原因可见
+		const { handlers: noRoute } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const unverifiable = await renderThroughTool("precheck-git-commit", noRoute["precheck-git-commit"], { message: okMessage }, exec);
+		assert.equal(unverifiable.envelope.result.mechanical_outcome, "unverifiable");
+		assert.ok(!unverifiable.text.includes(SOURCE_FINGERPRINT), "unverifiable 时不得打印 source_fingerprint");
+		assert.ok(unverifiable.text.includes("unverifiable"), "不可验证结论必须可见");
+		assert.ok(unverifiable.text.includes("could not be traced"), "不可验证的原因必须可见");
+
+		// (4) 构造信封：failed/unverifiable 即使带了伪造 hash，也不得显示出来
+		for (const outcome of ["failed", "unverifiable"]) {
+			const fake = "f".repeat(64);
+			const rendered = renderEnvelope("precheck-git-commit", {
+				envelope: {
+					operation_key: "precheck-git-commit",
+					outcome,
+					result: { mechanical_outcome: outcome, snapshot_identity: fake, source_fingerprint: fake },
+					scope: { requested: "precheck", completed: [], not_completed: ["verdict-computed-by-current-validator-code"] },
+					sources: [],
+					gaps: ["the validator modules below are newer on disk than this host process started"],
+					verification: { checks: [], passed: false },
+					follow_up: ["restart the host (or reload the plugin) so the validator loads the on-disk version, then re-run precheck"],
+				},
+			})[0].text;
+			assert.ok(!rendered.includes(fake), `${outcome} 时不得显示任何伪造 hash`);
+			assert.ok(rendered.includes("not_completed: verdict-computed-by-current-validator-code"), `${outcome}：未完成项必须可见`);
+			assert.ok(rendered.includes("follow_up: restart the host"), `${outcome}：重试方向必须可见`);
+		}
+
+		// (5) 陈旧（failed 被降级为 unverifiable）：gap / not_completed / 重试方向可见，且仍无 hash
+		const { handlers: staleHandlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => stubSessionPersistence(logPath), detectStaleModules: () => STALE });
+		const stale = await renderThroughTool("precheck-git-commit", staleHandlers["precheck-git-commit"], { message: MISMATCHED_MESSAGE }, exec);
+		assert.equal(stale.envelope.result.mechanical_outcome, "unverifiable");
+		assert.ok(!stale.text.includes(SOURCE_FINGERPRINT), "陈旧时不得打印 source_fingerprint");
+		assert.ok(stale.text.includes("STALE code"), "陈旧原因必须可见");
+		assert.ok(stale.text.includes("not_completed: verdict-computed-by-current-validator-code"), "未完成项必须可见");
+		assert.ok(stale.text.includes("follow_up: restart the host"), "重试方向必须可见");
+	});
 });

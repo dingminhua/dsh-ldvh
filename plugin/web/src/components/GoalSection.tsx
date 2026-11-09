@@ -306,6 +306,19 @@ export default function GoalSection() {
     };
   }, []);
 
+  // 聚焦视图只呈现**仍有效的**子目标（Human 2026-11-08：「聚焦里不呈现作废 sg」）。
+  // 过滤放在呈现层，不动投影：`/api/cognition/goal` 仍返回全部子目标，详情页与
+  // 状态筛选需要看到作废项；若在投影层过滤，「作废」这一历史事实就会在任何界面
+  // 都不可见（28 §9：`retired` 是终态，作废是应当可查的历史，不是应被抹掉的错误）。
+  //
+  // 计数与列表取同一份派生集合：两者若分别取值，会出现「标题写 6、下面只列 4 条」，
+  // 而读者无法判断少掉的 2 条是被收起了还是根本不存在。
+  //
+  // `retired` 之外的状态（`active`、`achieved`）照常呈现——`achieved` 是达成过的
+  // 历史，不是本区的噪音；缺失 `status` 的行（legacy 条目）也不过滤：它尚不是对象，
+  // 无从判定其生命周期，把它当作作废是凭缺失推断。
+  const visibleSubGoals = (goal?.sub_goals ?? []).filter((sg) => sg.status !== 'retired');
+
   // 目标陈述按本类型色（goal = emerald）上色。面与正文必须**成对**取用：
   // 只贴 `surface` 会让正文沿用中性近黑，色相面与正文分家（docs/01 §1.6、
   // `utils/typeSurface.ts` 头注）。几何仍取 WorkCase 判据面那一个常量——
@@ -375,7 +388,7 @@ export default function GoalSection() {
           </span>
         </h3>
         {goal && (
-          <span className="ldvh-meta shrink-0 text-ldvh-text-secondary/70">{goal.sub_goals.length}</span>
+          <span className="ldvh-meta shrink-0 text-ldvh-text-secondary/70">{visibleSubGoals.length}</span>
         )}
         <span className="ml-auto flex min-w-0 shrink-0 items-center gap-1">
           <button
@@ -423,7 +436,7 @@ export default function GoalSection() {
             </div>
           )}
 
-          {goal && goal.sub_goals.length > 0 && (
+          {goal && visibleSubGoals.length > 0 && (
             // 子目标行：复用**子目标卡**的呈现语言（卡头件 + 标题托盘 + 判据面 +
             // 名下工作区），但除标题外**默认收起**（Human 定案 2026-11-03）。
             //
@@ -446,7 +459,7 @@ export default function GoalSection() {
             // 收起不等于删：判据与名下工作一行不少地在那里，点开即得。子目标的完整
             // 档案仍在 `/objects/subgoal/<uid>` 详情页，聚焦页这条展开只是省一次跳转。
             <ul className="mt-3 min-w-0 divide-y divide-ldvh-border/70">
-              {goal.sub_goals.map((sg) => (
+              {visibleSubGoals.map((sg) => (
                 <SubGoalRow
                   key={sg.id}
                   subGoal={sg}

@@ -1083,15 +1083,18 @@ test("F1 基线：法定决策不得靠词面运气——零词法命中时基�
 	// **输入必须真零命中**（2026-10-25，第四十次审核 M-3）：旧用例用
 	// 「把这个函数改成异步的」，实测该 query specs=1 + facts=3 = **4 条命中**——
 	// 前提不成立，断言在「零命中」从未发生的情况下恒真，守不住它声称的不变量。
-	// 「优化性能」实测 specs=0 / facts=0（且是合理的行动描述，非无意义串）。
-	const zeroHit = await recallForAction({ action: "优化性能", root: ROOT, limit: 3 });
+	// 「优化性能」实测 specs=0 / facts=0；2026-11-09 语料增长后该串命中 1 条 fact，
+	// 前提失效，改用「让动画快一点」（实测 limit=3/5/12 下均 specs=0 / facts=0，
+	// 且是合理的行动描述，非无意义串）。**换串时须同样实测零命中**，不得凭感觉选。
+	const zeroHitQuery = "让动画快一点";
+	const zeroHit = await recallForAction({ action: zeroHitQuery, root: ROOT, limit: 3 });
 	assert.equal(
 		zeroHit.specs.length + zeroHit.facts.length,
 		0,
-		"前提：该 query 须真零命中（若语料变动导致命中，须换一个真零命中的 query）",
+		`前提：该 query 须真零命中（"${zeroHitQuery}" 当前命中 ${zeroHit.specs.length + zeroHit.facts.length} 条；若语料变动导致命中，须换一个实测零命中的 query）`,
 	);
 	const r = await buildRecallInjection({
-		userText: "优化性能",
+		userText: zeroHitQuery,
 		projectRoot: ROOT,
 		limit: 3,
 	});

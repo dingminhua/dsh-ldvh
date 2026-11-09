@@ -117,7 +117,7 @@ const OPERATIONS = {
   // 可以撤掉，也可以留作诊断（成本很低，且 `dryRun` 缺省为真）。
   "probe-host-automation": {
     toolName: "ldvh_probe_host_automation",
-    summary: "Probe the host automation capabilities the periodic review depends on (11 §6.1 形态 2): schedule.create with every_seconds, sessionController.create/list, and whether a session title is readable from projections. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters",
+    summary: "Probe the host automation capabilities the periodic review depends on (11 §6.1 形态 2): schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
     effect: "may_change_state"
   },
   // ── 待处置队列的结案通道（2026-11-03，丙方案）──────────────────────────
@@ -2140,6 +2140,14 @@ export function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   if (env.result?.mechanical_outcome !== undefined) lines.push(`mechanical_outcome: ${env.result.mechanical_outcome}`);
+  if (operationKey === "precheck-git-commit") {
+    if (env.result?.mechanical_outcome === "passed") {
+      if (typeof env.result.snapshot_identity === "string") lines.push(`snapshot_identity: ${env.result.snapshot_identity}`);
+      if (typeof env.result.source_fingerprint === "string") lines.push(`source_fingerprint: ${env.result.source_fingerprint} (protocol tag, not a source-code fingerprint)`);
+    }
+    for (const item of env.scope?.not_completed ?? []) lines.push(`not_completed: ${item}`);
+    for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
+  }
   // 候选**必须逐条列出**，不能只印计数（friction-8608a8a6）。
   //
   // 实测（2026-10-28）：主控索取候选清单时，模型可见输出只有「31 candidate(s)
@@ -2148,16 +2156,34 @@ export function renderEnvelope(operationKey, value) {
   // 把本操作定义为按 responsibility_key 取值或全文枚举的入口，只回计数使
   // 「枚举」语义在模型侧不成立。
   //
-  // 只印 responsibility_key 与 title：L0 的全部字段即这两项加 spec_id／
-  // canonical_path，而模型下一步几乎总是拿 key 去读 L1–L4；把其余字段一并铺开
-  // 会让三十余条占满预算，反而挤掉真正要看的内容。要更多字段时按 key 取。
+  // L0 只显示身份与路径；L1/L2 才展开对应层级字段，不在浅层倾倒正文。
   if (Array.isArray(env.result?.candidates)) {
     lines.push(`${env.result.candidates.length} candidate(s) at ${env.result.layer}`);
     for (const candidate of env.result.candidates) {
       if (candidate === null || typeof candidate !== "object") continue;
       const key = candidate.responsibility_key ?? "(no key)";
       const title = candidate.title ?? "(no title)";
-      lines.push(`- ${key} — ${title}`);
+      // L1/L2 explicitly request deeper disclosure; keep the complete layer
+      // projection without repeating the key and title outside it.
+      if (operationKey === "read-specification-candidates" && ["L1", "L2"].includes(env.result?.layer)) {
+        lines.push(JSON.stringify(candidate));
+      } else {
+        const identity = [candidate.carrier_kind, candidate.spec_id, candidate.canonical_path].filter((value) => typeof value === "string" && value.length > 0);
+        lines.push(`- ${key} — ${title}${identity.length > 0 ? ` (${identity.join("; ")})` : ""}`);
+      }
+    }
+  }
+  // L3/L4 handlers return exact source text and fingerprints. Render the text
+  // verbatim rather than reducing a successful read to its outcome alone.
+  if (operationKey === "read-specification-content" && typeof env.result?.content === "string") {
+    const { content, ...metadata } = env.result;
+    lines.push(`source: ${JSON.stringify(metadata)}`);
+    lines.push(content);
+  }
+  if (operationKey === "read-specification-candidates" || operationKey === "read-specification-content") {
+    if (Array.isArray(env.sources) && env.sources.length > 0) lines.push(`sources: ${JSON.stringify(env.sources)}`);
+    if (Array.isArray(env.follow_up)) {
+      for (const next of env.follow_up) lines.push(`follow_up: ${next}`);
     }
   }
   if (env.result?.state !== undefined) lines.push(`state: ${env.result.state}`);

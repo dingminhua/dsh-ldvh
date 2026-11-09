@@ -213,6 +213,27 @@ test('目标页子目标行可下钻到对象详情，legacy 行不可（28 §14
   assert.match(goalSection, /subGoal\.legacy &&/, 'legacy 行仍须显式标出');
 });
 
+test('聚焦目标区不呈现作废子目标，但详情与投影仍保留（28 §9 终态可查）', () => {
+  const goalSection = read('src/components/GoalSection.tsx');
+  const cognition = read('api/routes/cognition.ts');
+
+  // Human 2026-11-08：「聚焦里不呈现作废 sg」。过滤发生在**呈现层**：
+  // 投影继续返回全部子目标，详情页与状态筛选据此仍可看到 `retired`——
+  // 若在投影层过滤，作废这一历史事实将在任何界面都不可见（28 §9：retired 是
+  // 终态，作废是应当可查的历史，不是应被抹掉的错误）。
+  assert.match(goalSection, /const visibleSubGoals = \(goal\?\.sub_goals \?\? \[\]\)\.filter\(\(sg\) => sg\.status !== 'retired'\)/,
+    '聚焦区须派生一个排除 retired 的可见集合');
+  assert.match(goalSection, /\{visibleSubGoals\.map\(/, '列表须渲染可见集合，不得直接遍历 sub_goals');
+  // 计数与列表同源：分别取值会出现「标题写 4、下面只列 2 条」而读者无法分辨。
+  assert.match(goalSection, /\{visibleSubGoals\.length\}.*?text-ldvh-text-secondary/s,
+    '区头计数须取同一份可见集合');
+  assert.match(goalSection, /goal && visibleSubGoals\.length > 0/, '空态判断亦须取可见集合');
+
+  // 投影层**不得**过滤：那里仍按载体原样返回每一条（含 retired）。
+  assert.doesNotMatch(cognition, /status !== 'retired'/,
+    '投影层不得按状态过滤子目标——过滤只在聚焦呈现层');
+});
+
 test('导航与图标：subgoal 有项目态与联邦态入口，图标色相独立', () => {
   const sidebar = read('src/components/Sidebar.tsx');
   const icons = read('src/components/SemanticIcon.tsx');
