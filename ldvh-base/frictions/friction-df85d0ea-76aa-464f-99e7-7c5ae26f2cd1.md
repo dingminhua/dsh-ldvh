@@ -27,10 +27,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 5 → 6（11 §9 第 2 项）
+  - at: 2026-11-09T17:30:13.438Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补充观察：count 6 → 7（11 §9 第 2 项）
 occurrence:
-  count: 6
+  count: 7
   first_at: 2026-11-01T14:59:04.911Z
-  last_at: 2026-11-09T14:42:43.275Z
+  last_at: 2026-11-09T14:48:28.324Z
 ---
 
 # 已入库事实对象可被直接编辑绕过受控通道
@@ -60,3 +64,7 @@ occurrence:
 补充观察（2026-11-09T14:42:43.275Z）：材料 turn 80 中助手自陈：因受控接口被 serves_unresolvable 挡住，改用直接文件改写绕开受控写入接口改写已落盘 Spark 的 status，结果 change_log 缺一条流水（账实不符），随后才回滚改走受控路径。该现象的根源与既有 open 账目 friction-df85d0ea（已入库事实对象可被直接编辑绕过受控通道，归因为事实源写入接缝与文件系统直接写之间的缺口、change_log 与内容指纹无法随内容变更同步）完全相同：同一阻碍（绕过受控写入接缝直改事实对象导致指纹/流水失配）在 Spark 类型上再次发生，故判 same-obstacle 而非新建账目。跨类型同源：pitfall-6f268b21「批量脚本绕过写入接缝致指纹与流水失配」——材料中助手本人即点名该 Pitfall，与该条同源，可由主控建立 paired-with。另 Pitfall
 逐字引证：我用直接改文件的方式改了 spark-034533b2 的 status
 （来源：80）
+
+补充观察（2026-11-09T14:48:28.324Z）：材料中助手自陈「spark-034533b2 因 serves 指向退役子目标被校验挡住，我直接改了文件绕开受控接缝……导致它的 change_log 少一条流水」。这与既有 open 账目 friction-df85d0ea（已入库事实对象可被直接编辑绕过受控通道）的归因落点相同：都落在「事实源受控写入接缝 vs 文件系统直接写」之间的缺口——已落盘事实对象没有 writer-only 或只读的机械约束，受控更新只约束入口调用，编辑工具/批量脚本路径不受检，change_log 与内容指纹无法随内容同步。本次对象类型是 Spark、上次是 research，但根源子系统与机制模式一致（同一接缝的同一漏失方式），故按 26 §6.2 的归因锚判为 same-obstacle 而非新建账目。跨类型侧同源对象：pitfall-6f268b21「批量脚本绕过写入接缝致指纹与流水失配」，可供主控建
+逐字引证：我**直接改了文件**绕开受控接缝
+（来源：81）
