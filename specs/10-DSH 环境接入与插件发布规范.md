@@ -94,7 +94,7 @@ manifest（`package.json` 或 DSH 市场规定的文件）为插件身份入口�
 
 ### 5.2 工具注册缝
 
-LDVH CLI 确定性服务规范定义的 LDVH CLI 操作经 DSH 正式工具注册入口 `ctx.tools.register(defineTool({name, description, parameters, output, execute}))` 接入，返回 disposer；参数经 JSON Schema 编译校验（违规抛 ToolArgsError）；守卫通道 `ctx.tools.guard(guard)` 注册单调守卫（任何 guard 可拒不可放行，guard 在 tools/pre-execute 之后求值），执行链全序为 pre-policy → guards → around-dispatch → post-policy → 内容终结 → 通知；实际注册以装载后注册状态检查为准。领域操作的输入语义约束由 LDVH CLI 确定性服务规范及各领域来源定义（承接 LDVH CLI 确定性服务规范 §5.1 分派），权限配置遵循 §5.1 manifest 权限声明，Code 实践与测试规范实现并测试；注册成功不证明操作可调用、授权成立或实际可用。
+LDVH CLI 确定性服务规范定义的 LDVH CLI 操作经 DSH 正式工具注册入口 `ctx.tools.register(defineTool({name, description, parameters, output, execute}))` 接入，返回 disposer；`parameters` 为宿主 schema DSL（非裸 JSON Schema：`required` 是逐属性注解而非兄弟数组，每个 object 节点须显式 `additionalProperties`），在 `defineTool` 的 execute 闭包内编译校验，违规抛 `ToolArgsError`——**校验只在 defineTool 内发生**，裸描述符直接交给 `ctx.tools.register` 时该入口只断言 `output`/`timeoutMs`/保留名，参数一律不校验。校验覆盖类型、枚举与嵌套对象字段封闭；**参数根是隐式开放对象、不可关闭**，故顶层未声明字段不在此层被拒，其防护由各领域 writer 的字段闭集承担（事实源与事实模型基础规范 §10.5）；守卫通道 `ctx.tools.guard(guard)` 注册单调守卫（任何 guard 可拒不可放行，guard 在 tools/pre-execute 之后求值），执行链全序为 pre-policy → guards → around-dispatch → post-policy → 内容终结 → 通知；实际注册以装载后注册状态检查为准。领域操作的输入语义约束由 LDVH CLI 确定性服务规范及各领域来源定义（承接 LDVH CLI 确定性服务规范 §5.1 分派），权限配置遵循 §5.1 manifest 权限声明，Code 实践与测试规范实现并测试；注册成功不证明操作可调用、授权成立或实际可用。
 
 ### 5.3 引导面
 
