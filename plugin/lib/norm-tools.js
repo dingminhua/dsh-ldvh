@@ -45,6 +45,8 @@ import {
   listNormObjects,
   ERR_DIRECTION_ALREADY_EXISTS,
 } from "./norm-writer.js";
+import { defineTool } from "@deepseek-ai/dsh-tools";
+import { toParameterSpec } from "./parameter-spec-adapter.js";
 import { objectRef, objectRefOf } from "./object-reference.js";
 import { currentRouteValues } from "./session-signature.js";
 import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
@@ -556,10 +558,13 @@ function parameterSchemaFor(operationKey) {
 }
 
 export function toolDescriptorFor(operationKey, operation, handler) {
-  return {
+  // Register through defineTool so the DSH argument check actually runs: the
+  // bare-descriptor path only asserts output/timeoutMs shape and stores the
+  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
+  return defineTool({
     name: operation.toolName,
     description: operation.summary,
-    parameters: parameterSchemaFor(operationKey),
+    parameters: toParameterSpec(parameterSchemaFor(operationKey)),
     timeoutMs: 30000,
     async execute(args, exec) {
       try {
@@ -585,7 +590,7 @@ export function toolDescriptorFor(operationKey, operation, handler) {
       schema: OUTPUT_SCHEMA,
       render: (args, value) => renderEnvelope(operationKey, value)
     }
-  };
+  });
 }
 
 export function registerNormTools(ctx, deps) {

@@ -56,14 +56,21 @@ test("approve: missing gate1_request is rejected (21 §10.1 提请必含, no fie
     assert.ok(write, "write tool must be registered");
 
     const exec = { agent: { session: { header: { cwd: projectDir } } } };
-    const result = await write.execute({
-      action: "approve",
-      object_uid: "00000000-0000-4000-8000-000000000000",
-      expected_fingerprint: "0".repeat(64),
-      approver: "Human",
-      controller: "ctrl",
-      change_summary: "Gate 1",
-    }, exec);
+    // 参数层现在也要求该元素（gate1_request.pre_creation_review 为必填）：无论由参数层抛
+    // ToolArgsError，还是由 writer 返回拒绝信封，都必须点名缺的是哪一项。
+    let result;
+    try {
+      result = await write.execute({
+        action: "approve",
+        object_uid: "00000000-0000-4000-8000-000000000000",
+        expected_fingerprint: "0".repeat(64),
+        approver: "Human",
+        controller: "ctrl",
+        change_summary: "Gate 1",
+      }, exec);
+    } catch (error) {
+      result = { error: String(error?.message ?? error), gaps: [String(error?.message ?? error)] };
+    }
 
     // Either the governance/governance-shaped rejection or the gate1_request
     // rejection is acceptable ONLY if the message names the missing element.
@@ -114,20 +121,27 @@ test("approve: gate1_request missing pre_creation_review is rejected (21 §14 Ga
     const exec = { agent: { session: { header: { cwd: projectDir } } } };
 
     // All elements present EXCEPT the new pre-creation-review element.
-    const result = await write.execute({
-      action: "approve",
-      object_uid: "00000000-0000-4000-8000-000000000000",
-      expected_fingerprint: "0".repeat(64),
-      approver: "Human",
-      controller: "ctrl",
-      change_summary: "Gate 1",
-      gate1_request: {
-        independent_review: "one isolated subagent",
-        unauthorized_action_guard: "writer refuses out-of-scope writes",
-        unverified_scope_and_risks: "host signature behavior unverified",
-        approved_scope_and_next: "execute plan steps 1-3",
-      },
-    }, exec);
+    // 参数层现在也要求该元素（gate1_request.pre_creation_review 为必填）：无论由参数层抛
+    // ToolArgsError，还是由 writer 返回拒绝信封，都必须点名缺的是哪一项。
+    let result;
+    try {
+      result = await write.execute({
+        action: "approve",
+        object_uid: "00000000-0000-4000-8000-000000000000",
+        expected_fingerprint: "0".repeat(64),
+        approver: "Human",
+        controller: "ctrl",
+        change_summary: "Gate 1",
+        gate1_request: {
+          independent_review: "one isolated subagent",
+          unauthorized_action_guard: "writer refuses out-of-scope writes",
+          unverified_scope_and_risks: "host signature behavior unverified",
+          approved_scope_and_next: "execute plan steps 1-3",
+        },
+      }, exec);
+    } catch (error) {
+      result = { error: String(error?.message ?? error), gaps: [String(error?.message ?? error)] };
+    }
 
     const text = JSON.stringify(result);
     assert.match(text, /pre_creation_review/, `expected the guard to name the missing pre_creation_review, got: ${text.slice(0, 400)}`);

@@ -19,7 +19,7 @@ import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { seedSubGoals, subGoalUid, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools, normalizeBodyMarkdown } from "../lib/workcase-tools.js";
-import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
+import { createWorkcaseObject, executeWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
 
 const SIG = () => authoritativeSignature({ provider: "test-provider", model: "test-model" });
@@ -131,18 +131,21 @@ test("execute 省略 frontmatter_after：正文记账不被误判为 C2 失效�
 
 test("execute 携带值为 undefined 的字段：不得因克隆失败而 internal_error（省略语义须先归一化）", async () => {
   await withTemp("workcase-c2-undefined-", async (base) => {
-    const { write, objectUid, exec, open, openBody } = await openSurface(base);
-    // 直接调用 writer 路径（绕过工具层 JSON 序列化，故 undefined 键仍在）。
-    const result = await write.execute({
-      action: "execute",
-      object_uid: objectUid,
-      expected_fingerprint: open.value.fingerprint,
-      frontmatter_after: { plan: undefined, scope: undefined },
-      body_markdown_after: `${openBody()}\n- 计划步骤 1 完成。\n`,
-      change_summary: "执行进展（plan/scope 显式为 undefined）",
-    }, exec);
-    const env = result.envelope ?? result;
-    assert.equal(env.outcome, "completed", `undefined 值应按省略处理并成功，实际：${JSON.stringify(result).slice(0, 600)}`);
+    const { write, factSourceRoot, objectUid, exec, open, openBody } = await openSurface(base);
+    // 直接调用 writer 入口（绕过工具层 JSON 序列化，故 undefined 键仍在）。接入 defineTool 后
+    // 工具面会在参数层就把「含 undefined 的对象」判为不可无损 JSON 而拒绝——那是另一层的行为，
+    // 本用例要证的是 **writer 对省略语义的归一化**，故必须绕过工具面直调。
+    const result = await executeWorkcaseObject({
+      factSourceRoot,
+      objectUid,
+      expectedFingerprint: open.value.fingerprint,
+      frontmatterAfter: { plan: undefined, scope: undefined },
+      bodyMarkdownAfter: `${openBody()}\n- 计划步骤 1 完成。\n`,
+      changeSummary: "执行进展（plan/scope 显式为 undefined）",
+      sessionSignature: SIG(),
+      sessionIdentity: authoritativeSessionIdentity({ sessionId: "session-executor-fx", source: "host", origin: "subagent" }),
+    });
+    assert.equal(result.ok, true, `undefined 值应按省略处理并成功，实际：${JSON.stringify(result).slice(0, 600)}`);
   });
 });
 

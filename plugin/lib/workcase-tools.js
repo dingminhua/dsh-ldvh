@@ -56,6 +56,8 @@ import {
   bodyHasResultSection,
   REVIEW_SUMMARY_MAX_CHARS,
 } from "./workcase-writer.js";
+import { defineTool } from "@deepseek-ai/dsh-tools";
+import { toParameterSpec } from "./parameter-spec-adapter.js";
 import { currentRouteValues, currentSessionIdentity } from "./session-signature.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
@@ -1710,6 +1712,23 @@ function parameterSchemaFor(operationKey) {
             auditor_origin: { type: "string", description: "[Code-managed] 审核者来源形态；受管辖隔离子代理记 subagent（21 §14 承载形式唯一化的机械凭据）" },
             candidate_fingerprint: { type: "string", description: "[Code-managed] 该次审核针对的 plan+scope 内容指纹（与 gate_1.authorization_fingerprint 同源函数计算）；覆盖闸据此判定「审的是不是当前这一版」。AI 不得自填" },
             verdict: { type: "string", enum: ["pass", "needs_revision"], description: "审核结论（21 §8 闭集）；覆盖闸只认 pass" },
+            // 增量审核（21 §9.2，2026-10-27）：该次审核覆盖的分区及其指纹。writer 自 2026-10-27
+            // 起接受并校验该字段（workcase-writer.js 的 covered_partitions 分支），但参数表一直
+            // 没有声明——接入 defineTool 后被判为「未声明字段」才暴露。
+            covered_partitions: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string", description: "分区 id（`plan#N` 或 `scope:<标签>#N`）" },
+                  fingerprint: { type: "string", description: "该分区的 64 位内容指纹" }
+                },
+                required: ["id", "fingerprint"],
+                additionalProperties: false
+              },
+              description: "该次审核覆盖的分区；省略即覆盖当前全部分区"
+            },
+            round_index: { type: "integer", description: "同一审核事项的第几轮（1-based）；省略即由 Code 分配新轮。同轮分片传同一值" },
           },
           required: ["summary", "verdict"],
           additionalProperties: false,
@@ -1878,10 +1897,13 @@ function parameterSchemaFor(operationKey) {
  * the official `ask_user_question` does.
  */
 export function toolDescriptorFor(operationKey, operation, handler) {
-  return {
+  // Register through defineTool so the DSH argument check actually runs: the
+  // bare-descriptor path only asserts output/timeoutMs shape and stores the
+  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
+  return defineTool({
     name: operation.toolName,
     description: operation.summary,
-    parameters: parameterSchemaFor(operationKey),
+    parameters: toParameterSpec(parameterSchemaFor(operationKey)),
     ...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 },
     async execute(args, exec) {
       try {
@@ -1904,7 +1926,7 @@ export function toolDescriptorFor(operationKey, operation, handler) {
       schema: OUTPUT_SCHEMA,
       render: (args, value) => renderEnvelope(operationKey, value)
     }
-  };
+  });
 }
 
 export function registerWorkcaseTools(ctx, deps) {

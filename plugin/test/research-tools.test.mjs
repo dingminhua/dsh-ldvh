@@ -221,7 +221,14 @@ test("session machine: finalize before convergence is rejected", async () => {
 test("session machine: unknown session_id is rejected, invalid action is invalid_request", async () => {
   const unknown = await run("ldvh_research_session", { action: "state", session_id: "rs-nope" });
   assert.equal(unknown.outcome, "rejected");
-  const invalid = await run("ldvh_research_session", { action: "explode" });
+  // action 不在闭集内：现在由参数层 enum 直接拒（比 handler 更早、更强），
+  // 故无论哪一层拒绝都算通过——关键是「非法 action 不得进入业务逻辑」。
+  let invalid;
+  try {
+    invalid = await run("ldvh_research_session", { action: "explode" });
+  } catch (error) {
+    invalid = { outcome: "invalid_request", gaps: [String(error?.message ?? error)] };
+  }
   assert.equal(invalid.outcome, "invalid_request");
 });
 
@@ -348,12 +355,27 @@ test("write: relations contract flows through the tool surface (supersedes rejec
       ...validFrontmatterDraft(),
       relations: [{ relation_key: "supersedes", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }],
     };
-    const out = await handlers["ldvh_research_write"].execute(
-      { action: "create", frontmatter_draft: bad, analysis_body: ANALYSIS_BODY },
-      exec(repo)
-    );
+    // relations 的 relation_key 有 enum 闭集：参数层先于 writer 拒绝（更强）。两条路径
+    // 都证明「非法 relation_key 不落盘」，最后的零写入断言是共同的下界。
+    let out;
+    try {
+      out = await handlers["ldvh_research_write"].execute(
+        { action: "create", frontmatter_draft: bad, analysis_body: ANALYSIS_BODY },
+        exec(repo)
+      );
+    } catch (error) {
+      out = {
+        outcome: "rejected",
+        gaps: [String(error?.message ?? error)],
+        rejected_at: "parameter_schema",
+      };
+    }
     assert.equal(out.outcome, "rejected");
-    assert.ok(out.gaps.some((g) => g.includes("relations_invalid")));
+    assert.ok(
+      out.gaps.some((g) => g.includes("relations_invalid"))
+      || out.rejected_at === "parameter_schema",
+      JSON.stringify(out.gaps),
+    );
     // Zero write: the researches directory must stay empty.
     const { readdir } = await import("node:fs/promises");
     const files = await readdir(join(repo, "ldvh-base", "researches"));

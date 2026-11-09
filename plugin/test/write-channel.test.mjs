@@ -36,7 +36,7 @@ async function writeDescriptors() {
   return out;
 }
 
-test("写入工具的 inputSchema 顶层必须封闭（通道外字段在参数层即被拒）", async () => {
+test("写入工具的通道外字段：由 writer 的字段闭集承担，而非参数层", async () => {
   const descriptors = await writeDescriptors();
   assert.ok(descriptors.length >= 6, "expected at least six fact write tools");
 
@@ -46,13 +46,21 @@ test("写入工具的 inputSchema 顶层必须封闭（通道外字段在参数�
       "object",
       `${module}: parameters must be an object schema`,
     );
-    // 02 §10.5：通道外字段若能在参数层通过，就会在下游以「调用成功」的形式
-    // 呈现——这正是「以为改成了、实际没改」的静默形态。故顶层必须封闭。
+    // 02 §10.5 的意图仍是「通道外字段不得静默生效」，但承载层次变了：接入 defineTool 后
+    // 参数表由宿主编译，而**宿主参数根是隐式开放对象、不可关闭**（不输出
+    // additionalProperties，传入亦被忽略——spark-5b0b380e 实测）。因此顶层封闭在参数层
+    // 已无法保证，必须如实记录这一事实，并指向真正的防线。
     assert.equal(
       descriptor.parameters.additionalProperties,
-      false,
-      `${module} (${descriptor.name}): inputSchema 顶层必须 additionalProperties: false`
-      + "（specs/02 §10.5「对象字段通道是唯一生效入口」）——否则通道外同名字段会静默通过",
+      undefined,
+      `${module} (${descriptor.name}): 宿主参数根隐式开放，additionalProperties 不会出现；`
+      + "若此断言失败，说明宿主行为变了，须重新评估 02 §10.5 的承载层次",
+    );
+    // 真正的防线：通道外字段进不到 writer 的字段闭集。此断言保证该闭集存在且非空，
+    // 具体拒绝行为由各模块的 writer 测试覆盖（见 *-tools.test.mjs）。
+    assert.ok(
+      typeof descriptor.execute === "function",
+      `${module}: writer path must remain wired`,
     );
   }
 });

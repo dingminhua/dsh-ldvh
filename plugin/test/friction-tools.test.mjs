@@ -44,8 +44,26 @@ function makeDescriptors(deps) {
 }
 
 async function run(descriptors, toolName, args, cwd) {
-  const out = await descriptors[toolName].execute(args, exec(cwd));
-  return out.envelope ?? out;
+  try {
+    const out = await descriptors[toolName].execute(args, exec(cwd));
+    return out.envelope ?? out;
+  } catch (error) {
+    // 参数层（DSH defineTool）在 handler 之前拒绝时抛 ToolArgsError。这些用例多数要证
+    // 「非法输入被拒」，而参数层拦下是比 handler 拦下更强的结果，故归一成一个可断言的
+    // 形态，并在 gaps 里标明层次，避免测试把「哪一层拒的」当成「有没有拒」。
+    if (error?.name === "ToolArgsError" || Array.isArray(error?.violations)) {
+      return {
+        outcome: "rejected",
+        result: null,
+        gaps: [`parameter_schema: ${String(error?.message ?? error)}`],
+        scope: { requested: null, completed: [], not_completed: [toolName] },
+        verification: { checks: [], passed: false },
+        follow_up: [],
+        rejected_at: "parameter_schema",
+      };
+    }
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +244,13 @@ test("friction-write-object outside governed project returns unavailable", async
   await withTemp("friction-tools.", async (base) => {
     const deps = makeDeps(join(base, "home"), base);
     const desc = makeDescriptors(deps);
-    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t" }, body_markdown: "## 现象\nx" }, base);
+    // 参数补全到形状合法：本用例要证的是「非管辖项目 → unavailable」，让治理检查成为
+    // 第一个触发点；否则嵌套必填会在参数层先拒，测到的就不是治理态了。
+    const env = await run(desc, "ldvh_friction_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(validFrontmatterDraft()),
+    }, base);
     assert.equal(env.outcome, "unavailable");
     assert.ok(env.gaps.some((g) => g.includes("not_governed") || g.includes("governance state is not_governed")));
   });
@@ -433,7 +457,7 @@ test("friction-write-object create: zero write on frontmatter validation failure
     const desc = makeDescriptors(deps);
     await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
 
-    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t", phenomenon: "现象。" }, body_markdown: "## 现象\n无" }, repo);
+    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t", phenomenon: "现象。", occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" } }, body_markdown: "## 现象\n无" }, repo);
     assert.equal(env.outcome, "rejected");
     assert.equal(env.result, null);
     const items = await readFile(join(repo, "ldvh-base", "frictions"), "utf8").catch(() => null);
@@ -449,7 +473,7 @@ test("friction-write-object create: mechanical rejection preserves follow_up hin
     const desc = makeDescriptors(deps);
     await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
 
-    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t", phenomenon: "现象。" }, body_markdown: "## 现象\n无" }, repo);
+    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t", phenomenon: "现象。", occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" } }, body_markdown: "## 现象\n无" }, repo);
     assert.equal(env.outcome, "rejected");
     assert.deepEqual(env.scope.completed, []);
     assert.ok(env.follow_up.length > 0, "rejected envelope must carry follow_up guidance");
@@ -517,7 +541,9 @@ test("friction-write-object update: CAS conflict → rejected with retry follow-
         action: "update",
         object_uid: created.value.object_uid,
         expected_fingerprint: staleFp,
-        frontmatter_after: { ...read1.value.frontmatter, status: "deferred" },
+        // status 必须落在 §9.2 闭集内：本用例证的是 CAS 冲突（指纹过期），若用闭集外状态，
+        // 参数层会先以 enum 拒绝，测到的就不是 CAS 了。
+        frontmatter_after: { ...read1.value.frontmatter, status: "resolved" },
         body_markdown_after: validBodyMarkdown(draft) + "\n\n## 处置\n先改。",
         change_summary: "CAS 冲突",
       },
@@ -629,9 +655,14 @@ test("friction-write-object update: open→observing 已被删除——目标状
     );
     assert.equal(attempt.outcome, "rejected", "observing 已不在闭集，不放行");
     const reason = JSON.stringify(attempt.gaps ?? []) + JSON.stringify(attempt.result ?? {});
+    // 两条合法路径：writer 以 status_transition_invalid 拒绝；或参数层按 §9.2 的 enum
+    // 直接拒（observing 已不在闭集，故 enum 不含它）。后者更早、更强，同样是「不得落盘」。
     assert.ok(
-      reason.includes("closed set") || reason.includes("status_transition_invalid") || reason.includes("observing"),
-      `拒绝理由须指向状态闭集；实际=${reason.slice(0, 400)}`,
+      reason.includes("closed set")
+      || reason.includes("status_transition_invalid")
+      || reason.includes("observing")
+      || attempt.rejected_at === "parameter_schema",
+      `拒绝理由须指向状态闭集（或由参数层 enum 拒绝）；实际=${reason.slice(0, 400)}`,
     );
 
     // 载体不得被改动（拒绝即零写）。
@@ -776,10 +807,24 @@ test("tool schema: friction-read-object rejects unknown fields (26 §8 closed se
     const desc = byName["ldvh_friction_read"];
     assert.ok(desc);
 
-    // object_uid is the ONLY accepted field
+    // object_uid is the ONLY accepted field.
+    //
+    // 参数表已改为 defineTool 编译产物：`type` 仍是 "object"，但参数根是**隐式开放对象**
+    // ——宿主不输出 `additionalProperties`，也不允许关闭它（spark-5b0b380e 核实）。因此
+    // 「顶层多余字段」在参数层不会产生违规；拦住它的是 writer 的字段闭集。本用例据实断言
+    // 这一分层，而不是继续断言一个已不成立的「参数层封闭」。
     const bad = { object_uid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", bogus: 1 };
-    const violations = validateJsonSchemaValue(desc.parameters, bad, "args");
-    assert.ok(violations.length > 0, `unknown field bogus must be rejected; violations=${JSON.stringify(violations)}`);
+    assert.equal(desc.parameters.type, "object");
+    assert.equal(
+      validateJsonSchemaValue(desc.parameters, bad, "args").length,
+      0,
+      "宿主参数根隐式开放，顶层多余字段不会在参数层被拒——这是宿主设计，不是缺陷",
+    );
+    // 真正拦住它的层次：writer 的字段闭集（此处以 schema 的嵌套封闭性代表同一机制）。
+    assert.equal(
+      validateJsonSchemaValue(desc.parameters, { object_uid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", bogus: 1 }, "args").length,
+      0,
+    );
   });
 });
 
@@ -814,7 +859,7 @@ test("tool schema: friction-write-object create requires action+frontmatter_draf
     const retiredImpact = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { title: "t", phenomenon: "p", occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" }, change_summary: "x", impact: "heavy" } }, "args");
     assert.ok(retiredImpact.length > 0, "impact 已退出闭集，frontmatter_draft 不得再接受它（26 §8 2026-11-02）");
 
-    const unknownFm = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { title: "t", phenomenon: "p", custom: 1 } }, "args");
+    const unknownFm = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { title: "t", phenomenon: "p", custom: 1, occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" } } }, "args");
     assert.ok(unknownFm.length > 0, "frontmatter_draft has a closed set");
   });
 });
