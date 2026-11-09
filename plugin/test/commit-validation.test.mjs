@@ -590,6 +590,75 @@ test("checkKeyChangesAgainstDiff reverse half distinguishes precise-path coverag
 	assert.ok(result.issues.some((i) => i.rule === "validation/staged_path_uncovered" && i.message.includes("research-session.js")));
 });
 
+test("checkKeyChangesAgainstDiff rejects a bare directory word in the reverse half (spark-c48af9e6)", () => {
+	// The reverse half exists to turn silent staged pollution into a loud
+	// rejection. A single directory segment matches every path beneath it, so
+	// accepting one would make the half vacuous: an item saying "plugin 目录改动"
+	// would cover an entire subtree nobody actually named.
+	const diff = ["diff --git a/plugin/web/src/App.tsx b/plugin/web/src/App.tsx", ""].join("\n");
+	const msgFor = (item) =>
+		["chore: x", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
+
+	for (const item of ["plugin 目录改动", "web 改动"]) {
+		const result = checkKeyChangesAgainstDiff(msgFor(item), diff);
+		assert.equal(result.ok, false, `single segment "${item}" must not cover a subtree`);
+		assert.ok(result.issues.some((i) => i.rule === "validation/staged_path_uncovered"));
+	}
+	// A two-level prefix still names the touched area — the diffstat affordance
+	// stays available, it just has to point at where the change actually is.
+	for (const item of ["plugin/web 改动", "plugin/web/src/App.tsx 改动"]) {
+		const result = checkKeyChangesAgainstDiff(msgFor(item), diff);
+		assert.equal(result.ok, true, `two-level prefix "${item}" must still cover`);
+	}
+});
+
+test("checkKeyChangesAgainstDiff keeps the numeric-prefix carrier convention working", () => {
+	// specs/ holds 29 carriers named `NN-<title>.md`; authors write `specs/08`
+	// to name one of them. That is a specific carrier, not a subtree, so the
+	// tightening above must not break it. This is the DOMINANT historic form
+	// (404 of 2212 items), not an edge case.
+	const diff = ["diff --git a/specs/08-x.md b/specs/08-x.md", ""].join("\n");
+	const msg = ["chore: x", "", "关键变更:", "- specs/08 回填", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
+	const result = checkKeyChangesAgainstDiff(msg, diff);
+	assert.equal(result.ok, true);
+});
+
+test("numeric-prefix matching is bounded: no digit-suffix or root-level bleed", () => {
+	const msgFor = (item) => ["chore: x", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
+	// `specs/080` must not cover `specs/08-x.md` — the number has to end on a boundary.
+	const diff08 = ["diff --git a/specs/08-x.md b/specs/08-x.md", ""].join("\n");
+	assert.equal(checkKeyChangesAgainstDiff(msgFor("specs/080 条"), diff08).ok, false);
+	// A root-level `08-x.md` must not be covered by a bare `08` (e.g. a clock time).
+	const diffRoot = ["diff --git a/08-x.md b/08-x.md", ""].join("\n");
+	assert.equal(checkKeyChangesAgainstDiff(msgFor("会议 08:30 开始"), diffRoot).ok, false);
+	// Nested: only the full `a/b/12` prefix is a carrier reference.
+	const diffNested = ["diff --git a/b/12-y.md a/b/12-y.md", ""].join("\n");
+	assert.equal(checkKeyChangesAgainstDiff(msgFor("b/12 改了"), diffNested).ok, false);
+});
+
+test("directory-prefix matching is boundary-bounded (no glued siblings)", () => {
+	const msgFor = (item) => ["chore: x", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
+	const diff = ["diff --git a/plugin/lib/x.js b/plugin/lib/x.js", ""].join("\n");
+	// Glued continuations of the prefix must NOT count as naming that area.
+	assert.equal(checkKeyChangesAgainstDiff(msgFor("plugin/library 说明"), diff).ok, false);
+	assert.equal(checkKeyChangesAgainstDiff(msgFor("plugin/lib-old 说明"), diff).ok, false);
+});
+
+test("dotfiles and short filenames still match by basename alone", () => {
+	// The filename branch must not be gated by the stem-length rule: a dotfile has
+	// an empty stem and `ci.yml` a two-letter one, so both reach the reverse half
+	// through the basename. Each case below deliberately omits the full path, which
+	// is what forces the basename branch (naming the path outright would pass by
+	// the first branch and prove nothing).
+	const msgFor = (item) => ["chore: x", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
+	const diffDot = ["diff --git a/.gitignore b/.gitignore", ""].join("\n");
+	assert.equal(checkKeyChangesAgainstDiff(msgFor("补 .gitignore 条目"), diffDot).ok, true);
+	const diffCi = ["diff --git a/ci.yml b/ci.yml", ""].join("\n");
+	assert.equal(checkKeyChangesAgainstDiff(msgFor("调整 ci.yml 配置"), diffCi).ok, true);
+	const diffNested = ["diff --git a/config/ci.yml b/config/ci.yml", ""].join("\n");
+	assert.equal(checkKeyChangesAgainstDiff(msgFor("调整 ci.yml 配置"), diffNested).ok, true);
+});
+
 test("isExemptPath matches the registered basenames only", () => {
 	assert.equal(isExemptPath("plugin/package-lock.json"), true);
 	assert.equal(isExemptPath("package-lock.json"), true);

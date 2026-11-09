@@ -226,10 +226,10 @@ export function touchesGovernedContent(paths) {
  * silent staged-content pollution (e.g. a parallel session's `git add`
  * landing in a shared Index) into a loud rejection. The correspondence is
  * the same deliberately loose mechanical slice as the forward direction
- * (itemMatchesPath below); known limitation: a same-directory pollution
- * where some item happens to contain a shared directory word (e.g.
- * "plugin") is not caught — the mechanically decidable slice accepts
- * diffstat-style area naming.
+ * (itemMatchesPath below). That slice accepts full paths, basenames, stems
+ * and a directory PREFIX of at least two levels (`plugin/lib`) — a bare
+ * single segment is NOT accepted, because it would cover an entire subtree
+ * and make this half vacuous (Human 2026-11-10, spark-c48af9e6).
  */
 export function checkKeyChangesAgainstDiff(message, diff) {
   const lines = message.replace(/\r\n/g, "\n").split("\n");
@@ -263,11 +263,11 @@ export function checkKeyChangesAgainstDiff(message, diff) {
     for (const item of unmatched) {
       // 给出该项**实际能命中什么**的线索：已改路径里与该文本最接近的那个。
       const nearest = changedPaths.length > 0 ? ` 已改路径：${changedPaths.map((p) => `"${p}"`).join("、")}` : " 本次提交没有任何已改路径";
-      issues.push(newFinding("validation/key_change_unmatched", `关键变更 item "${item.text}" 未命中任何已改路径（该方向要求：item 须点名它对应的改动，匹配依据是**文件路径**——完整路径、文件名、去扩展名的词干（≥3 字符）或目录段，任一出现在 item 文本中即算命中）。${nearest}`, item.line));
+      issues.push(newFinding("validation/key_change_unmatched", `关键变更 item "${item.text}" 未命中任何已改路径（该方向要求：item 须点名它对应的改动，匹配依据是**文件路径**——完整路径、文件名、去扩展名的词干（≥3 字符）、**编号载体前缀**（如 \`specs/08\`）或**不少于两级的目录前缀**（如 \`plugin/lib\`），任一按路径边界出现在 item 文本中即算命中；单个目录词不算（它会覆盖该目录下的全部改动），\`plugin/library\`、\`plugin/lib-old\` 这类粘连写法也不算）。${nearest}`, item.line));
     }
     // 方向二：改了的东西必须被正文覆盖。
     for (const path of uncovered) {
-      issues.push(newFinding("validation/staged_path_uncovered", `已改路径 "${path}" 没有任何 关键变更 item 覆盖它（该方向要求：每个非豁免的已暂存改动都须在 关键变更 中被点名，否则等于漏报改动）。补一条点名 "${path}" 的 item 即可。`, null));
+      issues.push(newFinding("validation/staged_path_uncovered", `已改路径 "${path}" 没有任何 关键变更 item 覆盖它（该方向要求：每个非豁免的已暂存改动都须在 关键变更 中被点名，否则等于漏报改动）。补一条点名 "${path}" 的 item 即可。只写它所在的单个目录名不算覆盖（会被判为漏报）；可用写法：完整路径、文件名、\`specs/08\` 这类编号载体前缀，或不少于两级的目录前缀（该路径只有一级目录时，写完整路径或文件名）。`, null));
     }
     // 两个方向同时存在时，额外给一条整体说明——「规则是双向的」这件事过去
     // 只存在于实现里，使用者只能靠反复失败反推。
@@ -300,12 +300,56 @@ function itemMatchesPath(item, path) {
   if (item.includes(path)) return true;
   const base = path.split("/").pop() ?? path;
   const stem = base.replace(/\.[^.]+$/, "");
-  if (stem.length > 2 && (item.includes(stem) || item.includes(base))) return true;
-  // Diffstat-style summaries name the touched area; accept directory words.
-  const segments = path.split("/").filter((segment) => segment.length > 2 && !/\d/.test(segment));
-  return segments.some((segment) => item.includes(segment));
+  // Filename / stem acceptance. The basename is checked without a length gate so
+  // dotfiles (`.gitignore`) and two-letter stems (`ci.yml`) still match; only the
+  // stem fallback needs ≥3 chars, because a 2-char stem is too weak a signal.
+  if (item.includes(base)) return true;
+  if (stem.length > 2 && item.includes(stem)) return true;
+  // Numeric-prefix naming: `specs/08` names the carrier whose filename starts with
+  // `08-` (specs/ holds 29 carriers named `NN-<title>.md`). This is the dominant
+  // authoring form (404 of 2212 items across history). Two guards keep it from
+  // degrading into a substring match: the directory must be non-empty (a root-level
+  // `08-x.md` must not be covered by a clock time like `08:30`), and the number
+  // must end on a non-digit boundary (`specs/080 条` must not cover `specs/08-x.md`).
+  const dir = path.slice(0, path.length - base.length);
+  const numbered = /^(\d{2})-[^/]*$/.exec(base);
+  if (numbered !== null && dir.length > 0 && hasBoundedSubstring(item, `${dir}${numbered[1]}`)) return true;
+  // Diffstat-style summaries name the touched area; accept a directory PREFIX of
+  // at least two levels (spark-5b0b380e / spark-c48af9e6, Human 2026-11-10).
+  //
+  // Why not bare directory words: the reverse half exists to catch silent staged
+  // pollution from a shared Index. A single segment ("plugin", "specs") matches
+  // every path under it, so an item saying "plugin 目录改动" would cover an entire
+  // subtree and the tripwire would be vacuous. Accepting a two-level prefix keeps
+  // the diffstat affordance (`plugin/lib`) while requiring the item to name the
+  // area that was actually touched.
+  //
+  // Only PREFIXES are accepted, never an interior segment: "web" must not match
+  // `plugin/web/src/x.ts` by looking at its middle. The item has to name the path
+  // from the repository root, which is the same axis the diagnostics report.
+  //
+  // Residual, declared rather than hidden: a two-level prefix still covers the
+  // WHOLE subtree beneath it, so pollution inside `plugin/web` can be absorbed by
+  // an item that names `plugin/web`. What this tightening removes is the
+  // one-segment escape hatch, not subtree-level coverage.
+  const parts = path.split("/");
+  for (let depth = parts.length - 1; depth >= 2; depth -= 1) {
+    if (hasBoundedSubstring(item, parts.slice(0, depth).join("/"))) return true;
+  }
+  return false;
 }
 
+/**
+ * Substring test with a path boundary on BOTH sides: the needle may not abut a
+ * letter, digit, dot, dash or underscore, so `plugin/lib-old/x.js` and
+ * `plugin/library 说明` no longer satisfy the `plugin/lib` prefix. `/` and any
+ * non-ASCII text count as boundaries, which is what makes the CJK prose forms in
+ * real commit messages (`plugin/lib Spark 机械层`) keep matching.
+ */
+function hasBoundedSubstring(haystack, needle) {
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_.-])${escaped}(?![A-Za-z0-9_.-])`).test(haystack);
+}
 // ---------------------------------------------------------------------------
 // docs/ reference check (09 §5.3 item 5, Human 2026-10-12)
 // ---------------------------------------------------------------------------
