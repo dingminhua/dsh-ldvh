@@ -809,10 +809,7 @@ async function evaluateCreateCandidate({
     return failure("devlog/frontmatter_invalid", "create candidate failed mechanical checks", { issues: fmCheck.issues });
   }
 
-  const coherenceCheck = validateCarrierCoherence(frontmatter, assembleBody(frontmatter.title, bodyMarkdown));
-  if (!coherenceCheck.ok) {
-    return failure("devlog/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   const bodyCheck = validateDevLogBodyStructure(assembleBody(frontmatter.title, bodyMarkdown), frontmatter.title, frontmatter.status);
   if (!bodyCheck.ok) {
@@ -1163,10 +1160,7 @@ export async function updateDevLogObject(args) {
   if (!bodyCheck.ok) {
     return failure("devlog/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(next, body);
-  if (!coherenceCheck.ok) {
-    return failure("devlog/coherence_invalid", "carrier coherence failed on update", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);

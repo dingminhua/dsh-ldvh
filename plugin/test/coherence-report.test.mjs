@@ -139,8 +139,12 @@ for (const c of CASES) {
     const fn = mod[c.fn];
     assert.equal(typeof fn, "function", `${c.file} 应导出 ${c.fn}`);
     const result = fn(c.frontmatter, c.body);
-    assert.equal(result.ok, false, `${c.type} 的该输入应被判不符`);
-    const message = result.issues.join("\n");
+    // Human 2026-11-10：summary/scope 类不一致降为 warnings（不再阻断写入），
+    // 但**两侧取证契约不变**——报错文本仍须同时给出字段值与正文段，以便调用方
+    // 自行判断差异是否有意。故这里同时接受 issues 与 warnings。
+    const all = [...(result.issues ?? []), ...(result.warnings ?? [])];
+    assert.ok(all.length > 0, `${c.type} 的该输入应被判不符（issues 或 warnings 非空）`);
+    const message = all.join("\n");
     assertTwoSided(message, { declared: LONG, actual: BODY_MARK, clause: c.clause });
     // 不得打印整篇正文以外的噪声：报错长度应有界（截断生效）
     assert.ok(message.length < 1200, `${c.type} 报错过长（${message.length}），截断可能失效`);

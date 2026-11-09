@@ -574,7 +574,10 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
  * authoritative texts — their body sections must contain them verbatim.
  */
 export function validateCarrierCoherence(frontmatter, body) {
-  const issues = [];
+  // Human 2026-11-10（`spark-f0ba9997`）：字段是索引与摘要、正文是展开，
+  // 二者**不需逐字一致**——故差异一律进 `warnings`，不进 `issues`，
+  // 更不阻断写入。保留本函数是为了差异仍可被如实报告（不是静默当作一致）。
+  const warnings = [];
   const pairs = [
     ["question", "调查问题"],
     ["scope_boundary", "调查边界"],
@@ -586,12 +589,12 @@ export function validateCarrierCoherence(frontmatter, body) {
     const content = sectionContent(body, section);
     if (content === null) continue; // section presence checked in body structure
     if (!content.includes(text)) {
-      issues.push(carrierCoherenceMessage({
+      warnings.push(carrierCoherenceMessage({
         section, field, declared: text, actual: content, clause: "20 §14.1",
       }));
     }
   }
-  return { ok: issues.length === 0, issues };
+  return { ok: true, issues: [], warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -759,10 +762,7 @@ export async function createSparkObject(args) {
   if (!bodyCheck.ok) {
     return failure("spark/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(frontmatter, body);
-  if (!coherenceCheck.ok) {
-    return failure("spark/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   // Dry run stops here: every mechanical check above has passed, so the caller
   // can now ask the Human knowing the write would land. Nothing has been
@@ -1263,10 +1263,7 @@ export async function updateSparkObject(args) {
   if (!bodyCheck.ok) {
     return failure("spark/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(fm, body);
-  if (!coherenceCheck.ok) {
-    return failure("spark/coherence_invalid", "carrier coherence failed on update", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   // Dry run stops here: every mechanical check above has passed, so the caller
   // can ask the Human knowing the write would land. Nothing was written.

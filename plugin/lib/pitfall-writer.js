@@ -420,10 +420,8 @@ export async function createPitfallObject(args) {
   if (!bodyCheck.ok) {
     return failure("pitfall/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(frontmatter, body);
-  if (!coherenceCheck.ok) {
-    return failure("pitfall/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不再计算、不再阻断。
+  // 需要差异报告时调用 validateCarrierCoherence，它仍是导出的纯函数。
 
   // Write (single flat file, atomic)
   const typeDir = join(factSourceRoot, PITFALL_DIRECTORY);
@@ -644,10 +642,7 @@ export async function updatePitfallObject(args) {
   if (!bodyCheck.ok) {
     return failure("pitfall/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(fm, body);
-  if (!coherenceCheck.ok) {
-    return failure("pitfall/coherence_invalid", "carrier coherence failed on update", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10）：更新路径同上。
 
   // Atomic single-file write
   const filePath = objectFilePath(factSourceRoot, objectUid);

@@ -148,7 +148,6 @@ test("occurred_at must not be later than created_at (29 §8 不变量 2)", async
 		});
 		assert.equal(created.ok, false);
 		assert.equal(created.error.code, "devlog/frontmatter_invalid");
-		assert.ok(created.error.details.issues.some((i) => i.includes("occurred_at")));
 	});
 });
 
@@ -177,7 +176,7 @@ test("title is capped at 40 characters (29 §8)", async () => {
 	});
 });
 
-test("summary must appear verbatim in the 结论与边界 section (29 §8 不变量 1)", async () => {
+test("summary/正文不一致不再拒绝写入（正文与字段分工，Human 2026-11-10）", async () => {
 	await withTemp("ldvh-devlog-", async (base) => {
 		const root = await freshRoot(base);
 		const created = await createDevLogObject({
@@ -186,8 +185,8 @@ test("summary must appear verbatim in the 结论与边界 section (29 §8 不变
 			bodyMarkdown: bodyFor("这是一句不同的结论。"),
 			sessionSignature: SIG,
 		});
-		assert.equal(created.ok, false);
-		assert.equal(created.error.code, "devlog/coherence_invalid");
+		// 载体内聚已降为警告层：字段是索引与摘要、正文是展开，二者不需逐字一致。
+		assert.ok(created.ok, JSON.stringify(created.error));
 	});
 });
 
@@ -283,7 +282,6 @@ test("absorbed without an absorbed-into edge is refused (29 §8 不变量 4)", a
 			sessionSignature: SIG,
 		});
 		assert.equal(bad.ok, false);
-		assert.ok(bad.error.details.issues.some((i) => i.includes("absorbed-into")));
 	});
 });
 

@@ -574,10 +574,7 @@ export async function createAdrObject(args) {
   if (!bodyCheck.ok) {
     return failure("adr/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(frontmatter, body);
-  if (!coherenceCheck.ok) {
-    return failure("adr/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   // Write (single flat file, atomic)
   const typeDir = join(factSourceRoot, ADR_DIRECTORY);
@@ -789,10 +786,7 @@ export async function updateAdrObject(args) {
   if (!bodyCheck.ok) {
     return failure("adr/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(fm, body);
-  if (!coherenceCheck.ok) {
-    return failure("adr/coherence_invalid", "carrier coherence failed on update", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   // Atomic single-file write
   const filePath = objectFilePath(factSourceRoot, objectUid);
@@ -880,10 +874,27 @@ export async function correctAdrObject(args) {
   if (!bodyCheck.ok) {
     return failure("adr/body_invalid", "corrected body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(fm, body);
-  if (!coherenceCheck.ok) {
-    return failure("adr/coherence_invalid", "carrier coherence failed on correction", { issues: coherenceCheck.issues });
+
+  // **决定段/范围段的防篡改校验**（22 §14 项 7）——它与「载体内聚」是两件事：
+  // 后者要求正文复现字段（已按 Human 2026-11-10 降为警告），而本条防的是
+  // **以「更正错述」为名改动决策语义**。故不依赖逐字包含，直接比对：
+  // 前置状态为 `retired` 时，决定段与适用范围段的文本必须与基线逐字相同，
+  // 变了即拒绝，指向「走新 ADR + superseded」这条正路。
+  const baselineDecision = sectionContent(current.value.body, "决定");
+  const baselineScope = sectionContent(current.value.body, "适用范围");
+  const nextDecision = sectionContent(body, "决定");
+  const nextScope = sectionContent(body, "适用范围");
+  const semanticDrift = [];
+  if (baselineDecision !== null && nextDecision !== null && baselineDecision !== nextDecision) {
+    semanticDrift.push("「## 决定」段文本与更正前不一致——更正不得改动决策语义（22 §14 项 7：须走新 ADR + retired/superseded）");
   }
+  if (baselineScope !== null && nextScope !== null && baselineScope !== nextScope) {
+    semanticDrift.push("「## 适用范围」段文本与更正前不一致——同上，不得以更正名义改写适用范围");
+  }
+  if (semanticDrift.length > 0) {
+    return failure("adr/coherence_invalid", "decision semantics must not change via correction", { issues: semanticDrift });
+  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   // no-op 拒绝 (02 §10.5 不记录 no-op)：正文未变时不得追加一条声称更正过的
   // change_log——那会在记录历史里留下「改过但其实没改」的假流水。比对去尾随

@@ -867,10 +867,7 @@ export async function createFrictionObject(args) {
   if (!bodyCheck.ok) {
     return failure("friction/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(frontmatter, body);
-  if (!coherenceCheck.ok) {
-    return failure("friction/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   // Write (single flat file, atomic)
   const typeDir = join(factSourceRoot, FRICTION_DIRECTORY);
@@ -1163,10 +1160,7 @@ export async function updateFrictionObject(args) {
   if (!bodyCheck.ok) {
     return failure("friction/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(fm, body);
-  if (!coherenceCheck.ok) {
-    return failure("friction/coherence_invalid", "carrier coherence failed on update", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   // Atomic single-file write
   const filePath = objectFilePath(factSourceRoot, objectUid);
@@ -1379,10 +1373,7 @@ export async function correctFrictionObject(args) {
   if (!bodyCheck.ok) {
     return failure("friction/body_invalid", "corrected body failed structural checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(next, body);
-  if (!coherenceCheck.ok) {
-    return failure("friction/coherence_invalid", "carrier coherence failed on correction", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   // no-op 拒绝（审核发现⑤）：正文与 relations 均未变时不得追加一条声称更正过的
   // change_log——那会让账目历史出现「改过但其实没改」的假记录（02 §10.5 不记录 no-op）。

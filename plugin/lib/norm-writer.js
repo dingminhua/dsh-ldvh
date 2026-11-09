@@ -410,10 +410,7 @@ export async function createNormObject(args) {
   if (!bodyCheck.ok) {
     return failure("norm/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(frontmatter, body);
-  if (!coherenceCheck.ok) {
-    return failure("norm/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   const typeDir = join(factSourceRoot, NORM_DIRECTORY);
   await mkdir(typeDir, { recursive: true });
@@ -633,10 +630,7 @@ export async function updateNormObject(args) {
   if (!bodyCheck.ok) {
     return failure("norm/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  const coherenceCheck = validateCarrierCoherence(next, body);
-  if (!coherenceCheck.ok) {
-    return failure("norm/coherence_invalid", "carrier coherence failed on update", { issues: coherenceCheck.issues });
-  }
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);

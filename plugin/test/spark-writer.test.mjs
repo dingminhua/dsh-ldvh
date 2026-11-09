@@ -23,6 +23,7 @@ import {
   isSingleSentence,
   readServableSubGoals,
   sparkFileName,
+  validateCarrierCoherence,
   SPARK_DIRECTORY,
   validateSparkBodyStructure,
   resolveRefsTargets,
@@ -399,39 +400,42 @@ test("create: empty evolution array rejected as fabricated conditional field", a
   });
 });
 
-test("create: carrier coherence — drifted question not verbatim rejected (24 §8 invariant-10 precedent)", async () => {
+test("create: carrier coherence — drifted question is accepted (warning only, Human 2026-11-10)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const driftedQuestion = draft.question.replace("如何", "怎样");
     const body = `## 当前理解\n${draft.summary}\n说明。\n\n## 调查问题\n${driftedQuestion}\n背景。\n\n## 调查边界\n${draft.scope_boundary}\n边界。`;
     const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
-    assert.ok(!result.ok);
-    assert.equal(result.error.code, "spark/coherence_invalid");
-    assert.ok(result.error.details.issues.some((i) => i.includes("question verbatim")), JSON.stringify(result.error.details.issues));
+    // 载体内聚已降为警告层：写入成功，但差异仍须可被校验函数如实报告。
+    assert.ok(result.ok, JSON.stringify(result.error));
+    const check = validateCarrierCoherence(draft, body);
+    assert.ok(check.warnings.some((i) => i.includes("question verbatim")), JSON.stringify(check.warnings));
   });
 });
 
-test("create: carrier coherence — drifted scope_boundary not verbatim rejected", async () => {
+test("create: carrier coherence — drifted scope_boundary is accepted (warning only)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const driftedBoundary = draft.scope_boundary.replace("仅以", "只用");
     const body = `## 当前理解\n${draft.summary}\n说明。\n\n## 调查问题\n${draft.question}\n背景。\n\n## 调查边界\n${driftedBoundary}\n边界。`;
     const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
-    assert.ok(!result.ok);
-    assert.equal(result.error.code, "spark/coherence_invalid");
-    assert.ok(result.error.details.issues.some((i) => i.includes("scope_boundary verbatim")), JSON.stringify(result.error.details.issues));
+    // 载体内聚已降为警告层：写入成功，但差异仍须可被校验函数如实报告。
+    assert.ok(result.ok, JSON.stringify(result.error));
+    const check = validateCarrierCoherence(draft, body);
+    assert.ok(check.warnings.some((i) => i.includes("scope_boundary verbatim")), JSON.stringify(check.warnings));
   });
 });
 
-test("create: carrier coherence — drifted summary not verbatim rejected", async () => {
+test("create: carrier coherence — drifted summary is accepted (warning only)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const driftedSummary = draft.summary.replace("已实现", "已完成");
     const body = `## 当前理解\n${driftedSummary}\n说明。\n\n## 调查问题\n${draft.question}\n背景。\n\n## 调查边界\n${draft.scope_boundary}\n边界。`;
     const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
-    assert.ok(!result.ok);
-    assert.equal(result.error.code, "spark/coherence_invalid");
-    assert.ok(result.error.details.issues.some((i) => i.includes("summary verbatim")), JSON.stringify(result.error.details.issues));
+    // 载体内聚已降为警告层：写入成功，但差异仍须可被校验函数如实报告。
+    assert.ok(result.ok, JSON.stringify(result.error));
+    const check = validateCarrierCoherence(draft, body);
+    assert.ok(check.warnings.some((i) => i.includes("summary verbatim")), JSON.stringify(check.warnings));
   });
 });
 
