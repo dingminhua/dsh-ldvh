@@ -24,7 +24,7 @@ summary: |-
   - 此前登记的「0.2.0-rc.2 → 0.2.1-rc.2 区间未做契约比对」缺口已补上：区间 dsh-v0.2.0-rc.2 → dsh-v0.2.1-rc.3 共 1931 commits，本插件消费的 10 条缝签名**全部保留**；唯一被删除的宿主服务 `invariants` 已定位到唯一提交 `f028f25667`（2026-09-30，`refactor: remove runtime invariant plugins`，1355 files / −15409 行），**首个缺失该缝的发布 tag 是 `0.2.1-alpha.1`**（`packages/**/src/invariant.ts` 计数 0.2.0-rc.2=38 → 0.2.1-alpha.1 起=0）；区间内两处取值域收窄（tools 的 `mode:'both'` 被移除、webserver 的 `host` 不再接受 `'0.0.0.0'`）属宿主侧配置，本插件不写这两处配置。
   - 本轮实际落地：两个**普通依赖**（自带副本）`@deepseek-ai/dsh-atomic-write` 与 `@deepseek-ai/dsh-home-paths` 此前解析到 `0.1.2-alpha.3`、与宿主内的 `0.2.1-rc.3` 分叉（旧副本不含「已退出持有者锁接管」的 `ESRCH` 探针，而插件的部署约束登记一直按该语义陈述），已钉到 `^0.2.1-rc.3`；devDependencies 的四个 dsh 包与 cordis 同步对齐宿主。
   - 仍未决：`dsh-client-ui-primitives` 在 rc.3 的 asar（打包区与 unpacked 区）均缺席而插件客户端仍能加载，本轮以同一提取方式复现该观察，**不作结论**；「宿主装了什么」的权威取值方式仍待定；机制落点（spec 10 新增条款 vs CLI 侧确定性检查）仍待 Human 决定。
-serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
+serves: af93e218-e9d9-4234-b436-33dc0c7c37dc
 priority: P1
 object_uid: 76ee7b7b-208c-4ed3-bade-6cf85ba307d3
 fact_type_key: spark

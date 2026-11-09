@@ -1,6 +1,6 @@
 ---
 title: writer 补记 reviews 身份致归属失真
-status: open
+status: discarded
 question: writer 对既有 `reviews` 条目补记写入者身份的行为，应如何处置，才能不污染关闭侧独立性比对的基准？
 scope_boundary: 给出「补记发生在哪些入口与条件下、影响哪些既有条目、应改为保留原身份还是拒绝写入、对存量已被补记的条目如何处置」的可执行结论即可停；不在本议题内落实现改动，也不在本议题内决定纳入哪次行动。
 intent: 复核身份是关闭侧独立性判定的机械基准，被补记即失真且机械层不可辨。收敛为 Spark 以便跨行动处置（含存量已被补记的条目如何如实登记）。
@@ -9,6 +9,7 @@ serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 object_uid: a687da1f-9ecf-43c6-b7ac-4c7d45a7e8df
 fact_type_key: spark
 created_at: 2026-10-01T18:35:47.566Z
+disposition: "依附 WorkCase reviews 身份，WorkCase 正被取消评估"
 change_log:
   - at: 2026-10-01T18:35:47.566Z
     provider: workbuddy
