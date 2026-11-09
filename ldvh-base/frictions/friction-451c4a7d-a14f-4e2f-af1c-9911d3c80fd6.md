@@ -39,10 +39,18 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 9 → 10（11 §9 第 2 项）
+  - at: 2026-11-06T21:01:57.088Z
+    provider: openai-codex
+    model: gpt-6.1-terra
+    summary: 补充观察：count 10 → 11（11 §9 第 2 项）
+  - at: 2026-11-07T19:56:48.297Z
+    provider: modelflare
+    model: gpt-6.1-terra
+    summary: 补充观察：count 11 → 12（11 §9 第 2 项）
 occurrence:
-  count: 10
+  count: 12
   first_at: 2026-11-02T20:15:51.816Z
-  last_at: 2026-11-04T13:33:16.916Z
+  last_at: 2026-11-07T19:46:27.153Z
 ---
 
 # 并行会话未提交改动致召回用例失效
@@ -92,3 +100,11 @@ occurrence:
 补充观察（2026-11-04T13:33:16.916Z）：全量测试以 2956/2959 结束，其中「已跟踪的源文件不得 import 未纳入版本控制的文件」一项判红，涉事文件是未入索引的 plugin/lib/carrier-scan.js。
 逐字引证：已跟踪的源文件不得 import 未纳入版本控制的文件
 来源：主控会话本材料窗口 turn 2 助手正文的全量测试输出块（「✖ 已跟踪的源文件不得 import 未纳入版本控制的文件 / plugin/lib/adr-writer.js → ./carrier-scan.js（不在索引中）」）与 turn 3 提交结果段；会话 id 未在材料中给出，位置按 turn 计。
+
+补充观察（2026-11-06T20:26:00.238Z）：材料末段如实报告 plugin 全量测试中有一项 recall-injection 的「零词法命中」前提用例失败，且把本次改动 stash 后复跑仍然失败，说明该失败独立于本轮改动存在，落点仍是 recall-injection 用例集在共享工作树下被在途改动破坏这一根源——与既有 open 账目 friction-451c4a7d「并行会话未提交改动致召回用例失效」所记现象（plugin/lib/source-recall.js 与 plugin/lib/recall-injection.js 他人未提交改动使用例失败、须回退核实）和归因（多代理共享同一工作树且并行会话在途未提交改动无隔离）同源，故并入该条而非新建。另：材料开头「「330118573819」被限流，已改用池中另一个账号回答」属工具侧限流且已由池内切换兜住，未构成阻断本次工作的阻碍，故未单列。本层 Pitfall 候选交付
+逐字引证：全量测试有一项 recall-injection 的「零词法命中」前提用例失败；我把该改动 stash 掉后复跑仍然失败
+（来源：1）
+
+补充观察（2026-11-07T19:46:27.153Z）：plugin 全量测试中 recall-injection 的一项「零词法命中」前提用例失败，stash 掉本次改动后复跑仍失败。
+逐字引证：全量测试有一项 recall-injection 的「零词法命中」前提用例失败；我把该改动 stash 掉后复跑仍然失败
+来源：本次观察材料 turn 1 助手回复末段「验证与收尾」中「另外提醒一句」之后的一句

@@ -1,6 +1,6 @@
 ---
 goal_key: project-goal
-title: 建成 LDVH v5
+title: DSH AI 协作治理框架
 status: active
 created_at: 2026-09-09T12:00:00+08:00
 change_log:
@@ -24,10 +24,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 子目标移出本载体（28 号 2026-11 修订）：SG-1..4 已逐字迁入 ldvh-base/subgoals/ 并逐条回读，故删除已移出的子目标段；此后子目标增改不经 goal.md
+  - at: 2026-11-07T21:41:52.172Z
+    provider: modelflare
+    model: gpt-6.1-terra
+    summary: Human 确认将总目标收束为共同厘清项目、帮助 AI 高效准确完成任务、空闲时自动积累经验并发现摩擦。
 ---
 
 # 项目目标
 
 ## 目标陈述
 
-建成一个深度绑定 DSH 的 AI 协作治理框架，让长程 Vibe Coding 稳定、可控、高效，并通过构建、测试、迭代，使 LDVH 成为可被外部长程项目验证的治理载体。
+建成一个深度绑定 DSH 的 AI 协作治理框架，帮助人和 AI 共同厘清项目，让 AI 更高效、准确地完成任务，并在空闲时自动积累经验、发现摩擦。

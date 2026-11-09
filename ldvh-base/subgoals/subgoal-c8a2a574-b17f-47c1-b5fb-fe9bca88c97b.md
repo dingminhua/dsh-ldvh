@@ -1,10 +1,11 @@
 ---
 title: 插件能力面 dogfood 闭环
-status: active
+status: retired
 parent_goal: project-goal
 criterion: LDVH 插件能力面完成 dogfood 闭环，日常使用无需人工补救。
 criterion_kind: executable-check
 alignment: 目标陈述要求框架「深度绑定 DSH」；插件能力面是绑定的实际形态，本条以日常使用无需人工补救为达成材料，检验绑定是否真的可用而非仅已接线。
+disposition: Human 已确认新的总目标与 SubGoal 结构，旧的插件 dogfood 验收口径不再作为当前目标分解。
 object_uid: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 fact_type_key: subgoal
 created_at: 2026-10-31T18:17:34.278Z
@@ -21,6 +22,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 迁移：废止业务编号 SG-n，改以 order=3 承载显示次序（28 §7/§8，2026-11-01 定案）
+  - at: 2026-11-07T21:51:43.958Z
+    provider: modelflare
+    model: gpt-6.1-terra
+    summary: Human 重写总目标并确认重建 SubGoal；该旧子目标只服务于旧的插件 dogfood 验收口径，转为历史记录。
 order: 3
 ---
 
