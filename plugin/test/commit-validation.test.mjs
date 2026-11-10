@@ -234,6 +234,28 @@ test("snapshotIdentity is sensitive to the NUL separator boundary", () => {
 	assert.notEqual(left, right);
 });
 
+test("snapshotIdentity ignores trailing-newline formatting, so both entrypoints agree", () => {
+	// MEASURED DEFECT (2026-11-11): the precheck tool hashes the string its
+	// caller passed; the Git Gate hashes the message file, which `git commit -F`
+	// has already stripped of its trailing newline. One "\n" turned e93b41de…
+	// into 1bf077a5… for the same diff and prose — and the tool's own follow_up
+	// instructs the caller to compare exactly those two values.
+	const base = "fix(plugin): 示例\n\n关键变更:\n- plugin/lib/x.js：改动\n\nLDVH-Provider: workbuddy\nLDVH-Model: deepseek-v4.1-flash";
+	assert.equal(snapshotIdentity("d", base), snapshotIdentity("d", `${base}\n`));
+	assert.equal(snapshotIdentity("d", base), snapshotIdentity("d", `${base}\n\n\n`));
+	assert.equal(snapshotIdentity("d", base), snapshotIdentity("d", base.replace(/\n/g, "\r\n")));
+});
+
+test("snapshotIdentity still separates messages that differ only INSIDE the body", () => {
+	// The normalisation above must not flatten real differences: trimming the
+	// tail may not make two distinct messages collide.
+	const a = "subject\n\n关键变更:\n- A";
+	const b = "subject\n\n关键变更:\n- B";
+	assert.notEqual(snapshotIdentity("d", a), snapshotIdentity("d", b));
+	// A trailing blank line is formatting; a trailing SPACE in content is not.
+	assert.notEqual(snapshotIdentity("d", a), snapshotIdentity("d", "subject\n\n关键变更:\n- A "));
+});
+
 // ---------------------------------------------------------------------------
 // checkKeyChangesAgainstDiff — happy path
 // ---------------------------------------------------------------------------

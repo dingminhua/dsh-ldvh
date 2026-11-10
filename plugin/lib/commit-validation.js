@@ -158,9 +158,31 @@ export function validateMessage(message) {
   return issues;
 }
 
-/** Deterministic snapshot identity over (staged diff, message) — 06 §6.2. */
+/**
+ * Deterministic snapshot identity over (staged diff, message) — 06 §6.2.
+ *
+ * The message is NORMALISED before hashing (trailing newlines trimmed, CRLF
+ * folded to LF), because the two entrypoints that must agree on this value do
+ * not receive byte-identical text for the same candidate:
+ *
+ *  - the precheck tool hashes the string its caller passed in;
+ *  - the Git Gate reads the message file, and `git commit -F`/`-m` strip the
+ *    trailing newline before the Hook sees it.
+ *
+ * Measured on this repository (2026-11-11): one trailing "\n" flipped the
+ * digest from 1bf077a5… to e93b41de… for the SAME diff and the SAME prose. The
+ * follow_up of `precheck-git-commit` tells the caller to compare the two
+ * values, so the comparison would have failed on formatting alone — a false
+ * alarm pointing at a candidate that never changed. Trimming is not a
+ * loosening of the contract: 09 §6.2 is about binding a verdict to a
+ * (diff, message) pair, and a message's meaning does not depend on the
+ * newline its file happened to end with. Any change to the message's actual
+ * content still changes the digest (see the sensitivity cases in
+ * commit-validation.test.mjs).
+ */
 export function snapshotIdentity(diff, message) {
-  return createHash("sha256").update(diff, "utf8").update("\0").update(message, "utf8").digest("hex");
+  const normalized = message.replace(/\r\n/g, "\n").replace(/\n+$/, "");
+  return createHash("sha256").update(diff, "utf8").update("\0").update(normalized, "utf8").digest("hex");
 }
 
 /**
