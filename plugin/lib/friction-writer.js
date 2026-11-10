@@ -119,7 +119,7 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 /** Closed set of frontmatter keys (26 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "phenomenon", "attribution", "attribution_ref", "relations",
+  "phenomenon", "attribution", "attribution_ref", "relations", "recall_digest",
   "occurrence", "disposition", "change_log",
 ]);
 

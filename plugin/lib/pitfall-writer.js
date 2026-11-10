@@ -75,7 +75,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (23 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "scope", "trigger_signal", "urls", "disposition", "change_log",
+  "scope", "trigger_signal", "urls", "disposition", "change_log", "recall_digest",
 ]);
 
 /**

@@ -86,7 +86,7 @@ const OBJECT_UID_PATTERN =
 /** Closed set of frontmatter keys (20 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "question", "scope_boundary", "intent", "summary",
+  "question", "scope_boundary", "intent", "summary", "recall_digest",
   "evolution", "serves", "refs", "priority", "disposition", "relations", "change_log",
 ]);
 

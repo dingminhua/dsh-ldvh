@@ -913,6 +913,7 @@ function parameterSchemaFor(operationKey) {
         enum: ["outdated", "superseded", "out-of-scope", "rejected"],
         description: "create MUST NOT supply this; update may set when transitioning active → retired (24 §9)"
       },
+      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion; recall reads it first and falls back to the type's own content field when absent (02 §7.1)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "research_question", "research_purpose", "stopping_reason", "urls"],

@@ -57,7 +57,7 @@ const RETIREMENT_REASONS = new Set(["outdated", "superseded", "out-of-scope", "r
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "urls", "relations", "change_log",
-  "research_question", "research_purpose", "stopping_reason",
+  "research_question", "research_purpose", "stopping_reason", "recall_digest",
   "confirmed_statements", "uncertain", "gaps",
   "implications", "clarification_log",
   "retirement_reason", "retired_at",
