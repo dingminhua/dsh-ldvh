@@ -162,19 +162,42 @@ const allDirs = await readdir(SESSIONS_ROOT);
 const turns = [];
 let scannedSessions = 0;
 
+// **失败不得静默折算（pitfall「测量脚本把失败静默折算成零命中」）**。
+// 初版在解压失败与单行 JSON 解析失败处都 `continue`，后果有三：
+//   ① 读不到的会话不进分母 → 「读失败」被算成「没有注入」，回车率虚高；
+//   ② 单行解析失败被丢弃 → 该行若正是注入事件，这个回合凭空消失，
+//      分母少一个而分子不变，**读数偏向「没有落实」**；
+//   ③ 全程零告警 → 调用者无从知道测量不完整。
+// 现改为逐项计数并在输出里如实披露；不改变计算口径，只让缺口可见。
+let unreadableSessions = 0;
+let unparsableLines = 0;
+// **两类「读不到」必须分开**（2026-11-11 复核）：
+//   · `ENOENT`——该目录根本没有会话日志文件（子代理目录、空目录）。这不是失败，
+//     是目录清单里混入了非会话条目；把它报成「不可读」会让读者误以为数据损坏。
+//   · 其余（解压/编码错误）——**真失败**，它的静默丢弃才是 pitfall 所指的缺陷。
+let absentSessions = 0;
+
 for (const dir of allDirs) {
   if (scannedSessions >= MAX_SESSIONS) break;
   let text;
   try {
     text = (await decompressZstdStream(await readFile(join(SESSIONS_ROOT, dir, "session.v4.jsonl.zstd")))).toString("utf8");
-  } catch {
+  } catch (error) {
+    if (error?.code === "ENOENT") absentSessions += 1;
+    else unreadableSessions += 1;
     continue;
   }
   if (!text.includes(INJECTION_MARK)) continue;
   scannedSessions += 1;
-  const events = text.split("\n").filter(Boolean)
-    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
-    .filter(Boolean);
+  const rawLines = text.split("\n").filter(Boolean);
+  const events = [];
+  for (const l of rawLines) {
+    try {
+      events.push(JSON.parse(l));
+    } catch {
+      unparsableLines += 1;
+    }
+  }
 
   // **分组口径（2026-11-11 修）**：召回块是**单独一条 `user/message` 事件**，
   // 不拼在用户提问里。初版按「含注入的 user/message 起一个新回合」分组，结果
@@ -284,6 +307,11 @@ for (const r of rows) {
 }
 const summary = {
   sessionsWithInjection: scannedSessions,
+  // **完整性缺口**（pitfall「测量脚本把失败静默折算成零命中」）：
+  // 这两项非零即说明本次读数不完整，须在引用读数时一并声明。
+  unreadableSessions,
+  unparsableLines,
+  absentSessions,
   turnsWithInjection: withInjection,
   turnsWithAction: withAction,
   turnsWithReferencedCandidate: withRef,
@@ -304,6 +332,13 @@ if (AS_JSON) {
   const pct = (a, b) => (b === 0 ? "—" : `${((a / b) * 100).toFixed(1)}%`);
   console.log("召回「行动落实」取证（真实会话日志）");
   console.log(`扫描 ${scannedSessions} 个含注入的会话，共 ${withInjection} 个注入回合`);
+  console.log(`目录清单：${absentSessions} 个目录无会话日志（子代理/空目录，非失败）`);
+  if (unreadableSessions > 0 || unparsableLines > 0) {
+    console.log(`⚠ 真实测量缺口：${unreadableSessions} 个会话读失败、${unparsableLines} 行不可解析`);
+    console.log("  这些会话未计入分母——「读不到」不等于「没有注入」，引用读数须一并声明。");
+  } else {
+    console.log("测量完整性：无非 ENOENT 读取失败、无不可解析行。");
+  }
   console.log("");
   console.log(`  注入后发生工具调用：${withAction}/${withInjection}（${pct(withAction, withInjection)}）`);
   console.log(`  调用参数回指到候选：${withRef}/${withInjection}（${pct(withRef, withInjection)}）  ${totalRefs} 次回指 / ${totalCandidates} 条候选`);

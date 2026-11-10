@@ -120,3 +120,50 @@ test("取证口径：三项证据须分别产出，不得互相替代", () => {
 	const sum = tiers.write + tiers.read + tiers.relay + tiers.none;
 	assert.equal(sum, s.turnsWithInjection, "回指分档之和须等于注入回合数");
 });
+
+test("测量完整性：读取失败须如实披露，不得静默折算成零命中", () => {
+	// pitfall「测量脚本把失败静默折算成零命中」的回归。初版在解压失败与单行
+	// JSON 解析失败处都 `continue`：读不到的会话不进分母（「读不到」被算成
+	// 「没有注入」），解析失败的行被丢弃（该行若是注入事件，回合凭空消失）。
+	// 两者都让读数**偏向「没有落实」**，且全程零告警。
+	//
+	// 判据：summary 必须携带三个缺口字段，且非 ENOENT 真失败须为 0。
+	assert.ok("unreadableSessions" in s, "summary 须带 unreadableSessions（真读取失败数）");
+	assert.ok("unparsableLines" in s, "summary 须带 unparsableLines（不可解析行数）");
+	assert.ok("absentSessions" in s, "summary 须带 absentSessions（无日志目录数，与失败区分）");
+	assert.equal(
+		s.unreadableSessions,
+		0,
+		`存在 ${s.unreadableSessions} 个真读取失败——读数不完整，须先修复或如实声明后引用`,
+	);
+	assert.equal(
+		s.unparsableLines,
+		0,
+		`存在 ${s.unparsableLines} 行不可解析——这些行若含注入事件会使回合凭空消失`,
+	);
+});
+
+test("参数同形：三个测量脚本的预算与条数须可覆盖且默认一致", async () => {
+	// pitfall「消融脚本多调用点各自硬编码预算致读数不一」的回归。初版消融脚本
+	// 把 LIMIT/BUDGET 写死，另两个脚本可覆盖——拿三者的读数横向比较时，会默认
+	// 它们用了同一组参数，改过参数就能让比较失效且不可见。
+	//
+	// 判据：三个脚本都接受 --limit／--budget，且在输出首行印出实际生效值。
+	const { readFile } = await import("node:fs/promises");
+	const { join } = await import("node:path");
+	const scripts = [
+		"recall-real-eval.mjs",
+		"recall-action-evidence.mjs",
+		"recall-topic-context-ablation.mjs",
+	];
+	for (const name of scripts) {
+		const src = await readFile(join(ROOT, "plugin", "scripts", name), "utf8");
+		assert.ok(src.includes("--limit"), `${name} 须接受 --limit 覆盖`);
+		assert.ok(src.includes("--budget") || name === "recall-action-evidence.mjs",
+			`${name} 须接受 --budget 覆盖（取证脚本不按字节预算取候选，可不接受）`);
+		assert.ok(
+			!/const (LIMIT|BUDGET) = \d+;/.test(src),
+			`${name} 不得把 LIMIT/BUDGET 写死为字面量——须可覆盖，否则跨脚本读数不可比`,
+		);
+	}
+});

@@ -29,8 +29,22 @@ import { REAL_CASES, isRealCaseRelated } from "../test/recall-real-cases.mjs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dirname, "..", "..");
-const LIMIT = 12;
-const BUDGET = 10240;
+// **预算与条数须可配置且与取证脚本同源（pitfall「消融脚本多调用点各自硬编码
+// 预算致读数不一」）**：初版把 LIMIT=12、BUDGET=10240 写死，而 recall-real-eval
+// 与 recall-action-evidence 都接受命令行覆盖。后果是拿本脚本的读数去和另两个
+// 脚本比时会**默认它们用了同一预算**，而实际上任何人改过参数就能让比较失效——
+// 且失效不可见：报表里印的仍是写死的那个数。
+//
+// 现改为三脚本同形：`--limit`／`--budget` 可覆盖，默认值一致，并在输出首行
+// 印出实际生效值，使「这些数字是在什么参数下取得的」不依赖读者记忆。
+const argOf = (name, fallback) => {
+  const i = process.argv.indexOf(name);
+  if (i === -1) return fallback;
+  const v = Number(process.argv[i + 1]);
+  return Number.isFinite(v) ? v : fallback;
+};
+const LIMIT = argOf("--limit", 12);
+const BUDGET = argOf("--budget", 10240);
 const AS_JSON = process.argv.includes("--json");
 
 /**
@@ -113,7 +127,8 @@ if (AS_JSON) {
   console.log(JSON.stringify({ summary, results }, null, 2));
 } else {
   console.log("「并入上文」改法对照（测量脚本，不改生产路径）");
-  console.log(`limit=${LIMIT}、budget=${BUDGET}、有真实上文的条目 ${results.length} 条`);
+  console.log(`参数：limit=${LIMIT}、budget=${BUDGET}（与 recall-real-eval／recall-action-evidence 同形可覆盖）`);
+  console.log(`有真实上文的条目 ${results.length} 条`);
   console.log("");
   console.log("按类别比较（depth=0 单句 / depth=1 拼接真实上文）：");
   for (const [kind, d] of Object.entries(summary)) {
