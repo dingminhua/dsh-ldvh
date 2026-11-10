@@ -23,6 +23,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -676,7 +677,13 @@ export async function correctResearchObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ fingerprint: fileFingerprint(content) });
+  const staleness = detectDigestStaleness({
+    type: "research", baseline: current.value.frontmatter, next: fm,
+  });
+  const warnings = staleness.stale
+    ? [digestStaleMessage({ type: "research", changedFields: staleness.changedFields })]
+    : undefined;
+  return success({ fingerprint: fileFingerprint(content), warnings });
 }
 
 // ---------------------------------------------------------------------------
@@ -1163,5 +1170,11 @@ export async function updateResearchObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ fingerprint: fileFingerprint(content) });
+  const staleness = detectDigestStaleness({
+    type: "research", baseline: current.value.frontmatter, next: fm,
+  });
+  const warnings = staleness.stale
+    ? [digestStaleMessage({ type: "research", changedFields: staleness.changedFields })]
+    : undefined;
+  return success({ fingerprint: fileFingerprint(content), warnings });
 }

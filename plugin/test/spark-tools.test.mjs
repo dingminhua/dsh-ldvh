@@ -1393,6 +1393,12 @@ test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", 
       assert.equal(out.outcome, "completed", JSON.stringify(out));
     };
     await make("命中依据甲", "甲的问题里含专名召回器", { priority: "P1", serves: subGoalUid(1) });
+    // `recall_digest` 专供召回（02 §7.1）：构造一条**只有该字段**含查重词的夹具。
+    // 标题与 question 都不含「盘口校验器」，故只有把匹配面扩到 recall_digest
+    // 才能命中——这正是本用例要钉住的行为。
+    await make("命中依据丙", "丙的问题里没有那个词", {
+      recall_digest: "盘口校验器 召回摘要 关键词面",
+    });
     await make("命中依据乙", "乙的问题里没有那个词", { priority: "P2", serves: subGoalUid(3) });
 
     // keyword 命中 title：须指出命中的是哪个字段。
@@ -1406,6 +1412,20 @@ test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", 
     const byQ = await run(descriptors, "ldvh_spark_list", { keyword: "专名召回器" }, repo);
     assert.equal(byQ.result.count, 1);
     assert.ok(byQ.result.items[0].hitReason.includes("@question"), JSON.stringify(byQ.result.items[0]));
+
+    // **keyword 须同时覆盖 `recall_digest`**（02 §7.1 召回摘要；Human 2026-11-10）。
+    // 该字段的读者是词法匹配器，匹配面里没有它等于字段白写。此处「盘口校验器」
+    // 只出现在 recall_digest，title/question 都没有——若不读该字段，count 会是 0。
+    const byDigest = await run(descriptors, "ldvh_spark_list", { keyword: "盘口校验器" }, repo);
+    assert.equal(byDigest.result.count, 1, "recall_digest 必须参与 keyword 匹配（02 §7.1）");
+    assert.ok(
+      byDigest.result.items[0].hitReason.includes("@recall_digest"),
+      `须指出命中字段为 recall_digest：${byDigest.result.items[0].hitReason}`,
+    );
+    assert.ok(
+      byDigest.result.items[0].hitReason.includes('keyword="盘口校验器"'),
+      `须带上被匹配的词：${byDigest.result.items[0].hitReason}`,
+    );
 
     // priorities / serves 各出自己的依据。
     const byP = await run(descriptors, "ldvh_spark_list", { priorities: ["P1"] }, repo);

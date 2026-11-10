@@ -32,6 +32,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -87,7 +88,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (22 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "decision", "scope", "trigger_signal", "urls",
+  "decision", "scope", "trigger_signal", "urls", "recall_digest",
   "relations", "retirement_reason", "retired_at", "change_log",
 ]);
 
@@ -793,7 +794,13 @@ export async function updateAdrObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ fingerprint: fileFingerprint(content) });
+  const staleness = detectDigestStaleness({
+    type: "adr", baseline: current.value.frontmatter, next: fm,
+  });
+  const warnings = staleness.stale
+    ? [digestStaleMessage({ type: "adr", changedFields: staleness.changedFields })]
+    : undefined;
+  return success({ fingerprint: fileFingerprint(content), warnings });
 }
 
 // ---------------------------------------------------------------------------
@@ -920,7 +927,13 @@ export async function correctAdrObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ fingerprint: fileFingerprint(content) });
+  const staleness = detectDigestStaleness({
+    type: "adr", baseline: current.value.frontmatter, next: fm,
+  });
+  const warnings = staleness.stale
+    ? [digestStaleMessage({ type: "adr", changedFields: staleness.changedFields })]
+    : undefined;
+  return success({ fingerprint: fileFingerprint(content), warnings });
 }
 
 // ---------------------------------------------------------------------------

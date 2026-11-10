@@ -423,7 +423,12 @@ async function executeWriteObject(args, exec, deps) {
       object_uid: objectUid,
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
-      changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }]
+      changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
+      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。放进 result 才能被
+      // renderEnvelope 渲染成 `warning:` 行——只留在 envelope 里模型侧看不见。
+      ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
+        ? { warnings: updated.value.warnings }
+        : {})
     },
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
@@ -504,6 +509,12 @@ function renderEnvelope(operationKey, value) {
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "adr")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  // **warnings 必须进模型可见文本**：只留在 envelope 里等于没给（与
+  // `mechanical_issues` 此前「写入路径算出来了、投影与呈现两侧各 0 处命中」
+  // 同一失效模式）。与 gaps 同层渲染，用 `warning:` 前缀区分——gap 是缺口
+  // 披露，warning 是不阻断的提示。
+  const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
+  for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
   return text(lines.join("\n"));
 }
 
@@ -529,6 +540,7 @@ function parameterSchemaFor(operationKey) {
       title: { type: "string", description: "≤ 30 characters; decision-direction title for locating and Human scanning" },
       status: { type: "string", enum: ["active", "retired"], description: "create must be active; update may transition active→retired (terminal, read-only afterwards — 22 §9)" },
       decision: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 决定 body section (carrier coherence, 22 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
+      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion; recall reads it first and falls back to the type's own content field when absent (02 §7.1)" },
       scope: { type: "string", description: "applicability statement; must appear verbatim in the 适用范围 body section (carrier coherence, 22 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       trigger_signal: { type: "string", description: "when to revisit this decision (e.g. 「当 X 出现时重审」); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the decision; when non-empty the body must carry a 证据 section" },

@@ -1543,3 +1543,92 @@ test("既有关系中目标已终态，但写入时若同时新增非 open 目�
     assert.equal(mixed.error.code, "spark/relation_target_unresolvable");
   });
 });
+
+// ---------------------------------------------------------------------------
+// serves 的解析时机（28 §12.3 第 3 条；Human 2026-11-10）
+//
+// 规范原文：「`retired` 不构成有效解析目标：该子目标已原位作废，新的 `serves`
+// 不得指向它；**既有 `serves` 保留原值不改写历史引用**」。故「解析」是写入那一刻
+// 的准入条件，不是每次更新的持续不变量——与 ADR `0b08523c`「关系目标的 open 约束
+// 为写入前置条件」同形。
+//
+// 为什么必须钉住：实测全库 112 个采用 serves 的对象有 98 个指向已 retired 的
+// SubGoal（87.5%）。旧实现在更新时无条件重解，使它们**任何内容更新都被拒**——
+// 连改一个与 serves 毫无关系的字段都不行（补 recall_digest 时撞到的就是这个）。
+// ---------------------------------------------------------------------------
+
+test("update: 历史的 serves 指向已 retired 子目标时，更新仍被允许（28 §12.3 第 3 条）", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
+    // 先以 active 建立子目标，创建 Spark 使其 serves 合法
+    await seedGoalAnchorObjects(root);
+    const created = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: subGoalUid(1) },
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const uid = created.value.object_uid;
+
+    // 子目标原位作废（历史引用保留原值）
+    await seedSubGoals(root, ["SG-1"], { status: "retired" });
+
+    const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.ok(read1.ok);
+    const fmAfter = { ...read1.value.frontmatter };
+    delete fmAfter.change_summary;
+    // 只补一个与 serves 无关的字段
+    fmAfter.recall_digest = "回归 关键词面 召回摘要";
+
+    const updated = await updateSparkObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read1.value.fingerprint,
+      frontmatterAfter: fmAfter,
+      bodyMarkdownAfter: read1.value.body.replace(/^#[^\n]*\n/, "").trim(),
+      changeSummary: "补 recall_digest（serves 未变，不应重解）",
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+    });
+    assert.ok(updated.ok, `历史 serves 失效不得阻断无关字段的更新：${JSON.stringify(updated.error)}`);
+
+    const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read2.value.frontmatter.recall_digest, "回归 关键词面 召回摘要");
+    assert.equal(read2.value.frontmatter.serves, subGoalUid(1), "既有 serves 须保留原值（不改写历史引用）");
+  });
+});
+
+test("update: 把 serves 改成另一个已 retired 的子目标仍被拒绝（新引入照常校验）", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
+    await seedGoalAnchorObjects(root);
+    const created = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: subGoalUid(1) },
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const uid = created.value.object_uid;
+
+    // SG-2 retired，SG-1 仍 active
+    await seedSubGoals(root, ["SG-2"], { status: "retired", indexOffset: 1 });
+    await seedSubGoals(root, ["SG-1"]);
+
+    const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    const fmAfter = { ...read1.value.frontmatter, serves: subGoalUid(2) };
+    delete fmAfter.change_summary;
+
+    const updated = await updateSparkObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read1.value.fingerprint,
+      frontmatterAfter: fmAfter,
+      bodyMarkdownAfter: read1.value.body.replace(/^#[^\n]*\n/, "").trim(),
+      changeSummary: "改指向已作废的子目标",
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+    });
+    assert.ok(!updated.ok, "新引入的 serves 指向 retired 子目标必须被拒");
+    assert.equal(updated.error.code, "spark/serves_unresolvable");
+  });
+});

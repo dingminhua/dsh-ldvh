@@ -38,6 +38,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -829,7 +830,13 @@ export async function updateSubGoalObject(args) {
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition });
+  const staleness = detectDigestStaleness({
+    type: "subgoal", baseline: before, next,
+  });
+  const warnings = staleness.stale
+    ? [digestStaleMessage({ type: "subgoal", changedFields: staleness.changedFields })]
+    : undefined;
+  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition, warnings });
 }
 
 // ---------------------------------------------------------------------------

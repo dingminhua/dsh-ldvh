@@ -737,7 +737,12 @@ async function executeWriteObject(args, exec, deps) {
       object_uid: objectUid,
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
-      changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }]
+      changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
+      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。放进 result 才能被
+      // renderEnvelope 渲染成 `warning:` 行——只留在 envelope 里模型侧看不见。
+      ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
+        ? { warnings: updated.value.warnings }
+        : {})
     },
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
@@ -826,6 +831,12 @@ function renderEnvelope(operationKey, value) {
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "research")}`);
   if (typeof env.changes !== "undefined" && Array.isArray(env.changes)) { /* result.changes already covered */ }
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  // **warnings 必须进模型可见文本**：只留在 envelope 里等于没给（与
+  // `mechanical_issues` 此前「写入路径算出来了、投影与呈现两侧各 0 处命中」
+  // 同一失效模式）。与 gaps 同层渲染，用 `warning:` 前缀区分——gap 是缺口
+  // 披露，warning 是不阻断的提示。
+  const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
+  for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
   return text(lines.join("\n"));
 }
 

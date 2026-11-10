@@ -654,7 +654,13 @@ async function executeWriteObject(args, exec, deps) {
       object_uid: objectUid,
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
-      changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }]
+      changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
+      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。放在 result 内使
+      // renderEnvelope 能把它渲染成 `warning:` 行——只留在 envelope 里，
+      // 模型侧看不见等同于没有。
+      ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
+        ? { warnings: updated.value.warnings }
+        : {})
     },
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
@@ -756,6 +762,12 @@ function renderEnvelope(operationKey, value) {
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "spark")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  // **warnings 必须进模型可见文本**（2026-11-10）：只留在 envelope 里等于没给——
+  // 与 `mechanical_issues` 此前「写入路径算出来了、投影与呈现两侧各 0 处命中」
+  // 同一失效模式（见 workcaseTextStructure.ts 头注释）。故与 gaps 同层渲染，
+  // 但用 `warning:` 前缀区分：gap 是缺口披露，warning 是不阻断的提示。
+  const warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
+  for (const w of warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
   return text(lines.join("\n"));
 }
 
@@ -827,7 +839,7 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           status: { type: "string", enum: ["open", "all"], description: "open = default (ordinary unresolved candidates only, 20 §12); all = include implemented/discarded for historical tracing" },
-          keyword: { type: "string", description: "literal case-insensitive substring over title and question (the two semantic inputs 20 §6.2 names for dedup). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (02 §9 第 4 项 / 02:262: Code must not use similarity, embedding or keyword weights to adjudicate relevance)" },
+          keyword: { type: "string", description: "literal case-insensitive substring over title, question and recall_digest (title/question are the two semantic inputs 20 §6.2 names for dedup; recall_digest is the 02 §7.1 recall digest, which exists precisely so the object can be found by lexical matching). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (02 §9 第 4 项 / 02:262: Code must not use similarity, embedding or keyword weights to adjudicate relevance)" },
           priorities: { type: "array", items: { type: "string", enum: ["P0", "P1", "P2", "P3"] }, description: "keep only Sparks whose declared priority is among these (20 §8). Untiered Sparks are never inferred into a tier, so they do not match any priority filter (20 §8: 排序缺失者排末位、不推定档位)" },
           serves: { type: "string", description: "keep only Sparks serving this SubGoal object_uid verbatim (28 §12.3). Empty result means no Spark declares it — not that the sub-goal is unused" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1). The cap applies AFTER filtering, and total is the filtered hit count" }
@@ -927,3 +939,9 @@ export function registerSparkTools(ctx, deps) {
 }
 
 export { OPERATIONS };
+
+// Exported for the digest staleness end-to-end test: the warning must reach the
+// **model-visible text**, not merely the envelope. `mechanical_issues` was once
+// computed on the write path and read by nobody — that is the failure mode this
+// export lets a test rule out (see test/digest-staleness-e2e.test.mjs).
+export { renderEnvelope as renderEnvelopeForTest };

@@ -470,6 +470,10 @@ async function executeWriteObject(args, exec, deps) {
       file: updated.value.file,
       fingerprint: updated.value.fingerprint,
       read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
+      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。
+      ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
+        ? { warnings: updated.value.warnings }
+        : {})
     },
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: updated.value.file, content_fingerprint: updated.value.fingerprint }],
@@ -557,6 +561,11 @@ function renderEnvelope(operationKey, value) {
   }
   if (Array.isArray(env.gaps) && env.gaps.length > 0) {
     lines.push("gaps:", ...env.gaps.map((gap) => `  - ${typeof gap === "string" ? gap : JSON.stringify(gap)}`));
+  }
+  // **warnings 必须进模型可见文本**（同 gaps 的理由：只留在 envelope 里等于没给）。
+  const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
+  if (__warnings.length > 0) {
+    lines.push("warnings:", ...__warnings.map((w) => `  - ${typeof w === "string" ? w : JSON.stringify(w)}`));
   }
   if (Array.isArray(env.follow_up) && env.follow_up.length > 0) {
     lines.push("follow-up:", ...env.follow_up.map((item) => `  - ${typeof item === "string" ? item : JSON.stringify(item)}`));

@@ -89,6 +89,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -2270,11 +2271,18 @@ async function writeValidated(factSourceRoot, frontmatter, body, baseline = null
   //     校验」；一旦将来 `buildFileContent` 出现有损序列化，测试（多处断言回读
   //     `mechanical_issues.length === 0`）会先于本注释失效而变红。补齐它是新增机制，
   //     不在本单范围。
+  // `recall_digest` 陈旧提示（02 §7.1；只提示不阻断）。`baseline` 为空表示创建，
+  // 无从比较，`detectDigestStaleness` 本身会返回 stale=false。
+  const staleness = detectDigestStaleness({ type: "workcase", baseline, next: frontmatter });
+  const warnings = staleness.stale
+    ? [digestStaleMessage({ type: "workcase", changedFields: staleness.changedFields })]
+    : undefined;
   return success({
     object_uid: frontmatter.object_uid,
     file: filePath,
     fingerprint: readBack.value.fingerprint,
     read_back: "ok",
+    warnings,
   });
 }
 
@@ -4242,8 +4250,14 @@ export async function rebatchWorkcaseObject(args) {
     + auditFieldGuardNote(auditGuard.attempted),
   );
 
-  const servesCheck = await resolveServes(factSourceRoot, next.serves);
-  if (servesCheck) return servesCheck;
+  // **只在 `serves` 新增或改动时重新解析**（28 §12.3 第 3 条，Human 2026-11-10）：
+  // 「既有 `serves` 保留原值不改写历史引用」——解析是写入那一刻的准入条件，不是
+  // 每次更新的持续不变量。旧实现使 37 个 WorkCase（serves 指向已 retired 的
+  // SubGoal）任何更新都被拒，连改与其无关的字段都不行。
+  if (next.serves !== undefined && next.serves !== fm.serves) {
+    const servesCheck = await resolveServes(factSourceRoot, next.serves);
+    if (servesCheck) return servesCheck;
+  }
   const relCheck = await resolveRelationsTargets(factSourceRoot, next.relations);
   if (relCheck) return relCheck;
   const refsCheck = await resolveRefsTargets(factSourceRoot, next.refs);
@@ -4331,8 +4345,14 @@ export async function reviseWorkcaseObject(args) {
   next.change_log = fm.change_log;
   appendChangeLog(next, sig, changeSummary + auditFieldGuardNote(auditGuard.attempted));
 
-  const servesCheck = await resolveServes(factSourceRoot, next.serves);
-  if (servesCheck) return servesCheck;
+  // **只在 `serves` 新增或改动时重新解析**（28 §12.3 第 3 条，Human 2026-11-10）：
+  // 「既有 `serves` 保留原值不改写历史引用」——解析是写入那一刻的准入条件，不是
+  // 每次更新的持续不变量。旧实现使 37 个 WorkCase（serves 指向已 retired 的
+  // SubGoal）任何更新都被拒，连改与其无关的字段都不行。
+  if (next.serves !== undefined && next.serves !== fm.serves) {
+    const servesCheck = await resolveServes(factSourceRoot, next.serves);
+    if (servesCheck) return servesCheck;
+  }
   const relCheck = await resolveRelationsTargets(factSourceRoot, next.relations);
   if (relCheck) return relCheck;
   const refsCheck = await resolveRefsTargets(factSourceRoot, next.refs);

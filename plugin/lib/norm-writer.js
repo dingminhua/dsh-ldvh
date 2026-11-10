@@ -39,6 +39,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -84,7 +85,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (27 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "direction_key", "retirement_reason", "retired_at", "change_log",
+  "direction_key", "retirement_reason", "retired_at", "recall_digest", "change_log",
 ]);
 
 /**
@@ -635,7 +636,13 @@ export async function updateNormObject(args) {
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition });
+  const staleness = detectDigestStaleness({
+    type: "norm", baseline: before, next,
+  });
+  const warnings = staleness.stale
+    ? [digestStaleMessage({ type: "norm", changedFields: staleness.changedFields })]
+    : undefined;
+  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition, warnings });
 }
 
 // ---------------------------------------------------------------------------

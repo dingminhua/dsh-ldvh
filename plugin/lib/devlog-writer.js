@@ -28,6 +28,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -90,6 +91,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (29 §8: unknown fields are rejected). */
 export const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "status", "occurred_at", "summary",
+  "recall_digest",
   "serves", "refs", "disposition", "relations", "created_at", "change_log",
 ]);
 
@@ -1130,8 +1132,11 @@ export async function updateDevLogObject(args) {
     return failure("devlog/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
 
-  // serves must still resolve on update (it may be newly set or changed).
-  if (next.serves !== undefined) {
+  // serves must resolve on update **only when newly set or changed**（28 §12.3 第 3 条，
+  // Human 2026-11-10）：「既有 `serves` 保留原值不改写历史引用」——解析是写入那一刻
+  // 的准入条件，不是每次更新的持续不变量。旧实现在更新时无条件重解，使 4 个 DevLog
+  // （serves 指向已 retired 的子目标）任何内容更新都被拒。
+  if (next.serves !== undefined && next.serves !== before.serves) {
     const { resolveSubGoal } = await import("./subgoal-writer.js");
     const resolved = await resolveSubGoal(factSourceRoot, next.serves);
     if (!resolved.ok) {
@@ -1165,7 +1170,13 @@ export async function updateDevLogObject(args) {
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition });
+  const staleness = detectDigestStaleness({
+    type: "devlog", baseline: before, next,
+  });
+  const warnings = staleness.stale
+    ? [digestStaleMessage({ type: "devlog", changedFields: staleness.changedFields })]
+    : undefined;
+  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition, warnings });
 }
 
 // ---------------------------------------------------------------------------
