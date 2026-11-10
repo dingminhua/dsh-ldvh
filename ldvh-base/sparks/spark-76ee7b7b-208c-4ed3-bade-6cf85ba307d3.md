@@ -54,8 +54,13 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 补入 2026-11-02 只读重核节：四要件逐项核为 1/4——① 基线登记点已成立且已追平实测（norm a1b559a6 第 75 行登记 0.2.1-rc.5，与本机 CFBundleShortVersionString 一致，change_log 记 rc.1→rc.5 四步推进与逐次差分结论，故「登记值已被实测推翻」已不成立）；② 差分人工可取但无机械通道（plugin/scripts 8 个脚本无宿主契约差分器）；③ 三态机械判据未落（host-seams snapshot 是运行时软探测，对「上游新增方法」无感）；④ 落地时机点无规范条文（specs/10 §8 与 specs/06 均无上游比对行）。summary 未改
+  - at: 2026-11-10T10:47:30.435Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: 25a34e54-fa56-45e7-92a9-85eb222aee97
+recall_digest: 上游DSH能力变化 吸收同步机制 宿主基线 唯一登记点 契约面差分 破坏 降级 无关 三态 落地时机 docs 删除 凭据链断裂 泛方向跟踪 收紧
 ---
 
 # 建立上游 DSH 能力变化的吸收与同步机制

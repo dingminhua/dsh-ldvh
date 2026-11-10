@@ -15,10 +15,15 @@ change_log:
     provider: qoder-global
     model: qfmodel
     summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。
+  - at: 2026-11-10T11:36:22.468Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 3
   first_at: 2026-10-29T23:10:53.070Z
   last_at: 2026-10-31T21:46:13.563Z
+recall_digest: 全量并行测试 噪声性失败 单独运行全通过 并行5条失败 重跑回基线 用例互相干扰 并发共享状态 通过数抖动
 ---
 
 # 全量并行测试出现噪声性失败

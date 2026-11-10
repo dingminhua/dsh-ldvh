@@ -54,10 +54,15 @@ change_log:
     provider: qoder-global
     model: qfmodel
     summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。另显式承载 occurrence 的 count／first_at／last_at 三件，值与原载逐字相同（仅不再携带 2026-10 已退出闭集的历史子件 human_return_at），非改值、非计数。
+  - at: 2026-11-10T11:36:53.131Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 10
   first_at: 2026-10-21T16:09:26.654Z
   last_at: 2026-10-21T19:41:43.523Z
+recall_digest: 助手回复正文 混入默认提示残片 You are a helpful assistant 两段中文之间 与任务无关 输出污染
 ---
 
 # 助手回复正文混入默认提示残片

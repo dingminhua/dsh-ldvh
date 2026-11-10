@@ -87,6 +87,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 Research 对象：DSH 0.1.5-rc.2→0.1.7-rc.1 升级调研（9 项关键发现、6 项未证实、4 项缺口、5 条建议）
+  - at: 2026-11-10T11:38:11.134Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: DSH 0.1.5rc2到0.1.7rc1 升级 会话格式v4单向门 影子遮蔽 回退不可逆 设置模型重建 SettingsForms 客户端接缝删除
 ---
 
 ## 研究问题

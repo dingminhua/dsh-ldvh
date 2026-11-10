@@ -18,6 +18,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 结构修复（23 §8 载体结构）：补回缺失的「影响与适用范围」H2 标题，原尾部 scope 展开文本原样移入该节、逐字未改；机制、范围与 status 均不变，本对象此前 body_valid=false。
+  - at: 2026-11-10T11:35:51.328Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 打包产物 文本检索缺席 当作服务不存在 asar内grep未命中 断言workspaceController不存在 打包压缩 检索方式不适配
 ---
 
 # 打包产物文本检索缺席被当作服务不存在

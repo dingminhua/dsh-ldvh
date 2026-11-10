@@ -22,6 +22,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 按 23 §16 第 1 项入档（draft→active）：先据实订正「解决」段（原称的「夹具产出与生产写入产出一致」绑定并未建立），订正后所述为实际生效的处理，四前提据实成立；待完成项在条内明示
+  - at: 2026-11-10T11:35:10.902Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 夹具写旧格式 生产路径假绿 测试全绿 真实数据读不出 旧格式经生产读取 条数0 recent空 读取端有测试 写入端被夹具替代
 ---
 
 # 夹具写旧格式致生产路径假绿

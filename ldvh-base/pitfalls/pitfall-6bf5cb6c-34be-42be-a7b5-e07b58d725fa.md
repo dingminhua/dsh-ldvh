@@ -10,6 +10,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 闲时辅助经验积累·审核段据缓冲条目 13b3a131-f77e-429c-831a-d1326fb2b359 形成候选（11 §10.2 第 3 项）
+  - at: 2026-11-10T11:35:25.270Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 路径重复拼接 受检清单滤空 门禁静默放行 lint打印passed 退出码0 JS文件一个没查 识别信号 diff有改动
 ---
 
 # 路径重复拼接致受检清单滤空而门禁静默放行

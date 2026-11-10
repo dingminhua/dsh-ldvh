@@ -40,6 +40,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Human 授权推进关闭；scope_boundary 三项停止条件逐字达成（30 号 §8.1/§8.3 承载），转 implemented 并留明第五项不在本条边界内
+  - at: 2026-11-10T11:09:31.913Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 目标与子目标 引导创建 项目初始化对话 触发句 流程由业务系统段承载 该段无此流程 全仓核对 引导创建缺口
 ---
 
 # 项目目标与 sub-goal 的引导创建

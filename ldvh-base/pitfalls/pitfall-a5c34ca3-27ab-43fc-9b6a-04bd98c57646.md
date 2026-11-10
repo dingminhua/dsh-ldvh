@@ -14,6 +14,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 状态闭集收缩迁移：2026-11-03 Human 决定取消 Pitfall 的 `draft` 待确认态（23 §9），本对象作为存量 draft 载体迁为 active；其所述缺陷已由提交 1a3b4b5 修复，正文所述三条同态用例中 draft→draft 两条随该档取消一并移除
+  - at: 2026-11-10T11:35:51.301Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 补充边界判据 绑active 同态更新漏检 draft到draft 补充级更新 scope整体换掉 受控写入通过 判据未覆盖同态
 ---
 
 # 补充边界判据绑 active 致同态更新漏检

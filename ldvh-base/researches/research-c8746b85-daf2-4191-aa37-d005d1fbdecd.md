@@ -89,6 +89,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 勘误 F3、F11 与建议 3：(a) atomic-write 的 PID 锁只作用于管辖登记载体（$DSH_HOME/ldvh/governed-projects.yaml），事实源 ldvh-base/ 不经该包（8 个 fact writer 各自无锁原子替换），原表述把约束误挂到事实源目录；(b) 153 是宿主 package.json 的声明依赖数，node_modules 下实测 275 个 dsh* 包全为 rc.2
+  - at: 2026-11-10T11:38:11.109Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: DSH rc1到rc2 契约只增不改 服务数增 事件数增 客户端槽位增 模型可见Tool零删除 会话持久化格式未升级
 ---
 
 ## 研究问题

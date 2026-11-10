@@ -35,10 +35,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 8 → 9（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:53.204Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 9
   first_at: 2026-11-09T14:30:53.417Z
   last_at: 2026-11-09T21:58:18.921Z
+recall_digest: 载体内聚 同文双存 写入失败与二次事实 正文逐字复制summary 同一段文字两处 每次写入手工复制 失败率
 ---
 
 # 载体内聚要求同文双存致写入失败与二次事实

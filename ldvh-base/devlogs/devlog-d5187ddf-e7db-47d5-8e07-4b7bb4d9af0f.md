@@ -19,6 +19,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 把来源交代改为不引用已删除路径的形式（保留文件名与首次入库提交 3f30306），因为 docs/ 路径引用会被 validation/docs_reference_dangling 判为悬空依赖。
+  - at: 2026-11-10T11:10:49.275Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 审核落点专用会话 方案废止 落盘次日 宿主周期调度 专属会话 随静置触发 不绑落点会话 不存在间隔这个量 方向相反
 ---
 
 # 审核落点专用会话方案落盘次日被废止

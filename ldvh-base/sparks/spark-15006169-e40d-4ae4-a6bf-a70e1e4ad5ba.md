@@ -27,6 +27,11 @@ change_log:
     provider: xiaomi-token-plan-cn
     model: mimo-v2.6-flash
     summary: Human 裁定废弃：勾选框形态不进入规范条文，逐条理由记入正文处置记录
+  - at: 2026-11-10T11:09:31.145Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 任务勾选框 复选框 任务级进度 呈现形态 未落地 tasks.md 勾选标记 并行标记 work items 下限形态 模板 入规范 待裁定
 ---
 
 # 任务勾选框形态是否入规范

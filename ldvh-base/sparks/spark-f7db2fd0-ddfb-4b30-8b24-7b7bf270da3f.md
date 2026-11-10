@@ -1,11 +1,11 @@
 ---
 title: 调研与吸收须锚定当前目标与决定
 status: open
-serves: 3ab9c84c-0ebd-45d5-983d-cec515ef623a
 question: 调研与吸收要围绕当前目标与决定，还差什么：是给 Research 加锚定字段、在 33 号入口加核对判据，还是把「服务哪条子目标」纳入既有 serves 采用面？
 scope_boundary: 当「Research 如何登记其服务的目标与决定」与「无锚定的调研是否准予进入」两条判据能从规范源原文读出时停止；不在本议题内决定调研的方法论与轮次上限。
 intent: 用户指出调研与吸收应围绕当前目标与决定，而非漫无目的。实查发现 33 §5.1 只有原则句、24 号 research_purpose 不提目标/决定，47 份 Research 中仅 5 份 purpose 提及、serves 使用 0 次——偏移已实际发生。先判定锚定该落在哪个字段、无锚定是否准予进入，再决定改 24 还是改 33。
 summary: 调研必须围绕当前目标与决定，但 33 §5.1 只有一句原则表述、24 号 research_purpose 不要求指向目标或 active ADR；实测 47 份 Research 中仅 5 份 purpose 提及目标/决定/子目标，serves 使用 0 次——「无锚定」已成实际形态，缺的是可核对的登记项与准入判据。
+serves: 3ab9c84c-0ebd-45d5-983d-cec515ef623a
 object_uid: f7db2fd0-ddfb-4b30-8b24-7b7bf270da3f
 fact_type_key: spark
 created_at: 2026-11-09T10:52:52.509Z
@@ -14,6 +14,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 Spark 对象
+  - at: 2026-11-10T11:06:12.253Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 调研吸收锚定 当前目标与决定 原则表述一句 research_purpose不要求指向 实测47份仅5份 serves零使用 无锚定成形态 准入判据缺失
 ---
 
 # 调研与吸收须锚定当前目标与决定

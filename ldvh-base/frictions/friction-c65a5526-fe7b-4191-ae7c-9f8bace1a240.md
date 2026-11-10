@@ -11,10 +11,15 @@ change_log:
     provider: openai-codex
     model: gpt-6.1-terra
     summary: 摩擦发现阈值晋升（观察缓冲同源条目 3 条 ≥ 3，11 §9 第 3 项）
+  - at: 2026-11-10T11:36:53.168Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 3
   first_at: 2026-11-05T20:53:13.640Z
   last_at: 2026-11-06T09:15:01.692Z
+recall_digest: 受控路由 空答复不可区分 工单未建 返回未取得有效选择 候选答复记录为空 据此未创建 blocked收尾 空答复语义
 ---
 
 # 受控路由空答复不可区分致工单未建

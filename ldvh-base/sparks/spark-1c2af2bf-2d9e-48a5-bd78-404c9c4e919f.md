@@ -34,6 +34,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Human 决定（2026-10-19）不再跟踪本议题：状态 open→discarded，普通废弃不声明合并/拆分关系；当前理解节补记处置性质、未回答范围与边界
+  - at: 2026-11-10T11:09:31.153Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 问句准入 取代创建判据 重建总纲 必须砍的重量 授权门禁 修订提案 未纳入范围 转出建档 未被承接 准入判据
 ---
 
 # 问句准入是否取代创建判据

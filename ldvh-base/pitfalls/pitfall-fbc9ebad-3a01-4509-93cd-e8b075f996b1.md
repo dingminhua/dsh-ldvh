@@ -10,6 +10,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 闲时辅助经验积累·审核段据缓冲条目 681e5b84-6a24-4a37-a74c-659c7f35a3e3 形成候选（11 §10.2 第 3 项）
+  - at: 2026-11-10T11:36:04.607Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 审核修复 新起段落 违反结构契约 本该并入既有段落 独立段落 变成六段 违反五段契约 修复动作本身违规
 ---
 
 # 审核修复新起段落违反规范自述结构契约

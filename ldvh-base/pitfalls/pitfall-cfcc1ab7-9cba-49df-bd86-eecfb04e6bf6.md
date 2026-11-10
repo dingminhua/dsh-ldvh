@@ -18,6 +18,11 @@ change_log:
     provider: huoshan
     model: deepseek-v4-1-flash-261017
     summary: 按 Human 决定入档（draft→active，2026-11-02 裁定 13 条「复现成功/机制成立」候选入档）
+  - at: 2026-11-10T11:36:04.555Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 子代理中断 结论丢失 落盘产物可复用 取证审核中途被中断 判断只在最后交付消息 随中断消失 产物留存但结论没有
 ---
 
 # 子代理中断致结论丢失而落盘产物可复用

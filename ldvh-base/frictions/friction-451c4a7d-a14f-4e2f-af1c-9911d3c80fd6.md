@@ -47,10 +47,15 @@ change_log:
     provider: modelflare
     model: gpt-6.1-terra
     summary: 补充观察：count 11 → 12（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:38.940Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 12
   first_at: 2026-11-02T20:15:51.816Z
   last_at: 2026-11-07T19:46:27.153Z
+recall_digest: 并行会话 未提交改动 召回用例失效 他人改动 source-recall recall-injection 4条用例失败 变异不可信 工作树不干净
 ---
 
 # 并行会话未提交改动致召回用例失效

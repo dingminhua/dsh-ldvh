@@ -18,6 +18,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 机械化承载盘点登记（2026-10-28）：friction-discovery-provider.test.mjs:262 与 idle-checkpoint.test.mjs:360 断言失败须带 diagnostic 与 residual 错误码；状态与 scope 不变（23 §9.3 补充级更新）。
+  - at: 2026-11-10T11:35:51.334Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 子代理审核 provider超时 连续零产出 三次均error 无结论 主控不知原因改两轮方案 换provider后成功 无产出不等于无缺陷
 ---
 
 # 子代理审核因 provider 超时连续零产出

@@ -31,6 +31,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/02 §10.1「写入前的入参核对」与第 13 节验证表对应行吸收；同时修复既有结构缺陷（补回缺失的「影响与适用范围」H2，本对象此前 body_valid=false）。
+  - at: 2026-11-10T11:36:04.588Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 候选入参 凭印象拼装 预检缺字段失败 补上缺失字段即通过 工作区本身无问题 字段清单未核对
 ---
 
 # 候选入参凭印象拼装致预检缺字段失败

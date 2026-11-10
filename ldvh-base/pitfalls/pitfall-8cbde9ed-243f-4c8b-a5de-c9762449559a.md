@@ -23,6 +23,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/06 §5「断言须以被测面的真实形状为准」与 §7「形状断言有效性」吸收为强制规则；本条不再独立承担约束，仅作来源引用。
+  - at: 2026-11-10T11:35:38.477Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 回归用例 虚构事实读取形状 复核阻塞 独立复核对不关闭 发现指向用例 假形状 事实读取投影 用例与实现不符
 ---
 
 # 回归用例虚构事实读取形状致复核阻塞

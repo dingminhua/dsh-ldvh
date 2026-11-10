@@ -18,6 +18,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充级更新（23 §9.3）：登记 2026-10-28 机械化承载与规范依据盘点结论——机械承载为覆盖不全（用例已收窄到 invalid_request 并钉住理由，破坏性反证做过），规范源为部分吸收（05:190 只限响应生产侧）；状态与 scope 不变。
+  - at: 2026-11-10T11:36:04.596Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 粗粒度拒绝断言 目标校验零检测 用例断言缺摘要必拒 失败但理由不对 拒绝原因未细分 校验目标落空
 ---
 
 # 粗粒度拒绝断言致目标校验零检测

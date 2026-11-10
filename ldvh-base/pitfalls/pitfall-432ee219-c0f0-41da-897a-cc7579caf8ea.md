@@ -15,6 +15,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 候选未入档即被否决：独立复现验证发现根因段被原始留痕反驳（turn 19 下断言前已 grep 读出 specs/02:262 原文并在正文引用，且已把定性权交回 Human），与 friction-fd9addd5、Pitfall a8f85076 另有查重关系；据 Human 2026-10-28「不入档的应该废弃」执行 draft→discarded。
+  - at: 2026-11-10T11:35:25.224Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 未核对规范原文 下红线强断言 结论反转 报成可能违反红线 下一轮自行推翻 没核对原文就判断 先取证再断言
 ---
 
 # 未核对规范原文即下红线强断言致结论反转

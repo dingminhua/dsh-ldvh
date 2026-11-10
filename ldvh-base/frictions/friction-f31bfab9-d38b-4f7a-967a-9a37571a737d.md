@@ -15,10 +15,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 3 → 4（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:53.192Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 4
   first_at: 2026-11-03T11:28:38.167Z
   last_at: 2026-11-04T05:31:28.755Z
+recall_digest: README悬空引用 未被机械拦下 docs目录校验记录文档不存在 git ls-files docs为0 留在受保护文档 此前未捕获
 ---
 
 # README 悬空 docs 引用未被机械拦下

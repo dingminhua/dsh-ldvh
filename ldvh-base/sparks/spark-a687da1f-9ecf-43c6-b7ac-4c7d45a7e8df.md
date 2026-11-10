@@ -6,10 +6,10 @@ scope_boundary: 给出「补记发生在哪些入口与条件下、影响哪些�
 intent: 复核身份是关闭侧独立性判定的机械基准，被补记即失真且机械层不可辨。收敛为 Spark 以便跨行动处置（含存量已被补记的条目如何如实登记）。
 summary: "`workcase-4af2b871` 的残留与去向里记着一处实现层缺陷：writer 在受控写入时会给既有的 `reviews` 条目补记写入者身份（本会话的 `session_id` 与 `implementer_session_id`），造成复核条目的身份错误归属——那些条目本是更早的会话产出的，被补记后会读成由本次写入者复核。载体原话：「本对象 reviews[0]（2026-09-18 由 workbuddy-global 记录）在 2026-09-27 的两次受控写入中被 writer 按「既有条目缺失时补记」的路径补上了本会话的 session_id 与 implementer_session_id」；去向原话：「writer 对既有 reviews 条目补记写入者身份的行为属实现层缺陷（会造成复核条目身份的错误归属），另立工单处置。」要紧之处：`reviews[].session_id` 与 `implementer_session_id` 是关闭侧独立性比对的基准（21 §10.4／§14 要求至少一条复核与实施者可比对且不同会话），补记即污染该基准，而机械层无法区分原产出身份与补记身份。"
 serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
+disposition: 依附 WorkCase reviews 身份，WorkCase 正被取消评估
 object_uid: a687da1f-9ecf-43c6-b7ac-4c7d45a7e8df
 fact_type_key: spark
 created_at: 2026-10-01T18:35:47.566Z
-disposition: "依附 WorkCase reviews 身份，WorkCase 正被取消评估"
 change_log:
   - at: 2026-10-01T18:35:47.566Z
     provider: workbuddy
@@ -23,8 +23,13 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: "补入 2026-11-02 只读重核节：实现侧已由 75222a4（2026-09-27）修复——stampReviewEntries 改为不作继承性补齐（isExistingEntry ? storedSessionId : sessionId），同提交另修 reviews 漏传被清空与条目数减少两处；implementer 侧由 friction-6ce193a2 于 2026-10-28 另修。存量污染仍在：4af2b871 reviews[0] 的 session_id 与 implementer_session_id 同值、来源为 null，逐提交追踪确认由 55babed 补记，且该提交晚于修复 82 秒——补记走的是绕过 writer 的直接改文件路径。四待答项中三项已有结论，第四项（存量处置）未答，故不结案。summary 未改"
+  - at: 2026-11-10T11:09:31.628Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: 4af2b871-49d2-4534-818a-beb61a6eeac9
+recall_digest: writer补记reviews身份 归属失真 既有条目补写入者 本会话身份 复核条目错归 早期会话产出 实现缺陷
 ---
 
 # writer 补记 reviews 身份致归属失真

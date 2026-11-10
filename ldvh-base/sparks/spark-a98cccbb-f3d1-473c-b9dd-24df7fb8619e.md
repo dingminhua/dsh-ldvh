@@ -19,8 +19,13 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经 Human 判定转 discarded：该场景属 02 §9.1 F2「不能单独证明」已覆盖的设计取舍，非欠债；撤销本议题，不做机械陈旧检测
+  - at: 2026-11-10T11:09:31.663Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: 7f5b8acc-02a1-4cc7-8b2b-60d2433fbd67
+recall_digest: 候选陈旧检测 撤销 不属欠债 设计取舍 F2不能单独证明 现时适用结论当前 交读者F3复核 不做机械检测 不再跟踪
 ---
 
 # 召回候选的陈旧检测

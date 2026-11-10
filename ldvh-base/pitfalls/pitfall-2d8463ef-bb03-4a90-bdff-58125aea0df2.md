@@ -23,6 +23,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/06 §6「依赖边界须与提交边界对齐」与 §7「依赖边界的加载闭合」吸收为强制规则，本条不再独立承担约束；正文补记吸收条款的可回指依据（35 §8.6 第 3 项）。
+  - at: 2026-11-10T11:35:10.900Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 已跟踪文件import未跟踪文件 纯净检出即崩 ERR_MODULE_NOT_FOUND 提交边界当作完整性 ESM跨文件引用 新建文件未入版本库
 ---
 
 # 已跟踪文件import未跟踪文件致纯净检出即崩

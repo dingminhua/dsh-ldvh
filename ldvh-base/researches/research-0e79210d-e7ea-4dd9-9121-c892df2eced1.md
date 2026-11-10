@@ -55,6 +55,11 @@ change_log:
     provider: trae
     model: DeepSeek-V4-Flash-Official
     summary: 受控创建 Research 对象（补缺清单4：v4 吸收账读/写维五吸收项在 v5 的落实状态重验；双层消费/局部补丁/生命周期已落实，记忆预热部分落实，代码图谱索引未承接；5 confirmed + 1 gap，sufficient 收敛）
+  - at: 2026-11-10T11:37:18.483Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: v4吸收账 读写维 五吸收项 v5落实状态 双层消费 局部补丁 生命周期 代码图谱索引未承接 已落实与未落实
 ---
 
 ## 研究问题

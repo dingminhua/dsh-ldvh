@@ -15,6 +15,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经 Human 决定入档（draft → active，23 §16）：补入 dsh-purge 的对照做法与「未解决」的处置去向
+  - at: 2026-11-10T11:36:04.577Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 重载窗口 多实例 钩子重复 互相摘除 同一agent多份等效钩子 两类相反故障 重复注册 摘除他人
 ---
 
 # 重载窗口多实例致钩子重复且互相摘除

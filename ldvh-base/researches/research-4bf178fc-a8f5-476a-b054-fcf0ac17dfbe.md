@@ -87,6 +87,11 @@ change_log:
     provider: workbuddy
     model: hy4-preview
     summary: 受控创建 Research 对象（v5 调研计划 R4：dsh-solo-thinking 0.1.19 独立 Session 思考树与显式 Handoff；三路子代理取证+主控核验，含 serializeWrite 定义与限额逐项核对）
+  - at: 2026-11-10T11:37:35.074Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: dsh-solo-thinking 独立Session 思考树 显式Handoff 分支隔离 三角色 限额收敛 一分支一Session 扁平节点parentId链
 ---
 
 ## 研究问题

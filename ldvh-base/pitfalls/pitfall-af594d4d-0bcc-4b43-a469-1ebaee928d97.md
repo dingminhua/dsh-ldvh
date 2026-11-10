@@ -15,6 +15,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 机械化承载盘点登记（2026-10-28）：spa-asset-base-contract.test.ts:19 断言构建产物本地引用均以 /ldvh/ 开头；状态与 scope 不变（23 §9.3 补充级更新）。
+  - at: 2026-11-10T11:35:51.314Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 无基址构建 SPA白屏 构建成功 vite输出built 无错误警告 整页空白 网络面板JS/CSS请求落空 基址缺失
 ---
 
 # 无基址构建致 SPA 白屏

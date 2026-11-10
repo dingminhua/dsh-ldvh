@@ -31,6 +31,11 @@ change_log:
     provider: glm
     model: glm-5.3
     summary: 批次 F+ 号位对照注记：第 1 条引文「00 §3.1」为 2026-09-11 附件原文照录（现行附件已更新为 00 §3.1、§3.3 与 §3.4 措辞）、终止依据处「00 §3.1」为创建时点号位（六业务系统名录现 00 §3.4），均不改原文、末尾追加号位注记；「30/31」系统号位同为时点记录（现 specs/33 调研吸收、讨论并入 04 §6.1）；终态 discarded 与 disposition 不变，仅内容更正（20 §9.2）
+  - at: 2026-11-10T11:09:31.747Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: dimensions七元组 表达力缺口 收口关闭 三条前提不成立 能力层标签词表 能力轴 非业务系统镜像 不逐一对应
 ---
 
 # dimensions 七元组表达力缺口

@@ -18,6 +18,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 按 23 §16 第 1 项入档（draft→active）：独立复现验证已登记于 c1c63f8，四前提齐；同时清理症状段重复的引证行（勘误级）
+  - at: 2026-11-10T11:35:25.243Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: Spark草稿 改写summary被拒 coherence_invalid 连续两次拒 接口不说哪处坏 凭猜重试 载体内聚校验
 ---
 
 # Spark 草稿改写 summary 被拒

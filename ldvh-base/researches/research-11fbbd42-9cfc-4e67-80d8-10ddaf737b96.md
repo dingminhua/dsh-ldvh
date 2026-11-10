@@ -121,6 +121,11 @@ change_log:
     provider: workbuddy
     model: hy4-preview
     summary: 受控创建 Research 对象（v5 调研计划 R2：DSH 官方插件接入面；四路子代理取证+主控核验，补上 R1 留下的 __DSH_BOOT__ 消费与浏览器认证两个缺口）
+  - at: 2026-11-10T11:37:18.494Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: DSH官方插件 接入面 api通道 认证 Web生命周期 前端启动图 Tab Sidebar 挂载 slot 白名单正则 interceptor 保留
 ---
 
 ## 研究问题

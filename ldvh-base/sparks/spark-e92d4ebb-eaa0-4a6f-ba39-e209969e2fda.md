@@ -35,11 +35,16 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 同步 disposition 的统计口径：由「35 个引用/34 个悬空」改为「仓内相对路径 32 个、缺失 31 个」，与正文与 summary 一致，避免终态字段与正文自相矛盾
+  - at: 2026-11-10T11:09:31.916Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: afc45279-0469-43d3-abdd-b6af0eab8b8b
   - object_uid: 56a5ed45-a7cb-4c2f-b2ad-e766a49338d3
   - object_uid: 2a521398-f0cc-4412-aba1-a4e783def874
   - object_uid: a8f85076-db85-4345-9844-63ba4db93c40
+recall_digest: 有价值信息 临时载体归位 丙案裁定 不新立义务条文 AI操作纪律 惯例补足 docs引用 去重统计 所指文件已不存在
 ---
 
 # 有价值信息滞留临时载体的归位义务

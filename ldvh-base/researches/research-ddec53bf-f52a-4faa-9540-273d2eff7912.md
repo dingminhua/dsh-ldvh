@@ -43,6 +43,11 @@ change_log:
     provider: trae
     model: DeepSeek-V4-Flash-Official
     summary: 受控创建 Research 对象（补缺清单6：2026-09 DSH 社区深度研究编排器现状刷新；open-deep-research 新编排器+源调用纪律+合成纪律、dsh-research 市场新形态；5 confirmed + 1 low gap，sufficient 收敛）
+  - at: 2026-11-10T11:38:21.110Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: DSH社区 深度研究编排器 现状刷新 open-deep-research 新编排器 多研究单元规划 源调用纪律 2026-09
 ---
 
 ## 研究问题

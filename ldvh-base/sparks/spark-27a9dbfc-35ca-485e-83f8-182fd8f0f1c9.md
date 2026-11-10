@@ -35,6 +35,11 @@ change_log:
     provider: workbuddy-global
     model: hy4free
     summary: 停止条件达成转 implemented：两半均已闭合——writer 全通道建成、workcases 下载体全部 closed（一轮闭环成立）；10 §5.9／06 §6 承接条文经独立复核 pass，21 §15.2 承重声明行已删、身份不可用定案为拒绝分配；无 scope 内残留。原 disposition 所称「撤行与身份偏离另案」已过时，据实改写。
+  - at: 2026-11-10T11:09:31.167Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 承载层 attempt 接缝 承重声明已删 独立复核 身份不可用 fail-closed 拒绝分配 Gate1 takeover reallocate 收口
 ---
 
 # WorkCase 承载层与 attempt 接缝

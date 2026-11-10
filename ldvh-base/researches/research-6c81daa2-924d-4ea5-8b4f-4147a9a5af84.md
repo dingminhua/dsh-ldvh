@@ -53,6 +53,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 Research 对象
+  - at: 2026-11-10T11:38:11.044Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: DSH内核 0.1.2到0.1.5 家族插件对接变更 27项目受影响面 会话持久化句柄化 locate readRaw移出 会话格式v3 迁移
 ---
 
 ## 研究问题

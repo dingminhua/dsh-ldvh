@@ -23,6 +23,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/04 §6.3「同等强度的核对单位」与其第 10 节验证表「同等强度声明」行吸收；同时修复既有结构缺陷（补回缺失的「影响与适用范围」H2，本对象此前 body_valid=false）。
+  - at: 2026-11-10T11:35:38.508Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 只抄写入函数 未抄证据保管链 门禁可绕 pre_reviews 同构 不可自证性 列机械保障 独立复核实测 证据链缺失
 ---
 
 # 只抄写入函数未抄证据保管链致门禁可绕

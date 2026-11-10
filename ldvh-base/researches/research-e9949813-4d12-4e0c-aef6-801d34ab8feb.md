@@ -90,6 +90,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 更正章号引用：02 章序重排后同步全部引用（旧 §10 调研→§9）；仅改章号，其余字段与正文保持原文
+  - at: 2026-11-10T11:38:21.133Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: dsh-deep-research 编排机制 v5承接 EIG边际增益 no-gain收敛 三态证据模型 调查前澄清 模型分层未承接
 ---
 
 ## 研究问题

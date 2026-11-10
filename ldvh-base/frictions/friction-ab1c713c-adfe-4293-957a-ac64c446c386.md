@@ -83,10 +83,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 14 → 15（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:53.151Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 15
   first_at: 2026-10-13T06:39:51.837Z
   last_at: 2026-11-09T00:10:45.220Z
+recall_digest: 按点名逐行修复 同类残留反复漏报 只改该行 未按判据同载体扫描 其余同类残留 下一轮审核再发现 修复面未穷举
 ---
 
 # 按点名逐行修复致同类残留反复漏报

@@ -27,8 +27,13 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 转 discarded（Human 确认）：并入 spark-b0e805d1「插件呈现层三处已定位缺陷」，按 20 §9.3 写入 split-into 关系；本议题未落地任何修复，故不标 implemented
+  - at: 2026-11-10T11:09:31.323Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: 364df30e-ce3d-4cca-9463-c57a1fad399a
+recall_digest: advice段解析 吞条目 退出条件不严 顶层bullet未退出 建议段 缺陷已定位 残留去向 解析越界 误吞 修复面
 ---
 
 # advice 段解析吞条目缺陷

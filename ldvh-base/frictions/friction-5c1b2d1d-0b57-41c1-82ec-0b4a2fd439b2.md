@@ -31,10 +31,15 @@ change_log:
     provider: workbuddy
     model: hy4free
     summary: 补充观察：count 7 → 8（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:38.960Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 8
   first_at: 2026-11-03T22:18:47.703Z
   last_at: 2026-11-04T21:13:24.099Z
+recall_digest: record_review 取不到子代理复核结论 六份判定成立 无一进入reviews close被机械拦下 结论回传通道
 ---
 
 # record_review 取不到子代理复核结论

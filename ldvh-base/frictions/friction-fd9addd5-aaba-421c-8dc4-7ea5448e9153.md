@@ -118,10 +118,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 25 → 26（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:53.200Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 26
   first_at: 2026-10-19T08:39:01.956Z
   last_at: 2026-11-09T21:58:18.932Z
+recall_digest: 建议未先核规范源 隔轮自我推翻 未读原文先给方案推荐与代价 读完原文下一轮推翻 改口另一方案 取证顺序
 ---
 
 # 建议未先核规范源致隔轮自我推翻

@@ -18,6 +18,11 @@ change_log:
     provider: huoshan
     model: deepseek-v4-1-flash-261017
     summary: 按 Human 决定入档（draft→active，2026-11-02 裁定 13 条「复现成功/机制成立」候选入档）
+  - at: 2026-11-10T11:35:10.891Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 读改写加rename 并发结算 丢失更新 部分结算消失 20条只1条生效 串行正常 单线程顺序测试发现不了 跨进程共享 持久化
 ---
 
 # 读改写加 rename 并发结算丢失更新

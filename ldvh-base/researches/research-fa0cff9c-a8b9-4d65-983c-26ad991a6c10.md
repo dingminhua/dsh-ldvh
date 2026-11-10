@@ -186,6 +186,11 @@ change_log:
     provider: workbuddy
     model: space-bunny
     summary: 增补闲时机制专项（F19–F23，基线升级至 v0.5.26）：初版仅两句附注，现展开为 idle review 的触发门禁、写入边界、失败三态记账、版本演进与容量维护分工五条正式发现；同时修正初版把「本地压缩/空闲评审」并列为闲时机制的误读，并复核 F12/F16 在新版本仍成立。
+  - at: 2026-11-10T11:38:21.163Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: dsh-mnemon 可组合记忆控制平面 三层记忆 Provider Source拥有数据 Strategy纯确定性 View有界上下文 九种数据面 闲时机制增补
 ---
 
 ## 研究问题

@@ -18,6 +18,11 @@ change_log:
     provider: minmax
     model: MiniMax-M3.1-Flash
     summary: 机械化承载盘点登记（2026-10-28）：workcase-design-language-contract.test.ts:63 的类名守卫；状态与 scope 不变（23 §9.3 补充级更新）。
+  - at: 2026-11-10T11:36:04.611Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 自写类名扫描器 未剥前缀 假阳性 报告ldvh主题类未定义 focus-visible ring-ldvh-accent 引用了不存在类 前缀未剥离
 ---
 
 # 自写类名扫描器未剥前缀致假阳性

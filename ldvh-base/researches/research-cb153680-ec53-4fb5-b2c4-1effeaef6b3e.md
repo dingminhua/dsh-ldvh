@@ -50,6 +50,11 @@ change_log:
     provider: trae
     model: DeepSeek-V4-Flash-Official
     summary: 受控创建 Research 对象（补缺清单3：v4 T1-T6 调研系统技术加固在 v5 的落实状态核对；T2/T3/T4 已落实，T1/T5/T6 未落实；3 confirmed + 3 gaps，sufficient 收敛）
+  - at: 2026-11-10T11:38:11.119Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: v4 T1到T6 调研系统技术加固 v5落实状态 EIG停止 validator 五段 关系边约束已落实且更强 体量闸 调研模型 解耦未落
 ---
 
 ## 研究问题

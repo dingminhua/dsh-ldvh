@@ -11,10 +11,15 @@ change_log:
     provider: openai-codex
     model: gpt-6.1-terra
     summary: 摩擦发现阈值晋升（观察缓冲同源条目 3 条 ≥ 3，11 §9 第 3 项）
+  - at: 2026-11-10T11:36:38.930Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 3
   first_at: 2026-11-05T06:36:09.895Z
   last_at: 2026-11-06T11:13:08.952Z
+recall_digest: 后台子代理 失败退出 无结束消息 完成前失败 没有结束消息 结论缺失 无产出
 ---
 
 # 后台子代理失败退出无结束消息

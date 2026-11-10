@@ -23,6 +23,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 撤回为 discarded：入档所据的独立复现结论经机械核对不成立（所述修复在仓库中无落点），如实登记更正
+  - at: 2026-11-10T11:36:04.580Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: undefined键 覆盖落盘值 execute被判失配 WorkCase open期 C2闸拒绝 载体未被修改 伴生症状 键缺失被当改动
 ---
 
 # undefined 键覆盖落盘值致 execute 被判失配

@@ -55,6 +55,11 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash-sg
     summary: 补 evolution 字段与正文「演变」节：补记四轮处置史（2026-09-20 建立、11-02 第二轮重测、11-04 第三轮重测、11-04 取舍落地）。上一轮转 implemented 时漏传 evolution，致 frontmatter 与正文均缺该节。
+  - at: 2026-11-10T11:09:31.454Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 载体内聚冗余 取舍 短正文对象 逐字进入正文 实测全库 冗余副本 内聚收益递减 取舍判据
 ---
 
 # Spark 内聚的冗余与取舍

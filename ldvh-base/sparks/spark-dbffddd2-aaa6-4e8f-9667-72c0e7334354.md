@@ -35,6 +35,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Human 授权推进关闭；件一、二已建成属实，件三经 Human 形态判定（插件模块即承载层）闭合，转 implemented 并留明不主张条文已补齐
+  - at: 2026-11-10T11:09:31.870Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 执行系统 单元执行 已定项B 行动模板退出 三类语义两类 模板编号作废 工单执行 三件套模式 流程层结构层
 ---
 
 # 执行系统（单元执行）的建立

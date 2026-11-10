@@ -26,6 +26,11 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 转 discarded（Human 确认）：缺陷③拆出为 spark-a98cccbb「召回候选的陈旧检测」并写 split-into；按 20 §9.3 被拆分的原 Spark 一律 discarded，不因①②已落地而标 implemented；priority 随终态移除
+  - at: 2026-11-10T11:06:12.009Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 召回排序 决策依据 三分 稀有度加权 IDF加权 非标准BM25 tf恒为1 死代码 跨源不可比 排序分与注入决策分离
 ---
 
 # 召回排序与决策依据的改进

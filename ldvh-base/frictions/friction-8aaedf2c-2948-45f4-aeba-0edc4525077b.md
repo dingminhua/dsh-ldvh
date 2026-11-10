@@ -11,10 +11,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 摩擦发现阈值晋升（观察缓冲同源条目 3 条 ≥ 3，11 §9 第 3 项）
+  - at: 2026-11-10T11:36:39.000Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 3
   first_at: 2026-10-30T09:55:06.577Z
   last_at: 2026-11-09T19:08:25.006Z
+recall_digest: 新增用例 未落到被守护分支 变异未检出 改掉gitignore base匹配分支 用例仍全过 守护面错位
 ---
 
 # 新增用例未落到被守护分支致变异未检出

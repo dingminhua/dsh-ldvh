@@ -31,6 +31,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 复核确认三项交付已定案应用，并推翻上一轮对 spec_key 的误判后转 implemented
+  - at: 2026-11-10T11:06:12.247Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 规则遵守系统 功能重定位 双源召回命名 恰当时候召回 而非事后质检 输入来源 L0-L4 F0-F4 召回操作 定位依据
 ---
 
 # 规则遵守系统的功能重定位与双源召回命名

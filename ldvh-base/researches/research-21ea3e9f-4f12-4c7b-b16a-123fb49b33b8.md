@@ -83,6 +83,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 正文改为以指南名称（remove-runtime-invariants / subagent-activations / plugin-engines-dsh）而非上游 docs/ 路径来指称来源，使事实对象在受辖仓内不产生悬空 docs/ 引用；结论与三态不变
+  - at: 2026-11-10T11:37:18.519Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: DSH 0.2.0到0.2.1变更 两处契约破坏 区间规模 commits files 影响宿主对接 消费面
 ---
 
 ## 研究问题

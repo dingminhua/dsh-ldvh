@@ -73,11 +73,16 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 更正调查问题措辞：原「覆盖成功与失败两极性」把「经验类型须承载双极」当成目标，而 2026-10-28 判定该目标本身不成立（成功记录的承载去向由 35 §8.3 判据 1/2 覆盖），改为「失败与成功两极化出的记录各自落到正确的承载类型」——20 §9.2 终态不可重开但内容可更正
+  - at: 2026-11-10T11:09:31.795Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: 981e5bf5-229a-4e04-af2d-4c32b795d27d
   - object_uid: 56a5ed45-a7cb-4c2f-b2ad-e766a49338d3
   - object_uid: b8cd2268-91ba-4585-bb39-ec674d64c097
   - object_uid: 5eec3197-a92e-46fb-a5ac-a7f00c9d2319
+recall_digest: 分诊边界 重复治理 有价值记录事项 经验 闲时通道 结构性缺口 论域只覆盖失败一极 跨类重复 同类重复
 ---
 
 # 摩擦与经验的分诊边界与重复治理

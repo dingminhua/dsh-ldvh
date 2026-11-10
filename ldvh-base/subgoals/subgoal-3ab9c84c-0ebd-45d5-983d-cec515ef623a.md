@@ -21,7 +21,12 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补写显示次序 order=1（28 §8：order 为可选正整数、不承担引用职责，调整属补充级更新），使聚焦视图与列表按目标叙述次序呈现。
+  - at: 2026-11-10T11:34:32.836Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 order: 1
+recall_digest: 项目可厘清 评估包 可回读 预先声明项目范围 目标决定规范工作经验摩擦 状态来源关联 遗漏项 未验证范围 逐项核对
 ---
 
 # 项目可厘清

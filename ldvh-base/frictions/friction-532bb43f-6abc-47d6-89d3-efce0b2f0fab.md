@@ -23,10 +23,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充级更新（保持 open，不构成销账）：a3525fc 已建成转写出口，且按 per_task 正确位置重读运行记录确认它已在生产真实触发两次（2026-11-03T23:29:55Z，一条转入缓冲 216318ee、一条幂等 skipped），纠正了我此前「从未触发」的错误判断。但出口比本条窄：转写只覆盖「机制已清楚、只是未解决」，判不出机制的失败仍两头落空，故保持 open；另记 spec/11 §17 F2 已登记的「发现层缺证据幂等闸」不对称。
+  - at: 2026-11-10T11:36:38.957Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 4
   first_at: 2026-10-31T17:25:13.281Z
   last_at: 2026-11-01T14:43:41.872Z
+recall_digest: 摩擦与经验两侧 失败处置接缝漏失 同一场未修复失败 摩擦侧未达N3不收 经验侧写不出解决验证判discarded 两侧都不留痕
 ---
 
 # 摩擦与经验两侧失败处置接缝漏失

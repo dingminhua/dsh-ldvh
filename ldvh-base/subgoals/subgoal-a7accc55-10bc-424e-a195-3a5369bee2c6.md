@@ -21,7 +21,12 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补写显示次序 order=3（28 §8：order 为可选正整数、不承担引用职责，调整属补充级更新），使聚焦视图与列表按目标叙述次序呈现。
+  - at: 2026-11-10T11:34:32.853Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 order: 3
+recall_digest: 召回保障当前工作 双源召回评估包 规范源候选 事实源候选 未检查范围 适用判断 行动落实 遗漏截断 进入当前判断位置
 ---
 
 # 召回保障当前工作

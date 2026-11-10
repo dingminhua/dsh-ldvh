@@ -71,6 +71,11 @@ change_log:
     provider: workbuddy
     model: space-bunny
     summary: 登记交还设计的业界调研，支撑 00 §7.4 结构化交还的存废判断
+  - at: 2026-11-10T11:38:21.154Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 交还设计 业界做法 七项结构对照 结构化交还非压缩总结 公开协议 状态分层共识 Handover拆得更细 不自动脱敏 逐项筛选
 ---
 
 ## 研究问题

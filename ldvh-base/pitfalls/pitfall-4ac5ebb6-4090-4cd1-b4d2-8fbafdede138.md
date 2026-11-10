@@ -10,6 +10,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 闲时辅助经验积累·审核段据缓冲条目 0595c959-d3f9-4a40-a8e1-a37c64a836f4 形成候选（11 §10.2 第 3 项）
+  - at: 2026-11-10T11:35:25.240Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: dsh-ui 非白名单组件 静默丢弃 围栏节点凭空消失 没有渲染 收不到提示 结构少一块 白名单校验
 ---
 
 # dsh-ui 非白名单组件类型被静默丢弃

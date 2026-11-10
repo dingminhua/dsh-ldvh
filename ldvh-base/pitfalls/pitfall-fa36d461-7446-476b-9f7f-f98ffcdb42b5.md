@@ -27,6 +27,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/06 §5「『没有输出』与『输出为零』是两个结果」与 §7「批量判定的零值歧义」吸收，且原始失效点已于 dfde6ff 修复（三态判定单一入口、两份 failCount 副本删除）；正文补吸收回指与废止前原始规避记录。
+  - at: 2026-11-10T11:36:04.605Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 验证副本 目标已存在 缺失输出被读作确定结论 11处变异全存活 与此前实测矛盾 假结果 副本未清理 结论反转
 ---
 
 # 验证副本目标已存在致缺失输出被读作确定结论

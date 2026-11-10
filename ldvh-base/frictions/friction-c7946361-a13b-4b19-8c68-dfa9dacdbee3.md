@@ -15,10 +15,15 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 补充观察：count 3 → 4（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:53.171Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 4
   first_at: 2026-10-31T18:44:57.126Z
   last_at: 2026-11-04T18:24:57.896Z
+recall_digest: 结果节正文 与结构化result 映射无机械门禁 正文写未达成 result标satisfied true close机械校验不拦 两侧不一致
 ---
 
 # 结果节正文与结构化 result 映射无机械门禁

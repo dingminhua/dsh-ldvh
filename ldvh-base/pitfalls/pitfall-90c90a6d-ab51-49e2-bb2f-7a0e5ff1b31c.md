@@ -15,6 +15,11 @@ change_log:
     provider: qoder
     model: dfmodel
     summary: 补入 2026-11-04 实测：plugin_manager 禁用→启用不能重载 lib 模块（ESM 按路径驻留），并更新「未覆盖」第 1 条与新增一组行为形态对比验证记录
+  - at: 2026-11-10T11:35:38.485Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 插件lib改动 需重启宿主 才进运行实例 源码已改 宿主机行旧模块 行为与源码不一致 以源码为准的校验 汇报已可用
 ---
 
 # 插件 lib 改动需重启宿主才进运行实例

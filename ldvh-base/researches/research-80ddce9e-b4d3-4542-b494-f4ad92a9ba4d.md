@@ -113,6 +113,11 @@ change_log:
     provider: trae
     model: DeepSeek-V4-Flash-Official
     summary: 受控创建 Research 对象（v5 调研计划 R5：dsh_workflow 0.1.2 可治理多 Agent 工作流层；三路子代理取证+主控核验，含 store 双写、状态机与 attempt 语义逐项核对）
+  - at: 2026-11-10T11:38:11.070Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: dsh_workflow 多Agent工作流层 脚本沙箱编排 事件加快照双写 有限修复 宿主原生调度 纯JS源字符串 run模型 QuickJS trusted-local
 ---
 
 ## 研究问题

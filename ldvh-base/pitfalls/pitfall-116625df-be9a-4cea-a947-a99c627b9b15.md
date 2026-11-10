@@ -19,6 +19,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 否决：根因段「预检不指出缺口」被代码推翻已更正，引用改 specs/09 §5.1；触发条件前提随 trailer 归属分工不再成立
+  - at: 2026-11-10T11:35:10.873Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 提交消息格式 凭惯例拼装 预检失败 provider model trailer 值无直接来源 自行拼 受控提交场景
 ---
 
 # 提交消息格式凭惯例拼装致预检失败

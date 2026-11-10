@@ -10,6 +10,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 闲时辅助经验积累·审核段据缓冲条目 7200455e-be10-456f-8dbd-9f8e4d7ab347 形成候选（11 §10.2 第 3 项）
+  - at: 2026-11-10T11:35:25.263Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 候选指纹 计入可省略初态 写拒 candidate_changed 已取得路由答复 再次路由询问 候选内容未变 指纹口径
 ---
 
 # 候选指纹计入可省略初态致写拒并重复提问

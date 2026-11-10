@@ -22,6 +22,11 @@ change_log:
     provider: qoder-global
     model: mmodel
     summary: 登记内容关联 refs（29 §8 / §11 / §12.3bis，2026-11-02 Human 裁定扩采用面）：条目侧登记自己与哪些事实对象有内容关联——正文「实测」段逐条对照这两张工单的审计条数与结论。正文与状态判定逐字不变。
+  - at: 2026-11-10T11:10:48.981Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 建前审核 分区覆盖 轮次上限 rebatch 保留流水 随提交落盘 候选文档自述过期 未并入 只实现侧边界 未知分区id
 ---
 
 # 建前审核分区覆盖与轮次上限落盘

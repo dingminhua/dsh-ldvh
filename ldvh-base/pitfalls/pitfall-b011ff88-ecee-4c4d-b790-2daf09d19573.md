@@ -18,6 +18,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 机械化承载盘点登记（2026-10-28）：workcase-goals.test.mjs:373/397/409 断言 complete/open 相位只走 get+create 且失败不被吞；状态与 scope 不变（23 §9.3 补充级更新）。
+  - at: 2026-11-10T11:35:51.317Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 相位闭集缺complete 错误吞成成功 对象仍open执行期 目标已标记complete 拉回active无效 resume报错 ok:true 错误被吞
 ---
 
 # 相位闭集缺 complete 致错误被吞成成功

@@ -36,6 +36,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 内容更正（23 §9.3 勘误级，status 保持 discarded）：吸收回指由裸行号 `:124`/`:159` 改为条文与表格行名引用——实测两处现已分别是 06 §5 的正向断言条与正文空行，真实位置在 06 §6「单一实现原则」句与 §7 验证表「单一实现」行；disposition 同步更正。
+  - at: 2026-11-10T11:36:04.584Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 身份判定分裂 关联判死 object_uid形态正则 多层各自维护 任一层版本位漂移 整体拒认 静默降级为数据不可用
 ---
 
 # 身份判定分裂致关联判死

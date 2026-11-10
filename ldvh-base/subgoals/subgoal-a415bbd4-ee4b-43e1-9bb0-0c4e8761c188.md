@@ -21,7 +21,12 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补写显示次序 order=4（28 §8：order 为可选正整数、不承担引用职责，调整属补充级更新），使聚焦视图与列表按目标叙述次序呈现。
+  - at: 2026-11-10T11:34:32.847Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 order: 4
+recall_digest: 空闲积累 摩擦发现 空闲运行评估包 观察范围 已形成经验 已入账摩擦 丢弃项 未决项 去向 未验证范围 持续能力
 ---
 
 # 空闲积累与摩擦发现

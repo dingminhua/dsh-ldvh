@@ -18,6 +18,11 @@ change_log:
     provider: huoshan
     model: deepseek-v4-1-flash-261017
     summary: 按 Human 决定入档（draft→active，2026-11-02 裁定 13 条「复现成功/机制成立」候选入档）；正文自 H2 起
+  - at: 2026-11-10T11:35:10.912Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 受控操作拒绝路径 先删Hook后校验 unregisterProject 准入校验晚于副作用 摘除GitGateHook 仍登记在册 实际不过门禁 非法提交通过
 ---
 
 # 受控操作拒绝路径先删Hook后校验

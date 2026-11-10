@@ -1,11 +1,11 @@
 ---
 title: 推进笔记与失败经验的义务真空
 status: open
-serves: 3ab9c84c-0ebd-45d5-983d-cec515ef623a
 question: 项目推进笔记与失败经验要成为义务而非可选，缺的是哪一环：强制登记判据、未解决失败的承载位，还是无工单工作的记录入口？
 scope_boundary: 当「推进笔记是否必须登记、登记在哪一类」与「未解决／未验证的失败由哪类承载」两条判据能从规范源原文读出时停止；不在本议题内决定笔记的书写格式与颗粒度。
 intent: 用户指出两点：规范要成体系集中（已基本做到），但项目推进要有笔记、失败也是经验。实查发现后者是真空：DevLog 的准入是「已收敛且有结论」所以允许不记，Pitfall 要求「已解决且已验证」所以未解决的失败无处可去。先判定这两处的承载与义务，再决定改 29/23 还是新增类型。
 summary: 规范集中已基本做到（29 份 + 4 附件、L0–L4 分层）；真空在另一半：29 号 DevLog 准入要求「已收敛且有可陈述结论」故允许不记，且无工单工作无承载位；23 号 Pitfall 要求「已解决并验证」故未解决/未验证的失败无处可去——「做了但没留痕迹」在规范层完全合法。
+serves: 3ab9c84c-0ebd-45d5-983d-cec515ef623a
 object_uid: da4a47bd-d184-4b35-a40c-7ebda7f04e73
 fact_type_key: spark
 created_at: 2026-11-09T14:02:16.792Z
@@ -14,6 +14,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 Spark 对象
+  - at: 2026-11-10T10:47:30.502Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 推进笔记 失败经验 义务真空 规范已基本做到 L0-L4分层 已收敛可陈述结论 允许不记 无工单工作 无承载位 已解决并验证 未解决失败 无处可去 做了没留痕迹 合法
 ---
 
 # 推进笔记与失败经验的义务真空

@@ -31,10 +31,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 6 → 7（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:53.178Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 7
   first_at: 2026-11-01T14:59:04.911Z
   last_at: 2026-11-09T14:48:28.324Z
+recall_digest: 已入库事实对象 可被直接编辑 绕过受控通道 直接改写research文件 未补change_log 自行撤销 写入通道唯一性
 ---
 
 # 已入库事实对象可被直接编辑绕过受控通道

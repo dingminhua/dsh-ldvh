@@ -19,10 +19,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 4 → 5（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:38.980Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 5
   first_at: 2026-11-01T15:13:55.205Z
   last_at: 2026-11-04T07:48:57.012Z
+recall_digest: 全量测试 静默少跑用例 未被拦截 通过数2912降到2865 少跑47例 测试文件加载静默失败 报告仍全绿
 ---
 
 # 全量测试静默少跑用例且未被拦截

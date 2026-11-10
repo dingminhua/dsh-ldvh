@@ -31,6 +31,11 @@ change_log:
     provider: glm
     model: glm-5.3
     summary: 批次 F+ 号位对照注记：本对象为 2026-09-13 时点概念收敛处置记录照录不改（含「07 §6」「specs/07-管辖范围规范.md」「03 F0」「04 §7.3」「31」等时点号位）；末尾追加号位注记给出现行对照（07 号管辖范围规范→现 specs/08、03→02、04→03、31 并入 04 §6.1，05/25 号位现行有效）；终态 implemented 与 disposition 不变，仅内容更正（20 §9.2）
+  - at: 2026-11-10T11:09:31.500Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 管辖判定 名实错配 已消解 同一实体两个名字 工作对象 管辖范围 概念收敛 第三名字消除 边界统一
 ---
 
 # 管辖判定操作的名实错配

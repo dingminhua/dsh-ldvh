@@ -67,6 +67,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 Research 对象
+  - at: 2026-11-10T11:38:21.138Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: DSH 0.2.1rc1到rc2 零契约破坏 区间规模 files 非文档部分 DeepSeek Search Fetch 模型标签徽标
 ---
 
 ## 研究问题

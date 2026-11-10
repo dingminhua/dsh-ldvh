@@ -23,6 +23,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 按 Human 2026-11-10 补充改写方向：取消工单后要的是行动前审核＋行动后复核，两者都须有可被证据判定的依据，大体沿用 WorkCase 判断标准但不再要求写成 WorkCase；question 据此由「Gate 1／Gate 2 授权语义承接」改写为「审核与复核各自的依据承载」，scope_boundary 由两处落点扩为三处，并追加演变条目。
+  - at: 2026-11-10T10:47:30.480Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 取消工单 去流程不去判据 行动前审核 行动后复核 完成判据可判定 范围越权基准 符合与否加证据 审核复核分轴 依据承载位 触发判据归属 存量对象去向
 ---
 
 # 取消 WorkCase 与审核自动触发

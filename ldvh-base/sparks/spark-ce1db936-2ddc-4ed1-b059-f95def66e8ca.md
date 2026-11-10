@@ -37,6 +37,10 @@ change_log:
     provider: glm
     model: glm-5.3
     summary: 批次 F 旧号位引文更正：00 §7.2（Stop Conditions，创建时点号位）→00 §5.7（必停情形与恢复）1 处，摘要与正文同步；20/21 号位未重构，其引用保持原样；终态 implemented 与 disposition 不变，仅内容更正（20 §9.2）
+  - at: 2026-11-10T11:09:31.759Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: 35afd456-10cc-4d3b-b7fc-8a088946b183
   - object_uid: 71930c4a-f43f-439e-88bd-3aff7d07d37c
@@ -45,6 +49,7 @@ refs:
   - object_uid: 4005b67b-8e06-4dc1-872e-04ab626de295
   - object_uid: bb033829-c28f-449e-915e-8656423900a8
   - object_uid: 63700bd2-f688-464b-b490-fc0c6ed78f25
+recall_digest: 残留与去向 承载改法 已完成落地 结果残留 去向建议段 授权裁定 机制落地 处置机制
 ---
 
 # WorkCase 残留与去向承载改法

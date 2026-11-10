@@ -14,6 +14,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 独立复现验证通过（隔离子代理 6ce22439，不同模型/独立上下文）：以 session_bridge_read 取得的 transcript 副本为证据链，核实畸形 ID（34 字符）、两次错 ID 致 schedule_not_found、改以 schedule_list 取回后删除成功。据 Human 2026-10-28「验证属实即入档」逐条验收指示，draft→active 入档。
+  - at: 2026-11-10T11:35:38.463Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 长标识符 人工转写 删除命中失败 引用错误定时任务ID schedule_not_found 删除未生效 手抄ID 复制粘贴代替转写
 ---
 
 # 长标识符人工转写致删除命中失败

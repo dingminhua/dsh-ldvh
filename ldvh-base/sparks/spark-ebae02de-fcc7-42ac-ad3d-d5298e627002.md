@@ -22,6 +22,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Human 裁定接受现状、不补 11 §7.1 交付面；本 Spark 转 discarded，并记录建前审核推翻原假设的三条事实更正。
+  - at: 2026-11-10T11:06:12.237Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 受控写入拒绝留痕 聚合 原因码跨会话累积 三层聚合 拒绝即消失前提不成立 缺进入语义判定面 机械材料可见 无执行体读
 ---
 
 # 受控写入拒绝留痕与聚合

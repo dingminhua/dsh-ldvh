@@ -22,6 +22,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 按 23 §16 第 1 项入档（draft→active）：独立复现验证已登记（部分复现，解决段已限定为分区入口），展开段已补
+  - at: 2026-11-10T11:35:25.236Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 中间载体路径 缺项目维度 材料混装 多个管辖项目观察材料 诊断页混在一起 按项目筛选不干净 载体分区
 ---
 
 # 中间载体路径缺项目维度致材料混装

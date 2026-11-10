@@ -24,6 +24,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/06 §6「结构校验须按集合性质判定」与 §7「结构校验的判定对象」吸收；同时修复既有结构缺陷（补回缺失的「影响与适用范围」H2，本对象此前 body_valid=false）。
+  - at: 2026-11-10T11:35:38.500Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 首行比较式校验 漏掉多余H1 只比较首个非空行 首个标题行必须等于 两件事同时判错 结构校验 Markdown正文
 ---
 
 # 首行比较式校验漏掉多余H1

@@ -19,6 +19,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/06 §6「检索不能证明「没有」」与 §7「删除后的下游清理」吸收为强制规则；同时修复既有结构缺陷（补回缺失的「影响与适用范围」H2，本对象此前 body_valid=false）。
+  - at: 2026-11-10T11:35:25.253Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 删除声明先于核验 检索未覆盖残留键名 i18n词条仍残留 grep未命中 提前声明已删 需再次清理
 ---
 
 # 删除声明先于核验且检索未覆盖残留键名

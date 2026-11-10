@@ -6,10 +6,10 @@ scope_boundary: 完成一次 docs/（根 + archive）失效引用的真实扫描
 intent: 保留理由——docs/ 已有成熟治理（法律地位、A–G 分类、三轮归档），但分类轴只覆盖「效力」不覆盖「时效」，导致引用落空（指向已消失或从未存在的对象）只能靠人工事后发现；本轮工作即撞到三处实例。后续方向——先做一次真实扫描得出规模，再据规模判「立规范」还是「补惯例」，允许以「不成体系」为落点。
 summary: docs/ 过程文档治理已成熟：法律地位已定论（01 §9.1 候选路径不含 docs/、01 §4 明文排除；00 §3.2 未经受控写入不成为稳定事实），分类表以「效力」为轴（A review-* 43 份为 01 §12 规范效力溯源证据必须保留、B/C 唯一记录、E 类 15 份唯一建议归档），三轮归档全部 git mv 零删除。**缺口：分类轴无「时效」维**——只答「该不该留」，未答「引用对象是否仍存在」。本轮撞到三处：① RELEASING.md 要求核对「Python 核心」但仓库已无 .py；② 同文件要求核对 plugin/screenshots.json 但该文件不存在；③ ldvh-plugin-implementation-plan.md 引用 docs/dsh-current-version-and-market-gap.md 但该文已归档。归档处理「已被取代」，本缺口处理「引用落空」，现行机制只能人工事后发现。外部实践（AI-first 项目拆 docs 路由、RFC→ADR、控制 spec 长度）多在「怎么组织」层，LDVH 已到「效力归属」层，但未覆盖引用时效性。
 serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
+disposition: docs/ 已明确不属规范承载，本议题失去对象
 object_uid: afc45279-0469-43d3-abdd-b6af0eab8b8b
 fact_type_key: spark
 created_at: 2026-09-13T20:14:50.647Z
-disposition: "docs/ 已明确不属规范承载，本议题失去对象"
 change_log:
   - at: 2026-09-13T20:14:50.647Z
     provider: workbuddy
@@ -23,6 +23,11 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 补入 2026-11-02 重核：规模实测为 10 份 md / 75 处引用 / 真落空仅 6 处（去重 4 目标，全属 docs 内部互引）；且引用落空已有机械门禁 docs_reference_dangling（commit-validation.js:87、:367），但只查新增、只查 specs 与 ldvh-base、docs 内部不检（09 第 126/133 行）
+  - at: 2026-11-10T11:09:31.701Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: docs过程文档 时效纪律 治理成熟 法律地位 候选路径不含 未受控写入不成稳定事实 效力为轴 归档 唯一记录
 ---
 
 # docs 过程文档的时效纪律

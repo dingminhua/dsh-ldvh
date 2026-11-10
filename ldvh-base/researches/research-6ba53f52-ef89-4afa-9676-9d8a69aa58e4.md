@@ -107,6 +107,11 @@ change_log:
     provider: zzztoken-glm
     model: glm-5.3
     summary: 初始创建：克隆 deeplethe/utopia（dev@4e9b19c）完成静态调研，形成 12 项已证实发现、3 项疑点、4 项缺口与 4 条建议（机制纪律对照/选型跟踪/无需对象化判断/对象维护）
+  - at: 2026-11-10T11:37:57.726Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: Utopia 企业世界模型 deeplethe 双时态知识图谱 本体契约治理 叙事化决策记录 同构参照 工程借鉴 rc5
 ---
 
 ## 研究问题

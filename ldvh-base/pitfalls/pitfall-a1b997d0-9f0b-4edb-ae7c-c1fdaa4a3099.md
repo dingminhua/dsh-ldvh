@@ -22,6 +22,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 结构修复（23 §8 载体结构）：补回缺失的「影响与适用范围」H2 标题，原尾部 scope 展开文本原样移入该节、逐字未改；机制、范围与 status 均不变，本对象此前 body_valid=false。
+  - at: 2026-11-10T11:35:51.298Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 无关未提交改动 阻塞变基 推送延迟 git rebase被挡 非本会话产生的改动 idle进程写入 观察计数 工作区不干净
 ---
 
 # 无关未提交改动阻塞变基致推送延迟

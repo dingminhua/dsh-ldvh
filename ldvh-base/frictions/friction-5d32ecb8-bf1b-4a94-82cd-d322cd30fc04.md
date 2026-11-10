@@ -19,10 +19,15 @@ change_log:
     provider: qoder-global
     model: dfmodel
     summary: 补充观察：count 4 → 5（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:38.965Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 5
   first_at: 2026-11-02T00:01:26.310Z
   last_at: 2026-11-04T10:55:00.583Z
+recall_digest: 事实对象正文 数量陈述未与源核对 七个写成五个 落盘后才发现 二次受控更新改正 数字核对
 ---
 
 # 事实对象正文数量陈述未与源核对

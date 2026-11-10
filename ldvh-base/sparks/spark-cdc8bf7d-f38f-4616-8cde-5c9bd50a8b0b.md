@@ -46,6 +46,11 @@ change_log:
     provider: dsh-opencode-go
     model: deepseek-v4.1-flash
     summary: 两项定案并落地（be00f01）：证据定位改为类型层补登记并收紧写入侧采用面，消费召回并入 F2 关系命中与判据表一跳展开、删除两个无实现操作名
+  - at: 2026-11-10T11:09:31.756Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 关系机制未决 证据定位 消费召回 早已实现 契约缺登记 补登记 闭集commit 非informs即拒 召回不新增检索 F2关系命中
 ---
 
 # 关系机制剩余未决：证据与消费召回

@@ -27,10 +27,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 6 → 7（11 §9 第 2 项）
+  - at: 2026-11-10T11:36:22.479Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 occurrence:
   count: 7
   first_at: 2026-11-04T06:22:39.036Z
   last_at: 2026-11-09T00:41:09.005Z
+recall_digest: 数量陈述 与枚举清单条数 不一致 声明9处 却枚举出10个行号 自相矛盾 交付核对结论
 ---
 
 # 数量陈述与枚举清单条数不一致

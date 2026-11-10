@@ -31,6 +31,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 内容更正（23 §9.3 勘误级，status 保持 discarded）：吸收回指由裸行号 `:349`/`:354` 改为条文标题与章节号引用——实测 `:349` 是 `### 10.5` 标题行本身、`:354` 已不承载该内容，两句现在 §10.5 的约 `:361`/`:366`；disposition 同步更正。
+  - at: 2026-11-10T11:35:10.897Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+recall_digest: 受控写入重建 漏抄字段 被删除后回填 重建写入内容 漏一行 attribution 与基线差异 字段被抹去
 ---
 
 # 受控写入重建漏抄字段被删除后回填
