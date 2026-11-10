@@ -36,7 +36,6 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { access, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -120,8 +119,7 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 /** Closed set of frontmatter keys (26 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "phenomenon", "attribution", "attribution_ref", "relations", "recall_digest",
-  "occurrence", "disposition", "change_log",
+  "phenomenon", "attribution", "attribution_ref", "relations", "occurrence", "disposition", "change_log",
 ]);
 
 /**
@@ -693,17 +691,20 @@ export function validateFrictionBodyStructure(body, title, status) {
  * authoritative text — the 现象 body section must contain it verbatim.
  */
 export function validateCarrierCoherence(frontmatter, body) {
-  const issues = [];
+  // Human 2026-11-10（`spark-f0ba9997`）：字段是索引与摘要、正文是展开，二者
+  // **不需逐字一致**——故差异一律进 `warnings`，不进 `issues`，更不阻断写入。
+  // 保留本函数是为了差异仍可被如实报告（不是静默当作一致），与 Spark 同形。
+  const warnings = [];
   const text = typeof frontmatter.phenomenon === "string" ? frontmatter.phenomenon.trim() : "";
-  if (text.length === 0) return { ok: true, issues }; // presence checked in validateFrictionFrontmatter
+  if (text.length === 0) return { ok: true, issues: [], warnings }; // presence checked in validateFrictionFrontmatter
   const content = sectionContent(body, "现象");
-  if (content === null) return { ok: true, issues }; // section presence checked in body structure
+  if (content === null) return { ok: true, issues: [], warnings }; // section presence checked in body structure
   if (!content.includes(text)) {
-    issues.push(carrierCoherenceMessage({
+    warnings.push(carrierCoherenceMessage({
       section: "现象", field: "phenomenon", declared: text, actual: content, clause: "26 §8, §14.1",
     }));
   }
-  return { ok: issues.length === 0, issues };
+  return { ok: true, issues: [], warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -1168,13 +1169,7 @@ export async function updateFrictionObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  const staleness = detectDigestStaleness({
-    type: "friction", baseline: current.value.frontmatter, next: fm,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "friction", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ fingerprint: fileFingerprint(content), warnings });
+  return success({ fingerprint: fileFingerprint(content) });
 }
 
 /**
@@ -1429,13 +1424,7 @@ export async function correctFrictionObject(args) {
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);
-  const staleness = detectDigestStaleness({
-    type: "friction", baseline: current.value.frontmatter, next: fm,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "friction", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ fingerprint: fileFingerprint(content), warnings });
+  return success({ fingerprint: fileFingerprint(content) });
 }
 
 // ---------------------------------------------------------------------------

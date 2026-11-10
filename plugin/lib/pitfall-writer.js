@@ -33,7 +33,6 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -76,8 +75,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (23 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "scope", "trigger_signal", "urls", "disposition", "change_log", "recall_digest",
-]);
+  "scope", "trigger_signal", "urls", "disposition", "change_log", ]);
 
 /**
  * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
@@ -255,11 +253,14 @@ export function validatePitfallBodyStructure(body, title, urlsCount) {
  * text — the 影响与适用范围 body section must contain it verbatim.
  */
 export function validateCarrierCoherence(frontmatter, body) {
-  const issues = [];
+  // Human 2026-11-10（`spark-f0ba9997`）：字段是索引与摘要、正文是展开，二者
+  // **不需逐字一致**——故差异一律进 `warnings`，不进 `issues`，更不阻断写入。
+  // 保留本函数是为了差异仍可被如实报告（不是静默当作一致），与 Spark 同形。
+  const warnings = [];
   const text = typeof frontmatter.scope === "string" ? frontmatter.scope.trim() : "";
-  if (text.length === 0) return { ok: true, issues }; // presence checked in validatePitfallFrontmatter
+  if (text.length === 0) return { ok: true, issues: [], warnings }; // presence checked in validatePitfallFrontmatter
   const content = sectionContent(body, "影响与适用范围");
-  if (content === null) return { ok: true, issues }; // section presence checked in body structure
+  if (content === null) return { ok: true, issues: [], warnings }; // section presence checked in body structure
   if (!content.includes(text)) {
     // 判据不变（仍要求逐字包含），但报错必须**可据以修正**：只给截断到 40 字的
     // scope 前缀时，调用方看不出「差在哪」。实测 2026-10-17 的两次失败分别是
@@ -271,12 +272,12 @@ export function validateCarrierCoherence(frontmatter, body) {
     // 改为与其余八类共用 coherence-report.js，并补上 23 §8 的条款依据——此前的
     // 「无条款号」使复核无法据报错定位规则来源，而它是本单推广面之外的样板，
     // 措辞不统一会让读报错的人以为不同类别的拒绝依据不同。
-    issues.push(carrierCoherenceMessage({
+    warnings.push(carrierCoherenceMessage({
       section: "影响与适用范围", field: "scope", declared: text, actual: content,
       clause: "23 §8, §14.1",
     }));
   }
-  return { ok: issues.length === 0, issues };
+  return { ok: true, issues: [], warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -650,13 +651,7 @@ export async function updatePitfallObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  const staleness = detectDigestStaleness({
-    type: "pitfall", baseline: current.value.frontmatter, next: fm,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "pitfall", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ fingerprint: fileFingerprint(content), warnings });
+  return success({ fingerprint: fileFingerprint(content) });
 }
 
 // ---------------------------------------------------------------------------

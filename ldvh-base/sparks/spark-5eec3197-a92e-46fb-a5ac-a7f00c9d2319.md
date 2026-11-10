@@ -59,7 +59,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 载体内聚冗余 取舍 短正文对象 逐字进入正文 实测全库 冗余副本 内聚收益递减 取舍判据
 ---
 
 # Spark 内聚的冗余与取舍

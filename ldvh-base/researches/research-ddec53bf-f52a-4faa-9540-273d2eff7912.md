@@ -47,7 +47,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: DSH社区 深度研究编排器 现状刷新 open-deep-research 新编排器 多研究单元规划 源调用纪律 2026-09
 ---
 
 ## 研究问题

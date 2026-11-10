@@ -19,7 +19,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 未核对规范原文 下红线强断言 结论反转 报成可能违反红线 下一轮自行推翻 没核对原文就判断 先取证再断言
 ---
 
 # 未核对规范原文即下红线强断言致结论反转

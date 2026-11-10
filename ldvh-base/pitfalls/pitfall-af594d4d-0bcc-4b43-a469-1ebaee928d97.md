@@ -19,7 +19,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 无基址构建 SPA白屏 构建成功 vite输出built 无错误警告 整页空白 网络面板JS/CSS请求落空 基址缺失
 ---
 
 # 无基址构建致 SPA 白屏

@@ -62,7 +62,6 @@ occurrence:
   count: 10
   first_at: 2026-10-21T16:09:26.654Z
   last_at: 2026-10-21T19:41:43.523Z
-recall_digest: 助手回复正文 混入默认提示残片 You are a helpful assistant 两段中文之间 与任务无关 输出污染
 ---
 
 # 助手回复正文混入默认提示残片

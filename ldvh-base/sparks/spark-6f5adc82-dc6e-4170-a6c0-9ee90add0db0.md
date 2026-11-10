@@ -31,7 +31,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: Norm实现侧 空缺 合并收口 writer tools GitGate断言 部分仍真 二次更正 目录已补建 判断部分失实
 ---
 
 # Norm 类型实现侧空缺

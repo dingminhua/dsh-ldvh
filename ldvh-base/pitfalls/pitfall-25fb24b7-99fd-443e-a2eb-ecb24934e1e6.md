@@ -22,7 +22,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 读改写加rename 并发结算 丢失更新 部分结算消失 20条只1条生效 串行正常 单线程顺序测试发现不了 跨进程共享 持久化
 ---
 
 # 读改写加 rename 并发结算丢失更新

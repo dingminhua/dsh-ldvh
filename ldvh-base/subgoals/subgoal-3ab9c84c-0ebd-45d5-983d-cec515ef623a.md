@@ -26,7 +26,6 @@ change_log:
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 order: 1
-recall_digest: 项目可厘清 评估包 可回读 预先声明项目范围 目标决定规范工作经验摩擦 状态来源关联 遗漏项 未验证范围 逐项核对
 ---
 
 # 项目可厘清

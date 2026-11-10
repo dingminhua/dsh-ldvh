@@ -49,7 +49,6 @@ refs:
   - object_uid: 4005b67b-8e06-4dc1-872e-04ab626de295
   - object_uid: bb033829-c28f-449e-915e-8656423900a8
   - object_uid: 63700bd2-f688-464b-b490-fc0c6ed78f25
-recall_digest: 残留与去向 承载改法 已完成落地 结果残留 去向建议段 授权裁定 机制落地 处置机制
 ---
 
 # WorkCase 残留与去向承载改法

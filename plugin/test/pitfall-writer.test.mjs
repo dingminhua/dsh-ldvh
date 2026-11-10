@@ -983,8 +983,11 @@ test("carrier coherence: the rejection names BOTH the scope and the section text
   const scope = "LDVH 辅助任务登记链路中所有对 appendPendingEntry 的调用点及 pending-queue.js 契约适用场景。";
   const section = "LDVH 辅助任务登记链路中所有对 appendPendingEntry 的调用点及 pending-queue.js 契约适用场景；影响所有依赖辅助任务登记队列的空闲辅助执行流程。";
   const result = validateCarrierCoherence({ scope }, ["## 症状", "x", "## 影响与适用范围", section].join("\n"));
-  assert.equal(result.ok, false, "drifted scope must still be rejected — the judgement itself is unchanged");
-  const issue = result.issues[0];
+  // Human 2026-11-10：逐字义务取消，差异**只报告不阻断**（02 §7.1）。判据从
+  // `issues` 移入 `warnings`，报告的**可读性要求一字不变**——本用例继续钉住
+  // 「两侧全文都须出现、短文本不得截断」，这才是它原本要守护的东西。
+  assert.equal(result.ok, true, "差异不再阻断写入");
+  const issue = result.warnings[0];
   // 两侧全文都须出现，否则差异不可见（这是本用例要钉住的那条）。
   assert.ok(issue.includes(scope), `the scope text must be quoted in full; got: ${issue}`);
   assert.ok(issue.includes(section), `the section text must be quoted in full; got: ${issue}`);
@@ -998,6 +1001,6 @@ test("carrier coherence: a section longer than the print budget is clipped WITH 
   // 段落里**确实包含** scope 时不该报错——先确认判据仍按「包含」而非「相等」。
   assert.equal(result.ok, true, "containment (not equality) is the judgement; a long section that contains the scope passes");
   const drifted = validateCarrierCoherence({ scope: "适用于 Y 场景。" }, ["## 影响与适用范围", `${filler}适用于 Z 场景。`].join("\n"));
-  assert.equal(drifted.ok, false);
-  assert.match(drifted.issues[0], /共 \d+ 字/, "a clipped section must disclose its full length instead of silently truncating");
+  assert.equal(drifted.ok, true, "差异不再阻断写入");
+  assert.match(drifted.warnings[0], /共 \d+ 字/, "a clipped section must disclose its full length instead of silently truncating");
 });

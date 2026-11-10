@@ -301,7 +301,7 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 
 ## 13. 受控操作
 
-- **创建**：C1 提案对象模式——AI 只产出提案对象（含查重结论与完整字段），Human 确认后经受控创建入口落盘。**创建前必须查重**（§6.2）；**提请前机械预检**：把候选提请 Human 作出创建决定之前，须先对该候选执行本节所列机械校验；未通过者不得提请。该预检只读、不落盘、不生成对象标识，且与受控创建执行同一组机械校验（双入口一致性）。机械校验：字段闭集合法、`title` ≤ 40 字、`order` 为正整数或缺失、`parent_goal = project-goal` 且目标载体可解析、`criterion` 非空、`criterion_kind` 属闭集、`alignment` 非空、`status = active` 且无 `disposition`、载体内聚（`criterion`／`alignment` 逐字）。创建后精确回读。
+- **创建**：C1 提案对象模式——AI 只产出提案对象（含查重结论与完整字段），Human 确认后经受控创建入口落盘。**创建前必须查重**（§6.2）；**提请前机械预检**：把候选提请 Human 作出创建决定之前，须先对该候选执行本节所列机械校验；未通过者不得提请。该预检只读、不落盘、不生成对象标识，且与受控创建执行同一组机械校验（双入口一致性）。机械校验：字段闭集合法、`title` ≤ 40 字、`order` 为正整数或缺失、`parent_goal = project-goal` 且目标载体可解析、`criterion` 非空、`criterion_kind` 属闭集、`alignment` 非空、`status = active` 且无 `disposition`、正文与字段一致性的差异报告（`criterion`／`alignment` 与正文段的差异**只报告不阻断**，02 §7.1、Human 2026-11-10 取消逐字义务）。创建后精确回读。
 - **补充级更新**：02 §10.5 受控更新；CAS 以完整文件为单位；每次恰好一条 `change_log`；`status` 不变（变了拒绝——走流转）；`object_uid` 不可改；`order` 可改。
 - **状态流转**：Human Gate；AI 先精确读取 F3 核对流转依据；`achieved` 须附证据清单（§10.3）；`retired` 须附 `disposition`。Code 检查目标状态属闭集、字段、`disposition` 互斥、CAS 与回读。
 - **更正**：仅改错述，不改判断结论（§9.4）；与更新同一通道与纪律。

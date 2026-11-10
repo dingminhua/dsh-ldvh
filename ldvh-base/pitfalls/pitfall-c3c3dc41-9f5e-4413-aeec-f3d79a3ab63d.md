@@ -14,7 +14,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 完成判据形态 与对象生命周期不匹配 判据恒假 关闭记录链 四类对象不随关闭进入终态 终态覆盖恒为0 判据不可达
 ---
 
 # 完成判据形态与对象生命周期不匹配致判据恒假

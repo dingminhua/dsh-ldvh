@@ -470,7 +470,7 @@ async function executeWriteObject(args, exec, deps) {
       file: updated.value.file,
       fingerprint: updated.value.fingerprint,
       read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
-      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。
+      // 写入侧的警告（如载体内聚差异），不阻断。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
         : {})
@@ -609,7 +609,6 @@ function parameterSchemaFor(operationKey) {
       criterion_kind: { type: "string", enum: ["metric", "closure-records", "executable-check"], description: "how the criterion is proven (28 §10.2): metric = an observable value reaches a threshold; closure-records = a chain of closing records constitutes the material; executable-check = a reproducible check passes. This makes 'how would we prove it' a required answer at creation — it does NOT make the criterion decidable by itself" },
       alignment: { type: "string", description: "why this sub-goal serves the goal statement — must point at specific content of the goal statement, not a generic phrase (28 §8; red line 7). Non-empty is mechanically checkable; whether it is TRUE is a semantic judgement (28 §15)" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=retired, forbidden otherwise (28 §8)" },
-      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion; recall reads it first and falls back to the type's own content field when absent (02 §7.1)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "parent_goal", "criterion", "criterion_kind", "alignment"],

@@ -89,7 +89,6 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -2043,7 +2042,19 @@ export function validateDirectionCompleteness(frontmatter, body, baseline = null
  * 登记范围。）
  */
 export function validateCarrierCoherence(frontmatter, body) {
+  // Human 2026-11-10（`spark-f0ba9997`、21 §263）：本函数原先把两件性质不同的事
+  // 装在一个 `issues` 里，一起阻断写入——这是本类型仍会拒绝合法写入的唯一原因。
+  // 现按 21 §263 的分工拆开：
+  //
+  //   ① `summary` / `scope` —— **不要求逐字一致**，差异进 `warnings`，不阻断。
+  //      frontmatter 是索引与摘要、正文是展开，二者本就该不同（02 §7.1）。
+  //   ② `plan[].step` —— **继续阻断**。`plan` 是 Gate 1 授权的对象，正文计划与
+  //      权威数组分叉属实质风险（21 §263 明写「继续阻断写入」）。这项不是
+  //      「同文双存」问题，而是「授权对象是否被忠实执行」，性质不同。
+  //
+  // 保留 ① 的报告能力（进 warnings 而非静默丢弃），与 Spark 同形。
   const issues = [];
+  const warnings = [];
   const pairs = [
     ["summary", "摘要"],
     ["scope", "授权范围"],
@@ -2054,7 +2065,7 @@ export function validateCarrierCoherence(frontmatter, body) {
     const content = sectionContent(body, section);
     if (content === null) continue;
     if (!content.includes(text)) {
-      issues.push(carrierCoherenceMessage({
+      warnings.push(carrierCoherenceMessage({
         section, field, declared: text, actual: content,
         // 更正（workcase-5c0b8c2e）：原引「03 §6.1 单一权威」，而 03 全文「内聚」零命中；
         // WorkCase 的载体内聚登记在 21 §8、§15.1 与 §16。
@@ -2075,7 +2086,7 @@ export function validateCarrierCoherence(frontmatter, body) {
       }
     });
   }
-  return { ok: issues.length === 0, issues };
+  return { ok: issues.length === 0, issues, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -2271,18 +2282,18 @@ async function writeValidated(factSourceRoot, frontmatter, body, baseline = null
   //     校验」；一旦将来 `buildFileContent` 出现有损序列化，测试（多处断言回读
   //     `mechanical_issues.length === 0`）会先于本注释失效而变红。补齐它是新增机制，
   //     不在本单范围。
-  // `recall_digest` 陈旧提示（02 §7.1；只提示不阻断）。`baseline` 为空表示创建，
-  // 无从比较，`detectDigestStaleness` 本身会返回 stale=false。
-  const staleness = detectDigestStaleness({ type: "workcase", baseline, next: frontmatter });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "workcase", changedFields: staleness.changedFields })]
-    : undefined;
+  // 警告面：载体内聚差异（`summary`/`scope` 与正文不同，21 §263「只报告不阻断」）。
+  // `recall_digest` 陈旧提示已随该字段退场（Human 2026-11-11），不再有第二类警告。
+  const warnings = [
+    ...(Array.isArray(check.warnings) ? check.warnings : []),
+  ];
+  const warningsOut = warnings.length > 0 ? warnings : undefined;
   return success({
     object_uid: frontmatter.object_uid,
     file: filePath,
     fingerprint: readBack.value.fingerprint,
     read_back: "ok",
-    warnings,
+    warnings: warningsOut,
   });
 }
 
@@ -2620,8 +2631,14 @@ function runMechanicalChecks(frontmatter, body, baseline = null, baselineBody = 
   }
   const coherenceCheck = validateCarrierCoherence(frontmatter, body);
   if (!coherenceCheck.ok) {
-    return { ok: false, code: "workcase/coherence_invalid", message: "carrier coherence failed", issues: coherenceCheck.issues };
+    // 走到这里只剩 `plan[].step` 的数组序定位失败——`summary`/`scope` 的差异
+    // 已降为 warnings（Human 2026-11-10、21 §263），不再参与阻断。
+    return { ok: false, code: "workcase/coherence_invalid", message: "carrier coherence failed (plan[].step 未在「计划」段按数组序出现)", issues: coherenceCheck.issues };
   }
+  // 21 §263：`summary`/`scope` 与正文对应段的差异**只报告不阻断**。此处把它
+  // 继续向上传递，避免「算出来了但没人看」——该失效模式本仓已有先例
+  // （`mechanical_issues` 在投影与呈现两侧各 0 处命中）。
+  const carrierWarnings = Array.isArray(coherenceCheck.warnings) ? coherenceCheck.warnings : [];
   const directionCheck = validateDirectionCompleteness(frontmatter, body, baseline, baselineBody);
   if (!directionCheck.ok) {
     return { ok: false, code: "workcase/direction_incomplete", message: "残留去向 failed completeness checks", issues: directionCheck.issues };
@@ -2630,7 +2647,7 @@ function runMechanicalChecks(frontmatter, body, baseline = null, baselineBody = 
   if (!checklistCheck.ok) {
     return { ok: false, code: "workcase/checklist_form_invalid", message: "逐条判据核对 failed form checks", issues: checklistCheck.issues };
   }
-  return { ok: true };
+  return { ok: true, warnings: carrierWarnings };
 }
 
 /**

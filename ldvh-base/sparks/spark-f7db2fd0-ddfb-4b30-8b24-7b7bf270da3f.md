@@ -18,7 +18,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 调研吸收锚定 当前目标与决定 原则表述一句 research_purpose不要求指向 实测47份仅5份 serves零使用 无锚定成形态 准入判据缺失
 ---
 
 # 调研与吸收须锚定当前目标与决定

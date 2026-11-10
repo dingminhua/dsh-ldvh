@@ -22,7 +22,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 子代理审核 provider超时 连续零产出 三次均error 无结论 主控不知原因改两轮方案 换provider后成功 无产出不等于无缺陷
 ---
 
 # 子代理审核因 provider 超时连续零产出

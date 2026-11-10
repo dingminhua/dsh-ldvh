@@ -38,7 +38,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 问句准入 取代创建判据 重建总纲 必须砍的重量 授权门禁 修订提案 未纳入范围 转出建档 未被承接 准入判据
 ---
 
 # 问句准入是否取代创建判据

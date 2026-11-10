@@ -22,7 +22,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 标识符 兼作不可改锚点 与排序序号 重排补洞被拒 身份与显示序撞同值 改动编号即改锚点 合理重排请求被拒 两职责合一
 ---
 
 # 标识符兼作不可改锚点与排序序号致重排补洞被拒

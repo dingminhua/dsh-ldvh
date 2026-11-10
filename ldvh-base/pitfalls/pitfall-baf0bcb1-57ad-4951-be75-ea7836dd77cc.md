@@ -22,7 +22,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 打包产物 文本检索缺席 当作服务不存在 asar内grep未命中 断言workspaceController不存在 打包压缩 检索方式不适配
 ---
 
 # 打包产物文本检索缺席被当作服务不存在

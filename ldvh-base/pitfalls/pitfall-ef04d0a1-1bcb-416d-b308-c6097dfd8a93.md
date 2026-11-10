@@ -22,7 +22,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 粗粒度拒绝断言 目标校验零检测 用例断言缺摘要必拒 失败但理由不对 拒绝原因未细分 校验目标落空
 ---
 
 # 粗粒度拒绝断言致目标校验零检测

@@ -23,7 +23,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 新增判据 未量测可分辨力 零检测力 要求message含中文 一次也不会触发 满足既有判据者必然满足新判据 防护无新增覆盖
 ---
 
 # 新增判据未量测可分辨力致零检测力

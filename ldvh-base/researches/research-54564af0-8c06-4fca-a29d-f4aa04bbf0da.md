@@ -184,7 +184,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: mattpocock skills 技能集 38个技能文件 前沿收敛 迷雾中间态 文档负载理论 机械校验缺口 promoted分级 可吸收清单
 ---
 
 ## 研究问题

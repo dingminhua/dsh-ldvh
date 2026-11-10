@@ -39,7 +39,6 @@ occurrence:
   count: 7
   first_at: 2026-11-01T14:59:04.911Z
   last_at: 2026-11-09T14:48:28.324Z
-recall_digest: 已入库事实对象 可被直接编辑 绕过受控通道 直接改写research文件 未补change_log 自行撤销 写入通道唯一性
 ---
 
 # 已入库事实对象可被直接编辑绕过受控通道

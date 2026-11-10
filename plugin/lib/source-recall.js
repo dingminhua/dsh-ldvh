@@ -106,7 +106,6 @@ import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
  * （与 `precheck-record.spec-drift.test.mjs` 同口径）。
  */
 export const MATCHED_FACT_FIELDS = Object.freeze([
-  "recall_digest",
   "decision",
   "phenomenon",
   "question",
@@ -1712,13 +1711,11 @@ export async function loadFacts(baseDir, options = {}) {
         ? textField(fm.gate_1.approved_at) : "";
       // **结构化摘录源**：块标量残留一律视为无内容（`textField` 的判据），
       // 否则候选卡会显示 `↳ |-`（2026-10-29 前实测 46 条如此）。
-      // **`recall_digest` 专项优先**（Human 2026-11-10，`spark-f0ba9997`）：
-      // 它的读者是词法匹配器而非人，写法是高密度关键词面（症状／机制／适用边界／
-      // 同义表述），允许不成句；与内容摘要 `summary` 分工不同、无需一致。
-      // 排在链首并保留既有回退，故存量对象（无该字段）行为不变。
+      // **回退链按类型各自的语义字段取值**（Human 2026-11-11）：
+      // `recall_digest` 已从事实源退场，摘录不再有跨类型统一的首选字段，
+      // 而是沿本表逐项回退——它们分别是各类型的结论/现象/问题/适用范围。
       const excerptSource =
-        textField(fm.recall_digest)
-        || textField(fm.summary) || textField(fm.gist) || textField(fm.decision)
+        textField(fm.summary) || textField(fm.gist) || textField(fm.decision)
         || textField(fm.phenomenon) || textField(fm.research_question)
         || textField(fm.scope) || textField(fm.scope_boundary) || "";
       // 类型名直接取 frontmatter 的 fact_type_key（权威），不从目录名猜单复数——
@@ -1766,12 +1763,11 @@ export async function loadFacts(baseDir, options = {}) {
         // 0/65 行触发（2026-10-31），按拍板④「按实测命中率决定做不做」**暂缓**，
         // 未随本次交付；`trigger_signal` 留在匹配面的行为不受影响。
         // 判据不可用的类型连它也一并停用——整个字段语义通道关闭。
+        // **匹配面的字段来源唯一化**（Human 2026-11-11）：`recall_digest` 已退场，
+        // 故本层只剩两类字段——各类型规范召回到判据表登记的 `coreFields`（按类型
+        // 各不相同，这是设计本意），以及恒在的通用信号字段 `trigger_signal`。
+        // 不再有「跨类型统一关键词面」这一层。
         detail: criteriaEntry === null ? "" : [
-          // `recall_digest` 恒在匹配面（Human 2026-11-10，`spark-f0ba9997`）。
-          // 它**不是** coreFields 的一员：那些字段由各类型规范的召回判据表逐条
-          // 登记，而本字段的用途就是「专供召回命中」，若也要登记才生效，则
-          // 未登记的类型恰好失去它唯一的作用。故与 `trigger_signal` 同列常驻项。
-          textField(fm.recall_digest),
           ...criteriaEntry.values.coreFields.map((field) => coreFieldTextOf(fm, field)),
           textField(fm.trigger_signal),
         ].filter((value) => value !== "").join(" "),

@@ -23,7 +23,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 删除声明先于核验 检索未覆盖残留键名 i18n词条仍残留 grep未命中 提前声明已删 需再次清理
 ---
 
 # 删除声明先于核验且检索未覆盖残留键名

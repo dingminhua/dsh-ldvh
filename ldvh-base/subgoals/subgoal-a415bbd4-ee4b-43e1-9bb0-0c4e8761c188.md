@@ -26,7 +26,6 @@ change_log:
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 order: 4
-recall_digest: 空闲积累 摩擦发现 空闲运行评估包 观察范围 已形成经验 已入账摩擦 丢弃项 未决项 去向 未验证范围 持续能力
 ---
 
 # 空闲积累与摩擦发现

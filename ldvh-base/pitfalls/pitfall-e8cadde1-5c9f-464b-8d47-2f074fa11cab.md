@@ -40,7 +40,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 身份判定分裂 关联判死 object_uid形态正则 多层各自维护 任一层版本位漂移 整体拒认 静默降级为数据不可用
 ---
 
 # 身份判定分裂致关联判死

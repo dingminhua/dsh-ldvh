@@ -55,7 +55,6 @@ occurrence:
   count: 12
   first_at: 2026-11-02T20:15:51.816Z
   last_at: 2026-11-07T19:46:27.153Z
-recall_digest: 并行会话 未提交改动 召回用例失效 他人改动 source-recall recall-injection 4条用例失败 变异不可信 工作树不干净
 ---
 
 # 并行会话未提交改动致召回用例失效

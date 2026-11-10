@@ -18,7 +18,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 补充边界判据 绑active 同态更新漏检 draft到draft 补充级更新 scope整体换掉 受控写入通过 判据未覆盖同态
 ---
 
 # 补充边界判据绑 active 致同态更新漏检

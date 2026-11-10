@@ -44,7 +44,6 @@ refs:
   - object_uid: 56a5ed45-a7cb-4c2f-b2ad-e766a49338d3
   - object_uid: 2a521398-f0cc-4412-aba1-a4e783def874
   - object_uid: a8f85076-db85-4345-9844-63ba4db93c40
-recall_digest: 有价值信息 临时载体归位 丙案裁定 不新立义务条文 AI操作纪律 惯例补足 docs引用 去重统计 所指文件已不存在
 ---
 
 # 有价值信息滞留临时载体的归位义务

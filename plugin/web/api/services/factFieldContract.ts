@@ -48,6 +48,9 @@ const common = {
   title: field('title', 'string', true),
   status: field('status', 'string', true),
   created_at: field('created-at', 'string', true),
+  // `recall_digest` 已于 2026-11-11 从事实源退场（02 §7.1）：召回按各类型自己的
+  // 核心语义字段取值，不再有跨类型统一关键词面。故本契约不再登记它——登记一个
+  // 已不存在的字段会让读取层把它当成合法投影键，反而掩盖残留。
   // 03 §6.1 明文不保留公共 updated_at：变更时间由 change_log[].at 承担。
   // 该字段已从公共契约移除——排序与回退一律取 change_log 末条流水的 at。
   change_log: field('change-log', 'array', false),
@@ -296,22 +299,25 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
  * F1：卡片只投影最小权威字段，不投影正文)。report_body 只属详情阅读面，
  * 登记进 FACT_FIELD_CONTRACT 是让它不被判为 unconsumed_field（详情消费），
  * 但必须从列表投影中排除，否则列表会带上整篇正文。
+ *
+ * `recall_digest` 已于 2026-11-11 退场（02 §7.1），故不再有「从列表投影排除它」
+ * 这一步——排除一个不存在的键只会让人以为它还在。
  */
 export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readonly string[]> = {
-  adr: Object.keys(FACT_FIELD_CONTRACT.adr).filter((field) => field !== 'report_body'),
-  pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall).filter((field) => field !== 'report_body'),
-  spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body'),
-  research: Object.keys(FACT_FIELD_CONTRACT.research).filter((field) => field !== 'report_body'),
+  adr: Object.keys(FACT_FIELD_CONTRACT.adr).filter((field) => field !== 'report_body' ),
+  pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall).filter((field) => field !== 'report_body' ),
+  spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body' ),
+  research: Object.keys(FACT_FIELD_CONTRACT.research).filter((field) => field !== 'report_body' ),
   // friction（26 号）此前遗漏于本表，而 FACT_TERMINAL_STATUSES 已含 friction——
   // 列表投影缺 friction 会使其字段被判为未登记。此处补齐。
-  friction: Object.keys(FACT_FIELD_CONTRACT.friction).filter((field) => field !== 'report_body'),
+  friction: Object.keys(FACT_FIELD_CONTRACT.friction).filter((field) => field !== 'report_body' ),
   // norm（27 号）：正文以 report_body 承载（读取层统一投影），列表投影不
   // 携带全文（同其余 markdown 类型纪律）。
-  norm: Object.keys(FACT_FIELD_CONTRACT.norm).filter((field) => field !== 'report_body'),
+  norm: Object.keys(FACT_FIELD_CONTRACT.norm).filter((field) => field !== 'report_body' ),
   // subgoal（28 号）：正文两段只属详情阅读面，列表不携带全文（同其余 markdown 类型纪律）。
-  subgoal: Object.keys(FACT_FIELD_CONTRACT.subgoal).filter((field) => field !== 'report_body'),
+  subgoal: Object.keys(FACT_FIELD_CONTRACT.subgoal).filter((field) => field !== 'report_body' ),
   // devlog（29 号）：正文五段只属详情阅读面，列表不携带全文（同其余 markdown 类型纪律）。
-  devlog: Object.keys(FACT_FIELD_CONTRACT.devlog).filter((field) => field !== 'report_body'),
+  devlog: Object.keys(FACT_FIELD_CONTRACT.devlog).filter((field) => field !== 'report_body' ),
 }
 
 /**

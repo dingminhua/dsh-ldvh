@@ -27,7 +27,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 只抄写入函数 未抄证据保管链 门禁可绕 pre_reviews 同构 不可自证性 列机械保障 独立复核实测 证据链缺失
 ---
 
 # 只抄写入函数未抄证据保管链致门禁可绕

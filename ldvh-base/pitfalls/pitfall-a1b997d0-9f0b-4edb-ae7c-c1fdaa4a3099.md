@@ -26,7 +26,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 无关未提交改动 阻塞变基 推送延迟 git rebase被挡 非本会话产生的改动 idle进程写入 观察计数 工作区不干净
 ---
 
 # 无关未提交改动阻塞变基致推送延迟

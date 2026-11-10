@@ -44,7 +44,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 目标与子目标 引导创建 项目初始化对话 触发句 流程由业务系统段承载 该段无此流程 全仓核对 引导创建缺口
 ---
 
 # 项目目标与 sub-goal 的引导创建

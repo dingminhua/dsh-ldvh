@@ -35,7 +35,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 管辖判定 名实错配 已消解 同一实体两个名字 工作对象 管辖范围 概念收敛 第三名字消除 边界统一
 ---
 
 # 管辖判定操作的名实错配

@@ -27,7 +27,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 已跟踪文件import未跟踪文件 纯净检出即崩 ERR_MODULE_NOT_FOUND 提交边界当作完整性 ESM跨文件引用 新建文件未入版本库
 ---
 
 # 已跟踪文件import未跟踪文件致纯净检出即崩

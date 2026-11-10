@@ -29,7 +29,6 @@ change_log:
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: 4af2b871-49d2-4534-818a-beb61a6eeac9
-recall_digest: writer补记reviews身份 归属失真 既有条目补写入者 本会话身份 复核条目错归 早期会话产出 实现缺陷
 ---
 
 # writer 补记 reviews 身份致归属失真

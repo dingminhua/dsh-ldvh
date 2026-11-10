@@ -93,7 +93,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: DSH rc1到rc2 契约只增不改 服务数增 事件数增 客户端槽位增 模型可见Tool零删除 会话持久化格式未升级
 ---
 
 ## 研究问题

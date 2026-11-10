@@ -19,7 +19,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 插件lib改动 需重启宿主 才进运行实例 源码已改 宿主机行旧模块 行为与源码不一致 以源码为准的校验 汇报已可用
 ---
 
 # 插件 lib 改动需重启宿主才进运行实例

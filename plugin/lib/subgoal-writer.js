@@ -38,7 +38,6 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -91,8 +90,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (28 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "order", "parent_goal",
-  "status", "criterion", "criterion_kind", "alignment", "disposition", "recall_digest",
-  "created_at", "change_log",
+  "status", "criterion", "criterion_kind", "alignment", "disposition", "created_at", "change_log",
 ]);
 
 /**
@@ -245,7 +243,10 @@ export function validateSubGoalBodyStructure(body, title) {
  * Exact string comparison, no normalization (28 §15 载体内聚 row).
  */
 export function validateCarrierCoherence(frontmatter, body) {
-  const issues = [];
+  // Human 2026-11-10（`spark-f0ba9997`）：字段是索引与摘要、正文是展开，二者
+  // **不需逐字一致**——故差异一律进 `warnings`，不进 `issues`，更不阻断写入。
+  // 保留本函数是为了差异仍可被如实报告（不是静默当作一致），与 Spark 同形。
+  const warnings = [];
   const pairs = [
     ["criterion", "达成条件"],
     ["alignment", "对齐说明"],
@@ -256,12 +257,12 @@ export function validateCarrierCoherence(frontmatter, body) {
     const content = sectionContent(body, section);
     if (content === null) continue;
     if (!content.includes(text)) {
-      issues.push(carrierCoherenceMessage({
+      warnings.push(carrierCoherenceMessage({
         section, field, declared: text, actual: content, clause: "28 §8 字段间不变量 1",
       }));
     }
   }
-  return { ok: issues.length === 0, issues };
+  return { ok: true, issues: [], warnings };
 }
 
 export function subgoalFileName(uid) { return `subgoal-${uid}.md`; }
@@ -830,13 +831,7 @@ export async function updateSubGoalObject(args) {
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);
 
-  const staleness = detectDigestStaleness({
-    type: "subgoal", baseline: before, next,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "subgoal", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition, warnings });
+  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition });
 }
 
 // ---------------------------------------------------------------------------

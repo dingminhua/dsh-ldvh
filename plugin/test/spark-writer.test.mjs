@@ -1554,7 +1554,7 @@ test("既有关系中目标已终态，但写入时若同时新增非 open 目�
 //
 // 为什么必须钉住：实测全库 112 个采用 serves 的对象有 98 个指向已 retired 的
 // SubGoal（87.5%）。旧实现在更新时无条件重解，使它们**任何内容更新都被拒**——
-// 连改一个与 serves 毫无关系的字段都不行（补 recall_digest 时撞到的就是这个）。
+// 连改一个与 serves 毫无关系的字段都不行（本用例用 summary 作为那个字段）。
 // ---------------------------------------------------------------------------
 
 test("update: 历史的 serves 指向已 retired 子目标时，更新仍被允许（28 §12.3 第 3 条）", async () => {
@@ -1578,8 +1578,8 @@ test("update: 历史的 serves 指向已 retired 子目标时，更新仍被允�
     assert.ok(read1.ok);
     const fmAfter = { ...read1.value.frontmatter };
     delete fmAfter.change_summary;
-    // 只补一个与 serves 无关的字段
-    fmAfter.recall_digest = "回归 关键词面 召回摘要";
+    // 只改一个与 serves 无关的字段（`recall_digest` 已退场，改用 `summary`）
+    fmAfter.summary = "回归：serves 未变时无关字段可更新";
 
     const updated = await updateSparkObject({
       factSourceRoot: root,
@@ -1587,13 +1587,13 @@ test("update: 历史的 serves 指向已 retired 子目标时，更新仍被允�
       expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: fmAfter,
       bodyMarkdownAfter: read1.value.body.replace(/^#[^\n]*\n/, "").trim(),
-      changeSummary: "补 recall_digest（serves 未变，不应重解）",
+      changeSummary: "改 summary（serves 未变，不应重解）",
       sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
     });
     assert.ok(updated.ok, `历史 serves 失效不得阻断无关字段的更新：${JSON.stringify(updated.error)}`);
 
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
-    assert.equal(read2.value.frontmatter.recall_digest, "回归 关键词面 召回摘要");
+    assert.equal(read2.value.frontmatter.summary, "回归：serves 未变时无关字段可更新");
     assert.equal(read2.value.frontmatter.serves, subGoalUid(1), "既有 serves 须保留原值（不改写历史引用）");
   });
 });

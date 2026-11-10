@@ -39,7 +39,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 承载层 attempt 接缝 承重声明已删 独立复核 身份不可用 fail-closed 拒绝分配 Gate1 takeover reallocate 收口
 ---
 
 # WorkCase 承载层与 attempt 接缝

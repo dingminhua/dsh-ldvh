@@ -23,7 +23,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 凭记忆构造old_string 局部替换改写原文 精确替换 判断自己编辑失真 两次核查否定 整句复制重复 逐处核对
 ---
 
 # 凭记忆构造 old_string 致局部替换改写原文

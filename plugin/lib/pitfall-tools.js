@@ -349,7 +349,7 @@ async function executeWriteObject(args, exec, deps) {
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
       changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
-      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。放进 result 才能被
+      // 写入侧的警告（如载体内聚差异；21 §263「只报告不阻断」）。放进 result 才能被
       // renderEnvelope 渲染成 `warning:` 行——只留在 envelope 里模型侧看不见。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
@@ -450,7 +450,6 @@ function parameterSchemaFor(operationKey) {
       trigger_signal: { type: "string", description: "when to re-examine this experience (dependency version change, environment migration, etc.); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the experience; when non-empty the body must carry a 证据 section" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=discarded, forbidden while active (23 §8)" },
-      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion; recall reads it first and falls back to the type's own content field when absent (02 §7.1)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "scope"],

@@ -14,7 +14,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: dsh-ui 非白名单组件 静默丢弃 围栏节点凭空消失 没有渲染 收不到提示 结构少一块 白名单校验
 ---
 
 # dsh-ui 非白名单组件类型被静默丢弃

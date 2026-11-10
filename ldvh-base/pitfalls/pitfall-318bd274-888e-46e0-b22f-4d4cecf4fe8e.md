@@ -26,7 +26,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 夹具写旧格式 生产路径假绿 测试全绿 真实数据读不出 旧格式经生产读取 条数0 recent空 读取端有测试 写入端被夹具替代
 ---
 
 # 夹具写旧格式致生产路径假绿

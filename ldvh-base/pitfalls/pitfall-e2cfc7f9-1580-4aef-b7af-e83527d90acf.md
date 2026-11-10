@@ -19,7 +19,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 重载窗口 多实例 钩子重复 互相摘除 同一agent多份等效钩子 两类相反故障 重复注册 摘除他人
 ---
 
 # 重载窗口多实例致钩子重复且互相摘除

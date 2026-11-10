@@ -26,7 +26,6 @@ change_log:
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 order: 3
-recall_digest: 召回保障当前工作 双源召回评估包 规范源候选 事实源候选 未检查范围 适用判断 行动落实 遗漏截断 进入当前判断位置
 ---
 
 # 召回保障当前工作

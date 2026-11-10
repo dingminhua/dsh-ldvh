@@ -23,7 +23,6 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -58,8 +57,7 @@ const RETIREMENT_REASONS = new Set(["outdated", "superseded", "out-of-scope", "r
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "urls", "relations", "change_log",
-  "research_question", "research_purpose", "stopping_reason", "recall_digest",
-  "confirmed_statements", "uncertain", "gaps",
+  "research_question", "research_purpose", "stopping_reason", "confirmed_statements", "uncertain", "gaps",
   "implications", "clarification_log",
   "retirement_reason", "retired_at",
 ]);
@@ -677,13 +675,7 @@ export async function correctResearchObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  const staleness = detectDigestStaleness({
-    type: "research", baseline: current.value.frontmatter, next: fm,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "research", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ fingerprint: fileFingerprint(content), warnings });
+  return success({ fingerprint: fileFingerprint(content) });
 }
 
 // ---------------------------------------------------------------------------
@@ -1170,11 +1162,5 @@ export async function updateResearchObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  const staleness = detectDigestStaleness({
-    type: "research", baseline: current.value.frontmatter, next: fm,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "research", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ fingerprint: fileFingerprint(content), warnings });
+  return success({ fingerprint: fileFingerprint(content) });
 }

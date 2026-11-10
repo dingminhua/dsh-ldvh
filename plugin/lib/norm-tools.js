@@ -340,7 +340,7 @@ async function executeWriteObject(args, exec, deps) {
       file: updated.value.file,
       fingerprint: updated.value.fingerprint,
       read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
-      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。
+      // 写入侧的警告（如载体内聚差异），不阻断。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
         : {})
@@ -519,7 +519,6 @@ function parameterSchemaFor(operationKey) {
       title: { type: "string", description: "≤ 40 characters; direction-spec short title for locating and Human scanning (27 §8)" },
       status: { type: "string", enum: ["active", "retired"], description: "create must be active (27 §8.1 — the only legal initial state); update may transition active→retired (terminal, read-only afterwards)" },
       direction_key: { type: "string", description: "lowercase kebab-case direction key matching ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$ (01.Att.02 §2 identifier format); at most one ACTIVE Norm per direction_key (27 §11). Immutable across updates — direction drift is a retire+create path, not an update. Carrier coherence (27 §7): this type's body is rule prose, not a projection of any frontmatter scalar, so the body is NOT required to reproduce direction_key verbatim. The only mechanical coherence check is the converse — if the body declares a direction_key in text, it must match this field; a mismatch is rejected" },
-      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion; recall reads it first and falls back to the type's own content field when absent (02 §7.1)" },
       retirement_reason: { type: "string", enum: ["superseded", "outdated", "out-of-scope"], description: "required iff status=retired, forbidden while active (27 §8/§8.1)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },

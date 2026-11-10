@@ -190,7 +190,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: dsh-mnemon 可组合记忆控制平面 三层记忆 Provider Source拥有数据 Strategy纯确定性 View有界上下文 九种数据面 闲时机制增补
 ---
 
 ## 研究问题

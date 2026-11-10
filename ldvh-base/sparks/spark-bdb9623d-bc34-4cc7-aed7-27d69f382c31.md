@@ -35,7 +35,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: dimensions七元组 表达力缺口 收口关闭 三条前提不成立 能力层标签词表 能力轴 非业务系统镜像 不逐一对应
 ---
 
 # dimensions 七元组表达力缺口

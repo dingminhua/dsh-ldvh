@@ -655,7 +655,7 @@ async function executeWriteObject(args, exec, deps) {
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
       changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
-      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。放在 result 内使
+      // 写入侧的警告（如载体内聚差异），不阻断。放在 result 内使
       // renderEnvelope 能把它渲染成 `warning:` 行——只留在 envelope 里，
       // 模型侧看不见等同于没有。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
@@ -812,7 +812,6 @@ function parameterSchemaFor(operationKey) {
       scope_boundary: { type: "string", description: "when to stop (boundary, not goal achievement); must appear verbatim in the 调查边界 body section (carrier coherence, 20 §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       intent: { type: "string", description: "why this is worth keeping + the follow-up direction" },
       summary: { type: "string", description: "complete current semantic snapshot — what this thread currently knows and how to judge it. Index/summary layer: the body 当前理解 section expands it and need NOT repeat it verbatim (02 §7.1, Human 2026-11-10)" },
-      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion, does not replace summary; recall reads it first and falls back to summary → body → title when absent" },
       evolution: { type: "array", items: evolutionEntry, description: "substantive-pivot log (cap 20); when non-empty the body must carry a 演变 H2 section" },
       serves: { type: "string", description: "SubGoal object_uid (canonical UUIDv4, 28 §12.3); must resolve to an active/achieved SubGoal object; omit when not applicable" },
       refs: { type: "array", items: refsEntry, description: "related fact objects (03 §7.2 关联引用型, 20 §8): any type; target status is NOT checked (an association survives the target closing); every target must resolve to an existing, readable, same-project object_uid or the write is rejected; cap 10; state-neutral; omit when none. Surfaced on the F1 list card for Human scanning." },
@@ -839,7 +838,7 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           status: { type: "string", enum: ["open", "all"], description: "open = default (ordinary unresolved candidates only, 20 §12); all = include implemented/discarded for historical tracing" },
-          keyword: { type: "string", description: "literal case-insensitive substring over title, question and recall_digest (title/question are the two semantic inputs 20 §6.2 names for dedup; recall_digest is the 02 §7.1 recall digest, which exists precisely so the object can be found by lexical matching). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (02 §9 第 4 项 / 02:262: Code must not use similarity, embedding or keyword weights to adjudicate relevance)" },
+          keyword: { type: "string", description: "literal case-insensitive substring over title and question (the two semantic inputs 20 §6.2 names for dedup). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (02 §9 第 4 项 / 02:262: Code must not use similarity, embedding or keyword weights to adjudicate relevance)" },
           priorities: { type: "array", items: { type: "string", enum: ["P0", "P1", "P2", "P3"] }, description: "keep only Sparks whose declared priority is among these (20 §8). Untiered Sparks are never inferred into a tier, so they do not match any priority filter (20 §8: 排序缺失者排末位、不推定档位)" },
           serves: { type: "string", description: "keep only Sparks serving this SubGoal object_uid verbatim (28 §12.3). Empty result means no Spark declares it — not that the sub-goal is unused" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1). The cap applies AFTER filtering, and total is the filtered hit count" }

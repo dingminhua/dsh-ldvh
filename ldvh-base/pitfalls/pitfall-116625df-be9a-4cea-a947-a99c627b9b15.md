@@ -23,7 +23,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 提交消息格式 凭惯例拼装 预检失败 provider model trailer 值无直接来源 自行拼 受控提交场景
 ---
 
 # 提交消息格式凭惯例拼装致预检失败

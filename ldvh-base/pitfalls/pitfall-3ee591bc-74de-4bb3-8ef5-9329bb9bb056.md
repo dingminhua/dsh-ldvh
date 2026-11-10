@@ -19,7 +19,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 假形状夹具 真缺陷潜伏 测试全绿下 回归用例固化错误判据 状态代理代替权威事件 旧用例失败 认得仍被跟踪 不再重注
 ---
 
 # 假形状夹具致真缺陷在测试全绿下潜伏

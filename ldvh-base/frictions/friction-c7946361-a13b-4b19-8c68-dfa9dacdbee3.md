@@ -23,7 +23,6 @@ occurrence:
   count: 4
   first_at: 2026-10-31T18:44:57.126Z
   last_at: 2026-11-04T18:24:57.896Z
-recall_digest: 结果节正文 与结构化result 映射无机械门禁 正文写未达成 result标satisfied true close机械校验不拦 两侧不一致
 ---
 
 # 结果节正文与结构化 result 映射无机械门禁

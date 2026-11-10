@@ -446,7 +446,7 @@ async function executeWriteObject(args, exec, deps) {
       file: updated.value.file,
       fingerprint: updated.value.fingerprint,
       read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
-      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。
+      // 写入侧的警告（如载体内聚差异），不阻断。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
         : {})
@@ -584,7 +584,6 @@ function parameterSchemaFor(operationKey) {
       status: { type: "string", enum: ["active", "absorbed", "superseded", "dropped"], description: "create must be active (29 §9.2 — the only legal initial state); update may transition active→absorbed/superseded/dropped, all terminal and read-only afterwards" },
       occurred_at: { type: "string", description: "RFC3339 — WHEN THE WORK HAPPENED, not when the entry was written (29 §10.4). Required; must not be later than created_at. Using the recording time here is a defect the mechanical layer cannot detect (29 §15)" },
       summary: { type: "string", description: "当前语义快照 (29 §8/§9.3): the conclusion itself + its current applicability boundary + confirmed non-holds. Must appear VERBATIM in the 结论与边界 body section (carrier coherence, 29 §8 字段间不变量 1; frontmatter is the single authoritative text — the body only expands it). A 细化档 update (boundary/number refinement, conclusion unchanged) is a supplement-level write; a 替换档 one (loosening/tightening/replacing the conclusion) additionally needs Human confirmation — Code does NOT judge which one it is (29 §15)" },
-      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion; recall reads it first and falls back to the type's own content field when absent (02 §7.1)" },
       serves: { type: "string", description: "optional SubGoal object_uid (canonical UUIDv4); must resolve to an active|achieved SubGoal (28 §12.3). Omit when not applicable — an entry without serves has an empty topic and the presentation layer must say so (29 §8.1)" },
       refs: { type: "array", items: { type: "object" }, description: "关联的事实对象引用（29 §8 / §12.3bis；采用面扩展经 Human 决定，02 §8.2）: array of {object_uid} — 目标须为同项目存在且可读的事实对象（**不校验目标状态**——关联是历史事实），上限 10 项，禁重复、禁携带目标标题或关系解释；**只载内容关联**，生命周期关系走 relations、外部资料走 urls、载体内部锚点走 serves；解析失败零写入拒绝，不得降级为空数组；不存在时省略（空数组会伪造一个条件字段）" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=dropped, forbidden otherwise (29 §8)" },

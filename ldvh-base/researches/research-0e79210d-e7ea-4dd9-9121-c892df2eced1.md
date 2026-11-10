@@ -59,7 +59,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: v4吸收账 读写维 五吸收项 v5落实状态 双层消费 局部补丁 生命周期 代码图谱索引未承接 已落实与未落实
 ---
 
 ## 研究问题

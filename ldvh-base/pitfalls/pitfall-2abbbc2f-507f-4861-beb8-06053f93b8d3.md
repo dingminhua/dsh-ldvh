@@ -35,7 +35,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 受控写入重建 漏抄字段 被删除后回填 重建写入内容 漏一行 attribution 与基线差异 字段被抹去
 ---
 
 # 受控写入重建漏抄字段被删除后回填

@@ -27,7 +27,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 取消工单 去流程不去判据 行动前审核 行动后复核 完成判据可判定 范围越权基准 符合与否加证据 审核复核分轴 依据承载位 触发判据归属 存量对象去向
 ---
 
 # 取消 WorkCase 与审核自动触发

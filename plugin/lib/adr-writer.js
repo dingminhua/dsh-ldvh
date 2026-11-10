@@ -32,7 +32,6 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -88,8 +87,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (22 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "decision", "scope", "trigger_signal", "urls", "recall_digest",
-  "relations", "retirement_reason", "retired_at", "change_log",
+  "decision", "scope", "trigger_signal", "urls", "relations", "retirement_reason", "retired_at", "change_log",
 ]);
 
 /**
@@ -392,7 +390,10 @@ export function validateAdrBodyStructure(body, title, urlsCount) {
  * authoritative texts — their body sections must contain them verbatim.
  */
 export function validateCarrierCoherence(frontmatter, body) {
-  const issues = [];
+  // Human 2026-11-10（`spark-f0ba9997`）：字段是索引与摘要、正文是展开，二者
+  // **不需逐字一致**——故差异一律进 `warnings`，不进 `issues`，更不阻断写入。
+  // 保留本函数是为了差异仍可被如实报告（不是静默当作一致），与 Spark 同形。
+  const warnings = [];
   const pairs = [
     ["decision", "决定"],
     ["scope", "适用范围"],
@@ -403,12 +404,12 @@ export function validateCarrierCoherence(frontmatter, body) {
     const content = sectionContent(body, section);
     if (content === null) continue; // section presence checked in body structure
     if (!content.includes(text)) {
-      issues.push(carrierCoherenceMessage({
+      warnings.push(carrierCoherenceMessage({
         section, field, declared: text, actual: content, clause: "22 §8, §14.1",
       }));
     }
   }
-  return { ok: issues.length === 0, issues };
+  return { ok: true, issues: [], warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -794,13 +795,7 @@ export async function updateAdrObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  const staleness = detectDigestStaleness({
-    type: "adr", baseline: current.value.frontmatter, next: fm,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "adr", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ fingerprint: fileFingerprint(content), warnings });
+  return success({ fingerprint: fileFingerprint(content) });
 }
 
 // ---------------------------------------------------------------------------
@@ -927,13 +922,7 @@ export async function correctAdrObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  const staleness = detectDigestStaleness({
-    type: "adr", baseline: current.value.frontmatter, next: fm,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "adr", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ fingerprint: fileFingerprint(content), warnings });
+  return success({ fingerprint: fileFingerprint(content) });
 }
 
 // ---------------------------------------------------------------------------

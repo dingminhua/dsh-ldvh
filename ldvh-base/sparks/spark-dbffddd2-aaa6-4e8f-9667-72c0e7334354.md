@@ -39,7 +39,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 执行系统 单元执行 已定项B 行动模板退出 三类语义两类 模板编号作废 工单执行 三件套模式 流程层结构层
 ---
 
 # 执行系统（单元执行）的建立

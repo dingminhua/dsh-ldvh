@@ -91,7 +91,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: dsh-solo-thinking 独立Session 思考树 显式Handoff 分支隔离 三角色 限额收敛 一分支一Session 扁平节点parentId链
 ---
 
 ## 研究问题

@@ -563,3 +563,49 @@ test('workcase pre_reviews is consumed by the reader instead of surfacing as an 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('an unknown frontmatter key surfaces as an unparsed structure instead of being dropped silently', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
+  await mkdir(directory, { recursive: true });
+  const objectUid = '11111111-3333-4444-8555-666666666666';
+  // 本用例原本钉住的是「`recall_digest` 是已登记公共字段、不得判为未解析结构」。
+  // 该字段已于 2026-11-11 从事实源退场（02 §7.1），故用例改为钉住**通用机制**：
+  // 任何未登记进契约的键都必须如实进入 `unparsed_structures`，而不是被静默丢弃。
+  // 这比盯着某一个字段更耐久——它描述的是读取层的契约边界，不是某个字段的存废。
+  await writeFile(path.join(directory, `pitfall-${objectUid}.md`), [
+    '---',
+    `object_uid: ${objectUid}`,
+    'fact_type_key: pitfall',
+    'title: 夹具经验',
+    'status: active',
+    'created_at: "2026-01-01"',
+    'scope: 仅用于读取层夹具',
+    'made_up_field: 未登记键 应被如实报告',
+    '---',
+    '',
+    '# 夹具经验',
+    '',
+    '## 症状',
+    '',
+    '夹具症状。',
+    '',
+  ].join('\n'), 'utf8');
+  try {
+    const read = await readLocalFact('pitfall', `pitfall-${objectUid}`, scope);
+    assert.equal(read.status, 'ok');
+    if (read.status !== 'ok') return;
+    assert.ok(
+      read.item.unparsed_structures.some((entry) => entry.path === 'made_up_field'),
+      '未登记键必须进 unparsed_structures，不得被静默丢弃',
+    );
+    assert.equal(
+      read.item.fact_object?.made_up_field,
+      undefined,
+      '未登记键不得进入对象投影',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

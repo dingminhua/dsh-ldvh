@@ -30,7 +30,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 召回排序 决策依据 三分 稀有度加权 IDF加权 非标准BM25 tf恒为1 死代码 跨源不可比 排序分与注入决策分离
 ---
 
 # 召回排序与决策依据的改进

@@ -60,7 +60,6 @@ change_log:
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
 refs:
   - object_uid: 25a34e54-fa56-45e7-92a9-85eb222aee97
-recall_digest: 上游DSH能力变化 吸收同步机制 宿主基线 唯一登记点 契约面差分 破坏 降级 无关 三态 落地时机 docs 删除 凭据链断裂 泛方向跟踪 收紧
 ---
 
 # 建立上游 DSH 能力变化的吸收与同步机制

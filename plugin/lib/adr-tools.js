@@ -424,7 +424,7 @@ async function executeWriteObject(args, exec, deps) {
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
       changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
-      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。放进 result 才能被
+      // 写入侧的警告（如载体内聚差异；21 §263「只报告不阻断」）。放进 result 才能被
       // renderEnvelope 渲染成 `warning:` 行——只留在 envelope 里模型侧看不见。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
@@ -540,7 +540,6 @@ function parameterSchemaFor(operationKey) {
       title: { type: "string", description: "≤ 30 characters; decision-direction title for locating and Human scanning" },
       status: { type: "string", enum: ["active", "retired"], description: "create must be active; update may transition active→retired (terminal, read-only afterwards — 22 §9)" },
       decision: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 决定 body section (carrier coherence, 22 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
-      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion; recall reads it first and falls back to the type's own content field when absent (02 §7.1)" },
       scope: { type: "string", description: "applicability statement; must appear verbatim in the 适用范围 body section (carrier coherence, 22 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       trigger_signal: { type: "string", description: "when to revisit this decision (e.g. 「当 X 出现时重审」); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the decision; when non-empty the body must carry a 证据 section" },

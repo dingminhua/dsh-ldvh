@@ -54,7 +54,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: v4 T1到T6 调研系统技术加固 v5落实状态 EIG停止 validator 五段 关系边约束已落实且更强 体量闸 调研模型 解耦未落
 ---
 
 ## 研究问题

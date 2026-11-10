@@ -46,7 +46,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 新事实类型 候选准入 准入六问 未定案 人能看懂 技术框架 终局目标 事实源 讨论已启动 逐项判定
 ---
 
 # 新事实类型候选准入

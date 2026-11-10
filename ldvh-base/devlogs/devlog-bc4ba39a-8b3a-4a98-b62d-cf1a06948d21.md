@@ -26,7 +26,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 建前审核 分区覆盖 轮次上限 rebatch 保留流水 随提交落盘 候选文档自述过期 未并入 只实现侧边界 未知分区id
 ---
 
 # 建前审核分区覆盖与轮次上限落盘

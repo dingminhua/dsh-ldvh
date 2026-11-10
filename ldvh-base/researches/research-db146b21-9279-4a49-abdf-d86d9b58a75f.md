@@ -91,7 +91,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: DSH 0.1.5rc2到0.1.7rc1 升级 会话格式v4单向门 影子遮蔽 回退不可逆 设置模型重建 SettingsForms 客户端接缝删除
 ---
 
 ## 研究问题

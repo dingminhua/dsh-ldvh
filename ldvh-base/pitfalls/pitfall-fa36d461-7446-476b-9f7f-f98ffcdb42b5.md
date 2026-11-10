@@ -31,7 +31,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 验证副本 目标已存在 缺失输出被读作确定结论 11处变异全存活 与此前实测矛盾 假结果 副本未清理 结论反转
 ---
 
 # 验证副本目标已存在致缺失输出被读作确定结论

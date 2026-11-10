@@ -14,7 +14,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 审核修复 新起段落 违反结构契约 本该并入既有段落 独立段落 变成六段 违反五段契约 修复动作本身违规
 ---
 
 # 审核修复新起段落违反规范自述结构契约

@@ -35,7 +35,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 候选入参 凭印象拼装 预检缺字段失败 补上缺失字段即通过 工作区本身无问题 字段清单未核对
 ---
 
 # 候选入参凭印象拼装致预检缺字段失败

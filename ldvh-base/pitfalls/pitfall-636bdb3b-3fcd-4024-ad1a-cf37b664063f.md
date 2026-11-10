@@ -14,7 +14,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 候选指纹 计入可省略初态 写拒 candidate_changed 已取得路由答复 再次路由询问 候选内容未变 指纹口径
 ---
 
 # 候选指纹计入可省略初态致写拒并重复提问

@@ -15,7 +15,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: dsh-ui 表格 rows 逐行须为数组或对象 render_failed invalid_spec 行结构 表格行格式 渲染失败 逐项指出
 ---
 
 # dsh-ui 表格 rows 逐行须为数组或对象

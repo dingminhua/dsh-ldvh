@@ -22,7 +22,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: Spark草稿 改写summary被拒 coherence_invalid 连续两次拒 接口不说哪处坏 凭猜重试 载体内聚校验
 ---
 
 # Spark 草稿改写 summary 被拒

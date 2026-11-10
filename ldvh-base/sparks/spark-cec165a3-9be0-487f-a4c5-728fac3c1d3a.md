@@ -82,7 +82,6 @@ refs:
   - object_uid: 56a5ed45-a7cb-4c2f-b2ad-e766a49338d3
   - object_uid: b8cd2268-91ba-4585-bb39-ec674d64c097
   - object_uid: 5eec3197-a92e-46fb-a5ac-a7f00c9d2319
-recall_digest: 分诊边界 重复治理 有价值记录事项 经验 闲时通道 结构性缺口 论域只覆盖失败一极 跨类重复 同类重复
 ---
 
 # 摩擦与经验的分诊边界与重复治理

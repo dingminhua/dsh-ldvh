@@ -50,7 +50,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 关系机制未决 证据定位 消费召回 早已实现 契约缺登记 补登记 闭集commit 非informs即拒 召回不新增检索 F2关系命中
 ---
 
 # 关系机制剩余未决：证据与消费召回

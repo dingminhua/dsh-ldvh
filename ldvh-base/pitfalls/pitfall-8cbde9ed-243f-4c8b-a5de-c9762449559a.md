@@ -27,7 +27,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 回归用例 虚构事实读取形状 复核阻塞 独立复核对不关闭 发现指向用例 假形状 事实读取投影 用例与实现不符
 ---
 
 # 回归用例虚构事实读取形状致复核阻塞

@@ -738,7 +738,7 @@ async function executeWriteObject(args, exec, deps) {
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
       changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
-      // `recall_digest` 陈旧提示（02 §7.1；不阻断）。放进 result 才能被
+      // 写入侧的警告（如载体内聚差异；21 §263「只报告不阻断」）。放进 result 才能被
       // renderEnvelope 渲染成 `warning:` 行——只留在 envelope 里模型侧看不见。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
@@ -924,7 +924,6 @@ function parameterSchemaFor(operationKey) {
         enum: ["outdated", "superseded", "out-of-scope", "rejected"],
         description: "create MUST NOT supply this; update may set when transitioning active → retired (24 §9)"
       },
-      recall_digest: { type: "string", description: "recall digest (≤ 200 Chinese chars): a dense keyword surface — symptom, mechanism, applicability boundary, synonyms. Its reader is the lexical matcher, not a person, so fragments are fine. NOT a conclusion; recall reads it first and falls back to the type's own content field when absent (02 §7.1)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "research_question", "research_purpose", "stopping_reason", "urls"],

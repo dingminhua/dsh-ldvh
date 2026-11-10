@@ -28,7 +28,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 首行比较式校验 漏掉多余H1 只比较首个非空行 首个标题行必须等于 两件事同时判错 结构校验 Markdown正文
 ---
 
 # 首行比较式校验漏掉多余H1

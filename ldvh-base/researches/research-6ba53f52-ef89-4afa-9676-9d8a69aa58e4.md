@@ -111,7 +111,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: Utopia 企业世界模型 deeplethe 双时态知识图谱 本体契约治理 叙事化决策记录 同构参照 工程借鉴 rc5
 ---
 
 ## 研究问题

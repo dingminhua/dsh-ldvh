@@ -117,7 +117,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: dsh_workflow 多Agent工作流层 脚本沙箱编排 事件加快照双写 有限修复 宿主原生调度 纯JS源字符串 run模型 QuickJS trusted-local
 ---
 
 ## 研究问题

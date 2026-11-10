@@ -22,7 +22,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 子代理中断 结论丢失 落盘产物可复用 取证审核中途被中断 判断只在最后交付消息 随中断消失 产物留存但结论没有
 ---
 
 # 子代理中断致结论丢失而落盘产物可复用

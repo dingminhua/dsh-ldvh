@@ -494,21 +494,26 @@ test("create: rejects serves that resolves to no SubGoal object (21 §10.1 fail-
   });
 });
 
-test("create: rejects body whose 摘要 does not carry the authoritative summary verbatim (载体内聚)", async () => {
+test("create: 摘要不逐字复现 summary 时**不再拒绝**，但差异必须上报（21 §263、02 §7.1）", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const draft = validDraft();
     // 夹具只让「摘要」漂移：计划部分走 draftBody 的标准写法（步骤+判据齐备），
     // 以免判据缺失一并触发内聚失败、使本用例的断言对象不再单一。
     const goodPlan = draftBody(draft).split("## 计划")[1];
-    const bad = await createWorkcaseObject({
+    const res = await createWorkcaseObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: `## 摘要\n\n这里故意写了一段和 frontmatter 不一致的内容。\n\n## 授权范围\n\n${draft.scope}\n\n## 计划${goodPlan}\n`,
       sessionSignature: SIG(),
     });
-    assert.ok(!bad.ok);
-    assert.equal(bad.error.code, "workcase/coherence_invalid");
+    // Human 2026-11-10（`spark-f0ba9997`）、21 §263：summary/scope 与正文段
+    // **不要求逐字一致**——frontmatter 是索引与摘要、正文是展开，二者本就该不同。
+    // 差异降为 warnings，**不再阻断**；但也**不得静默**（规范写的是「只报告」）。
+    assert.ok(res.ok, `摘要漂移不得再阻断写入：${JSON.stringify(res.error)}`);
+    assert.ok(Array.isArray(res.value.warnings) && res.value.warnings.length > 0,
+      "差异必须上报——静默当作一致与阻断写入同样是错的");
+    assert.ok(res.value.warnings.some((w) => /摘要|summary/.test(w)), JSON.stringify(res.value.warnings));
   });
 });
 
@@ -554,21 +559,21 @@ test("coherence: 判据未入正文 NOT rejected — 该项归 AI/Human，机器
   });
 });
 
-test("coherence: summary/scope must appear verbatim in their sections (21 §15.1 逐字)", async () => {
+test("coherence: summary/scope 的差异只报告不阻断；plan 乱序仍阻断（21 §263）", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const draft = validDraft();
     const plan = draft.plan.map((p) => `- ${p.step}：判据——${p.done_criteria}`).join("\n");
 
-    // ① 正文擅自改写 scope（frontmatter 是唯一权威文本）——必须拦
+    // ① 正文擅自改写 scope —— 不阻断（21 §263 已取消逐字义务），但须上报
     const drifted = await createWorkcaseObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: `## 摘要\n\n${draft.summary}\n\n## 授权范围\n\n这是与 frontmatter 不一致的授权范围。\n\n## 计划\n\n${plan}\n`,
       sessionSignature: SIG(),
     });
-    assert.ok(!drifted.ok, "scope 漂移必须被拒绝");
-    assert.equal(drifted.error.code, "workcase/coherence_invalid");
+    assert.ok(drifted.ok, `scope 漂移不再阻断：${JSON.stringify(drifted.error)}`);
+    assert.ok(drifted.value.warnings.some((w) => /授权范围|scope/.test(w)), JSON.stringify(drifted.value.warnings));
 
     // ② 逐字包含 + 追加说明 —— 合规：「逐字包含」不等于「不得追加」
     const appended = await createWorkcaseObject({

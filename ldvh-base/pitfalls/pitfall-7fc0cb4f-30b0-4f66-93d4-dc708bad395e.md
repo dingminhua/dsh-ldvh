@@ -18,7 +18,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 长标识符 人工转写 删除命中失败 引用错误定时任务ID schedule_not_found 删除未生效 手抄ID 复制粘贴代替转写
 ---
 
 # 长标识符人工转写致删除命中失败

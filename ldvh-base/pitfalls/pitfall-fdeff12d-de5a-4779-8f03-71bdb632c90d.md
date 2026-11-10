@@ -22,7 +22,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 自写类名扫描器 未剥前缀 假阳性 报告ldvh主题类未定义 focus-visible ring-ldvh-accent 引用了不存在类 前缀未剥离
 ---
 
 # 自写类名扫描器未剥前缀致假阳性

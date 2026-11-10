@@ -23,7 +23,6 @@ occurrence:
   count: 4
   first_at: 2026-11-03T11:28:38.167Z
   last_at: 2026-11-04T05:31:28.755Z
-recall_digest: README悬空引用 未被机械拦下 docs目录校验记录文档不存在 git ls-files docs为0 留在受保护文档 此前未捕获
 ---
 
 # README 悬空 docs 引用未被机械拦下

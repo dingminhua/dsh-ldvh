@@ -87,7 +87,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: DSH 0.2.0到0.2.1变更 两处契约破坏 区间规模 commits files 影响宿主对接 消费面
 ---
 
 ## 研究问题

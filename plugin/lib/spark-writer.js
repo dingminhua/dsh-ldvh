@@ -51,7 +51,6 @@ import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure
 import { listResolvableSubGoals, resolveSubGoal } from "./subgoal-writer.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
-import { detectDigestStaleness, digestStaleMessage } from "./digest-staleness.js";
 import { summaryLimitIssue } from "./summary-limit.js";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +86,7 @@ const OBJECT_UID_PATTERN =
 /** Closed set of frontmatter keys (20 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "question", "scope_boundary", "intent", "summary", "recall_digest",
+  "question", "scope_boundary", "intent", "summary",
   "evolution", "serves", "refs", "priority", "disposition", "relations", "change_log",
 ]);
 
@@ -1029,32 +1028,24 @@ export async function listSparkObjects(args) {
       hitParts.push(`serves=${servesNeedle}`);
     }
     if (needle !== null) {
-      // **匹配面：title、question 与 `recall_digest`**（Human 2026-11-10）。
+      // **匹配面：title 与 question 两项**（Human 2026-11-11）。
       //
-      // `recall_digest` 为什么必须在这里：它是 02 §7.1 定义的**召回摘要**，
-      // 读者是词法匹配器而非人——存在它就是为了让对象**被查到**。若本条查询入口
-      // 不读它，该字段对方向线「一页作用都没有」：写进去了、匹配面里没有它，
-      // 等于没写。实测（2026-11-10）：「吸收同步」「取消工单」这类只在 digest 里
-      // 出现、摘要与标题均不包含的查询词，补 digest 前后**都查不到**。
-      //
-      // title 与 question 仍是 20 §6.2 指定的查重语义输入；三者的关系是
-      // 「查重输入 + 召回索引」并列，不是替代——删掉任一项都会收窄可查性。
+      // `recall_digest` 已从事实源退场，故本入口不再读它。剩下的两项正是
+      // `20 §6.2` 指定的查重语义输入——它们本来就是这个类型自己的字段，
+      // 不需要再加一层跨类型统一的关键词面（那正是被删掉的那层）。
       // 仍不碰 body（body 是 F3 全文，见 20 §12 分层）。
       const title = typeof frontmatter.title === "string" ? frontmatter.title : "";
       const question = typeof frontmatter.question === "string" ? frontmatter.question : "";
-      const digest = typeof frontmatter.recall_digest === "string" ? frontmatter.recall_digest : "";
       const inTitle = title.toLowerCase().includes(needle);
       const inQuestion = question.toLowerCase().includes(needle);
-      const inDigest = digest.toLowerCase().includes(needle);
-      if (!inTitle && !inQuestion && !inDigest) continue;
+      if (!inTitle && !inQuestion) continue;
       // 说清**命中在哪个字段**——只报「命中了 keyword」不足以复算，读者还要知道
       // 去哪个字段上核对（`34 §8.2` 要求「命中了哪个字段、什么词」）。
-      // 多字段同时命中时全部列出（`+` 连接，保持既有 `title+question` 形态），
+      // 两个字段同时命中时全部列出（`+` 连接），
       // 不挑一个报：读者按报出的字段去核对，漏报的字段就查不回来。
       const where = [
         inTitle ? "title" : null,
         inQuestion ? "question" : null,
-        inDigest ? "recall_digest" : null,
       ].filter((part) => part !== null).join("+");
       hitParts.push(`keyword=${JSON.stringify(keyword.trim())}@${where}`);
     }
@@ -1304,14 +1295,9 @@ export async function updateSparkObject(args) {
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  // `recall_digest` 陈旧提示（02 §7.1；只提示不阻断，判据见 digest-staleness.js）。
-  const staleness = detectDigestStaleness({
-    type: "spark", baseline: current.value.frontmatter, next: fm,
-  });
-  const warnings = staleness.stale
-    ? [digestStaleMessage({ type: "spark", changedFields: staleness.changedFields })]
-    : undefined;
-  return success({ fingerprint: fileFingerprint(content), warnings });
+  // `recall_digest` 退场后不再有陈旧提示：该提示本身只为那一个字段存在
+  // （02 §7.1 的维护义务），字段没了，提示也没有对象（Human 2026-11-11）。
+  return success({ fingerprint: fileFingerprint(content) });
 }
 
 // Exported for the schema/writer agreement guard (test/schema-writer-agreement.test.mjs):

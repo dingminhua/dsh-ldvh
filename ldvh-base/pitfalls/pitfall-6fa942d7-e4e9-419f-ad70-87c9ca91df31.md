@@ -26,7 +26,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 归档会话 仍在枚举结果 被当有效落点 已归档集合 按固定标题找到复用 审核提醒投进看不到的会话 枚举未过滤
 ---
 
 # 归档会话仍在枚举结果中被当有效落点

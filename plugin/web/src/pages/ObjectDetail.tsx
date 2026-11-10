@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Code2, ExternalLink, FileText, History, Link2 } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Code2, ExternalLink, FileText, History, Link2, Radar } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';

@@ -324,19 +324,20 @@ test("body must carry 达成条件 then 对齐说明 (28 §8)", () => {
 	assert.ok(missing.issues.some((i) => /对齐说明/.test(i)));
 });
 
-test("criterion and alignment must appear verbatim in their sections (28 §8)", () => {
-	// This invariant lives in validateCarrierCoherence (frontmatter is the single
-	// authoritative text; the body only expands it), not in the structure check.
+test("criterion and alignment 与正文段的差异只报告不阻断（02 §7.1、Human 2026-11-10）", () => {
+	// 逐字义务已取消：frontmatter 是索引与摘要、正文是展开，二者本就该不同。
+	// 判据从 `issues` 移入 `warnings`——差异仍被如实报告，只是不再拒写入。
 	const body = "# 标题\n\n## 达成条件\n\n这不是判据原文。\n\n## 对齐说明\n\n也不是对齐原文。\n";
 	const bad = validateCarrierCoherence({ criterion: "某判据。", alignment: "某对齐。" }, body);
-	assert.equal(bad.ok, false);
-	assert.equal(bad.issues.length, 2, JSON.stringify(bad.issues));
+	assert.equal(bad.ok, true, "差异不得阻断写入");
+	assert.equal(bad.warnings.length, 2, JSON.stringify(bad.warnings));
 
 	const good = validateCarrierCoherence(
 		{ criterion: "某判据。", alignment: "某对齐。" },
 		"# 标题\n\n## 达成条件\n\n某判据。\n\n## 对齐说明\n\n某对齐。\n",
 	);
 	assert.equal(good.ok, true, JSON.stringify(good.issues));
+	assert.equal(good.warnings.length, 0, JSON.stringify(good.warnings));
 });
 
 test("a third status value is not in the closure (28 §9)", () => {

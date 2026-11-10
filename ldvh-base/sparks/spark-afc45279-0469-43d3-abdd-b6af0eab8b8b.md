@@ -27,7 +27,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: docs过程文档 时效纪律 治理成熟 法律地位 候选路径不含 未受控写入不成稳定事实 效力为轴 归档 唯一记录
 ---
 
 # docs 过程文档的时效纪律

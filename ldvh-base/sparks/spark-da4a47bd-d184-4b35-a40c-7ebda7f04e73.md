@@ -18,7 +18,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: 推进笔记 失败经验 义务真空 规范已基本做到 L0-L4分层 已收敛可陈述结论 允许不记 无工单工作 无承载位 已解决并验证 未解决失败 无处可去 做了没留痕迹 合法
 ---
 
 # 推进笔记与失败经验的义务真空

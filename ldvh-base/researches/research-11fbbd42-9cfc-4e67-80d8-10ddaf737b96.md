@@ -125,7 +125,6 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-recall_digest: DSH官方插件 接入面 api通道 认证 Web生命周期 前端启动图 Tab Sidebar 挂载 slot 白名单正则 interceptor 保留
 ---
 
 ## 研究问题
