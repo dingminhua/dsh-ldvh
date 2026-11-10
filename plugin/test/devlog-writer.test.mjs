@@ -187,6 +187,17 @@ test("summary/正文不一致不再拒绝写入（正文与字段分工，Human 
 		});
 		// 载体内聚已降为警告层：字段是索引与摘要、正文是展开，二者不需逐字一致。
 		assert.ok(created.ok, JSON.stringify(created.error));
+		// **不止「不拒绝」，还要「报告出来」**（Human 2026-11-11 复核补强）：
+		// 规范原文是「差异由读回与诊断层如实报告，不阻断写入」。只断言 ok 会漏掉
+		// 另一半义务——若实现改成「静默忽略差异」，本条仍会绿，而那正是二次事实
+		// 那条 Spark 记的「声称一致与实际不一致无从发现」。
+		const read = await readDevLogObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+		assert.ok(read.ok, JSON.stringify(read.error));
+		assert.deepEqual(read.value.mechanical_issues, [], "差异不是机械问题，不得进 issues");
+		assert.equal(
+			(read.value.warnings ?? []).length, 1,
+			`正文与 summary 不一致时必须进 warnings，实得：${JSON.stringify(read.value.warnings ?? [])}`,
+		);
 	});
 });
 
@@ -690,12 +701,25 @@ test("an unsigned write is refused — change_log is Code-signed (specs/09)", as
 // Coherence helper is exported and behaves (29 §8 不变量 1)
 // ---------------------------------------------------------------------------
 
-test("validateCarrierCoherence compares verbatim, no normalization (29 §14.1)", () => {
+test("正文与字段差异只报告、不阻断（29 §8 不变量 1，Human 2026-11-10 取消逐字义务）", () => {
+	// 行为契约（Human 2026-11-11 复核时本用例仍是旧口径，已按规范改正）：
+	//   · 一致时不产 warning；
+	//   · **不一致时 `ok` 仍为 true**——规范原文是「差异由读回与诊断层如实报告，
+	//     不阻断写入」，故这里断言的是「报告出来」而非「拒绝写入」。
+	// 旧口径（不一致即 ok:false）会让合法的写入被判机械失败，正是二次事实那条
+	// Spark 记的病理在实现层的残留。
 	const fm = { summary: "结论。" };
-	const body = `# t\n\n## 结论与边界\n\n结论。\u3000\n`;
-	assert.equal(validateCarrierCoherence(fm, body).ok, true);
-	const truncated = `# t\n\n## 结论与边界\n\n结论\n`;
-	assert.equal(validateCarrierCoherence(fm, truncated).ok, false);
+	const same = `# t\n\n## 结论与边界\n\n结论。\u3000\n`;
+	const sameResult = validateCarrierCoherence(fm, same);
+	assert.equal(sameResult.ok, true);
+	assert.deepEqual(sameResult.warnings, [], "逐字一致时不应产生差异报告");
+
+	const differs = `# t\n\n## 结论与边界\n\n正文用自己的话展开了结论\n`;
+	const diffResult = validateCarrierCoherence(fm, differs);
+	assert.equal(diffResult.ok, true, "差异不阻断写入（29 §8 不变量 1）");
+	assert.deepEqual(diffResult.issues, [], "差异不是机械问题，不得进 issues");
+	assert.equal(diffResult.warnings.length, 1, "差异必须如实报告，不得静默");
+	assert.match(diffResult.warnings[0], /结论与边界/);
 });
 
 test("an existing carrier with trailing-space headings still parses (no false rejection)", async () => {

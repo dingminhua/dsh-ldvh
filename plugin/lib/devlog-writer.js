@@ -434,27 +434,34 @@ export function validateDevLogBodyStructure(body, title, status = "active") {
 }
 
 /**
- * Carrier coherence (29 §8 字段间不变量 1): `summary` must appear VERBATIM in
- * the 结论与边界 section. frontmatter is the single authoritative text; the
- * body only expands it.
+ * 正文与字段一致性差异报告（29 §8 字段间不变量 1）。
  *
- * Exact string comparison, no normalization (29 §14.1 载体内聚 row).
- * This invariant survives compression: 29 §9.1 keeps 结论与边界 precisely so
- * the conclusion never disappears with the evidence.
+ * **不再要求逐字出现**（Human 2026-11-10 取消逐字义务；Human 2026-11-11 复核
+ * 时本函数仍按旧口径判 reject，属实现滞后于规范）。规范原文：frontmatter 字段是
+ * 索引与摘要、正文是展开，`summary` **不要求**在「结论与边界」段逐字出现；差异
+ * 由读回与诊断层**如实报告**，不阻断写入。
+ *
+ * 故本函数只产 `warnings`，且返回的 `ok` 恒为 true——它报告差异，不判定违规。
+ * 为什么仍保留报告：声称「一致」与「确实一致」是两件事，读者需要看到差异在
+ * 哪里，而不是被一个恒真的检查掩过去（02 §7.1「如实报告」）。
+ *
+ * **为什么还需要 29 §9.1 的「逐字含 summary」**：那是 `absorbed` 压缩后的保真
+ * 要求（结论不能随证据一起被删掉），与「写入时是否必须双存」不是同一件事；
+ * 它由终态压缩的形状检查承担（见 §14 验证表），不在写入路径上判。
  */
 export function validateCarrierCoherence(frontmatter, body) {
-  const issues = [];
+  const warnings = [];
   const summary = typeof frontmatter.summary === "string" ? frontmatter.summary.trim() : "";
-  if (summary.length === 0) return { ok: true, issues };
+  if (summary.length === 0) return { ok: true, issues: [], warnings };
   const content = sectionContent(body, "结论与边界");
-  if (content === null) return { ok: true, issues }; // section-presence is another check
+  if (content === null) return { ok: true, issues: [], warnings }; // section presence is another check
   if (!content.includes(summary)) {
-    issues.push(carrierCoherenceMessage({
+    warnings.push(carrierCoherenceMessage({
       section: "结论与边界", field: "summary", declared: summary, actual: content,
-      clause: "29 §8 字段间不变量 1",
+      clause: "29 §8 字段间不变量 1（只报告不阻断）",
     }));
   }
-  return { ok: issues.length === 0, issues };
+  return { ok: true, issues: [], warnings };
 }
 
 export function devlogFileName(uid) { return `devlog-${uid}.md`; }
@@ -1014,6 +1021,9 @@ export async function readDevLogObject(args) {
     frontmatter: parsed.frontmatter,
     body: parsed.body,
     mechanical_issues: [...fmCheck.issues, ...bodyCheck.issues, ...coherenceCheck.issues],
+    // 正文与字段差异单列到 `warnings`：它**不是**违规（29 §8 不变量 1 已取消逐字
+    // 义务），混进 `mechanical_issues` 会让读者把自己的合法写入误读成机械失败。
+    ...(coherenceCheck.warnings.length > 0 ? { warnings: coherenceCheck.warnings } : {}),
     body_valid: bodyCheck.ok,
   });
 }
