@@ -108,7 +108,20 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	// 第 50 轮：F2 有界确定性摘录，且渲染层要显示。
 	assert.ok(base.facts.every((f) => f.excerpt?.length > 0), "摘录不得为空");
 	assert.ok(base.facts.every((f) => f.excerpt.length <= 121), "摘录须有界");
-	assert.match(renderRecallRow(base), /↳ /, "渲染须显示摘录");
+	// **本条单独取一个装得下的预算**（2026-11-11 修）：
+	// `base` 用的是 2400 字节，而该档的固定披露行本身就要约 2000 字节，
+	// 候选连一张都放不下——用它验「渲染层会显示摘录」这**个能力**是选错了参数，
+	// 验的成了「极小预算下装不下」。实测摘录要到 3600 档才出现
+	// （3600→3211 字节、4000→3696 字节，均未超预算）。
+	// 该断言要验的是能力，故取能装下的预算；「极小预算下的取舍」由
+	// 预算让位相关用例单独覆盖，不在这里重复。
+	const withExcerptBudget = 4000;
+	const excerptBase = await q({ action: "把 34 号规范改名", limit: 3, budgetBytes: withExcerptBudget });
+	assert.ok(
+		excerptBase.facts.every((f) => f.excerpt?.length > 0),
+		`预算 ${withExcerptBudget} 下摘录不得为空`,
+	);
+	assert.match(renderRecallRow(excerptBase), /↳ /, "渲染须显示摘录");
 
 	// 第 34 轮：双源各得份额，且不静默截断。
 	assert.ok(base.specs.length > 0 && base.facts.length > 0, "双源皆须有结果");
