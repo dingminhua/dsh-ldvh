@@ -126,6 +126,47 @@ function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
 }
 
+/**
+ * 把若干互不依赖的校验结果合并成**一个** failure（spark-729491f6，2026-11-11）。
+ *
+ * 为什么需要：更新路径此前是「首错即返」——字段校验不过就 return，修好之后
+ * 才进入 serves 解析，再之后才是 refs 解析。调用方每次只看到最外层的那个错，
+ * 改完再撞下一个，重试因此像剥洋葱。实测（738 个会话、313 次失败）：
+ *  `rejected` 类重试后仅 60.1% 成功、33.9% 再次失败，且第二次失败的原因
+ *  **恰是第一次被掩盖的下一层错误**（例：先报 refs 格式错→改成裸 uuid→
+ *  才报 refs 不可解析；先报 priority 状态错→删掉→才报 serves 指向已 retired）。
+ *
+ * 合并的边界（**不是所有检查都能合并**）：只有彼此无数据依赖的检查才可同时
+ * 求值——字段形状、关系闭集、serves 解析、refs 解析都不改动彼此的前置条件。
+ * CAS 与状态机迁移必须先于它们成立（否则后续校验跑在错误的基线上），故仍
+ * 保持首错即返。合并的 `code` 取第一个失败的 code（调用方按 code 分类的既有
+ * 行为不变），`issues` 汇总全部层的问题并按产生顺序排列。
+ *
+ * 这不改变任何一个检查的判据，只改变「一次拒绝能报出多少条」。
+ */
+function failureFromChecks(checks) {
+  const failed = checks.filter((check) => check !== null && check.ok === false);
+  if (failed.length === 0) return null;
+  const [first] = failed;
+  if (failed.length === 1) return first;
+  const issues = failed.flatMap((check) => {
+    const own = Array.isArray(check.error.details?.issues) ? check.error.details.issues : [];
+    // 没有分层 issues 的失败（如 serves/refs 解析）把它自己的 message 作为
+    // 一条 issue 交还，避免合并后丢失原因。
+    return own.length > 0 ? own : [`${check.error.code}: ${check.error.message}`];
+  });
+  return {
+    ok: false,
+    error: {
+      code: first.error.code,
+      message: failed.length === 1
+        ? first.error.message
+        : `${first.error.message} (and ${failed.length - 1} other check(s) also failed — all reported below so one retry can fix them together)`,
+      details: { ...first.error.details, issues, failed_codes: failed.map((check) => check.error.code) },
+    },
+  };
+}
+
 function success(value) {
   return { ok: true, value };
 }
@@ -1217,13 +1258,7 @@ export async function updateSparkObject(args) {
     && typeof current.value.frontmatter.summary === "string"
     && fm.summary === current.value.frontmatter.summary;
   const fmCheck = validateSparkFrontmatter(fm, { skipSummaryLimit: summaryUnchanged });
-  if (!fmCheck.ok) {
-    return failure("spark/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues });
-  }
   const relCheck = validateSparkRelations(fm, objectUid);
-  if (!relCheck.ok) {
-    return failure("spark/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
-  }
 
   // serves resolution on the updated object (20 §13 + 28 §12.3)
   //
@@ -1236,20 +1271,30 @@ export async function updateSparkObject(args) {
   // SubGoal（87.5%），旧实现使它们**任何内容更新都被拒绝**——连改一个与 serves
   // 毫无关系的字段都不行。历史引用被原位作废的子目标拖死，这既非规范意图，也让
   // 存量对象实质上不可维护。
-  if (fm.serves !== undefined && fm.serves !== current.value.frontmatter.serves) {
-    const resolved = await resolveSubGoal(factSourceRoot, fm.serves);
-    if (!resolved.ok) {
-      return failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${fm.serves} cannot be resolved (28 §12.3)`);
-    }
-  }
+  const servesCheck = (fm.serves !== undefined && fm.serves !== current.value.frontmatter.serves)
+    ? await resolveSubGoal(factSourceRoot, fm.serves).then((resolved) => (resolved.ok
+      ? null
+      : failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${fm.serves} cannot be resolved (28 §12.3)`)))
+    : null;
 
   // refs target resolution on the updated object (03 §7.2, 20 §8)
-  if (fm.refs !== undefined) {
-    const refsCheck = await resolveRefsTargets(factSourceRoot, fm.refs);
-    if (!refsCheck.ok) {
-      return failure("spark/refs_unresolvable", refsCheck.reason, { missing: refsCheck.missing });
-    }
-  }
+  const refsCheck = fm.refs !== undefined
+    ? await resolveRefsTargets(factSourceRoot, fm.refs)
+      .then((checked) => (checked.ok ? null : failure("spark/refs_unresolvable", checked.reason, { missing: checked.missing })))
+    : null;
+
+  // **四类互不依赖的检查一次性报出**（spark-729491f6，2026-11-11）：字段形状、
+  // 关系闭集、serves 解析、refs 解析彼此不改动对方的前置条件，故可同时求值并
+  // 合并成一个 rejection。此前是首错即返，调用方每轮只看到最外层那一个错，
+  // 改完再撞下一个——实测 rejected 类重试后 33.9% 再次失败，且第二次失败的原因
+  // 恰是第一次被掩盖的下一层错误。判据本身一条未改，只改「一次能报出多少条」。
+  const validationFailure = failureFromChecks([
+    fmCheck.ok ? null : failure("spark/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues }),
+    relCheck.ok ? null : failure("spark/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues }),
+    servesCheck,
+    refsCheck,
+  ]);
+  if (validationFailure !== null) return validationFailure;
 
   // Relation targets must resolve to existing sparks, and must be OPEN *at
   // write time* (20 §11 / §14.1 — 合并/拆分去向校验).

@@ -1632,3 +1632,86 @@ test("update: 把 serves 改成另一个已 retired 的子目标仍被拒绝（�
     assert.equal(updated.error.code, "spark/serves_unresolvable");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 累积报错：一次拒绝报出全部可检出的层（spark-729491f6）
+//
+// WHY: 更新路径此前是「首错即返」——字段校验不过就 return，修好后才进入
+// serves 解析，再之后才是 refs 解析。调用方每轮只看到最外层的那个错，改完
+// 再撞下一个，重试因此像剥洋葱。实测（738 会话 / 313 次失败）：rejected 类
+// 重试后仅 60.1% 成功、33.9% 再次失败，且第二次失败的原因恰是第一次被掩盖
+// 的下一层错误。
+//
+// 本组用例锁住「一次报多少层」。它们必须能在实现退回首错即返时转红——否则
+// 等于没守（见 pitfall「新增防护无直接用例致变异零检出」）。
+// ---------------------------------------------------------------------------
+
+test("update: 字段形状错与 refs 不可解析同时成立时，一次拒绝把两层都报出来", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const created = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft(),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const read1 = await readSparkObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.ok(read1.ok);
+
+    const updated = await updateSparkObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: read1.value.fingerprint,
+      // ① title 空 → spark/frontmatter_invalid
+      // ② refs 指向不存在的对象 → spark/refs_unresolvable
+      frontmatterAfter: {
+        title: "",
+        refs: [{ object_uid: "11111111-1111-4111-8111-111111111111" }],
+      },
+      bodyMarkdownAfter: read1.value.body.replace(/^#[^\n]*\n/, "").trim(),
+      changeSummary: "两个错误同时成立",
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+    });
+
+    assert.ok(!updated.ok, "两类错误都成立时必须拒绝");
+    const failedCodes = updated.error.details?.failed_codes ?? [];
+    assert.deepEqual(
+      [...failedCodes].sort(),
+      ["spark/frontmatter_invalid", "spark/refs_unresolvable"],
+      `一次拒绝须把两层都报出来，否则调用方要再撞一轮；实际只报了 ${JSON.stringify(failedCodes)}`,
+    );
+    // issues 里两类原因都要可见（调用方按文本修复，只有 code 不够）
+    const issues = updated.error.details?.issues ?? [];
+    assert.ok(issues.some((i) => String(i).includes("title")), JSON.stringify(issues));
+    assert.ok(issues.some((i) => String(i).includes("refs target")), JSON.stringify(issues));
+  });
+});
+
+test("update: 只有一个错误时，报错形态与合并前一致（不引入多余的 failed_codes）", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const created = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft(),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const read1 = await readSparkObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+
+    const updated = await updateSparkObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: read1.value.fingerprint,
+      frontmatterAfter: { title: "" },
+      bodyMarkdownAfter: read1.value.body.replace(/^#[^\n]*\n/, "").trim(),
+      changeSummary: "只有字段错",
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+    });
+
+    assert.ok(!updated.ok);
+    assert.equal(updated.error.code, "spark/frontmatter_invalid");
+    // 单错不合并：code 与 message 保持原样，调用方按 code 分类的既有行为不变
+    assert.equal(updated.error.details?.failed_codes, undefined, "单错时不应出现 failed_codes");
+    assert.match(updated.error.message, /updated frontmatter failed mechanical checks/);
+  });
+});
