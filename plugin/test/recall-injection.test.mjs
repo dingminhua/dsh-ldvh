@@ -1830,3 +1830,48 @@ test("L0 三段：经验段先让位、事实规范段后让位（Human 次序�
 	assert.equal(norm?.yielded, false, "事实规范段在该档仍应列出");
 	assert.equal(pitfall?.yielded, true, "经验段应先让位");
 });
+
+test("34 §8.3 消费侧纪律：含候选时须交付「该怎么用」，不能只交付材料", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	// **为什么这条必须有**（2026-11-11）：改动前注入面只交付候选、不交付用法，
+	// 实测 38 个真实注入回合中「动手却未提及候选」占 60.5%、参数回指仅 10.5%。
+	// 没有这条用例，删掉纪律行不会有任何测试转红——防护形同不存在
+	// （见 pitfall-新增防护无直接用例致变异零检出）。
+	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
+	assert.equal(r.inject, true);
+	assert.match(r.text, /【双源召回/, "前提：应已产生候选区");
+	// 纪律行须点名 34 §8.3 与两个可执行动作，二者缺一都退化为口号。
+	assert.match(r.text, /用法/, "须给出用法纪律");
+	assert.match(r.text, /34 §8\.3/, "须回指规范依据，使纪律可核对");
+	assert.match(r.text, /写明依据来自哪一条/, "须给出「有改变」时的动作");
+	assert.match(r.text, /为何不改变/, "须给出「确认无需改变」时的动作（§8.3 合法结论）");
+	// 纪律行须在候选之前出现：候选被埋在 77 行索引底部时，写在末尾等于没写。
+	const lines = r.text.split("\n");
+	const disciplineIdx = lines.findIndex((l) => l.includes("【用法】") || /（\*\*用法\*\*/.test(l));
+	const lastIndexIdx = lines.map((l) => l.startsWith("· ")).lastIndexOf(true);
+	assert.ok(disciplineIdx !== -1, "纪律行应存在");
+	assert.ok(disciplineIdx < lastIndexIdx, `纪律行须在 L0 索引之前（实际 ${disciplineIdx}，末条索引 ${lastIndexIdx}）`);
+});
+
+test("34 §8.3 消费侧纪律：极小预算下整行让位，且不得顶破预算地板", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	// 该行是**新增固定行**，1200–1600 档固定声明已占九成预算（见其余让位用例）。
+	// 若让位判据失效，这里会超限——故本用例同时钉「让位」与「不超预算」两件事。
+	for (const budgetBytes of [800, 1200, 1600, 1900]) {
+		const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes });
+		assert.equal(r.inject, true, `${budgetBytes} 档应仍注入`);
+		const actual = Buffer.byteLength(r.text, "utf8");
+		assert.ok(actual <= budgetBytes, `${budgetBytes} 档实际 ${actual} 字节，不得超预算`);
+		assert.ok(!r.text.includes("**用法**"), `${budgetBytes} 档应让位纪律行`);
+	}
+});
+
+test("34 §8.3 消费侧纪律：达到阈值即输出（让位判据的边界须可分辨）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	// 只有「让位」用例、没有「到达阈值即输出」的正控制，会让让位判据写成
+	// 恒假也照样全绿（见 pitfall-否定式守卫用例缺正控制致假通过）。
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 2000 });
+	assert.equal(r.inject, true);
+	assert.ok(r.text.includes("**用法**"), "2000 档（= DISCIPLINE_LINE_MIN_BYTES）须输出纪律行");
+	assert.ok(Buffer.byteLength(r.text, "utf8") <= 2000, "输出纪律行后仍不得超预算");
+});
