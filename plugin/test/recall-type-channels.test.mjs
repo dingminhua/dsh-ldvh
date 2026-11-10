@@ -266,6 +266,38 @@ test("⑥ 分节名额：按次序分节、每类限额、总名额从末尾裁�
 	// 名额不改变名次：选中项保持传入次序。
 	const orders = result.groups.map((group) => group.type);
 	assert.deepEqual(orders, ["adr", "pitfall"], "分节次序须按常量，不是按命中数");
+	assert.deepEqual(result.unassignedByType, [], "无未分配项时明细为空数组，不写空壳条目");
+});
+
+test("⑥ 分节之外的类型须给按类型明细（34 §12 未检查范围逐类列出）", () => {
+	// **2026-11-11 新增**。`selectFactsBySection` 一直算出 `unassigned`，但只给
+	// 总数、不给类型，于是注入层拿到「13」却不知道该说什么，整条披露就没了。
+	// 实测该 13 条 = devlog 8 + subgoal 5——**知道分类型才可能判断该补哪条分节规则**。
+	const hit = (type, i) => ({ type, ref: `${type}-${i}`, title: `${type} ${i}` });
+	const hits = [
+		hit("adr", 0),
+		hit("devlog", 0), hit("devlog", 1), hit("devlog", 2),
+		hit("subgoal", 0), hit("subgoal", 1),
+	];
+	const plan = { order: FACT_SECTION_ORDER, quotaByType: QUOTA_BY_TYPE, total: 3 };
+	const result = selectFactsBySection(hits, plan);
+	// 分节次序里只有 adr 有候选；devlog/subgoal 不在次序内 → 全部未分配。
+	assert.deepEqual(
+		result.unassignedByType,
+		[{ type: "devlog", count: 3 }, { type: "subgoal", count: 2 }],
+		"未分配项须按类型给出条数（保序：插入序即命中次序）",
+	);
+	// 明细之和须等于总数——两者由同一趟循环算出，分叉即为实现缺陷。
+	assert.equal(
+		result.unassignedByType.reduce((sum, entry) => sum + entry.count, 0),
+		result.unassigned,
+		"按类型明细之和须等于 unassigned 总数",
+	);
+	// 未分配者不得混进 selected：它们没有分节认领。
+	assert.ok(
+		!result.selected.some((item) => item.type === "devlog" || item.type === "subgoal"),
+		"未分配类型不得进入交付集合",
+	);
 });
 
 test("⑥ 渲染：按类型分节、名额披露具名来源；关系展开单独成组不占名额", () => {

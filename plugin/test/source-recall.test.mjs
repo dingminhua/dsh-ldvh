@@ -900,6 +900,52 @@ test("02 §9.1：unchecked 须列出**具体被丢弃的候选**，不只是一�
 	}
 });
 
+test("02 §9.1：unchecked 与已返回的交集须为空（切片冒充差集即红）", async () => {
+	// **2026-11-11 新增**。旧实现用 `allXHits.slice(keptX.length)` 生成「未列出」，
+	// 其隐含前提是「已返回的恰是命中列表的前 N 条」。事实侧**不满足**该前提：
+	// 交付前经过 `selectFactsBySection`（按类型分组、每类取前 N、再按总名额裁），
+	// `selected` 已不是 `allFactHits` 的前缀。实测（本仓当前语料、该查询、
+	// limit=12、预算 10240）返回 7 条事实、unchecked.facts 105 条，其中 **5 条
+	// 与已返回重复**——正是那 7 条里的 5 条。
+	//
+	// 后果不是「数字偏大」而是**谎报**：已交付的对象被列进「没交付」，读者会去
+	// 追一条他手上已有的条目（`34 §12` 要求取值与清单逐类对应）。
+	//
+	// 本用例必须以**走分节路径**的方式构造：不分节的调用里 kept 仍是前缀，切片
+	// 与差集恰好等价，测不出该缺陷（这正是它此前没被发现的原因）。故此处显式
+	// 传 `factSelection`，与注入路径同形。
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	const r = await buildRecallInjection({
+		userText: "当前ldvh在召回上做的如何？",
+		projectRoot: ROOT,
+		budgetBytes: 10240,
+		limit: 12,
+	});
+	assert.equal(r.inject, true, "前提：该查询须能进入词法候选召回");
+	const res = r.result;
+	assert.ok(res.sectioning !== null && res.sectioning !== undefined, "前提：须走分节路径");
+	const returned = [...(res.specs ?? []), ...(res.facts ?? [])].map((x) => x.path);
+	const unchecked = [...(res.unchecked?.specs ?? []), ...(res.unchecked?.facts ?? [])].map((x) => x.path);
+	const overlap = unchecked.filter((p) => returned.includes(p));
+	assert.deepEqual(
+		overlap,
+		[],
+		`「未列出」不得包含已返回的对象（实测重叠 ${overlap.length} 条）——`
+		+ "分节后 kept 不是命中列表的前缀，须按 path 求差集",
+	);
+	// 两侧各自的自洽：已返回 + 未列出 = 该侧命中总数（差集口径下必须成立）。
+	assert.equal(
+		(res.specs ?? []).length + (res.unchecked?.specs ?? []).length,
+		res.counts.specHits,
+		"规范侧：已返回 + 未列出 须等于命中总数",
+	);
+	assert.equal(
+		(res.facts ?? []).length + (res.unchecked?.facts ?? []).length,
+		res.counts.factHits,
+		"事实侧：已返回 + 未列出 须等于命中总数",
+	);
+});
+
 test("02 §9：排序不得用相似度/embedding/AI 裁决相关性（红线）", async () => {
 	// **2026-10-27 更正**：本条曾断言 `usesWeights === false` —— 那断言的是一个
 	// 写死的字面量，实现无论怎么变都通过（恒真守不住任何东西）。
@@ -2417,11 +2463,28 @@ test("31 §10：excludeTypes 为 null 时行为与不传完全一致（不改变
 	});
 });
 
-test("31 §10：注入路径的声明范围常量只含 spark（收窄不得扩大）", async () => {
+test("31 §10／29 §12.1：声明范围常量的成员须各有规范依据，且只会变窄", async () => {
 	// 34 §15.1 第 5 项把「**扩大**召回的类型范围」列为 Human 决定事项；
 	// 收窄不在其中。本用例钉住「这里只会变窄」——若有人往名单里加类型，
-	// 那是在扩大而非收窄，须走 Human Gate，用例会红。
-	assert.deepEqual([...INJECTION_EXCLUDED_TYPES], ["spark"]);
+	// 那是在扩大而非收窄，须走 Human Gate。
+	//
+	// **2026-11-11 补 devlog**：`29 §12.1` 的召回时机行逐字写明 DevLog
+	// 「不进引导面自动注入，AI 主动查询」，与 `20 §12.1`（Spark，31 §10）同形。
+	// 此前常量只含 spark，devlog 仍进候选池——它不是「收窄」，而是**实现没做到
+	// 规范已经写明的事**。故本用例的判据从「只有 spark」改为「每个成员都能
+	// 指到一条写明不进自动注入的规范条文」，且名单本身仍只能靠 Human Gate 扩大。
+	//
+	// 判据表：类型 → 依据条文。新增成员必须在此登记依据，否则本用例红——
+	// 这挡住「往名单里塞一个类型来让它从候选里消失」这种无授权的扩大。
+	const BASIS = {
+		spark: "20 §12.1／31 §10",
+		devlog: "29 §12.1",
+	};
+	assert.deepEqual(
+		[...INJECTION_EXCLUDED_TYPES].sort(),
+		Object.keys(BASIS).sort(),
+		"排除名单与登记过的规范依据必须一一对应：新增类型须先有写明「不进自动注入」的条文",
+	);
 });
 
 test("召回路径的用例须与它们所测的路径同参（`excludeTypes` 不得漏传）", async () => {
@@ -2451,6 +2514,108 @@ test("召回路径的用例须与它们所测的路径同参（`excludeTypes` �
 			`注入路径不得让 spark 占掉候选名额（31 §10）——实际：${injectedFacts.map((f) => f.type).join(",")}`,
 		);
 	});
+});
+
+test("29 §12.1：注入路径不得让 devlog 进候选池，且须给出主动查入口", async () => {
+	// **2026-11-11 新增**。`29 §12.1` 的召回时机行逐字写明 DevLog「不进引导面
+	// 自动注入，AI 主动查询」。此前 `INJECTION_EXCLUDED_TYPES` 只含 spark，
+	// devlog 仍进候选池——双重后果：它本来就不会被交付（无分节认领），却计入
+	// `counts.factHits` 与「未列出」的分母。实测同一查询 112 条命中里含 8 条
+	// devlog，使披露数字比实际职责范围大 8 条。
+	//
+	// 两段：① devlog 不进候选池；② 既然从扫描范围里拿掉了它，注入面就必须给出
+	// 可执行的替代入口——只说「不含 devlog」等于把读者丢回原点（与既有 spark
+	// 处置同形，`34 §12`）。
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-injdevlog-"));
+	try {
+		await mkdir(joinPath(project, "ldvh-base", "devlogs"), { recursive: true });
+		await writeFile(
+			joinPath(project, "ldvh-base", "devlogs", "44444444-4444-4444-8444-444444444444.md"),
+			"---\ntitle: 召回范围测试 devlog 条目\nstatus: active\noccurred_at: 2026-11-01T00:00:00Z\n"
+			+ "summary: 召回范围测试载体，用于验证 devlog 不进注入候选。\n"
+			+ "object_uid: 44444444-4444-4444-8444-444444444444\nfact_type_key: devlog\n---\n\n"
+			+ "# 召回范围测试 devlog 条目\n\n## 背景\n\n召回范围测试载体。\n",
+			"utf8",
+		);
+		await mkdir(joinPath(project, "ldvh-base", "pitfalls"), { recursive: true });
+		await writeFile(
+			joinPath(project, "ldvh-base", "pitfalls", "55555555-5555-4555-8555-555555555555.md"),
+			"---\ntitle: 召回范围测试 经验条目\nstatus: active\n"
+			+ "scope: 适用于召回范围测试\n"
+			+ "object_uid: 55555555-5555-4555-8555-555555555555\nfact_type_key: pitfall\n---\n\n"
+			+ "# 召回范围测试 经验条目\n\n## 症状\n\n召回范围测试载体。\n",
+			"utf8",
+		);
+		const r = await buildRecallInjection({
+			userText: "召回范围测试 测试范围 范围测试",
+			projectRoot: project,
+		});
+		assert.equal(r.inject, true, "前提：夹具须能产出注入行");
+		const injectedFacts = r.result?.facts ?? [];
+		assert.ok(
+			!injectedFacts.some((f) => f.type === "devlog"),
+			`注入路径不得让 devlog 占候选（29 §12.1）——实际：${injectedFacts.map((f) => f.type).join(",")}`,
+		);
+		assert.ok(
+			!(r.result?.unchecked?.facts ?? []).some((f) => /devlogs\//.test(f.path)),
+			"devlog 不得出现在「未列出」清单里——它不属本路径的声明范围，不是本次漏掉的",
+		);
+		assert.match(r.text ?? "", /devlog/, "注入文本须点明本路径不含 devlog");
+		assert.match(r.text ?? "", /ldvh_devlog_list|ldvh_\*_list/, "注入文本须给出 devlog 的主动查入口");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("29 §12.1：注入路径不得让 devlog 进候选池，且须给出主动查入口", async () => {
+	// **2026-11-11 新增**。`29 §12.1` 的召回时机行逐字写明 DevLog「不进引导面
+	// 自动注入，AI 主动查询」。此前 `INJECTION_EXCLUDED_TYPES` 只含 spark，
+	// devlog 仍进候选池——双重后果：它本来就不会被交付（无分节认领），却计入
+	// `counts.factHits` 与「未列出」的分母。实测同一查询 112 条命中里含 8 条
+	// devlog，使披露数字比实际职责范围大 8 条。
+	//
+	// 本用例两段：① devlog 不进候选池；② 既然从扫描范围里拿掉了它，注入面
+	// 就必须给出可执行的替代入口——只说「不含 devlog」等于把读者丢回原点
+	// （`34 §12` 与既有 spark 处置同形）。
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-injdevlog-"));
+	try {
+		await mkdir(joinPath(project, "ldvh-base", "devlogs"), { recursive: true });
+		await writeFile(
+			joinPath(project, "ldvh-base", "devlogs", "44444444-4444-4444-8444-444444444444.md"),
+			"---\ntitle: 召回范围测试 devlog 条目\nstatus: active\noccurred_at: 2026-11-01T00:00:00Z\n"
+			+ "summary: 召回范围测试载体，用于验证 devlog 不进注入候选。\n"
+			+ "object_uid: 44444444-4444-4444-8444-444444444444\nfact_type_key: devlog\n---\n\n"
+			+ "# 召回范围测试 devlog 条目\n\n## 背景\n\n召回范围测试载体。\n",
+			"utf8",
+		);
+		const r = await buildRecallInjection({
+			userText: "召回范围测试 测试范围 范围测试",
+			projectRoot: project,
+		});
+		assert.equal(r.inject, true, "前提：夹具须能产出注入行");
+		const injectedFacts = r.result?.facts ?? [];
+		assert.ok(
+			!injectedFacts.some((f) => f.type === "devlog"),
+			`注入路径不得让 devlog 占候选（29 §12.1）——实际：${injectedFacts.map((f) => f.type).join(",")}`,
+		);
+		assert.ok(
+			!(r.result?.unchecked?.facts ?? []).some((f) => /devlogs\//.test(f.path)),
+			"devlog 不得出现在「未列出」清单里——它不属本路径的声明范围，不是本次漏掉的",
+		);
+		// 替代入口须在注入文本里可读（数据层 entryByType → 渲染行）。
+		assert.match(r.text ?? "", /devlog/, "注入文本须点明本路径不含 devlog");
+		assert.match(r.text ?? "", /ldvh_devlog_list/, "注入文本须给出 devlog 的主动查入口");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
 });
 
 // ---------------------------------------------------------------------------

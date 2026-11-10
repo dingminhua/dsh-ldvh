@@ -288,8 +288,35 @@ export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
  *
  * 主动查的入口是 `ldvh_spark_list`（`plugin/lib/spark-tools.js`），其
  * `keyword`／`priorities`／`serves`／`status` 收窄参数见 `31 §10`。
+ *
+ * ── DevLog 并入（2026-11-11 修）─────────────────────────────────────
+ *
+ * `29 §12.1` 的召回时机行逐字写明 DevLog「不进引导面自动注入，AI 主动查询」，
+ * 与 spark 同一处置。而此前本常量只含 spark，devlog 仍进候选池——后果有两层：
+ * ① 它**本来就不会被交付**（无分节次序），却计入 `counts.factHits` 与「未列出」
+ * 的分母，实测同一次召回 112 条命中里含 8 条 devlog，使披露数字比实际职责范围
+ * 大 8 条；② `34 §12` 的「职责边界」与「本次漏了什么」两类披露被混为一谈。
+ *
+ * 该收窄**不属 Human Gate**：`34 §15.1` 第 5 项把「**扩大**召回的类型范围」列为
+ * 决定事项，收窄不在其中（与 spark 当初入列的判定同口径）；且此处只是让实现
+ * 对齐 29 号已写明的边界，不新设边界。
+ *
+ * 主动查入口 `ldvh_devlog_list`（`plugin/lib/devlog-tools.js`）。
  */
-export const INJECTION_EXCLUDED_TYPES = Object.freeze(["spark"]);
+export const INJECTION_EXCLUDED_TYPES = Object.freeze(["spark", "devlog"]);
+
+/**
+ * **被排除事实类型的主动查入口**（`{type: toolName}`）。
+ *
+ * 与 `INJECTION_EXCLUDED_TYPES` **必须一一对应**：数据层在生成
+ * `scopeExcluded.entryByType` 时逐个查表，缺项直接抛错（`01 §11.4` 禁静默回落）。
+ * 单列一张表而不是在映射处内联条件，是为了让「新增一个排除类型」时
+ * 漏登记入口这件事变成**开发期错误**，而不是运行期一句「须另行查询」。
+ */
+const SCOPE_EXCLUDED_ENTRY_BY_TYPE = Object.freeze({
+  spark: "ldvh_spark_list",
+  devlog: "ldvh_devlog_list",
+});
 
 /**
  * **通用词**：在本语料里高频出现、本身不锁定主题的词（「任何」「规范」「执行」
@@ -2629,6 +2656,29 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
  * 的结论。调用方须另行判定适用——那属 34 §8.1 第 2、3 项。
  */
 /**
+ * 命中去重后的**未返回集合**（按 path 差集，保序）。
+ *
+ * 为什么必须按 path 而不是按位置：交付侧会对命中列表重排与挑选
+ * （`selectFactsBySection` 按类型分组、每类取前 N、再按总名额裁），
+ * 于是「已交付」不是命中列表的前缀。用 `slice(kept.length)` 得到的
+ * 「未列出」会包含已交付对象——那不只是数字偏大，而是**把交付过的对象
+ * 谎报成没交付**（`34 §12` 要求取值与清单逐类对应）。
+ *
+ * 保序理由：读者按名次读「差在哪」，次序改变会让同一份结果两次读出不同清单。
+ * 返回精简卡（title+path）的形态保持不变——渲染层与既有测试都按此形状读。
+ *
+ * @param {Array<object>} hits 全部命中（已排序）
+ * @param {Array<object>} kept 实际交付的候选
+ * @returns {Array<{title: string, path: string}>}
+ */
+function diffByPath(hits, kept) {
+  const keptPaths = new Set(kept.map((item) => item.path));
+  return hits
+    .filter((item) => !keptPaths.has(item.path))
+    .map((item) => ({ title: item.title, path: item.path }));
+}
+
+/**
  * **按类型分节 + 类型名额**选取候选（⑥，2026-10-31）。
  *
  * 纯函数，次序与名额由调用方以**具名常量**传入（注入面的常量在
@@ -2642,7 +2692,8 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
  * @param {{order?: string[], quotaByType?: Record<string, number>, total?: number}} plan
  * @returns {{selected: object[], groups: Array<{type: string, items: object[]}>,
  *   droppedByQuota: Array<{type: string, count: number}>,
- *   droppedByTotal: Array<{type: string, count: number}>, unassigned: number}}
+ *   droppedByTotal: Array<{type: string, count: number}>, unassigned: number,
+ *   unassignedByType: Array<{type: string, count: number}>}}
  */
 export function selectFactsBySection(hits, plan = {}) {
   const order = Array.isArray(plan.order) ? plan.order : [];
@@ -2667,8 +2718,18 @@ export function selectFactsBySection(hits, plan = {}) {
   }
   // 分节次序之外的类型**不静默吞掉**：如实计数，由调用方披露（本仓已登记类型
   // 都在 order 内，出现其它类型即说明常量与类型名录漂移）。
+  //
+  // **只给总数不够**（2026-11-11 修）：`34 §12` 要求「未检查范围须逐类列出」，
+  // 而注入面此前拿到 `unassigned: 13` 却不知道是哪些类型，于是整条不披露。
+  // 实测该 13 条 = devlog 8 + subgoal 5——**知道分类型才可能判断该不该补规则**。
+  // 故一并给出按类型明细（保序：Map 插入序即命中次序）。
+  const unassignedByType = [];
   let unassigned = 0;
-  for (const rest of byType.values()) unassigned += rest.length;
+  for (const [type, rest] of byType) {
+    if (rest.length === 0) continue;
+    unassigned += rest.length;
+    unassignedByType.push({ type, count: rest.length });
+  }
   const droppedByTotal = [];
   const groups = [];
   const selected = [];
@@ -2684,7 +2745,7 @@ export function selectFactsBySection(hits, plan = {}) {
     }
     remaining -= take;
   }
-  return { selected, groups, droppedByQuota, droppedByTotal, unassigned };
+  return { selected, groups, droppedByQuota, droppedByTotal, unassigned, unassignedByType };
 }
 
 /**
@@ -3304,6 +3365,7 @@ export async function recallForAction(input = {}) {
       droppedByQuota: plan.droppedByQuota,
       droppedByTotal: plan.droppedByTotal,
       unassigned: plan.unassigned,
+      unassignedByType: plan.unassignedByType,
       note: "分节与名额是交付次序，不是排序键：候选名次仍只由证据（weakHit/tier/hits/status/updatedAt/path）决定",
     };
   }
@@ -3752,8 +3814,21 @@ export async function recallForAction(input = {}) {
       howToGetMore: "调大 limit 或缩小 action 描述范围后重新召回（本实现不持有跨调用游标）",
     },
     unchecked: {
-      specs: allSpecHits.slice(keptSpecs.length).map((spec) => ({ title: spec.title, path: spec.path })),
-      facts: allFactHits.slice(keptFacts.length).map((fact) => ({ title: fact.title, path: fact.path })),
+      // **未返回集合必须按差集算，不能按「前缀之后」切片**（2026-11-11 修）。
+      //
+      // 旧实现是 `allXHits.slice(keptX.length)`，其前提是「已返回的恰好是命中列表
+      // 的前 keptX.length 条」。事实侧**不满足**这个前提：交付前经过
+      // `selectFactsBySection`（分节与类型名额），`selected` 是从各类型分组里挑出来
+      // 的，`keptFacts` 已不是 `allFactHits` 的前缀。于是切片把**已返回的对象**
+      // 也算进「未列出」——实测（action「当前ldvh在召回上做的如何？」，limit 12、
+      // 预算 10240）返回 7 条事实、unchecked.facts 105 条，其中 5 条与已返回重复，
+      // 正是这 7 条里的 5 条。
+      //
+      // 规范侧未分节、kept 仍是前缀（同参数实测重叠 0），但同一段代码对两侧用了
+      // 同一个错误前提，故两侧一律改为按 path 的真差集——这样无论交付路径怎么
+      // 重排，「未列出」都严格是「命中里没交付的那些」（`34 §12` 逐类对应）。
+      specs: diffByPath(allSpecHits, keptSpecs),
+      facts: diffByPath(allFactHits, keptFacts),
     },
     // **`gaps`**（`01 §10.3`）：
     // > 读取契约不承载某项时，须**如实披露该项缺失并使其进入 `gaps`**，
@@ -3964,10 +4039,25 @@ export async function recallForAction(input = {}) {
         // 原先这里是自由文本 `alternativeEntry`，而渲染层并不读它、自己又硬写了一份
         // `spark → ldvh_spark_list` 的映射——同一事实两处维护，改一处就会不一致
         // （`01 §11.4` 第二规则源）。现改为数据层给出结构，渲染层只负责措辞。
+        //
+        // **未登记的排除类型不得静默缺入口**（2026-11-11 补）：`excludedTypes` 是
+        // 调用方入参，可能含本表未收录的类型。旧写法 `filter(type === "spark")`
+        // 会让未收录类型在渲染面掉进「须另行查询」——那至少是诚实的；但如果日后
+        // 新增排除类型却忘了在这里补入口，读者就永远拿不到可执行的下一条指令，
+        // 而没人会注意到。故此处以**具名映射表**承载，并在数据层断言：任何被排除
+        // 的类型都必须在本表里，缺则抛错使问题在开发期暴露，而不是让它在运行期
+        // 退化成一句笼统的提示。
         entryByType: Object.fromEntries(
-          excludedTypes
-            .filter((type) => type === "spark")
-            .map((type) => [type, "ldvh_spark_list"]),
+          excludedTypes.map((type) => {
+            const entry = SCOPE_EXCLUDED_ENTRY_BY_TYPE[type];
+            if (typeof entry !== "string" || entry === "") {
+              throw new Error(
+                `召回：类型「${type}」被声明为排除，但 SCOPE_EXCLUDED_ENTRY_BY_TYPE 没有它的主动查入口——`
+                + "新增排除类型时须同时登记入口，不得让读者停留在「须另行查询」",
+              );
+            }
+            return [type, entry];
+          }),
         ),
       },
       // 整源未载入（N-1：三种情形都算「该源完全没看」，逐类列出）：

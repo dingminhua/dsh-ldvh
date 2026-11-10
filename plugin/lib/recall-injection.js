@@ -896,13 +896,35 @@ export function renderRecallRow(result) {
     // **名额裁剪须标明来源与被裁类型**（34 §12「标明截断来源」，不得静默）。
     const droppedByQuota = result?.sectioning?.droppedByQuota ?? [];
     const droppedByTotal = result?.sectioning?.droppedByTotal ?? [];
-    if (droppedByQuota.length > 0 || droppedByTotal.length > 0) {
+    // **分节次序之外的类型也要出声**（2026-11-11 修）。
+    //
+    // `selectFactsBySection` 一直算出 `unassigned`（实测某查询 13 条：devlog 8 +
+    // subgoal 5），但渲染层从不读它——这些候选既不进任何分节、也不进下面的名额
+    // 披露，于是「有 13 条候选被静默丢弃」在注入文本里完全不可见，与 `34 §12`
+    // 「未检查范围须逐类列出」相抵。此前只给总数无从披露（不知道是哪些类型），
+    // 故数据层补了 `unassignedByType`，此处据此出声。
+    //
+    // **并进名额行，不另起一行**：本行属固定披露、不参与渲染层裁剪，每多一行就
+    // 永久抬高极小预算档的地板（实测单列一行把 800 档从 800 顶到 828）。并入后
+    // 沿用同一套让位规则——零事实交付时该行整体省略（那档读者手上没有任何候选，
+    // 逐条分摊的省额与未分配都是噪声；数据层 `result.sectioning` 仍如实保留）。
+    const unassignedByType = result?.sectioning?.unassignedByType ?? [];
+    const unassignedTotal = result?.sectioning?.unassigned ?? 0;
+    if (droppedByQuota.length > 0 || droppedByTotal.length > 0 || unassignedTotal > 0) {
       const describe = (list) => list
         .map((entry) => `${entry.type} ${entry.count}`)
         .join("、");
       const parts = [];
       if (droppedByTotal.length > 0) parts.push(`总名额 ${result?.sectioning?.total ?? "?"} 条裁去 ${describe(droppedByTotal)}`);
       if (droppedByQuota.length > 0) parts.push(`类型名额裁去 ${describe(droppedByQuota)}`);
+      // **未分配与名额省略分开陈述**：前者调大 limit 也取不到（没有分节认领它），
+      // 后者调大 limit 就能拿到。混成一句会让读者照着无效的办法去试。
+      if (unassignedTotal > 0 && unassignedByType.length > 0) {
+        parts.push(
+          `另有 ${unassignedTotal} 条无分节认领（${describe(unassignedByType)}，`
+          + "调大 limit 也取不到，须另行主动查询）",
+        );
+      }
       // **短到能被预算容纳**：披露是义务，但冗长披露会挤掉候选并反过来逼出
       // 「渲染层裁剪」的二次披露。类型名用 key（分节表头已给出中文名）。
       lines.push(
@@ -1116,8 +1138,55 @@ export function renderRecallRow(result) {
     const entries = scopeExcluded.types
       .map((type) => entryByType[type])
       .filter((name) => typeof name === "string" && name !== "");
-    const where = entries.length > 0 ? `查 ${[...new Set(entries)].join("、")}` : "须另行查询";
-    lines.push(`（不含 ${scopeExcluded.types.join("、")}；${where}）`);
+    // **两种写法，按预算逐级退化**（2026-11-11 修）。
+    //
+    // 本行是固定披露、永不参与渲染层裁剪，故它的长度直接决定极小预算的地板。
+    // 单类型时旧写法 40 字节尚可；加入第二种排除类型（devlog）后长到 68 字节，
+    // 实测把 `budgetBytes=800` 档从 800 顶到 828——为多说两个入口名而顶破预算，
+    // 与本文件既有的「紧凑说明行」取舍同源（见下方 `compactNote`）。
+    //
+    // 精确写法给出**逐类型**入口（读者按类型取用，不必猜命名规律）；紧凑写法把
+    // 入口名折叠为 `ldvh_*_list`。**折叠可接受**：本条只承诺「告诉读者去哪儿取」，
+    // 而两类工具命名规律一致且工具目录里可查；相反「含哪些类型」是结构事实，
+    // 任何写法都得完整保留——故压缩只压入口名，不压类型名。
+    const fullLine = entries.length > 0
+      ? `（不含 ${scopeExcluded.types.join("、")}；查 ${[...new Set(entries)].join("、")}）`
+      : `（不含 ${scopeExcluded.types.join("、")}；须另行查询）`;
+    const compactLine = entries.length > 0
+      ? `（不含 ${scopeExcluded.types.join("/")}；ldvh_*_list）`
+      : `（不含 ${scopeExcluded.types.join("/")}；须另行查询）`;
+    // **退化判据须含尚未生成的固定披露行**（2026-11-11 修）。
+    //
+    // 只按「本行 + 已累计行」判断是错的：实测该判据在 800 档下算不出超限
+    // （此刻累计未超），而超限发生在后面的三态行与截断行——于是范围行永远用
+    // 长写法，地板被顶破（828 > 800）。故改为**前向估算**：本行之后必然出现的
+    // 固定披露按实测的双行上界计入（三态行 176 字节、紧凑截断行 140 字节，
+    // 另加两处换行与余量）。
+    //
+    // 取 300 而非更大：过大的预留会让**紧凑写法也判成超限**，两侧都走长写法，
+    // 等于没压缩（实测 320 时正是这个结果）。若终局仍超（L0 让位行、极长标题），
+    // 由下方既有的让位与如实超出披露承接，本条不改变那条路径。
+    //
+    // 此处直接取 `result.budget.limitBytes`——函数级 `limitBytes` 在下方才声明
+    // （`const` 有暂时性死区），提前引用会抛 ReferenceError。
+    // **判据看「剩余空间」，不是「总预算 × 比例」**：累计行已含候选与索引段，
+    // 用小预算档的比例去套大档会误判。故直接把「本行 + 后续固定披露估算」与
+    // 剩余预算比较——这是与预算同一量纲的加法，档位无关。
+    const FIXED_TAIL_RESERVE_BYTES = 300;
+    const budgetForScope = typeof result?.budget?.limitBytes === "number" && result.budget.limitBytes > 0
+      ? result.budget.limitBytes
+      : null;
+    const wouldOverflow = (candidate) => {
+      if (budgetForScope === null) return false;
+      const probe = [...lines, candidate].join("\n");
+      return Buffer.byteLength(probe, "utf8") + FIXED_TAIL_RESERVE_BYTES > budgetForScope;
+    };
+    // **选择规则**：优先长写法；一旦前向估算认为会超预算就退到紧凑写法——
+    // 即使紧凑写法同样估超也仍用它（两种都超时，短的至少少超一截；退回长写法
+    // 只会更差）。此前的 `&& !wouldOverflow(compactLine)` 正是这个错误的写法：
+    // 极小预算档下两种都估超，于是永远选长写法，压缩形同不存在（实测 800 档
+    // 仍 828 字节）。
+    lines.push(wouldOverflow(fullLine) ? compactLine : fullLine);
   }
   // **三态取值与未读取源须在注入面披露**（第六次审核 N-5）：34 §12 要求
   // 「召回范围的完整度须以三态交还」「取值须与未检查范围逐类对应」，而注入
