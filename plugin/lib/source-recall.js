@@ -106,6 +106,7 @@ import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
  * （与 `precheck-record.spec-drift.test.mjs` 同口径）。
  */
 export const MATCHED_FACT_FIELDS = Object.freeze([
+  "recall_digest",
   "decision",
   "phenomenon",
   "question",
@@ -1711,8 +1712,13 @@ export async function loadFacts(baseDir, options = {}) {
         ? textField(fm.gate_1.approved_at) : "";
       // **结构化摘录源**：块标量残留一律视为无内容（`textField` 的判据），
       // 否则候选卡会显示 `↳ |-`（2026-10-29 前实测 46 条如此）。
+      // **`recall_digest` 专项优先**（Human 2026-11-10，`spark-f0ba9997`）：
+      // 它的读者是词法匹配器而非人，写法是高密度关键词面（症状／机制／适用边界／
+      // 同义表述），允许不成句；与内容摘要 `summary` 分工不同、无需一致。
+      // 排在链首并保留既有回退，故存量对象（无该字段）行为不变。
       const excerptSource =
-        textField(fm.summary) || textField(fm.gist) || textField(fm.decision)
+        textField(fm.recall_digest)
+        || textField(fm.summary) || textField(fm.gist) || textField(fm.decision)
         || textField(fm.phenomenon) || textField(fm.research_question)
         || textField(fm.scope) || textField(fm.scope_boundary) || "";
       // 类型名直接取 frontmatter 的 fact_type_key（权威），不从目录名猜单复数——
@@ -1761,6 +1767,11 @@ export async function loadFacts(baseDir, options = {}) {
         // 未随本次交付；`trigger_signal` 留在匹配面的行为不受影响。
         // 判据不可用的类型连它也一并停用——整个字段语义通道关闭。
         detail: criteriaEntry === null ? "" : [
+          // `recall_digest` 恒在匹配面（Human 2026-11-10，`spark-f0ba9997`）。
+          // 它**不是** coreFields 的一员：那些字段由各类型规范的召回判据表逐条
+          // 登记，而本字段的用途就是「专供召回命中」，若也要登记才生效，则
+          // 未登记的类型恰好失去它唯一的作用。故与 `trigger_signal` 同列常驻项。
+          textField(fm.recall_digest),
           ...criteriaEntry.values.coreFields.map((field) => coreFieldTextOf(fm, field)),
           textField(fm.trigger_signal),
         ].filter((value) => value !== "").join(" "),
