@@ -53,10 +53,23 @@ dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 | 平台 | 实现 | 真机验收 |
 |---|---|---|
 | macOS | 完整 | 已实测：管辖项目生命周期 10 项、`/ldvh`、`/ldvh/api/health` |
-| Windows | 已实现（见下） | **未在真实 Windows 主机验证（`unverified`）** |
+| Windows | 完整（见下） | **已实测：管辖项目生命周期 10 项 + 权限判据**（2026-11-10，见记录文件）；UNC/junction 与 NTFS 占用竞争未覆盖 |
 | Linux | 同一契约下运行 | 仅 CI 覆盖，未验收 |
 
-macOS 已实测的 10 项（逐条见仓库内 `docs/governed-project-lifecycle-verification.md`）：候选路径须为实际 Git 根、首次安装建 `ldvh-base/` 五类目录、首次安装写登记并设默认项目、Hook 装入 Git common-dir、Hook marker digest 可回读为 `managed`、真实提交中非法 message 被阻断、合规 message 被放行、卸载 Hook 后登记与 `ldvh-base/` 保留、重装可修复缺失 Hook 且不重复登记、取消管辖移除登记并自动卸载 Hook。
+两个平台各自已实测的 10 项逐条见 `docs/governed-project-lifecycle-verification.md`：
+候选路径须为实际 Git 根、首次安装建 `ldvh-base/` 各类型目录、首次安装写登记并设默认项目、
+Hook 装入 Git common-dir、Hook bundle 版本可回读且状态为 `managed`、真实提交中非法
+message 被阻断、合规 message 被放行、卸载 Hook 后登记与 `ldvh-base/` 保留、重装可修复
+缺失 Hook 且不重复登记、取消管辖移除登记并自动卸载 Hook。
+
+Windows 另有一节**权限判据**记录：经 `Get-Acl` 读结构化 DACL，**目录与载体文件两处**都核验，
+按**白名单**判定（只承认当前用户 / SYSTEM / Administrators / OWNER RIGHTS），越界即拒、
+核验不到即 fail-closed。该行的准确读法是「**已覆盖范围内**越界即拒」，不是全面的 ACL 安全
+证明——它只核对「是否扩大到其它用户」这一条，不核对加密、审计、完整性级别；`Administrators`
+被放行是一处**明示的弱化**（否则 Windows 上任何管理员目录都不可用）。
+
+「未覆盖」项（UNC 共享上的真实核验、junction、NTFS 占用竞争、ACL 读不到的构造场景）同样在
+该文件内如实登记；不得据此宣称 Windows 已完整验收通过。
 
 平台差异集中在三处核心机制，另含一处交互适配：
 

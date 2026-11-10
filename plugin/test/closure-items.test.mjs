@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { resolveGovernanceScope } from "../lib/governance-scope.js";
 import {
 	REGISTRATION_UNAVAILABLE_CODES,
+	ensureRegistrationCarrier,
 	evaluateRegistrationEntry,
 	registerProject,
 	registerProjectFromEntry,
@@ -49,7 +50,34 @@ const dshHome = (home) => (...segments) => join(home, ...segments);
  * idempotency) assert the win32 fail-closed outcome explicitly instead of
  * pretending the entry succeeded.
  */
-const WINDOWS_ACL_UNVERIFIED = process.platform === "win32";
+// **2026-11-10 修订**：原名 `WINDOWS_ACL_UNVERIFIED = platform === "win32"`，把
+// 「Windows 上登记入口必然不可用」当成了平台事实。该前提已被推翻——入口现在真的
+// 核验 ACL（`icacls`），普通目录可放行。故改为**运行时实测**：在临时 home 上调一次
+// 入口，看它是否真的报 `permission_unverified`。这样无论核验器是否可用，本文件
+// 的分支都跟着实测走，而不是跟着平台名猜。
+const WINDOWS_ACL_UNVERIFIED = await (async () => {
+	if (process.platform !== "win32") return false;
+	try {
+		const { mkdtemp, rm } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const probe = await mkdtemp(join(tmpdir(), "acl-probe-"));
+		try {
+			await ensureRegistrationCarrier((...s) => join(probe, ...s));
+			const r = await evaluateRegistrationEntry((...s) => join(probe, ...s));
+			// **判据放宽为「入口是否可用」**（独立审核指出）：原版只看是否报
+			// `permission_unverified`，若环境实际返回别的码（例如真实根 ACL 与
+			// %TEMP% 不同导致越界判定不同），探针会说「可用」而后续用例却拿到别的
+			// 结果，分支与实测脱钩。这里只问「干净目录上入口能不能走通」——
+			// 走不通就按不可用处理（保守），不预设具体错误码。
+			return r.ok !== true;
+		} finally {
+			await rm(probe, { recursive: true, force: true }).catch(() => {});
+		}
+	} catch {
+		return true; // 探针自身失败时按「不可核验」处理（保守）
+	}
+})();
 
 /** Register a project for fixture setup; on win32 fall back to the primitive. */
 async function registerForSetup(home, input) {

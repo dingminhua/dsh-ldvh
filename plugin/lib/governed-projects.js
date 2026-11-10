@@ -31,6 +31,121 @@ export const REGISTRATION_UNAVAILABLE_CODES = Object.freeze({
   SCHEMA_INVALID: "registration_schema_invalid"
 });
 
+/**
+ * 读取 Windows 目录 DACL 并判定「是否扩大到其它用户」（08 §5.6）。
+ *
+ * **为什么不用 node 原生 API**：Node 未暴露读取 DACL 的接口，`fs.stat().mode`
+ * 在 Windows 上只合成出 `0o666/0o777` 这类占位值，据此判权限等于伪造 POSIX
+ * mode——正是 08 §5.6 禁止的那件事。`icacls` 是随 Windows 提供的系统工具，
+ * 输出稳定可解析，故以它为准。
+ *
+ * **判据只覆盖一条规范要求**：是否扩大到其它用户。返回 `widenedTo` 为空**不**
+ * 等于「ACL 安全」——加密、审计、完整性级别等属性不在本函数核对范围，调用方
+ * 不得据此主张更强的保证。
+ *
+ * @returns {Promise<{ok: true, widenedTo: string[]} | {ok: false, reason: string}>}
+ */
+async function inspectWindowsAcl(target) {
+  // **为什么用 PowerShell `Get-Acl` 而不是 `icacls`**（2026-11-10 重写）。
+  //
+  // 上一版解析 `icacls` 的**文本**输出，独立审核实测出四类漏检，其中一类是
+  // fail-open（放过了本该拒绝的目录）：
+  //   ① **路径含空格**时首行是 `C:\a b\ldvh Everyone:(...)`，按空白剥离前缀会把
+  //      主体读成 `b\ldvh Everyone`，`Everyone` 越界**漏检** → 实际放行。
+  //      DSH 用户配置根在 `C:\Users\<用户名>\AppData\Roaming`，**用户名含空格即触发**；
+  //   ② UNC 首行（`\\srv\share\...`）同型；
+  //   ③ 域组 / SID 形态（`S-1-1-0`、`DOMAIN\Domain Users`）在黑名单里没有对应项；
+  //   ④ 只核目录、不核载体**文件**，而 08 §5.6 在 Unix 侧要求「目录 0700 **与** 文件 0600」。
+  //
+  // `Get-Acl` 返回**结构化**对象（IdentityReference + FileSystemRights +
+  // AccessControlType），逐条读出，不需要解析路径与主体之间的分隔——① ② 从根上消失。
+  // ③ ④ 另见下面的白名单与「文件同样核验」。
+  //
+  // **判据改为白名单**（审核建议采纳）：08 §5.6 要求「不扩大到其它用户」。黑名单
+  // 只能挡住枚举到的名字，任何未枚举的主体（域组、自建组、SID）都会漏。白名单则
+  // 反过来——只承认「本就该有权限」的主体，其余一律算扩大：
+  //   · 当前用户（含 `<MACHINE>\<user>` 与 `<DOMAIN>\<user>` 两种前缀）
+  //   · `NT AUTHORITY\SYSTEM`
+  //   · `BUILTIN\Administrators`
+  //   · `OWNER RIGHTS`
+  // `CREATOR OWNER`、`Everyone`、`BUILTIN\Users`、`Authenticated Users`、
+  // `INTERACTIVE`、`ANONYMOUS LOGON`、`NETWORK`、`Guests`、任何域组与未知 SID，
+  // 全部落入 widenedTo。
+  //
+  // **Administrators 被放行的理由**（据实，不掩饰）：它是「其它用户」，放行它
+  // 确实是一处弱化。但拒绝它会使 Windows 上**任何**管理员账户的目录都不可用
+  // （Windows 默认给 Administrators 完全控制），登记功能等于无法运行。故这是一处
+  // **明示的、有意的弱化**，写在这里而不是藏进名单：它保护的是「非管理员的其它
+  // 用户」，不保护「同机管理员之间」。该边界须在文档里如实声明。
+  let raw;
+  try {
+    const script = [
+      "$ErrorActionPreference='Stop'",
+      `$acl = Get-Acl -LiteralPath '${String(target).replace(/'/g, "''")}'`,
+      "$acl.Access | ForEach-Object { $_.IdentityReference.Value + '|' + $_.FileSystemRights + '|' + $_.AccessControlType }",
+    ].join("; ");
+    const { stdout } = await execFileAsync(
+      "powershell",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { windowsHide: true, timeout: 15_000 },
+    );
+    raw = String(stdout ?? "");
+  } catch (error) {
+    return { ok: false, reason: `Get-Acl failed: ${String(error?.message || error)}` };
+  }
+  if (raw.trim() === "") return { ok: false, reason: "Get-Acl returned no access entries" };
+
+  // 当前用户的可接受前缀。用 `whoami` 取 `<domain>\<user>` 全名，与其匹配；
+  // 取不到时退回环境变量 `USERNAME`（只匹配末段），并把该弱化记入 notes。
+  let selfNames = [];
+  const notes = [];
+  try {
+    const { stdout } = await execFileAsync("whoami", [], { windowsHide: true, timeout: 10_000 });
+    const full = String(stdout ?? "").trim();
+    if (full !== "") selfNames.push(full.toLowerCase());
+  } catch {
+    notes.push("whoami unavailable; matched current user by bare name");
+  }
+  if (process.env.USERNAME) selfNames.push(String(process.env.USERNAME).toLowerCase());
+
+  const allowedPrincipals = new Set([
+    "nt authority\\system",
+    "builtin\\administrators",
+    "owner rights",
+  ]);
+
+  const widenedTo = [];
+  const seen = new Set();
+  for (const line of raw.split(/\r?\n/)) {
+    const text = line.trim();
+    if (text === "") continue;
+    const parts = text.split("|");
+    if (parts.length < 3) {
+      return { ok: false, reason: `unparsable access entry: ${JSON.stringify(text)}` };
+    }
+    const principal = parts[0].trim();
+    const rights = parts[1].trim();
+    const type = parts[2].trim();
+    // 显式 Deny 不构成扩大（它是在收窄）。
+    if (/^deny$/i.test(type)) continue;
+    if (principal === "") return { ok: false, reason: `access entry has no principal: ${JSON.stringify(text)}` };
+
+    const key = principal.toLowerCase();
+    if (allowedPrincipals.has(key)) continue;
+    // 当前用户：全名精确匹配，或（whoami 失败时）按末段匹配。
+    const bare = key.split("\\").pop();
+    const isSelf = selfNames.some((n) => n === key || (notes.length > 0 && n === bare));
+    if (isSelf) continue;
+
+    const entry = `${principal}:${rights}`;
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      widenedTo.push(entry);
+    }
+  }
+  return { ok: true, widenedTo, notes };
+}
+
 function unavailable(code, message, details = {}) {
   return { ok: false, unavailable: true, error: { code, message, details } };
 }
@@ -468,16 +583,89 @@ export async function evaluateRegistrationEntry(dshHomePath) {
   // "fix" it; the caller sees the precise reason instead.
   if (process.platform === "win32") {
     // 07 §5.6 Windows clause: inherit the DSH user-config ACL, never fake POSIX
-    // mode; when the ACL cannot be verified the high-risk write must
-    // fail-closed. This implementation has no ACL verifier, so the honest
-    // outcome is `registration_permission_unverified` — NOT a silent pass.
-    // Reporting success here would be exactly the "claim protection the seam
-    // did not deliver" failure 08 §6 forbids.
-    return unavailable(
-      REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED,
-      "registration carrier ACL cannot be verified on this platform (07 §5.6: high-risk writes fail closed)",
-      { path: root, platform: process.platform }
-    );
+    // mode, never widen to other users; when the ACL cannot be verified the
+    // high-risk write must fail-closed.
+    //
+    // **2026-11-10 修订**：本分支原为无条件 fail-closed，理由是「本实现没有
+    // ACL 核验器」。该前提不成立——`icacls` 在 Windows 上随系统提供、可稳定
+    // 读取 DACL（本机实测可读出逐条 ACE），故无条件 fail-closed 不是「诚实的
+    // 不可核验」，而是**放弃了可做的核验**。其后果是 CLI 登记入口
+    // （`registerProjectFromEntry` → 本函数）在 Windows 上永久不可用，而
+    // 08 §5.6 明文预期 Windows 可写（「Windows 目标文件占用导致 replace 失败
+    // 时明确返回失败」）。
+    //
+    // 现行处置（2026-11-10 重写，含独立审核的修订）：核验 **目录与文件两处** ACL，
+    // 判据与 Unix 侧「目录 0700 **与** 文件 0600」同构——
+    //   ① 任一处 ACL 读不到 / 读不懂 → `permission_unverified`（仍 fail-closed）；
+    //   ② 任一处存在「扩大到其它用户」的 ACE → `permission_unverified`
+    //      （**与 Unix 侧同一错误码**：Unix 的「权限过宽」也报这个码，此前 Windows
+    //      报 `access_denied` 属跨平台语义互换，已统一）；
+    //   ③ 两处都只落在白名单主体（当前用户 / SYSTEM / Administrators /
+    //      OWNER RIGHTS）上 → 放行。
+    // 判据只核对**是否扩大到其它用户**这一条规范要求，不核对加密、审计、完整性
+    // 级别等 ACL 其它属性；放行**不等于**主张这些属性安全。
+    const dirAcl = await inspectWindowsAcl(root);
+    if (!dirAcl.ok) {
+      return unavailable(
+        REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED,
+        `registration carrier directory ACL cannot be verified on this platform (07 §5.6: high-risk writes fail closed): ${dirAcl.reason}`,
+        { path: root, platform: process.platform }
+      );
+    }
+    if (dirAcl.widenedTo.length > 0) {
+      return unavailable(
+        REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED,
+        `registration carrier directory ACL grants access beyond the current user (07 §5.6: must not widen to other users): ${dirAcl.widenedTo.join("; ")}`,
+        { path: root, platform: process.platform, widenedTo: dirAcl.widenedTo }
+      );
+    }
+    // **文件半边**（独立审核发现：原实现只核目录，文件 ACL 从不核验，而 08 §5.6
+    // 在 Unix 侧要求「目录 0700 **与** 文件 0600」）。载体文件存在时才核验；
+    // 不存在是正常初态（创建时按 0600/限定 ACL 写入）。
+    const carrierFileForWin = registrationPath(dshHomePath);
+    let fileExistsForWin = false;
+    try {
+      const s = await stat(carrierFileForWin);
+      fileExistsForWin = s.isFile();
+      if (!s.isFile()) {
+        return unavailable(
+          REGISTRATION_UNAVAILABLE_CODES.CARRIER_UNAVAILABLE,
+          "registration carrier path exists but is not a regular file",
+          { path: carrierFileForWin }
+        );
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        return unavailable(
+          REGISTRATION_UNAVAILABLE_CODES.CARRIER_UNAVAILABLE,
+          `registration carrier file is not statable: ${String(error?.message || error)}`,
+          { path: carrierFileForWin }
+        );
+      }
+    }
+    if (fileExistsForWin) {
+      const fileAcl = await inspectWindowsAcl(carrierFileForWin);
+      if (!fileAcl.ok) {
+        return unavailable(
+          REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED,
+          `registration carrier file ACL cannot be verified on this platform (07 §5.6: high-risk writes fail closed): ${fileAcl.reason}`,
+          { path: carrierFileForWin, platform: process.platform }
+        );
+      }
+      if (fileAcl.widenedTo.length > 0) {
+        return unavailable(
+          REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED,
+          `registration carrier file ACL grants access beyond the current user (07 §5.6: must not widen to other users): ${fileAcl.widenedTo.join("; ")}`,
+          { path: carrierFileForWin, platform: process.platform, widenedTo: fileAcl.widenedTo }
+        );
+      }
+    }
+    // **schema 校验与平台无关**（2026-11-10 修）：原实现只把它放在 Unix 分支，
+    // win32 提前 return 后**从不核对**载体 schema。此前被「win32 恒 fail-closed」
+    // 掩盖，放行 ACL 后立即暴露：`schema_version: 99` 的载体在 Windows 上被判
+    // 合格。此处先做与平台无关的一半（schema/可解析性），Unix 专属的 mode 判据
+    // 留在下面。
+    return await checkCarrierSchema(dshHomePath);
   }
   {
     const writable = (rootStat.mode & 0o700) === 0o700;
@@ -514,6 +702,17 @@ export async function evaluateRegistrationEntry(dshHomePath) {
       }
     }
   }
+  return await checkCarrierSchema(dshHomePath);
+}
+
+/**
+ * 与平台无关的载体校验：能否解析、是否满足 v5 schema（07 §5.2）。
+ *
+ * 抽取（2026-11-10）的原因：这段原先只存在于 Unix 分支尾部，win32 分支提前
+ * return 后从不执行——于是 Windows 上 `schema_version: 99` 的载体被判合格。
+ * schema 是文件内容属性，与目录权限模型无关，两个平台都必须核对。
+ */
+async function checkCarrierSchema(dshHomePath) {
   try {
     const current = await readRegistration(dshHomePath);
     if (current.exists && current.document === void 0) {
