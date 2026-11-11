@@ -828,6 +828,28 @@ async function executeWriteObject(args, exec, deps) {
     const routing = await gate.requestWorkcaseRouting({
       request: args?.routing_request ?? null,
       rationale: args?.routing_rationale ?? null,
+      // ── 候选摘要（2026-11-12）─────────────────────────────────────────
+      //
+      // 为什么加：路由询问此前只带 `routing_request`（Human 原话的一行转述），
+      // **不带候选内容**。于是 Human 被问「要不要建工单」时，看不到这个工单
+      // 实际长什么样——他答的是一个尚不存在、也可能根本成不了形的东西。
+      // Human 的原话是「不是先准备创建，而是问了之后再准备创建」。
+      //
+      // 而此刻候选已经过机械预检（precheckWorkcaseCreate 就在上面几行），
+      // 是**具体可读**的：title/gist/scope/plan 全都写好了。所以「此处问内容
+      // 会要求 Human 做一个他还做不了的判断」这个老理由已不成立。
+      //
+      // 边界：只呈现**已提交的候选**，不呈现 AI 的倾向理由（21 §6.3 已裁定
+      // rationale 不入呈报）；呈现是让 Human 判断「这确实是我要的那件事」，
+      // 不是让他代替 Gate 1 做内容裁决。
+      candidateBrief: {
+        title: typeof draft?.title === "string" ? draft.title : null,
+        gist: typeof draft?.gist === "string" ? draft.gist : null,
+        scope: typeof draft?.scope === "string" ? draft.scope : null,
+        planSteps: Array.isArray(draft?.plan)
+          ? draft.plan.map((step) => (typeof step?.step === "string" ? step.step : null)).filter((s) => s !== null)
+          : null,
+      },
       // The host forwarder reaches the browser answerer only when the request
       // carries the live agent (dsh-api-remotes/lib/index.js:115-119); without
       // it the waterfall exhausts to NO_PROVIDER in real compositions.
@@ -1403,6 +1425,23 @@ async function executeWriteObject(args, exec, deps) {
       passed: routingRecordGap === null,
     },
     follow_up: routingRecordGap !== null ? [routingRecordGap, ...(autoAuditGap === null ? [] : [autoAuditGap])] : [
+      // ── 审核结论 → 显式下一步（2026-11-12）─────────────────────────────
+      //
+      // 为什么加：实测 52 个工单里，**pre_reviews 无一条 pass 的 5 个工单全部
+      // cancelled**，而有 pass 的 14 个无一 cancelled。死因不是审核过严，是
+      // 「闸只拒绝、不推动」的同一个病在审核后重复发作——审核通过后没有任何
+      // 机械动作告诉调用方「现在该去批准」，轮次耗尽后也没有任何动作把它推到
+      // Human 面前。Human 的原话是「审核通过或者3次流出再进行请示」，而那个
+      // 「请示」在机械层不存在。
+      //
+      // 边界（必须写明，否则会变成越权）：本段**只输出提示文本**，不改状态、
+      // 不替 Human 批准 Gate 1、不改变任何门禁判定。它把「该找人了」变成信封里
+      // 一句可执行的话，而不是让主控自己去想起来。
+      ...(autoAudit?.status === "passed"
+        ? [`auto-audit returned verdict=pass for the CURRENT candidate: Gate 1 may now be requested — call action=approve with the fingerprint from this result (${autoAudit.fingerprint ?? "see sources"}). Approval itself is still a Human decision (21 §10.1); this audit does not authorize execution.`]
+        : autoAudit?.status === "rejected"
+          ? ["auto-audit returned verdict=needs_revision: the object stays draft and Gate 1 cannot be requested yet. Revise the candidate via action=revise, then re-audit. If this is the 3rd round without a pass, do NOT open a 4th round — 21 §9.2 provides a same-round targeted re-review exit (pass an existing round_index with verdict=pass against the CURRENT candidate), or escalate to Human for a decision on the approach/object (改方案收敛、改对象承载或放弃建单)."]
+          : []),
       "use the NEW fingerprint from this result for the next action; committing goes through the controlled-commit contract (specs/06)",
       args.action === "approve"
         ? "Gate 1 approval covers only the scope_snapshot recorded — executing beyond it is a scope violation (21 §10.1)"
@@ -1410,7 +1449,15 @@ async function executeWriteObject(args, exec, deps) {
           ? "outcome=completed does not automatically equal review-passed or overall completion (21 §9.2 边界)"
           : args.action === "execute"
             ? "attempt tokens carry NO authorization — authorization only comes from Gate 1 (21 §10.4)"
-            : "proceed with the recorded transition",
+            : args.action === "record_audit"
+              // 审核轴的成功回执要点名「下一步是谁的事」（2026-11-12）。实测 5 个
+              // 轮次耗尽仍无 pass 的工单全部 cancelled，原因就是这里没有任何提示：
+              // 审核者只看到「记录成功」，不知道最后一轮已用掉、也不知道 21 §9.2
+              // 提供了同轮定向复审出口，于是循环静默停摆。
+              ? (args.verdict === "pass"
+                ? "verdict=pass recorded. If every current partition is now covered by a pass entry, Gate 1 may be requested (action=approve) — approval remains a Human decision (21 §10.1)."
+                : "verdict=needs_revision recorded. Revise the candidate (action=revise) then re-audit. Note the round cap: at most 3 rounds per audit matter (21 §9.2). When the cap is reached, do NOT open a 4th round — use the same-round targeted re-review exit (reuse an existing round_index with verdict=pass against the CURRENT candidate), or escalate to Human for a decision on the approach/object rather than looping.")
+              : "proceed with the recorded transition",
     ]
   });
 }

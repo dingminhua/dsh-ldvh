@@ -100,6 +100,33 @@ function assembleBoundedAsk({ head, detail }) {
   };
 }
 
+/**
+ * 把候选摘要摊成可读的若干行（21 §6.3 路由询问的「看不到候选」补救）。
+ *
+ * 只列**已落定的候选字段**，不加评价：title / gist / scope / plan 步骤。这些
+ * 都是候选内容本身，不是 AI 的倾向理由（后者仍然不进呈报，见调用方注释）。
+ *
+ * 缺席即省略该行，不用占位符伪造（03 §6.1「不编造」）——若整个候选摘要都缺席
+ * （如上游没传），返回空数组，询问照旧进行而不多加一段空壳。
+ */
+function briefToLines(brief) {
+  if (brief === null || typeof brief !== "object") return [];
+  const lines = [];
+  const oneLine = (value) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
+  const title = oneLine(brief.title);
+  const gist = oneLine(brief.gist);
+  const scope = oneLine(brief.scope);
+  if (title !== "") lines.push(`候选工单：${title}`);
+  if (gist !== "") lines.push(`要点：${gist}`);
+  if (scope !== "") lines.push(`范围：${scope}`);
+  const steps = Array.isArray(brief.planSteps) ? brief.planSteps.map(oneLine).filter((s) => s !== "") : [];
+  if (steps.length > 0) {
+    lines.push(`计划 ${steps.length} 步：`);
+    steps.forEach((step, index) => lines.push(`  ${index + 1}. ${step}`));
+  }
+  return lines;
+}
+
 /** 21 §6.3 路由询问 identity — the Human decides between carrying the work as a
  * WorkCase or handling it directly. Same discipline as the registration consent:
  * the id and BOTH labels are shared between what is asked and what is accepted,
@@ -544,7 +571,7 @@ export function createHostSeams() {
    * 载体读写失败一律 fail-closed（返回 granted=false）：既不得当成「没问过」
    * （会导致重复提问），也不得当成「已获授权」（会免去 Human 决定）。
    */
-  async function requestWorkcaseRouting({ request, rationale, agent, signal, candidateKey } = {}) {
+  async function requestWorkcaseRouting({ request, rationale, agent, signal, candidateKey, candidateBrief } = {}) {
     if (typeof seams.ask !== "function") {
       return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
     }
@@ -564,6 +591,21 @@ export function createHostSeams() {
     // 本提请看起来像论证材料而非一次分诊）。`rationale` 仍被接受（入参契约不变）
     // 但不再进入任何呈报载体；语义上它本就只是 advisory，21 §6.3 未要求呈报。
     // 「你的要求」仍在 head（标题区）逐字呈现，Human 仍能认出在路由哪件事。
+    //
+    // ── 候选摘要进入可滚动区（2026-11-12）──────────────────────────────
+    //
+    // 上述「不呈报 AI 的理由」针对的是 `rationale`（AI 自陈的倾向），**不是**
+    // 候选本身。此前两者的区别被一概而论，于是 Human 被问「要不要建工单」时
+    // 看不到这个工单长什么样——他答的是一个尚不存在的东西。而此刻候选已经过
+    // 机械预检，title/gist/scope/plan 都是具体可读的**事实**（不是 AI 的论证）。
+    //
+    // 因此候选摘要进入 `detail`（可滚动区），不进 `head`（有界标题区，
+    // ADR 7ceaf7fc）。它不改变询问与被问的性质：这仍是一次路由分诊，Human
+    // 看到的是「这确实是我要的那件事吗」，而不是被要求代替 Gate 1 做内容裁决。
+    const briefLines = briefToLines(candidateBrief);
+    if (briefLines.length > 0) {
+      detail = detail === null ? briefLines.join("\n") : `${detail}\n\n${briefLines.join("\n")}`;
+    }
     const assembled = assembleBoundedAsk({ head, detail });
 
     // ── 先读后问（消灭「同一件事问两次」）──────────────────────────────
