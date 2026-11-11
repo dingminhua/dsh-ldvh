@@ -9,16 +9,18 @@ confirmed_statements:
   - 九个模型工具全部是协作调度工具，没有任何审核/门禁语义
   - 任务板是 CAS 版本化的依赖图，但写范围只是提示、owner 永不自动释放
   - 该 bundle 不提供任何 Human Gate，也不承载授权或审计
-  - 并发暂存会污染共享 Index（已实测），但既有双向对应检查会响亮拒绝
+  - 并发暂存会污染共享 Index（已实测）；既有检查会拒绝但有盲区
   - 成员身份走宿主原生子代理路径：已实测确证 origin=subagent，复核回传通道可用
   - 与 WorkCase 是互补而非替代关系：它补调度层，缺授权与审计层
 uncertain:
   - issue: record_review 实际落一条 teammate 复核尚未执行（身份链已实测通过）
     reason: 该步需要一个 open 期、确有一次真实复核事项的 WorkCase；为实验伪造工单会污染事实源，故本轮止于身份链验证
+  - issue: E3 节称 pre-commit 侧对共享 Index 里他人文件多为误挡——该推断未实测
+    reason: 仅为机制推论，未构造他人暂存 + 受管载体的实测场景；已登记为未证实四
   - issue: 0.1.7-rc.1 与 0.2.2-rc.1 之间的变更未对照
     reason: 官方未提供可取的逐版 changelog，本次只按 0.2.2-rc.1 当期文本重新取证
 gaps:
-  - description: 并发暂存的调用纪律尚无机械保障（已实测，非代码缺陷）：共享 Index 下两侧 git add 互见，终闸虽会以 validation/staged_path_uncovered 拒绝，但需要「禁止与他人并行暂存、add 后立即 commit」的纪律；该纪律目前靠执行者自觉
+  - description: 并发暂存的调用纪律尚无机械保障（已实测，非代码缺陷）：tripwire 对同前缀路径放行（已复现 ok:true）、普通提交整体跳过该检查，故需「git commit -- <自己的路径> 显式限定 pathspec」+「禁止与他人并行暂存」双管纪律；两条 pitfall 已承载，但执行靠自觉
     priority: low
   - description: teammate 作为复核者写入 reviews 的一步未实测：身份链已验证（origin=subagent、血缘可溯），但尚未真正调用 record_review 落一条复核；需一个 open 期的真实工单
     priority: high
@@ -35,8 +37,8 @@ implications:
     implication: 任务依赖图与并发 CAS 强于 WorkCase 的线性 plan，是唯一值得借用的部分；但 writeScopes 不构成越权拦截，故不能据此取消事前授权。
   - finding_ref: 该 bundle 不提供任何 Human Gate，也不承载授权或审计
     implication: 须立 ADR 划定边界：团队任务板条目不得替代 WorkCase 的 C1 提案、Gate 1 批准与 Gate 2 关闭，否则授权的可回读链会断在会话日志里。
-  - finding_ref: 并发暂存会污染共享 Index（已实测），但既有双向对应检查会响亮拒绝
-    implication: 并发写入的正确处置是调用纪律（禁止与他人并行暂存、add 后立即 commit），不是改 Gate 实现——LDVH_PREFLIGHT_INDEX 是安装期预检专用的合成 index，用它隔离真实提交会把真候选换成假探针。既有 tripwire 已把静默污染转成响亮拒绝。
+  - finding_ref: 并发暂存会污染共享 Index（已实测）；既有检查会拒绝但有盲区
+    implication: 并发写入的正确处置是双管调用纪律：git commit -F <msg> -- <自己的路径> 显式限定 pathspec + 禁止与他人并行暂存。不能靠 tripwire 兜底——同前缀路径放行、普通提交跳过；也不能靠「默认隔离 Index」——该变量是预检专用合成 index。
   - finding_ref: 成员身份走宿主原生子代理路径：已实测确证 origin=subagent，复核回传通道可用
     implication: teammate 可直接充当独立复核者而无需改 LDVH——E2 已实测确证身份链，不再是静态推测；同时「引导文本有、管辖工具无」证明机制注入与文本注入分离，引导不构成能力。
   - finding_ref: 与 WorkCase 是互补而非替代关系：它补调度层，缺授权与审计层
@@ -76,6 +78,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 按独立审核体 ec0f1cf8 的逐条取证更正 E3 节：原把「Git 固有语义 + LDVH_PREFLIGHT_INDEX 预检专用合成 index」误断为 Git Gate 缺陷，并据此给出方向错误的「默认隔离 Index」建议。更正后保留 E3 实测事实，明确终闸的 validation/staged_path_uncovered 会把污染转成响亮拒绝（本轮提交现场实证），建议 2、gaps、implications 与 confirmed_statements 第 5 条同步改写。
+  - at: 2026-11-11T19:03:57.912Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 按第二路独立审核 25040326 的实测取证做第二轮更正：修正两处过头表述——①「预检 index 不可用于真实提交」改为「设计意图是预检专用，临时索引提交场景须按 pitfall-86d23c1a 手动同步设置（cleanGitEnvironment 会删掉继承的 GIT_INDEX_FILE）」；②「响亮拒绝全覆盖」改为「仅拒绝异目录外来路径，同前缀路径放行（主控亲自复现 ok:true）、普通提交整体跳过该检查」。标题与 confirmed_statements 相应改准，新增未证实四。
 ---
 
 # DSH 官方 Agent Teams bundle 0.2.2-rc.1 能力边界与 WorkCase 分野
@@ -99,15 +105,16 @@ DSH 官方 Agent Teams bundle @deepseek-ai/dsh-experimental-agent-team-profile 0
 - 会话投影缓存——`agentTeam` 投影的当前值；
 - 实跑实验（E1/E2/E3）——派生 teammate 的会话载体首行、其工具清单与 runtime context、隔离仓库中的并发 `git add` 对照；
 - LDVH 自身源码（`child-session-record.js`、`lifecycle.js`、`git-gate-runner.js`、`commit-validation.js`、`hook-manager.js`、`.git/hooks/pre-commit`）——判定实验观察落在哪条既有机制上；
-- 独立审核体 ec0f1cf8 的逐条取证（2026-11-12）——用于更正 E3 节的错误归因。
+- 既有事实对象 `pitfall-4e590bfb`、`pitfall-86d23c1a`——同机制的历史登记与已定处置；
+- 两路独立审核体 ec0f1cf8 与 25040326 的逐条取证（2026-11-12）——用于更正 E3 节的错误归因与过头表述。
 
 读取深度：以官方原文逐条引用为据；领域包只读编译产物的符号层（状态字面量、错误码），未做完整源码审读。
 
 **本轮覆盖两部分**：前半为静态取证（官方 README、patch、编译产物、registry、本机 profile）；后半为实跑实验（2026-11-12，实验 E1/E2/E3——派生两个 teammate、读取其会话载体首行、在隔离仓库中做并发 stage 对照）。实验均在隔离环境或只读范围内进行，未污染 LDVH 主工作树。
 
-**仍未覆盖**：0.1.7-rc.1 → 0.2.2-rc.1 的逐版变更对照（官方未提供可取的 changelog）；`record_review` 实际落一条 teammate 复核（需 open 期真实工单）；任务板记录能否被 LDVH 只读消费。
+**仍未覆盖**：0.1.7-rc.1 → 0.2.2-rc.1 的逐版变更对照（官方未提供可取的 changelog）；`record_review` 实际落一条 teammate 复核（需 open 期真实工单）；任务板记录能否被 LDVH 只读消费；「pre-commit 侧对他人文件多为误挡」未实测。
 
-**更正记录**：E3 节初稿曾把「Git 固有语义」误断为「LDVH 的 Git Gate 缺陷」，并经一条错误建议（默认隔离 Index）扩散到 gaps/implications/建议 2。该错误由独立审核体 ec0f1cf8 指出，本节保留原始错述与更正依据供追溯。
+**更正轨迹**：E3 节初稿曾把「Git 固有语义」误断为「LDVH 的 Git Gate 缺陷」，并经一条错误建议（默认隔离 Index）扩散到 gaps/implications/建议 2。第一轮更正（提交 5c5c0df0）修掉了主归因，但仍留两处过头（「预检 index 不可用于真实提交」「响亮拒绝全覆盖」）；第二轮更正（本版）据第二路审核 25040326 与主控亲自复现改准。
 
 ## 关键发现
 
@@ -151,25 +158,37 @@ DSH 官方 Agent Teams bundle @deepseek-ai/dsh-experimental-agent-team-profile 0
 
 溯源：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/experimental/client-ui-agent-team/README.zh.md（概述与已知限制）
 
-### 并发暂存会污染共享 Index（已实测），但既有双向对应检查会响亮拒绝
+### 并发暂存会污染共享 Index（已实测）；既有检查会拒绝但有盲区
 
-**本节经独立审核更正**（2026-11-12，审核体 ec0f1cf8）：初稿把「真实提交读共享 Index」写成「确定缺陷」、把「可能是设计遗漏」当成事实，属**读反了代码注释**。以下为更正后的表述，原始错述与更正依据一并保留，供追溯。
+**本节经两路独立审核更正**（2026-11-12，审核体 ec0f1cf8 与 25040326）：初稿把「真实提交读共享 Index」写成「确定缺陷」、把「可能是设计遗漏」当成事实，属**读反了代码注释**；第一轮更正（提交 5c5c0df0）后仍有两处过头（「预检 index 不可用于真实提交」「响亮拒绝全覆盖」），由第二路审核指出并已在本轮改准。以下保留错述轨迹与逐条更正依据，供追溯。
 
 **实测事实仍然成立**（实验 E3，2026-11-12）：在隔离的一次性 git 仓库中，teammate `probe-b` 与 Lead 各自只 `git add` 自己的文件（`a.txt` / `b.txt`），相差约 1 秒。两侧独立记录都看到**两个文件同时处于暂存区**。补充实测：强制同时 `git add` 三个文件，10 轮中每轮只有 1 个文件进入 Index、另 2 个因 `index.lock` 冲突失败（错误默认被 stderr 吞掉时不显眼）。
 
 这印证的是 **Git 的固有语义**，不是 LDVH 的缺陷：Index 是工作树的单一共享状态，没有按执行体分区的维度（`pitfall-4e590bfb` 的根因段已有同样表述，该条 2026-11-04 登记，早于本 bundle 在 2026-11-12 启用）。
 
-**更正一：`LDVH_PREFLIGHT_INDEX` 是安装期预检专用的合成 index，真实提交本就不该设它。** `plugin/lib/hook-manager.js:197-199` 的注释原文：「The preflight passes a synthetic index through `LDVH_PREFLIGHT_INDEX` so the gate proves its real diff path **without touching the worktree's staging state; real commits never set this variable**」。合成 index 由 `seedPreflightIndex`（`hook-manager.js:400-429`）`read-tree HEAD` 后只塞一个假探针文件 `ldvh-base/preflight-probe.md`，目的是让**安装期预检**在用户无暂存内容时也能证明 Gate 的 diff 路径可用。`hook-manager.js:93-97` 另注明 hook 环境里的 `GIT_INDEX_FILE` 除非调用方刻意传入否则一律抹掉。
+**更正一：`LDVH_PREFLIGHT_INDEX` 的设计意图是安装期预检专用的合成 index，日常 `git commit` 不该设它。** `plugin/lib/hook-manager.js:197-199` 的注释原文：「The preflight passes a synthetic index through `LDVH_PREFLIGHT_INDEX` so the gate proves its real diff path **without touching the worktree's staging state; real commits never set this variable**」。合成 index 由 `seedPreflightIndex`（`hook-manager.js:400-429`）`read-tree HEAD` 后只塞一个假探针文件 `ldvh-base/preflight-probe.md`，目的是让**安装期预检**在用户无暂存内容时也能证明 Gate 的 diff 路径可用。`hook-manager.js:93-97` 另注明 hook 环境里的 `GIT_INDEX_FILE` 除非调用方刻意传入否则一律抹掉。
 
 ⇒ 初稿建议「受控提交默认隔离 Index（该机制已存在）」是**方向错误**：若照做，Gate 会去校验那个只含假探针的合成 Index，等于把真候选换掉，比现状更坏。
 
-**更正二：污染不会被「静默通过」，而是被专门的 tripwire 响亮拒绝。** `plugin/lib/commit-validation.js:250-253` 注释原文：「Reverse (K1 bidirectional, Human 2026-09-10): every non-exempt changed path must be covered by at least one item. **This is the tripwire that turns silent staged-content pollution (e.g. a parallel session's `git add` landing in a shared Index) into a loud rejection**」。实现见同文件 `:290-300`：`uncovered` 非空即产出 `validation/staged_path_uncovered` 阻断。该检查由 commit-msg 终闸（`git-gate-runner.js:607`）与 CLI precheck（`ldvh-tools.js:772`）共用。
+**但「预检专用」不等于「真实提交绝不能设」**（第二路审核 25040326 指出）：`pitfall-86d23c1a` 的处置段明确要求——用临时索引提交时（`GIT_INDEX_FILE=/tmp/tmp-index-…` + `read-tree HEAD` + `git add -- <自己的文件>`），**`LDVH_PREFLIGHT_INDEX` 必须同步指向同一临时索引**，否则 commit-msg 钩子读真实索引，「预检看到的与提交的不是同一份内容」。原因：`cleanGitEnvironment`（`hook-manager.js:93-97`）会删掉从环境继承的 `GIT_INDEX_FILE`，钩子拿到的是清洗后的环境，只能靠 `LDVH_PREFLIGHT_INDEX` 找回临时索引。故准确表述是：**该变量的设计意图是预检专用；临时索引提交场景须按该 pitfall 手动同步设置**。
+
+**更正二：受控提交中的污染通常不会「静默通过」，而是被专门的 tripwire 拒绝——但有两处覆盖不到。** `plugin/lib/commit-validation.js:250-253` 注释原文：「Reverse (K1 bidirectional, Human 2026-09-10): every non-exempt changed path must be covered by at least one item. **This is the tripwire that turns silent staged-content pollution (e.g. a parallel session's `git add` landing in a shared Index) into a loud rejection**」。实现见同文件 `:290-300`：`uncovered` 非空即产出 `validation/staged_path_uncovered` 阻断。该检查由 commit-msg 终闸（`git-gate-runner.js:607`）与 CLI precheck（`ldvh-tools.js:772`）共用。
 
 **本会话的现场实证**：本轮提交 e018ebac 的第一次 `ldvh_precheck_git_commit` 就因 16 个已暂存路径无对应「关键变更」条目而被判 `failed`，报错正是 `validation/staged_path_uncovered`。tripwire 真实生效。
 
+**但两个盲区经实测确认**（第二路审核 25040326 指出，主控亲自复现）：
+
+其一，**同前缀路径放行**。主控用 `checkKeyChangesAgainstDiff` 直接构造两场景复现：条目写 `plugin/lib/staged-lint.js`、外来路径为 `plugin/lib/foreign-other.js`（共享两级目录前缀）→ `ok:true` **放行**；把外来路径改为 `ldvh-base/foreign.md`（不同目录）→ `ok:false` 并报 `staged_path_uncovered`。根因是 K1 的匹配切片有意接受「不少于两级的目录前缀」。`pitfall-86d23c1a` 早在 2026-10-03 就实测记录过同一盲区（改到不含共享目录词后才 FAIL），其处置是**提交一律显式限定 pathspec**：`git commit -F <msg> -- <自己的路径>`。
+
+其二，**普通提交不跑该检查**。`git-gate-runner.js:602-605`：当暂存路径不含受管载体、规范载体、仓库根 README/AGENTS 时，直接以 `ordinary commit` 放行并跳过全部受控检查。故该类提交的暂存污染不受 tripwire 保护——但按 09 §5.5 这是明文设计（普通提交不走受控契约）。
+
+⇒ 准确表述是：**对受控提交中未被条目覆盖、且不共享目录前缀的暂存路径会拒绝；共享前缀路径与普通提交不受此保护**。「响亮拒绝」不是全覆盖，须配合 pathspec 纪律。
+
 **更正三：pre-commit 阶段不跑该检查，但这不是漏洞而是位置使然。** `git-gate-runner.js:355-360` 注释原文：「`message` is `null` at the pre-commit entrypoint, and that is a **POSITION**, not a missing argument: git invokes pre-commit with no arguments, so the message does not exist yet」。消息型检查在该阶段被**显式跳过**（`hasMessage`），不是漏传参数。
 
-**净结论**：并发暂存的真实后果是——pre-commit 侧会对共享 Index 里的他人文件跑载体判据（多为**误挡**，不是误放）；终闸与 precheck 侧由 `validation/staged_path_uncovered` 拒绝。规范侧 `specs/09` §5.7「共享工作区的改动归属」另有归属判定与提交后回读双对照。故**并发写入的正确处置是调用纪律（禁止与他人并行暂存、add 后立即 commit），不是改 Gate 实现**。
+**净结论**：并发暂存的真实后果是——pre-commit 侧会对共享 Index 里的他人文件跑载体判据（多为误挡，此项未实测）；终闸与 precheck 侧由 `validation/staged_path_uncovered` 拒绝，但同前缀路径与普通提交不受保护。规范侧 `specs/09` §5.7「共享工作区的改动归属」另有归属判定与提交后回读双对照。
+
+故**并发写入的正确处置是调用纪律，而不是改 Gate 实现**，且该纪律必须**双管**：① `git commit -F <msg> -- <自己的路径>` 显式限定 pathspec（`pitfall-86d23c1a` 定为「第一道也是唯一必需的措施」）；② 禁止与他人并行暂存、add 后立即 commit。仅靠 tripwire 不足——它挡得住异目录外来路径，挡不住同前缀路径。
 
 溯源：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/experimental/agent-team/README.zh.md（已知限制章：成员共享 cwd、write scope 仅作提示）
 
@@ -205,22 +224,24 @@ DSH 官方 Agent Teams bundle @deepseek-ai/dsh-experimental-agent-team-profile 0
 
 未证实一（本轮已消解）：成员身份通道已实跑验证，见「成员身份走宿主原生子代理路径」一节的实测记录。剩余未验证的只有一步：尚未实际调用 `record_review` 把一条真实复核写进某个 WorkCase 的 `reviews`。该步未做的原因是它要求一个处于 `open` 期、且确有一次真实复核事项的工单——为实验而伪造一个工单本身会污染事实源，故本轮止于身份链实测。
 
-未证实二（本轮已实测，结论已由独立审核更正）：并发暂存已实跑，确认共享 Index 会互相污染；但初稿据此断言「Git Gate 有确定缺陷」是错的——终闸的双向对应检查会把污染转成响亮拒绝，详见 E3 节的三条更正。该条不再列为未证实项。
+未证实二（本轮已实测，结论经两路审核更正）：并发暂存已实跑，确认共享 Index 会互相污染；但初稿据此断言「Git Gate 有确定缺陷」是错的——受控提交的双向对应检查通常会拒绝（有同前缀与普通提交两个盲区），详见 E3 节。
 
 未证实三：0.1.7-rc.1 与 0.2.2-rc.1 之间的变更未对照。官方未提供可取的逐版 changelog，本次只按 0.2.2-rc.1 当期文本重新取证，不声称旧版的具体差异。
+
+未证实四：E3 节称「pre-commit 侧对他人文件多为误挡」——该推断未实测，仅为机制推论。
 
 ## 建议
 
 以下均为调研结论，不是决定；采纳与否由 Human 裁决。
 
 1. **不把该 bundle 当作 WorkCase 的替代**，而按「调度层借用、授权与审计层保留」定位。依据：F6 与 F7 的对照。创建判断：可作为 21 号下次修订或 32 号执行体系设计时的输入，现阶段无须对象化。
-2. **实验已完成（2026-11-12），结论两正一负**。正向：teammate 的会话身份确为 `origin=subagent` + `depth=1` + 正确 `parentSession`，血缘链完整，复核回传通道在机制上可用；teammate 能读写共享工作树，工具面按子代理形态正确收窄（无 `ldvh_*`）。负向（经独立审核更正）：并发暂存确实会污染共享 Index，但其性质是 Git 固有语义而非 LDVH 缺陷——终闸以 `validation/staged_path_uncovered` 响亮拒绝（本轮提交现场实证），`LDVH_PREFLIGHT_INDEX` 是预检专用合成 index、不可用于真实提交。依据：E3 节实测与审核体 ec0f1cf8 的逐条取证。创建判断：**不须对象化改代码**；只宜登记一条调用纪律（禁止与他人并行暂存、add 后立即 commit），可由 pitfall-4e590bfb 承载。
+2. **实验已完成（2026-11-12），结论两正一负**。正向：teammate 的会话身份确为 `origin=subagent` + `depth=1` + 正确 `parentSession`，血缘链完整，复核回传通道在机制上可用；teammate 能读写共享工作树，工具面按子代理形态正确收窄（无 `ldvh_*`）。负向（经两路审核更正）：并发暂存确实会污染共享 Index，但其性质是 Git 固有语义而非 LDVH 缺陷；受控提交有 tripwire 拒绝，但同前缀路径与普通提交有盲区。创建判断：**不须对象化改代码**；只宜登记调用纪律——`git commit -F <msg> -- <自己的路径>` 显式限定 pathspec（`pitfall-86d23c1a` 已定为必需措施）+ 禁止与他人并行暂存、add 后立即 commit，由这两条 pitfall 共同承载。
 3. **确立一条边界：团队任务板条目不得作为 WorkCase 的 C1 提案、Gate 1 批准或 Gate 2 关闭的替代承载**。依据：F4（该 bundle 无任何授权与审计承载）与两者形状相似而语义不同的现实。创建判断：宜立 ADR，因为这是「两套都叫任务的东西并存时」的裁决依据；旧调研建议一即为此，本次重新确认为仍然需要。
 
 ## 后续分流
 
 - 建议 1 作为设计输入保留在本对象，供 21/32 号下次修订引用。
 - 建议 2 的实验部分已完成并回写本节；剩余「teammate 写入 reviews」一步待真实 open 期工单出现时顺带验证，无须单独立实验。
-- 建议 2 的负向结论经更正后**不须对象化改代码**（Git 固有语义 + 既有 tripwire 已覆盖）；只余一条调用纪律待登记，可由 pitfall-4e590bfb 承载。
+- 建议 2 的负向结论经更正后**不须对象化改代码**（Git 固有语义 + 既有 tripwire + 两条 pitfall 的纪律已覆盖）；只余调用纪律待执行。
 - 建议 3 属 ADR 范畴，须 Human 决定后落盘。
-- 本对象在以下条件下应更新：本机 bundle 版本变化且触及 patch 禁用段、工具清单、身份来源三处之一；或 Git Gate 的双向对应检查（validation/staged_path_uncovered）实现发生变化；或 teammate 首次实际写入 reviews 后补登该步实测结果。
+- 本对象在以下条件下应更新：本机 bundle 版本变化且触及 patch 禁用段、工具清单、身份来源三处之一；或 `validation/staged_path_uncovered` 的匹配切片发生变化（同前缀盲区被修）；或 teammate 首次实际写入 reviews 后补登该步实测结果。
