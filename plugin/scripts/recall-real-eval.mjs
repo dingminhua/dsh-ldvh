@@ -53,10 +53,22 @@ async function runCase(c) {
   const titles = [...specs, ...facts];
   const relevant = titles.filter((t) => isRealCaseRelated(t, c.want)).length;
   const relevantFacts = facts.filter((t) => isRealCaseRelated(t, c.want)).length;
-  const hit = c.want.length === 0 ? titles.length === 0 : titles.some((t) => isRealCaseRelated(t, c.want));
+  // ── 三种命中口径必须并列（2026-11-11 独立复核后补）──────────────────
+  //
+  // 复核实测同一批 topic 用例：any-of 下 10/10、all-of 下 5/10、对象级 12/17。
+  // 只报 any-of 会让人以为「有主题的不漏」，而对象级说明有 5 个应得对象根本
+  // 没进注入面。三者各有用途，**并列披露**才不误导：
+  //   hitAny  —— 命中任一答案即记（宽松，看「有没有进展」）
+  //   hitAll  —— 全部答案都在才记（严格，看「完整度」）
+  //   objHit/objTotal —— 按对象逐个记（唯一能答「该看到的看到几成」）
+  const hitAny = c.want.length === 0 ? titles.length === 0 : titles.some((t) => isRealCaseRelated(t, c.want));
+  const perWant = c.want.map((w) => titles.some((t) => isRealCaseRelated(t, [w])));
+  const objHit = perWant.filter(Boolean).length;
+  const hitAll = c.want.length > 0 && objHit === c.want.length;
+  const hit = hitAny;
   // **两侧分开计数**：规范源条目数与事实源条目数差一个量级，混算会把
   // 「事实侧一条没中」稀释成「整体精确率还行」。读者要能看出是哪一侧在凑数。
-  return { ok, titles, specs, facts, n: titles.length, nSpecs: specs.length, nFacts: facts.length, relevant, relevantFacts, hit };
+  return { ok, titles, specs, facts, n: titles.length, nSpecs: specs.length, nFacts: facts.length, relevant, relevantFacts, hit, hitAny, hitAll, objHit, objTotal: c.want.length };
 }
 
 const rows = [];
@@ -103,7 +115,12 @@ const summary = {
   relevant: totalRelevant,
   precision: totalLines === 0 ? 0 : totalRelevant / totalLines,
   annotated: annotatedAll.length,
-  hits: annotatedAll.filter((r) => r.hit).length,
+  // 三种口径并列（2026-11-11 独立复核后补）——
+  // 只报 hits 会掩盖「命中了但漏了别的对象」这一缺口。
+  hits: annotatedAll.filter((r) => r.hitAny).length,
+  hitsAll: annotatedAll.filter((r) => r.hitAll).length,
+  objHit: annotatedAll.reduce((a, r) => a + r.objHit, 0),
+  objTotal: annotatedAll.reduce((a, r) => a + r.objTotal, 0),
   byKind,
 };
 
@@ -112,6 +129,15 @@ if (AS_JSON) {
 } else {
   const pct = (x) => `${(x * 100).toFixed(1)}%`;
   console.log(`真实任务召回评测（limit=${LIMIT}、budget=${BUDGET}、用例 ${rows.length} 条）`);
+  console.log("");
+  // **命中口径须并列**：any-of 宽松、all-of 严格、对象级最接近「看到几成」。
+  // 只印一个数会让人把宽口径当成结论（独立复核 2026-11-11 指出的缺陷）。
+  console.log(
+    `命中口径：` +
+    `any-of ${summary.hits}/${summary.annotated}（有进展即记）  ` +
+    `all-of ${summary.hitsAll}/${summary.annotated}（全部答案都在才记）  ` +
+    `对象级 ${summary.objHit}/${summary.objTotal}（${((summary.objHit / Math.max(1, summary.objTotal)) * 100).toFixed(1)}%）`,
+  );
   console.log("");
   console.log("按类别：");
   for (const [kind, s] of Object.entries(byKind)) {

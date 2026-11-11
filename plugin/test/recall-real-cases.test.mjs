@@ -78,3 +78,22 @@ test("评测集：判定函数与人工编集同口径", () => {
 	assert.equal(isRealCaseRelated("双源召回系统规范（补编）", ["双源召回系统规"]), true);
 	assert.equal(isRealCaseRelated("无关条目", ["双源召回系统规范"]), false);
 });
+
+test("报告口径：须能算对象级召回，不得只报 any-of 命中", () => {
+	// **独立复核（2026-11-11）指出**：原实现只报「多条 want 里命中任一条即算不漏」
+	// （any-of）。复核实测：同一批 topic 用例，any-of 下 10/10，all-of 下仅 5/10，
+	// 对象级只有 12/17 —— 「有主题的不漏」这句结论建立在最宽松的那个口径上。
+	//
+	// 三种口径各有用途，**并列披露**才诚实：
+	//   · any-of  ：有进展就记（宽松，会掩盖缺口）
+	//   · all-of  ：全部答案都在才记（严格，会掩盖部分进展）
+	//   · 对象级  ：按对象逐个记（唯一能回答「该看到的看到了几成」）
+	//
+	// 本守卫钉住「判据函数支持按单个对象判定」这一点——没有它，对象级口径
+	// 就算不出来，上面那句话也就无法被证伪。
+	const relate = isRealCaseRelated("Code 实践与测试规范", ["Code 实践与测试规范"]);
+	assert.equal(relate, true, "单对象判定须可用");
+	assert.equal(isRealCaseRelated("别的标题", ["Code 实践与测试规范"]), false, "不相关须为 false");
+	// want 为空时不构成命中（否则对象级分母会被污染）。
+	assert.equal(isRealCaseRelated("任意标题", []), false, "空 want 不算命中");
+});
