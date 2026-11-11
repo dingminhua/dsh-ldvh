@@ -6,6 +6,7 @@
 //
 // 本文件守的是「注入的纪律」：什么时候注入、注入什么措辞、什么情况下不注入。
 
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -1874,4 +1875,26 @@ test("34 §8.3 消费侧纪律：达到阈值即输出（让位判据的边界�
 	assert.equal(r.inject, true);
 	assert.ok(r.text.includes("**用法**"), "2000 档（= DISCIPLINE_LINE_MIN_BYTES）须输出纪律行");
 	assert.ok(Buffer.byteLength(r.text, "utf8") <= 2000, "输出纪律行后仍不得超预算");
+});
+
+test("兜底通道：说了「自行检索」就须给出具体入口，不得让人自己猜", () => {
+	// **外部调查的对照结论**（docs/recall-external-solutions-survey.md）：
+	// 本仓库与同类项目的最大差距不是「没有第二条读路径」，而是**在失败的那一刻
+	// 没把它指出来**。原来那句「查故障时请自行按机制检索」等于让人自己猜有哪些
+	// 入口——猜不出来的结果就是「未命中」被当成「没有」。
+	//
+	// agent-memory（★4.3k）的设计承诺是「三条读路径，一条失手不算失手」。
+	// 本仓其实早有第二条路（`ldvh_*_list` 枚举、`ldvh_*_read` 精读、`grep` 搜载体），
+	// 缺的是**指名**。本守卫钉住「指名」这一行为，不钉具体措辞。
+	const src = readFileSync(new URL("../lib/recall-injection.js", import.meta.url), "utf8");
+	const m = src.match(/const fallbackLine = "([^"]+)"/);
+	assert.ok(m, "须存在兜底提示行（fallbackLine）");
+	const line = m[1];
+	// 三个入口家族须各自可辨：枚举、精读、字面搜。
+	assert.match(line, /ldvh_\*_list|ldvh_pitfall_list/, "须点名按类型枚举的入口");
+	assert.match(line, /ldvh_\*_read/, "须点名精读入口");
+	assert.match(line, /grep/, "须点名字面检索兜底");
+	// **不得承诺命中**：兜底通道给的是路径，不是保证——否则会把「没找到」的
+	// 责任推给读者，与他处披露纪律（34 §12「未命中不构成无相关的证据」）冲突。
+	assert.doesNotMatch(line, /一定|保证|必能|总能/, "兜底行不得承诺一定命中");
 });
