@@ -1233,6 +1233,24 @@ export function l0EnumerationOf(facts) {
   });
 }
 
+/**
+ * active 经验的真实总数（`34 §8.4` 第 1 项「总数须真实」的唯一计数口径）。
+ *
+ * **不能从 `l0EnumerationOf` 的结果里找 pitfall 段再兜底 0**（2026-11-11 缺陷）：
+ * 该函数只遍历 `L0_SEGMENT_ORDER`（现为 adr/norm），经验已改为按需、不在常驻段里。
+ * 故「找不到 pitfall 段」只表示「经验不在常驻枚举」，不表示「本项目没有经验」；
+ * 用 `?? 0` 会把「未枚举」说成「本类为空」，直接违反 34 §12 三态与 §8.4 第 1 项。
+ * 计数按与词法候选同源的默认状态集，避免第二套判定。
+ *
+ * @param {object[]} facts 事实源全量（或声明范围内的事实）
+ * @returns {number}
+ */
+export function countActivePitfalls(facts) {
+  const statuses = DEFAULT_STATUSES_BY_TYPE.pitfall ?? DEFAULT_STATUSES_FALLBACK;
+  return (Array.isArray(facts) ? facts : [])
+    .filter((fact) => fact.type === "pitfall" && statuses.includes(fact.status)).length;
+}
+
 /** 供渲染层阅读的 L0 常驻段（数据层已规划好行，渲染层只排版，不再做第二次字节决策）。 */
 export function l0LinesOf(plan) {
   if (plan === null || typeof plan !== "object" || !Array.isArray(plan.segments)) return [];
@@ -2958,8 +2976,10 @@ export async function baselineOnlyForAction(input = {}) {
       adrTotal: adrSegment?.total ?? 0,
       // **经验按需通道的计数**（`34 §8.4` 2026-11-11 重订）：经验不再逐条常驻，
       // 但必须给出**真实总数**，否则「本类为空」与「未列出」无法分辨（34 §12 三态）。
-      // 该数取自同一次枚举（`enumeration`），不另跑一次扫描——两侧同源才不会漂移。
-      pitfallTotal: (enumeration.find((segment) => segment.type === "pitfall")?.total) ?? 0,
+      // **不得从 `enumeration` 里找**：该枚举只覆盖常驻段（adr/norm），经验已转按需；
+      // 找不到 pitfall 段不等于 0 条——那正是 2026-11-11 的缺陷（纯读取回合报「0 条」）。
+      // 计数与全量路径共用 `countActivePitfalls`，两路径才不会漂移；读不到给 null。
+      pitfallTotal: factsReadable ? countActivePitfalls(facts) : null,
     },
     // 明示「本结果不证明适用」（34 §13），与 recallForAction 同口径。
     provesApplicability: false,
@@ -3535,12 +3555,7 @@ export async function recallForAction(input = {}) {
   // **经验总数须单独算**：`l0EnumerationOf` 只遍历 `L0_SEGMENT_ORDER`（现为 adr/norm），
   // 经验已不在其中——它按需而不常驻。但它仍须给出真实总数（`34 §8.4` 第 1 项），
   // 故此处按与枚举同源的默认状态集另行计数，口径一致、不引入第二种判定。
-  const l0PitfallTotal = (() => {
-    const statuses = DEFAULT_STATUSES_BY_TYPE.pitfall ?? DEFAULT_STATUSES_FALLBACK;
-    const picked = (Array.isArray(scopedFacts) ? scopedFacts : [])
-      .filter((fact) => fact.type === "pitfall" && statuses.includes(fact.status));
-    return picked.length;
-  })();
+  const l0PitfallTotal = countActivePitfalls(scopedFacts);
   const l0Plan = planL0Enumeration(
     l0AllSegments.filter((segment) => segment.type !== "adr"),
     budgetBytes,

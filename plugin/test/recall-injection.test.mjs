@@ -275,6 +275,25 @@ test("buildRecallInjection：命中 34 §6 排除条件时不进入词法召回�
 	assert.match(r.text, /决策基线/, "基线须可见");
 });
 
+test("buildRecallInjection：纯读取回合的经验总数须与全量路径一致（2026-11-11 缺陷回归）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	// **缺陷形态**：`baselineOnlyForAction` 曾从「常驻段枚举」里找 pitfall 段再 `?? 0`。
+	// 2026-11-11 起经验改为按需、已不在常驻段（`L0_SEGMENT_ORDER` 只剩 adr/norm），
+	// 于是纯读取回合稳定报「本项目当前无 active 经验（0 条）」，而同一语料实际有 68 条。
+	// 这违反 `34 §8.4` 第 1 项「总数须真实」与 `34 §12` 三态（「本类为空」vs「未枚举」）。
+	// 本条同时钉两件事：该回合须报真实总数；两条渲染路径的计数不得漂移。
+	const baseline = await buildRecallInjection({ userText: "看看这个文件", projectRoot: ROOT });
+	const full = await buildRecallInjection({ userText: "提交这批改动", projectRoot: ROOT });
+	const b = baseline.result?.l0Enumeration?.pitfallTotal;
+	const f = full.result?.l0Enumeration?.pitfallTotal;
+	assert.ok(Number.isInteger(b) && b > 0, `纯读取回合须报真实总数（实测 ${String(b)}）`);
+	assert.equal(b, f, "基线路径与全量路径的经验计数须一致（同一语料不得给出两个总数）");
+	const line = (baseline.text ?? "").split("\n").find((l) => l.includes("23 §12 按需索引"));
+	assert.ok(line, "经验按需行须在");
+	assert.match(line, new RegExp(`共 ${b} 条`), "按需行须写真实总数");
+	assert.doesNotMatch(line, /本项目当前无 active 经验/, "不得把「有经验」说成「0 条」");
+});
+
 test("buildRecallInjection：有命中时注入，且带回 digest 供去重", async () => {
 	const r = await buildRecallInjection({
 		userText: "Git Gate 的 pre-commit 钩子失败了怎么办",
