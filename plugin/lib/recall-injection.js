@@ -36,6 +36,7 @@ import {
   BASELINE_BUDGET_SHARE_DIVISOR,
   BASELINE_YIELD_BELOW_BYTES,
   INJECTION_EXCLUDED_TYPES,
+  PITFALL_ON_DEMAND_ENTRYPOINT,
   RECALL_LIMIT_MAX,
   RENDER_FIXED_OVERHEAD_BYTES,
   baselineOnlyForAction,
@@ -297,6 +298,45 @@ export const DISCIPLINE_LINE_MIN_BYTES = 2000;
  * 变更须走受控提交；改动属「改变引导面注入形式」（`10 §9.1` 第 2 项）。
  */
 export const FALLBACK_LINE_MIN_BYTES = 3600;
+
+/**
+ * **经验按需行出现的最小预算：2000 字节**（2026-11-11）。
+ *
+ * 该行约 100 字节，说明「共 N 条 active 经验、取全量用 `ldvh_pitfall_list`」。
+ * 它是索引语汇（`34 §8.4`），不占候选名额，但**仍受字节预算约束**：实测初版
+ * 无条件输出，1200 字节档把注入顶到 1518（超 318），因为这一行落在候选裁剪
+ * 循环之前，循环不会裁它。
+ *
+ * 取 2000 的理由：该档以下固定声明已占满，候选本身就装不下几条；此时省下
+ * 100 字节也换不来一条候选，而缺了这行会让「有多少条经验」无从得知。故选在
+ * 2000——与 `DISCIPLINE_LINE_MIN_BYTES` 同值，那是同一类「可选说明行」的门槛。
+ *
+ * **让位不等于丢失**：工具一直在，`34 §8.4` 第 2 项（入口须可用）由实现保证，
+ * 不依赖本行是否渲染。
+ */
+export const PITFALL_ON_DEMAND_MIN_BYTES = 2000;
+
+/**
+ * 构造经验按需索引行（两条渲染路径共用，措辞不漂移）。
+ *
+ * `34 §8.4` 三项强制要求逐条落在措辞里：总数真实、入口可用、不得声称已核对。
+ * 返回 `null` 表示「无从得知」（事实源不可读，计数为 `null`）——此时**不出声也不是
+ * 沉默**，因为不可读本身会由该路径的既有披露行说明（34 §12 三态）。
+ */
+export function renderPitfallOnDemandLine(pitfallTotal) {
+  if (!Number.isInteger(pitfallTotal)) return null;
+  if (pitfallTotal > 0) {
+    return `【经验 · active Pitfall（23 §12 按需索引）】共 ${pitfallTotal} 条，取全量用 ${PITFALL_ON_DEMAND_ENTRYPOINT}。本行只报有与去取之处，不证明适用，也未逐条检查。`;
+  }
+  // **0 条也须出声**：与「没列出来」不是一回事（34 §12 三态）。
+  return "【经验 · active Pitfall（23 §12 按需索引）】本项目当前无 active 经验（0 条）。";
+}
+
+/** 经验按需行是否放得下：无字节约束（`null`）时恒放行。 */
+function budgetAllowsOnDemandLine(limitBytes) {
+  if (!Number.isFinite(limitBytes) || limitBytes <= 0) return true;
+  return limitBytes >= PITFALL_ON_DEMAND_MIN_BYTES;
+}
 
 /**
  * **渲染后文本**的硬上限（UTF-16 码元）。
@@ -615,7 +655,7 @@ export function renderBaselineOnlyRow({ baseline, l0Enumeration = null, why, lim
   lines.push("【双源召回 · 行动前候选】");
   // **候选区缺席的原因必须写清**：否则读者会把「只有索引」读成「已查过、无相关」。
   // 34 §6 排除与 no_tokens 是两种不同归因，分别措辞（归因不得混同）。
-  lines.push(`（本轮无词法候选：${why}。以下为 **L0 索引**——ADR／事实规范／经验三段属义务召回，不受该条件影响；索引只证明「有这些」，不证明适用。）`);
+  lines.push(`（本轮无词法候选：${why}。以下为 **L0 索引**——ADR 与事实规范属义务召回、不受该条件影响；经验为按需入口。索引只证明「有这些」，不证明适用。）`);
   if (items.length === 0) {
     if (baseline?.sourceUnreadable === true) {
       lines.push("（决策基线：事实源不可读，基线未取得——**不表示本项目没有 ADR**（34 §12）。）");
@@ -648,10 +688,21 @@ export function renderBaselineOnlyRow({ baseline, l0Enumeration = null, why, lim
     }
     lines.push("（基线只保证「看得见」，**不证明适用**。）");
   }
-  // Norm 段与经验段：数据层已排好行（含段头、省略披露、段尾声明）。
+  // 事实规范段：数据层已排好行（含段头、省略披露、段尾声明）。
   for (const segment of l0Segments) {
     if (segment?.yielded === true || !Array.isArray(segment?.lines) || segment.lines.length === 0) continue;
     lines.push(...segment.lines);
+  }
+  // ── 经验按需索引通道（`34 §8.4` 2026-11-11 重订）─────────────────────
+  //
+  // **两条渲染路径都必须有这一行**：完整召回路径在 `renderRecallRow` 里加过，
+  // 但「单纯读取回合」走的是本函数（无词法候选时的基线路径）。初版只在
+  // `renderRecallRow` 加，于是「继续」「看看这个文件」这类最需要索引的回合
+  // 反而看不到经验总数——**恰恰违背了本节「不依赖当次词法命中」的初衷**。
+  // 用例「单纯读取回合也须带出……」正是抓这个的。
+  const onDemandPitfall = String(renderPitfallOnDemandLine(l0Enumeration?.pitfallTotal) ?? "");
+  if (onDemandPitfall !== "" && budgetAllowsOnDemandLine(limitBytes)) {
+    lines.push(onDemandPitfall);
   }
   return lines.join("\n");
 }
@@ -906,6 +957,36 @@ export function renderRecallRow(result) {
   for (const segment of Array.isArray(l0Enumeration?.segments) ? l0Enumeration.segments : []) {
     if (segment?.yielded === true || !Array.isArray(segment?.lines) || segment.lines.length === 0) continue;
     lines.push(...segment.lines);
+  }
+  // ── 经验按需索引通道（`34 §8.4` 2026-11-11 重订）───────────────────────
+  //
+  // Human 决定：「ADR 和事实规范的索引不能减少，**经验应该是按需给出索引**」。
+  // 经验不再逐条列标题（实测占 3798 字节 / 预算 37%，比候选区本身还大），改为
+  // 一行可发现入口。
+  //
+  // **为什么不干脆什么都不写**：`34 §8.4` 给该通道立了三项强制要求，逐一落在这里——
+  //   1. 总数须真实：`pitfallTotal` 取自同一次枚举，使「本类为空」（0）与
+  //      「未列出」（N>0）在机械上可分辨（34 §12 三态）；
+  //   2. 入口须可用：`ldvh_pitfall_list` 是真实工具，能取全量；
+  //   3. 不得声称已核对：措辞是「共 N 条、去这里取」，绝不写「已检查 N 条」或
+  //      「无相关问题」——那会把索引读成结论（34 §13）。
+  //
+  // **与 `pitfall-8b3c5705` 的关系**：那条经验的结论是「依赖词法匹配的面不能保证
+  // 某个已知对象进入注入位，可靠通路是枚举全貌」。本行使的正是枚举全貌这条通路
+  // （计数 + 确定性入口），没有把可靠性交给词法匹配——**改变的是发现成本，
+  // 不是可靠性**，故与该经验相容。
+  //
+  // **预算纪律：本行须自证放得下**（2026-11-11 实测缺陷）。初版无条件 push，结果
+  // 1200 字节极小预算下把注入顶到 1518（超 318）——因为这一行在**候选裁剪循环之前**
+  // 落下，而循环只裁候选、不裁已落的索引行。修法与本文件他处一致：按字节预算自判，
+  // 放不下就整行让位（让位不是静默——总条数仍由下方披露行与 `ldvh_pitfall_list` 兜住）。
+  // 阈值取固定值而非按剩余预算算，理由是本行长度几乎恒定（约 100 字节），
+  // 定一个小常量的可读性优于每次重算。
+  // 行构造抽到 `renderPitfallOnDemandLine`，与基线路径共用（措辞不漂移）。
+  const onDemandLine = renderPitfallOnDemandLine(l0Enumeration?.pitfallTotal);
+  // 与同文件他处（用法行、兜底行）一致：预算取自 `result.budget.limitBytes`。
+  if (onDemandLine !== null && budgetAllowsOnDemandLine(result?.budget?.limitBytes ?? null)) {
+    lines.push(onDemandLine);
   }
   // **事实源不可读时 L0 段也须出声**：读不到 ≠ 本项目没有这三类对象（34 §12）。
   // 基线已对 ADR 说过一次，此处只补 Norm／经验两侧的缺失——不重复 ADR。

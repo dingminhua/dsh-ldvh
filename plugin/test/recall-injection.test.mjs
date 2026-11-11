@@ -1692,7 +1692,7 @@ test("22 §12：事实源不可读时基线路径须如实披露，而不是静�
 // （不带命中理由、不占 limit 名额、必须自证不证明适用）。
 // ---------------------------------------------------------------------------
 
-test("L0 三段：默认档须把 ADR／事实规范／经验三类全量标题都列出来", async (t) => {
+test("L0 常驻：ADR 与事实规范全量列出，经验改为按需一行（2026-11-11 Human 决定）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	// **预算须足以容下全量**（2026-11-04 修）。本用例守的是「全量」这一语义，
 	// 不是「10K 档够不够」——原先写死 budgetBytes: 10240，语料增长到 50 条
@@ -1705,17 +1705,31 @@ test("L0 三段：默认档须把 ADR／事实规范／经验三类全量标题�
 	assert.equal(r.inject, true);
 	// ADR 段（既有段头，形状不变）。
 	assert.match(r.text, /【决策基线 · active ADR/, "ADR 段须在");
-	// 事实规范段与经验段：Human 指定的第 2、3 段。
+	// 事实规范段：Human 2026-11-11 明确「事实规范的索引不能减少」，故仍须常驻且全量。
 	assert.match(r.text, /【事实规范 · active Norm（27 §10 L0 枚举）】/, "事实规范段须在");
-	assert.match(r.text, /【经验 · active Pitfall（23 §12 L0 枚举）】/, "经验段须在");
-	// 次序即 Human 指定的次序：ADR → 事实规范 → 经验。
+	// **经验段已不再逐条常驻**（同次决定：「经验应该是按需给出索引」）。
+	// 旧断言 `【经验 · active Pitfall（23 §12 L0 枚举）】` 已作废——它守的是被
+	// 这次决定改掉的行为，保留它会迫使实现与规范背离。
+	// 新契约要守的是「按需通道仍在，且给出真实总数」，见下方断言。
+	assert.doesNotMatch(r.text, /【经验 · active Pitfall（23 §12 L0 枚举）】/, "经验不应再逐条常驻");
+	const onDemand = r.text.split("\n").find((l) => l.includes("23 §12 按需索引"));
+	assert.ok(onDemand, "经验按需入口行须在（否则「有多少条」无从得知，34 §12 三态不可分辨）");
+	// 总数须真实：与数据层枚举的 pitfall 计数一致。
+	const pitfallCount = r.result.l0Enumeration.pitfallTotal;
+	assert.ok(Number.isInteger(pitfallCount) && pitfallCount >= 0, "须给出经验总数");
+	assert.match(onDemand, new RegExp(`共 ${pitfallCount} 条`), `按需行须给出真实总数（期望 ${pitfallCount}）`);
+	// 入口须可用（34 §8.4 第 2 项）：工具名真实存在。
+	assert.match(onDemand, /ldvh_pitfall_list/, "须给出取全量的真实入口");
+	// 不得声称已核对（34 §8.4 第 3 项）。
+	assert.doesNotMatch(onDemand, /已检查|已核对|无相关/, "按需行不得声称已核对");
+	// 次序：ADR → 事实规范 → 经验按需行（经验排在末位，与「让位最先行」一致）。
 	const adrAt = r.text.indexOf("【决策基线");
 	const normAt = r.text.indexOf("【事实规范");
-	const pitfallAt = r.text.indexOf("【经验");
-	assert.ok(adrAt < normAt && normAt < pitfallAt, `次序须为 ADR → 事实规范 → 经验（实测 ${adrAt}/${normAt}/${pitfallAt}）`);
-	// 全量：三段的条数与数据层一致，且每段都真的列出来了。
+	const pitfallAt = r.text.indexOf("【经验 · active Pitfall（23 §12 按需索引）");
+	assert.ok(adrAt < normAt && normAt < pitfallAt, `次序须为 ADR → 事实规范 → 经验按需行（实测 ${adrAt}/${normAt}/${pitfallAt}）`);
+	// 全量：事实规范段须与数据层一致，且真的列全。
 	const segments = r.result.l0Enumeration.segments;
-	assert.deepEqual(segments.map((s) => s.type), ["norm", "pitfall"], "数据层三段中 ADR 由 decisionBaseline 承载");
+	assert.deepEqual(segments.map((s) => s.type), ["norm"], "数据层常驻段只剩 norm（ADR 由 decisionBaseline 承载，经验转按需）");
 	for (const segment of segments) {
 		assert.equal(segment.yielded, false, `${segment.type} 段在默认档不应让位`);
 		assert.equal(segment.shown, segment.total, `${segment.type} 段须列全量（${segment.shown}/${segment.total}）`);
@@ -1739,7 +1753,9 @@ test("L0 三段：索引不得混入候选语汇，也不得占 limit 名额", a
 		while (i < lines.length && lines[i].startsWith("· ")) { rows.push(lines[i]); i += 1; }
 		return rows;
 	};
-	for (const [header, name] of [["【事实规范", "事实规范"], ["【经验", "经验"]]) {
+	// 常驻段只剩「事实规范」——经验已于 2026-11-11 改为按需一行（见上一条用例）。
+	// 原循环同时检查经验段，现在经验段不存在，改由下方单独断言按需行的语汇。
+	for (const [header, name] of [["【事实规范", "事实规范"]]) {
 		const rows = sliceOf(header);
 		assert.ok(rows.length > 0, `${name}段须有条目`);
 		for (const row of rows) {
@@ -1751,6 +1767,11 @@ test("L0 三段：索引不得混入候选语汇，也不得占 limit 名额", a
 			assert.ok(!row.includes("ldvh-base/"), `${name}段条目不得带路径：${row}`);
 		}
 	}
+	// 经验按需行同样须是索引语汇，不得混入候选用词。
+	const onDemand = lines.find((l) => l.includes("23 §12 按需索引"));
+	assert.ok(onDemand, "经验按需行须存在");
+	assert.ok(!/命中[:：]/.test(onDemand), "按需行不得带命中理由");
+	assert.ok(!onDemand.includes("（specs/") && !onDemand.includes("ldvh-base/"), "按需行不得带路径");
 	// 索引不占 limit：候选条数仍由 limit 决定，与索引段无关。
 	//
 	// **对照组必须与注入路径同参数**（2026-11-04 修，friction-943940d6 的同族形态）：
@@ -1790,15 +1811,17 @@ test("L0 三段：索引不得混入候选语汇，也不得占 limit 名额", a
 	assert.match(tight.text, /【经验 · active Pitfall/, "默认档下经验段须在场");
 });
 
-test("L0 三段：单纯读取回合也须带出三段（不依赖词法命中）", async () => {
-	// 这是本次决定的实质：三段的可见性不得取决于当回合用词。旧实现里 Norm 与
+test("L0 常驻：单纯读取回合也须带出 ADR／事实规范与经验按需行（不依赖词法命中）", async () => {
+	// 这是本节决定的实质：常驻段的可见性不得取决于当回合用词。旧实现里 Norm 与
 	// 经验只靠词法候选出现，于是「继续」「看看这个文件」这类回合里它们整类不可见。
+	// 2026-11-11 起经验改为按需行——**它同样不得依赖词法命中**：那一行是常驻的，
+	// 不论当回合问什么都要在（否则「有多少条经验」又取决于用词了）。
 	for (const q of ["继续", "看看这个文件"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT, budgetBytes: 10240 });
 		assert.equal(r.inject, true, `「${q}」：须注入`);
 		assert.equal(r.result?.baselineOnly, true, `「${q}」：须标记为只带索引`);
 		assert.match(r.text, /【事实规范 · active Norm/, `「${q}」：事实规范段须在`);
-		assert.match(r.text, /【经验 · active Pitfall/, `「${q}」：经验段须在`);
+		assert.match(r.text, /【经验 · active Pitfall（23 §12 按需索引）/, `「${q}」：经验按需行须在`);
 		assert.ok((r.result?.l0Enumeration?.segments?.length ?? 0) > 0, `「${q}」：数据层须承载 L0 枚举`);
 	}
 });
@@ -1818,18 +1841,27 @@ test("L0 三段：预算不足时逐段让位并留下可见痕迹，不得静�
 	assert.ok(segments.some((s) => s.total > 0), "前提：本仓这两类确有对象");
 });
 
-test("L0 三段：经验段先让位、事实规范段后让位（Human 次序的镜像）", async (t) => {
+test("L0 常驻：经验不占索引份额，故不存在「经验先让位」这一段序（2026-11-11 改订）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	// 让位次序必须与 Human 指定的注入次序相反：最后被满足的最先让出。
-	// 实测 2000 档：经验段已让位、事实规范段仍在（两段全量约 2.9K，该档只容得下
-	// 事实规范段 201 字节；更小的档两段都让位，见上一条用例）。
+	// **本条守的是改订后的新事实，而不是删掉旧断言**：
+	// 旧契约里让位次序是「经验 → 事实规范 → ADR（最后被满足的最先让出）」，
+	// 那时经验是常驻段之一。2026-11-11 Human 决定把经验改为按需通道后，
+	// **经验不再参与索引段的份额与让位**——它没有可让的份额。
+	// 若将来有人把经验加回 `L0_SEGMENT_ORDER`，本条会转红（因为 segments 里
+	// 会重新出现 pitfall），提醒他先去核 34 §8.4 的现行文本。
 	const r = await buildRecallInjection({ userText: "提交这批改动", projectRoot: ROOT, limit: 99, budgetBytes: 2000 });
 	assert.equal(r.inject, true);
 	const segments = r.result.l0Enumeration.segments;
+	assert.equal(
+		segments.find((s) => s.type === "pitfall"),
+		undefined,
+		"经验不属常驻段，不得出现在索引段的份额/让位序列里",
+	);
+	// 事实规范段在 2000 档仍应列出（它仍是常驻段，且份额很小）。
 	const norm = segments.find((s) => s.type === "norm");
-	const pitfall = segments.find((s) => s.type === "pitfall");
 	assert.equal(norm?.yielded, false, "事实规范段在该档仍应列出");
-	assert.equal(pitfall?.yielded, true, "经验段应先让位");
+	// 经验的总数仍须可得知——不占份额不等于不披露（34 §8.4 第 1 项）。
+	assert.ok(Number.isInteger(r.result.l0Enumeration.pitfallTotal), "经验总数须仍可取得");
 });
 
 test("34 §8.3 消费侧纪律：含候选时须交付「该怎么用」，不能只交付材料", async (t) => {

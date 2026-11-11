@@ -1011,7 +1011,7 @@ export const BASELINE_YIELD_BELOW_BYTES = 1200;
 export const BASELINE_BUDGET_SHARE_DIVISOR = 3;
 
 /**
- * ── **三段 L0 常驻枚举**（Human 决定 2026-11-04）─────────────────────────
+ * ── **L0 常驻枚举**（Human 决定 2026-11-04；2026-11-11 重订为两类 + 经验按需）──
  *
  * Human 的原话是「排序就是 ADR、事实规范、经验，这三个的 L0 是必须注入的，
  * 其他根据预算安排」。故注入面常驻的是**三类事实对象的 L0 标识**，按
@@ -1042,7 +1042,28 @@ export const BASELINE_BUDGET_SHARE_DIVISOR = 3;
  * **不带** scope／正文／decision——那是 F2/F3 的内容，常驻会给注入面造成无谓的
  * 字节压力，且会把索引做成第二份语料。
  */
-export const L0_SEGMENT_ORDER = Object.freeze(["adr", "norm", "pitfall"]);
+// **2026-11-11 Human 决定**：「ADR 和事实规范的索引不能减少，经验应该是按需给出索引」
+// （`34 §8.4` 已按此重订）。故常驻段由三段缩为两段，`pitfall` 移出本数组——
+// 它不再逐条列标题，改为一行按需入口（`PITFALL_ON_DEMAND_*` 见下）。
+//
+// **为什么不是把 `pitfall` 从段定义里整段删掉**：本文件多处按下标/按类型引用段，
+// 保留段头与入口常量可供按需行复用；且段序、份额计算都在此数组上派生，
+// 少一个元素即自动少一份份额——这是本决定**顺带释放预算**的实现路径。
+export const L0_SEGMENT_ORDER = Object.freeze(["adr", "norm"]);
+
+/** 经验按需入口的工具名（`34 §8.4`「入口须可用」要求它真实存在且能取全量）。 */
+export const PITFALL_ON_DEMAND_ENTRYPOINT = "ldvh_pitfall_list";
+
+/**
+ * 经验按需行的段头与措辞。
+ *
+ * `34 §8.4` 为该通道立了三项强制要求，逐条对应本常量的构成：
+ *   1. **总数须真实** —— 由调用点传入精确计数，不得写死、不得估算；
+ *   2. **入口须可用** —— `PITFALL_ON_DEMAND_ENTRYPOINT` 是真实工具；
+ *   3. **不得声称已核对** —— 措辞是「共 N 条，取全量用 X」，绝不写成
+ *      「已检查 N 条」或「无相关问题」（那会把索引读成结论，`34 §13`）。
+ */
+export const PITFALL_ON_DEMAND_HEADER = "【经验 · active Pitfall（23 §12 按需索引）】";
 
 /** 各段的段头（逐字含类型与 active 口径；`adr` 沿用既有措辞以保引用稳定）。 */
 export const L0_SEGMENT_HEADERS = Object.freeze({
@@ -1059,10 +1080,10 @@ export const L0_SEGMENT_ENTRYPOINTS = Object.freeze({
 });
 
 /**
- * **三段 L0 可占「固定开销与基线之外」剩余预算的比例分母**（3 = 至多三分之一）。
+ * **常驻索引可占「固定开销与基线之外」剩余预算的比例分母**（3 = 至多三分之一）。
  *
  * 与 `BASELINE_BUDGET_SHARE_DIVISOR` 同一条方法论，但主体从「ADR 基线」扩到
- * 「Norm 段 + 经验段」：三段是优先于词法候选的常驻段，却不得把候选区吃干——
+ * 「Norm 段」：常驻段优先于词法候选，却不得把候选区吃干——
  * 否则 `34 §8.1` 第 1 项的「双源召回」会退化成「双源清单」（只剩常驻段，不再有
  * 按本次动作匹配的候选）。
  *
@@ -1081,17 +1102,18 @@ export const L0_SHARE_DIVISOR = 3;
 export const L0_FULL_NOTE = "（L0 索引：只标「有哪些」，不证明适用。）";
 
 /**
- * **规划三段 L0 枚举**（纯函数，字节账与渲染逐字同源）。
+ * **规划 L0 常驻枚举**（纯函数，字节账与渲染逐字同源）。
  *
- * 输入按 `L0_SEGMENT_ORDER` 排好的三段条目与当次预算，输出「每段实际列出哪些、
+ * 输入按 `L0_SEGMENT_ORDER` 排好的常驻段条目与当次预算，输出「每段实际列出哪些、
  * 省略多少、占多少字节」。之所以在**数据层**决定列到第几条：`usableBudget` 必须
  * 提前扣掉本段，否则候选会按「没有 L0 段」来装填，渲染时再挤进来——正是
  * 2026-10-25 基线落地时踩过的欠预留缺陷（实测多裁 2 条候选且裁剪原因归错）。
  *
- * 装填次序即 Human 指定的次序：ADR 先，其次 Norm，最后经验；前一段装不下才
+ * 装填次序即 Human 指定的次序：ADR 先，其次 Norm；前一段装不下才
  * 轮到后一段。每段超出的部分如实计数披露（`02 §9.1` 不得静默截断）。
+ * 经验已于 2026-11-11 移出本序列（`34 §8.4` 重订），改由按需行承载。
  *
- * @param {Array<{type: string, entries: string[], total: number}>} segments 按次序排好的三段
+ * @param {Array<{type: string, entries: string[], total: number}>} segments 按次序排好的常驻段
  * @param {number|null} budgetBytes 当次注入预算；`null` = 调用方不设字节约束
  * @param {number} reserveBytes 已被固定开销占掉的字节
  * @returns {{segments: object[], bytes: number, yielded: boolean, note: string}}
@@ -1102,7 +1124,7 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
   const remaining = hasBudget ? Math.max(0, budgetBytes - reserveBytes) : Number.POSITIVE_INFINITY;
   const cap = hasBudget ? Math.floor(remaining / L0_SHARE_DIVISOR) : Number.POSITIVE_INFINITY;
   // 整组让位：预算低到连「一段的段头 + 段尾 + 一条」都放不下时，本组不输出任何
-  // 行，由调用方把「三段 L0 未展开」并入既有披露行（让位不等于静默，
+  // 行，由调用方把「常驻索引未展开」并入既有披露行（让位不等于静默，
   // `02 §9.1` 不得静默截断——与极小预算下基线让位同一套痕迹纪律）。
   const yieldAll = () => ({
     segments: ordered.map((segment) => ({
@@ -2934,6 +2956,10 @@ export async function baselineOnlyForAction(input = {}) {
       sourceUnreadable: !factsReadable,
       // ADR 段的对象已在 `decisionBaseline.items` 里，此处只报条数供核对。
       adrTotal: adrSegment?.total ?? 0,
+      // **经验按需通道的计数**（`34 §8.4` 2026-11-11 重订）：经验不再逐条常驻，
+      // 但必须给出**真实总数**，否则「本类为空」与「未列出」无法分辨（34 §12 三态）。
+      // 该数取自同一次枚举（`enumeration`），不另跑一次扫描——两侧同源才不会漂移。
+      pitfallTotal: (enumeration.find((segment) => segment.type === "pitfall")?.total) ?? 0,
     },
     // 明示「本结果不证明适用」（34 §13），与 recallForAction 同口径。
     provesApplicability: false,
@@ -3503,8 +3529,20 @@ export async function recallForAction(input = {}) {
   // （2400／4000）若让经验段吃满，词法候选会被压成零——那会与 `34 §8.1` 第 1 项
   // 「双源召回」直接冲突（只剩清单、不再有按本次动作匹配的候选）。故设份额并
   // **在超份额时如实披露**，而不是二选一。
+  // **枚举只算一次**：`planL0Enumeration` 只承接 adr 之外的两段（adr 由决策基线承载），
+  // 但经验总数要单独取回——故先整体算一遍再分流，避免同一批数据算两次而漂移。
+  const l0AllSegments = l0EnumerationOf(scopedFacts);
+  // **经验总数须单独算**：`l0EnumerationOf` 只遍历 `L0_SEGMENT_ORDER`（现为 adr/norm），
+  // 经验已不在其中——它按需而不常驻。但它仍须给出真实总数（`34 §8.4` 第 1 项），
+  // 故此处按与枚举同源的默认状态集另行计数，口径一致、不引入第二种判定。
+  const l0PitfallTotal = (() => {
+    const statuses = DEFAULT_STATUSES_BY_TYPE.pitfall ?? DEFAULT_STATUSES_FALLBACK;
+    const picked = (Array.isArray(scopedFacts) ? scopedFacts : [])
+      .filter((fact) => fact.type === "pitfall" && statuses.includes(fact.status));
+    return picked.length;
+  })();
   const l0Plan = planL0Enumeration(
-    l0EnumerationOf(scopedFacts).filter((segment) => segment.type !== "adr"),
+    l0AllSegments.filter((segment) => segment.type !== "adr"),
     budgetBytes,
     RENDER_FIXED_OVERHEAD_BYTES + baselineBytes,
   );
@@ -3675,8 +3713,14 @@ export async function recallForAction(input = {}) {
       segments: l0Plan.segments,
       bytes: l0Bytes,
       note: l0Plan.note,
-      // 事实侧可读性：读不到 ≠ 本项目没有这三类对象（34 §12）。
+      // 事实侧可读性：读不到 ≠ 本项目没有这两类常驻对象（34 §12）。
       sourceUnreadable: factSideUnreadable,
+      // **经验按需通道的计数**（`34 §8.4` 2026-11-11 重订）：经验不逐条常驻，
+      // 但总数必须真实——否则「本类为空」与「未列出」分辨不开（34 §12 三态）。
+      // 取自同一次枚举，不另跑扫描。
+      // **不可读时给 null 而非 0**：读不到 ≠ 没有（34 §12 三态）——渲染层据此
+      // 不出「0 条」那句，避免把「没读到」说成「本类为空」。
+      pitfallTotal: factSideUnreadable ? null : l0PitfallTotal,
     },
     truncated,
     overBudget,

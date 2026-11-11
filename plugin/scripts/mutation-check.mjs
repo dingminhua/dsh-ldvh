@@ -192,8 +192,13 @@ const MUTATIONS = [
 	// ① 只枚举 ADR 后两段被跳过 → 「单纯读取回合也须带出三段」必须转红；
 	// ② 装填次序颠倒（经验先于事实规范）→ 「次序须为 ADR → 事实规范 → 经验」必须转红；
 	// ③ 让位时整段静默消失（不留痕迹）→ 「逐段让位须留痕迹」必须转红。
-	[LIB, "L0 只枚举 ADR（事实规范与经验两段缺失）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\", \"pitfall\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\"]);"],
-	[LIB, "L0 装填次序颠倒（经验先于事实规范）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\", \"pitfall\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"pitfall\", \"norm\"]);"],
+	// **2026-11-11 改订**：经验已移出常驻段（`34 §8.4` 重订），原两条变异的
+	// `from` 片段随之失效。这里按新结构重写，并保留它们原本要守护的两件事：
+	//   · 「事实规范段不得被漏掉」——仍以 `norm` 为对象；
+	//   · 「经验不得被悄悄加回常驻段」——旧版守的是次序颠倒，新版直接守「不含 pitfall」，
+	//     因为按需化之后，把 pitfall 加回 `L0_SEGMENT_ORDER` 才是真正的回归。
+	[LIB, "L0 只枚举 ADR（事实规范段缺失）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\"]);"],
+	[LIB, "经验被悄悄加回常驻段（应按需，34 §8.4 2026-11-11）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\", \"pitfall\"]);"],
 	[INJ, "L0 让位不留痕迹（静默消失）", "    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;", "    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;\n    if (hasL0) return text;"],
 	// —— 在途改动守卫（2026-11-04 加，friction-68e6f33e／451c4a7d 的处置）——
 	//
