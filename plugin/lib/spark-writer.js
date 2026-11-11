@@ -480,6 +480,14 @@ export async function readServableSubGoals(factSourceRoot) {
 export async function resolveRefsTargets(factSourceRoot, refs) {
   if (!Array.isArray(refs) || refs.length === 0) return { ok: true, resolved: new Map() };
 
+  // `subgoals` 与 `devlogs` 必须在此表内：03 §7.2 的 refs 目标是「任意同项目
+  // 事实对象」，而 28 号与 29 号在运行期都是活跃类型。早先的目录表只有七类，
+  // 于是指向 SubGoal / DevLog 的 refs 一律被判 `refs_unresolvable`——载体明明
+  // 可读（Web 与 `ldvh_*_read` 都能读到），写入却被拒，且拒绝理由把「本函数的
+  // 目录表没覆盖」说成「目标不存在」（00 §4.6：读不到不等于没有）。
+  //
+  // 实测（2026-11-12）：`spark-43062eda` 的四条 refs 中三条落在
+  // subgoals/ 与 devlogs/ 下，任何正文修订都被这条判据拦下。
   const dirs = [
     ["spark", SPARK_DIRECTORY],
     ["workcase", "workcases"],
@@ -488,6 +496,8 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
     ["research", "researches"],
     ["friction", "frictions"],
     ["norm", "norms"],
+    ["subgoal", "subgoals"],
+    ["devlog", "devlogs"],
   ];
 
   // Build an index of uid -> {type, title} by scanning the same-project fact

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatDateTime } from '@/utils/dateFormat';
@@ -1066,12 +1067,18 @@ export function SubGoalReadingLayout({
             {servingWork.map((row) => (
               <li key={`${row.type}-${row.id}`} className="flex min-w-0 items-center gap-2 py-2 first:pt-0 last:pb-0">
                 <ObjectTypeIcon type={row.type} size={12} />
-                <a
-                  href={row.object_uid ? `#/objects/${row.type}/${row.object_uid}` : undefined}
+                <Link
+                  // 路由路径，不是 hash 片段：应用用 BrowserRouter（`App.tsx`），
+                  // `#/objects/...` 只改 fragment、不触发路由——点上去页面不动，
+                  // 读者只会以为「这一行坏了」。
+                  //
+                  // 用 `row.id` 而不是 `row.object_uid`：详情路由只认载体标识
+                  // `<type>-<uuid>`（`showObject` 的 ObjectIdPattern），裸 uuid 会 404。
+                  to={row.id ? `/objects/${row.type}/${row.id}` : '.'}
                   className="ldvh-caption min-w-0 flex-1 truncate hover:underline"
                 >
                   {row.title}
-                </a>
+                </Link>
                 {row.status && (
                   <span className="ldvh-chip-sm shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary">
                     {getObjectStatusLocale(row.type, row.status, locale)}

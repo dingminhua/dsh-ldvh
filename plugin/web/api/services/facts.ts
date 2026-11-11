@@ -900,12 +900,21 @@ async function deriveServingWorkIndex(scope: LocalFactScope): Promise<{
         rows.push({
           object_uid: uid,
           type,
-          id: uid ?? item.object_ref.object_id,
+          // `id` 必须是**载体标识 `<type>-<uuid>`**，不是裸 uuid。详情路由
+          // （`showObject` 的 ObjectIdPattern）只认带类型前缀的形态，而列表/详情的
+          // 「名下的工作」行是被当作导航目标消费的（面板 `openPanel({objectId})`）。
+          // 早先写成 `uid ?? object.object_id`，凡 uid 存在就落成裸 uuid，点开必然
+          // 404「Object not found: <uuid>」——而该行本身明明可读。故这里取 object_ref
+          // 的 object_id（读取层由载体文件名得出，恒为带前缀形态），uid 仍由
+          // `object_uid` 单独承载（03 §6.1 两套标识各司其职，不得互相顶替）。
+          id: item.object_ref.object_id,
           title: typeof item.fact_object.title === 'string' ? item.fact_object.title : item.object_ref.object_id,
           status,
           governed_project_id: item.object_ref.governed_project_id,
           ...(view?.group ? { group: view.group } : {}),
-          href: `#/objects/${type}/${uid ?? item.object_ref.object_id}`,
+          // href 是**路由路径**，不是 hash 片段：应用用 BrowserRouter（`App.tsx`），
+          // `#/objects/...` 只会改 fragment、不触发路由，点上去看起来「没反应」。
+          href: `/objects/${type}/${item.object_ref.object_id}`,
         })
         bySubGoal.set(target, rows)
       }

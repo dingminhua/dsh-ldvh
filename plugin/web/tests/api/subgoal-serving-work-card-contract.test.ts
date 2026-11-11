@@ -244,6 +244,48 @@ test('列表与详情得到同一份名下工作（两层阅读器同一判据�
   }
 });
 
+/**
+ * 名下工作行是**可导航目标**，不是只供计数的标签。
+ *
+ * 2026-11-12 实测缺陷：`id` 曾写成 `uid ?? object_ref.object_id`，凡 uid 存在就
+ * 落成**裸 uuid**；而详情路由（`showObject` 的 ObjectIdPattern）只认
+ * `<type>-<uuid>`。于是「名下的工作」里每一行点开都是 `Object not found: <uuid>`
+ * ——载体明明可读，UI 却报找不到。
+ *
+ * 上面那条一致性用例**不可能**抓到它：它把 `id` 当比较键用（`type:id` 两侧同值
+ * 即通过），从未断言这个值能不能被路由接受。这就是本用例存在的理由——不是重复
+ * 上面那条，而是问一个上面那条结构上问不出的问题。
+ */
+test('名下工作行的 id 必须能被详情路由接受（不是裸 uuid）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-subgoal-serving-navigable-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  try {
+    await writeFixture(root);
+    const listed = await listObjects('subgoal', undefined, undefined, scope);
+    if (!listed.ok) throw new Error(listed.error);
+    const item = (listed.data as { items: Array<Record<string, unknown>> }).items
+      .find((entry) => entry.object_uid === SUB_GOAL_UID);
+    assert.ok(item, '子目标应出现在列表里');
+    const rows = item.serving_work as Array<Record<string, unknown>>;
+    assert.ok(rows.length > 0, '本条子目标名下应有工作行');
+
+    for (const row of rows) {
+      const id = String(row.id);
+      const type = String(row.type);
+      assert.equal(
+        id.startsWith(`${type}-`),
+        true,
+        `行 id 必须是 <type>-<uuid>（详情路由只认这一形态），实际是 ${JSON.stringify(id)}`,
+      );
+      // 直接拿它走详情路由：这正是 UI 点开时做的事（面板以 objectId 打开）。
+      const detail = await showObject(id, scope);
+      assert.equal(detail.ok, true, `行 id ${id} 必须能被 showObject 接受，否则点开即 404`);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('卡面：按类型分层、每层先展固定条数、其余可展开（Human 决定 2026-11-02）', () => {
   const source = readSubGoalZoneSource();
 
