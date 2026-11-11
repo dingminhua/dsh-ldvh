@@ -1877,26 +1877,45 @@ test("34 §8.3 消费侧纪律：达到阈值即输出（让位判据的边界�
 	assert.ok(Buffer.byteLength(r.text, "utf8") <= 2000, "输出纪律行后仍不得超预算");
 });
 
-test("兜底通道：说了「自行检索」就须给出具体入口，不得让人自己猜", () => {
-	// **外部调查的对照结论**（docs/recall-external-solutions-survey.md）：
-	// 本仓库与同类项目的最大差距不是「没有第二条读路径」，而是**在失败的那一刻
-	// 没把它指出来**。原来那句「查故障时请自行按机制检索」等于让人自己猜有哪些
-	// 入口——猜不出来的结果就是「未命中」被当成「没有」。
+test("兜底通道：说了「自行检索」就须给出具体入口，且该行须真的出现在输出里", async () => {
+	// **本条曾钉源码文本，被独立评估用变异测试打穿**（2026-11-11）：
+	// 初版用 `readFileSync` 读 lib 源码、正则匹配 `const fallbackLine = "…"`。
+	// 评估方删掉整条 `lines.push(fallbackLine)`（兜底行彻底不输出）后，
+	// **守卫仍 87 pass / 0 fail**；而把变量改名 `fbLine` 却转红。
+	// 即：对「不再输出」零检出，对「改名」零容忍——比上一轮「钉配置不钉行为」
+	// 更弱。我自己复现：删掉 push 后本文件仍 88 pass。
 	//
-	// agent-memory（★4.3k）的设计承诺是「三条读路径，一条失手不算失手」。
-	// 本仓其实早有第二条路（`ldvh_*_list` 枚举、`ldvh_*_read` 精读、`grep` 搜载体），
-	// 缺的是**指名**。本守卫钉住「指名」这一行为，不钉具体措辞。
-	const src = readFileSync(new URL("../lib/recall-injection.js", import.meta.url), "utf8");
-	const m = src.match(/const fallbackLine = "([^"]+)"/);
-	assert.ok(m, "须存在兜底提示行（fallbackLine）");
-	const line = m[1];
-	// 三个入口家族须各自可辨：枚举、精读、字面搜。
-	assert.match(line, /ldvh_\*_list|ldvh_pitfall_list/, "须点名按类型枚举的入口");
-	assert.match(line, /ldvh_\*_read/, "须点名精读入口");
-	assert.match(line, /grep/, "须点名字面检索兜底");
-	// **不得承诺命中**：兜底通道给的是路径，不是保证——否则会把「没找到」的
-	// 责任推给读者，与他处披露纪律（34 §12「未命中不构成无相关的证据」）冲突。
-	assert.doesNotMatch(line, /一定|保证|必能|总能/, "兜底行不得承诺一定命中");
+	// 现改为**断言渲染输出**，并加正反控制：
+	//   · 正控制：充足预算下，输出里必须出现三个入口家族。
+	//   · 反控制：极小预算下，该行应当让位（不得为了它顶破预算）。
+	// 这个形态与同文件既有惯例一致（用法行有「极小预算让位」+「达阈值即输出」）。
+	const probe = async (budgetBytes) => {
+		const r = await buildRecallInjection({
+			userText: "这条 friction 该销账吗",
+			projectRoot: ROOT,
+			budgetBytes,
+		});
+		return typeof r.text === "string" ? r.text : "";
+	};
+	// 正控制：10240 档须输出兜底行，且三个入口家族各自可辨。
+	const rich = await probe(10240);
+	assert.match(rich, /取不到不等于没有/, "充足预算下兜底行须出现在注入输出里");
+	assert.match(rich, /ldvh_pitfall_list|ldvh_\*_list/, "须点名按类型枚举的入口");
+	assert.match(rich, /ldvh_\*_read/, "须点名精读入口");
+	assert.match(rich, /ldvh_read_specification_(?:candidates|content)/, "须点名规范侧读取入口（不以 _read 结尾，须单独点名）");
+	assert.match(rich, /grep/, "须点名字面检索兜底");
+	// 反控制：极小预算下让位——不得让这一行把候选挤光后还赖着不走。
+	const tiny = await probe(2400);
+	assert.doesNotMatch(tiny, /取不到不等于没有/, "极小预算下兜底行须让位");
+	// **不得承诺命中**：给的是路径不是保证，与 34 §12 一致。
+	// 注意排除否定式写法——"不承诺命中"本身含"承诺"，不算违规；
+	// 这里只禁止**肯定式**承诺。
+	const fallbackLine = rich.split("\n").find((l) => l.includes("取不到不等于没有")) ?? "";
+	assert.doesNotMatch(
+		fallbackLine.replace(/不(?:作)?承诺[^，。；）]*/g, ""),
+		/一定|保证|必能|总能/,
+		"兜底行不得作肯定式承诺（否定式「不承诺命中」是合规的）",
+	);
 });
 
 test("兜底通道：兜底行不得使小预算档的候选数倒挂于更小预算档", async () => {

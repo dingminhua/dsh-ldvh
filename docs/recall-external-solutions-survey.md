@@ -8,9 +8,15 @@
 
 ---
 
-## 一句话结论
+## 一句话结论（已按独立评估更正措辞）
 
-**我的方案里最核心的假设（「预注入更多候选 → 更多被用上」）在外部已有明确的反向证据。** Anthropic 自己的工程结论是「少而准的常驻 + 按需深取」，并明确说预注入式检索正在被「即时取用」补充甚至替代。而我的实测（2.4% 落盘率）恰好是这条外部结论的又一个数据点。
+**纯预注入不够用，需要配按需深取——而不是「预注入该被淘汰」。**
+
+Anthropic 的原话是 teams are **augmenting**（补充）these retrieval systems with just-in-time strategies，并明确推荐 **hybrid**：「the most effective agents might employ a hybrid strategy, retrieving some data up front for speed, and pursuing further autonomous exploration」。**Claude Code 本身就是 hybrid**（前置 `CLAUDE.md` + glob/grep 按需）——与 LDVH 形态同构。
+
+我初版写成「补充甚至替代」「预注入形态本身在退化」，**比原文更强，且略去了 hybrid/Claude Code 这个反例**。独立评估指出后已更正。
+
+对这一轮的含义：**不是「改成纯指针」，而是「保留常驻注入 + 补深取通道」**。B 做的正是后者。
 
 ---
 
@@ -29,10 +35,15 @@
 
 > Of course, there's a trade-off: **runtime exploration is slower** than retrieving pre-computed data. ... In certain settings, the most effective agents might employ a **hybrid strategy**, retrieving some data up front for speed, and pursuing further...
 
-**对我的意义**：这段几乎逐条对应我的问题。
-- 我的注入是 `pre-inference retrieval`——外部明确把它列为「正在被补充/替代」的旧形态。
-- 我的 2.4% 落盘率，正是「预注入的内容不进入决策」的量化形态，而外部给的解释是「模型没有把它们当作要用起来的东西，而是一堆要处理的文本」。
-- 它给的替代路径是**路径/标识符 + 工具按需取**，不是我调参数。
+**对我的意义（措辞已按独立评估更正）**：这段对应我的问题，但**不支撑「预注入正在退化」这个更强的结论**。
+
+原文说的是 **augmenting（补充）**，并且同一篇文章明确推荐 **hybrid**：
+
+> In certain settings, the most effective agents might employ a **hybrid strategy**, retrieving some data up front for speed, and pursuing further autonomous exploration at its discretion.
+
+**而且 Claude Code 本身就是 hybrid**：前置注入 `CLAUDE.md`，同时用 glob/grep 按需取——**这与 LDVH 的形态同构**。我先前写的「补充甚至替代」「预注入形态本身正在退化」比原文更强，且略去了这个反例。
+
+准确的结论应当是：**纯预注入不够，需要配按需深取**；而不是「预注入该被淘汰」。这对 LDVH 的含义是「保留常驻注入 + 补深取通道」，而非「改成指针」。
 
 ---
 
@@ -141,7 +152,7 @@
 |---|---|---|---|
 | 常驻注入量 | 尽量小，只留高频必守规则（agent-memory 只留 `MEMORY.md`） | L0 三类索引 + 词法候选 + 固定声明，约 6-8KB | **偏大**，且候选落在上下文中间 |
 | 取用方式 | 给标识符（路径/查询），用工具按需深取 | 一次性全量给出，无深取层级 | **缺层级**（虽已有 L0-L4 规范读取工具，但注入面没引导去用） |
-| 命中失败的兜底 | 三条读路径互备（索引 / BM25 / 目录树） | 仅一条路径（词法匹配） | **单点** |
+| 命中失败的兜底 | 三条读路径互备（索引 / BM25 / 目录树） | **本仓早有** `ldvh_*_list` 枚举、`ldvh_*_read` 精读、`grep` 搜载体——但注入面此前**未点名**这些入口 | **能力有、指引无**（原写「仅一条路径｜单点」是错的，2026-11-11 独立评估指出后更正） |
 | 「相关性」判定 | 允许 embedding / RRF / BM25 | `34 §8.2` 禁止 | **受规范约束**，但可用 BM25/字面（不受禁） |
 | 度量 | 端到端任务准确率 + token 量 | 召回精确率、命中率 | **缺端到端**：没量「注入后做对了什么」 |
 | 精简的收益 | **拆文件不等于省 token**（缓存命中）；收益来自按需加载 | 我一度把「少给候选」当收益 | **认知错误**，已被复核与外部双重纠正 |
