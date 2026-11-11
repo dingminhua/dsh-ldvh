@@ -122,10 +122,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-11T17:44:36.175Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补充观察：count 26 → 27（11 §9 第 2 项）
 occurrence:
-  count: 26
+  count: 27
   first_at: 2026-10-19T08:39:01.956Z
-  last_at: 2026-11-09T21:58:18.932Z
+  last_at: 2026-11-11T16:54:35.748Z
 ---
 
 # 建议未先核规范源致隔轮自我推翻
@@ -205,3 +209,7 @@ occurrence:
 补充观察（2026-11-09T21:58:18.932Z）：助手在未核实正文首段形态前就把「删掉 summary 字段、改从正文首段取摘录」当作方案提出，随后在同一会话实测发现 16 个 Spark 的 summary 为块标量、正文首段在语义上不等价于摘要，只能推翻该方案。
 逐字引证：我把「摘要」当成了「正文开头」——这是错的。
 来源：会话 turn 100–103（本材料窗口内）：turn 100 assistant 提出「直接删掉 summary 字段，召回转读正文首段」并自陈尚未验证；turn 103 assistant 自陈「我把「摘要」当成了「正文开头」——这是错的。」
+
+补充观察（2026-11-11T16:54:35.748Z）：材料 turn 16 中，助手在未读取 writer 实现的情况下就把「serves 缺失或指向 retired 一律拒绝批准」作为建议 1 提出，并给出代价判断「writer 一个分支，21 §8 一句话」，其事实前提是「就算带了，也不会校验『指向的是不是 retired』」；turn 17 读取代码后改称「serves 的校验已经部分存在」（create 已调用 resolveServes、resolveSubGoal 已拒绝 retired），「建议 1 的真实改动面，比我原先说的小很多」，并把「serves 改必填」改成「缓一缓，先别动」——即先给出方案推荐与代价、读原文后隔轮自我改口/推翻。这与既有 open 账目 friction-fd9addd5「建议未先核规范源致隔轮自我推翻」的归因落点与机制模式相同（主控建议生成前未读取承载事实的原文，读取后在下一轮自我更正）；该账目归因
+逐字引证：所以建议 1 的真实改动面，比我原先说的小很多
+（来源：16）

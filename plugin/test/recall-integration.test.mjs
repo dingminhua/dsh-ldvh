@@ -94,8 +94,65 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	);
 
 	// 第 46 轮：事实正文全文参与匹配（「规避」在被截断过的后半段）。
-	const avoid = await q({ action: "怎么规避这个坑", limit: 5, budgetBytes: 40000, includeSpecs: false });
-	assert.ok(avoid.facts.some((f) => /规避/.test(f.hitReason)), "「规避」须可召回");
+	//
+	// ── 2026-11-12 改为夹具 ────────────────────────────────────────────────
+	// 原为 `q({action:"怎么规避这个坑"})` 后断言「必有一条靠『规避』命中」。
+	// 该断言依赖真实语料里恰好有一条 active 且正文含「规避」的长载体排得进
+	// top-5——属**未声明的偶然事实**。实测击穿：旧调研 research-9b42bb7a
+	// 按 Human 决定退场（active→retired）后，24 §12 的默认候选状态集把它
+	// 排除，那条唯一载体消失，本用例转红而**被测代码无退化**（同
+	// friction-943940d6：一次正常的对象登记/退场不该击穿性能或行为回归）。
+	//
+	// 本文件是**跨文件交互**的守门，它该守的是「正文层与排序层的接口没被
+	// 破坏」，而非某条真实载体还在不在。故改用一条自造载体精确测定：正文
+	// 1200 字符之后的词必须仍然参与匹配。详细判据在
+	// source-recall.test.mjs 的同名用例，此处只做集成层复核。
+	{
+		const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const tail = await mkdtemp(join(tmpdir(), "recall-int-tail-"));
+		try {
+			const dir = join(tail, "ldvh-base", "pitfalls");
+			await mkdir(dir, { recursive: true });
+			const front = "本节描述受控写入环节观察到的现象，涉及载体一致性校验与前置条件核对顺序。".repeat(45);
+			await writeFile(
+				join(dir, "pitfall-cccccccc-cccc-4ccc-8ccc-cccccccccccc.md"),
+				[
+					"---",
+					"title: 夹具 集成层后半段可见性",
+					"status: active",
+					"scope: 适用于夹具的集成层后半段可见性场景",
+					"object_uid: cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+					"fact_type_key: pitfall",
+					"---",
+					"",
+					"# 夹具 集成层后半段可见性",
+					"",
+					"## 症状",
+					"",
+					front,
+					"",
+					"## 规避",
+					"",
+					"应当椎间盘式地绕开这一写法。",
+					"",
+				].join("\n"),
+			);
+			const avoid = await recallForAction({
+				action: "规避",
+				root: tail,
+				limit: 5,
+				budgetBytes: 200_000,
+				includeSpecs: false,
+			});
+			assert.ok(
+				avoid.facts.some((f) => /规避/.test(f.hitReason)),
+				`正文后半段的「规避」须经注入路径参与匹配：${avoid.facts.map((f) => f.hitReason).join(" / ")}`,
+			);
+		} finally {
+			await rm(tail, { recursive: true, force: true });
+		}
+	}
 
 	// 第 48 轮：按类型取默认候选状态集。
 	const friction = await q({ action: "这条 friction 该销账吗", limit: 5, types: ["friction"], budgetBytes: 40000 });

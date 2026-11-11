@@ -1699,25 +1699,92 @@ test("事实正文须全文参与匹配：不得截断掉「规避/验证」等�
 	//
 	// 为什么这是实质缺陷而非取舍：`23 §12` 明确 Pitfall 的价值是
 	// 「什么会出错、**怎么识别、怎么规避**」，而「规避」恰在被截掉的区间。
-	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
-	assert.ok(facts.length > 0, "应载入事实");
-	// 至少存在一条正文超过 1200 字符的事实（否则本用例前提不成立）。
-	const longOnes = facts.filter((f) => (f.body ?? "").length > 1200);
-	assert.ok(longOnes.length > 0, `应存在长正文事实，实际最大 ${Math.max(...facts.map((f) => (f.body ?? "").length))} 字符`);
+	//
+	// ── 2026-11-12 改为夹具（原为赌真实语料）───────────────────────────
+	//
+	// 原实现在真实语料上断言「`怎么规避这个坑` 的 top-5 里必有一条靠『规避』
+	// 命中」。该断言依赖一个**未被声明的偶然事实**：真实语料里恰好有一条
+	// active 且正文含「规避」的长载体排得进 top-5。实测击穿：把旧调研
+	// research-9b42bb7a 按 Human 决定退场（active → retired）后，24 §12 的
+	// 默认候选状态集把它排除，那条唯一靠「规避」命中的载体随之消失，本用例
+	// 转红——**而被测代码没有任何退化**。一次完全合法的对象退场不该让一条
+	// 性能回归用例失败（同 friction-943940d6 的形态）。
+	//
+	// 现在改守**真正的判据**：正文后半段的词必须进入匹配面。用两条自造载体
+	// 精确测定——「规避」只出现在正文 1200 字符之后，且全文不含其他可匹配的
+	// 强词。截断实现下该词不可见，全文实现下必须命中。断言不再依赖语料里
+	// 有哪条事实、也不必赌排名。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const tmp = await mkdtemp(joinPath(tmpdir(), "recall-tail-"));
+	try {
+		const dir = joinPath(tmp, "ldvh-base", "pitfalls");
+		await mkdir(dir, { recursive: true });
+		// 正文前段填满**有意义的、不含被测词**的铺垫文字，长度稳定越过 1200；
+		// 被测词「规避」与独有词「椎间盘」只出现在其后。
+		const front = "本节描述受控写入环节观察到的现象，涉及载体一致性校验与前置条件核对顺序。".repeat(45);
+		assert.ok(front.length > 1200, `前提：前段须越过 1200 字符，实际 ${front.length}`);
+		assert.ok(!front.includes("规避") && !front.includes("椎间盘"), "前提：被测词不得出现在前段");
+		const carrier = [
+			"---",
+			"title: 夹具 后半段章节可见性",
+			"status: active",
+			"scope: 适用于夹具的后半段章节可见性场景",
+			"object_uid: cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+			"fact_type_key: pitfall",
+			"---",
+			"",
+			"# 夹具 后半段章节可见性",
+			"",
+			"## 症状",
+			"",
+			front,
+			"",
+			"## 规避",
+			"",
+			"应当椎间盘式地绕开这一写法。",
+			"",
+		].join("\n");
+		await writeFile(
+			joinPath(dir, "pitfall-cccccccc-cccc-4ccc-8ccc-cccccccccccc.md"),
+			carrier,
+		);
 
-	// 关键断言：查询「规避」须能召回正文里真有「规避」章节的事实。
-	const r = await recallForAction({
-		action: "怎么规避这个坑",
-		root: ROOT,
-		limit: 5,
-		budgetBytes: 40000,
-		includeSpecs: false,
-	});
-	assert.ok(r.facts.length > 0, "「怎么规避」须能召回事实");
-	assert.ok(
-		r.facts.some((f) => /规避/.test(f.hitReason)),
-		`须有靠「规避」命中的：${r.facts.map((f) => f.hitReason).join(" / ")}`,
-	);
+		// 关键断言：正文**后半段**的词必须进入匹配面。两个方向分别验证——
+		// ① 查询词本身就是后半段词（「规避」）：须命中；
+		// ② 后半段独有词（「椎间盘」）不属任何查询词的子串，也能命中。
+		//
+		// 为什么不用原查询「怎么规避这个坑」：该查询含多枚弱 token，在单夹具
+		// 语料下不足以越过命中门槛（实测召回 0 条）；它原本能命中是因为真实语料
+		// 里有大量载体提供了足够的强匹配面。把「单夹具 + 该查询须命中」当作判据
+		// 会引入新的语料依赖——正是本次要消除的东西。判据该守的是**截断与否**，
+		// 而用一个干净的强词就能精确测定它。
+		const hit = await recallForAction({
+			action: "规避",
+			root: tmp,
+			limit: 5,
+			budgetBytes: 200_000,
+			includeSpecs: false,
+		});
+		assert.ok(hit.facts.length > 0, "正文后半段的「规避」须能召回夹具事实（否则正文未被匹配）");
+		assert.ok(
+			hit.facts.some((f) => /规避/.test(f.hitReason)),
+			`正文后半段的「规避」须参与匹配：${hit.facts.map((f) => f.hitReason).join(" / ")}`,
+		);
+		const unique = await recallForAction({
+			action: "椎间盘",
+			root: tmp,
+			limit: 5,
+			budgetBytes: 200_000,
+			includeSpecs: false,
+		});
+		assert.ok(
+			unique.facts.some((f) => /椎间|间盘/.test(f.hitReason)),
+			`后半段独有词「椎间盘」须参与匹配：${unique.facts.map((f) => f.hitReason).join(" / ")}`,
+		);
+	} finally {
+		await rm(tmp, { recursive: true, force: true });
+	}
 });
 
 test("trigger_signal 须参与匹配（不得读进变量却不用）", async (t) => {
