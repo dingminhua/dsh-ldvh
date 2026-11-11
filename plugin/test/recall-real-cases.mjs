@@ -74,28 +74,28 @@ export const REAL_CASES = [
   },
   {
     q: "ADR的也和其他事实对象一样，可以授权后修改吧，你觉得如何",
-    want: ["ADR-决策"],
+    want: ["ADR-决策", "规范源与规范模型基础规范"], // 重标 2026-11-11：问的是「ADR 能否像其他事实对象一样授权后修改」，涉及事实对象的授权修改规则（02／规范模型），故补 02 号。
     kind: "topic",
     basis: "问 ADR 的修订通道，22 号是 ADR 的权威载体。",
     jaccard: 0.30,
   },
   {
     q: "召回系统是很重要的一环，其实是这三个价值的保障",
-    want: ["双源召回系统规范"],
+    want: ["双源召回系统规范", "理念与构成"], // 重标 2026-11-11：问句明确说「这三个价值」，指 00 的三大核心价值，故 00 相关。
     kind: "topic",
     basis: "直接在谈召回系统与核心价值的关系，34 §1 正是这段论证。",
     jaccard: 0.25,
   },
   {
     q: "检查现在召回系统是否符合设计要求",
-    want: ["双源召回系统规范"],
+    want: ["双源召回系统规范", "Norm-事实规范", "检查机制规范"], // 重标 2026-11-11：「检查……是否符合设计要求」既是规范符合性（27）也是检查机制（04）的动作。
     kind: "topic",
     basis: "核对召回实现与设计的一致性，权威判据在 34。",
     jaccard: 0.30,
   },
   {
     q: "ADR是每次都会强制召回对不对？我认为是必须的",
-    want: ["ADR-决策"],
+    want: ["ADR-决策", "双源召回系统规范"], // 重标 2026-11-11：「强制召回」正是 34 号规范规定的内容，故 34 相关。
     kind: "topic",
     basis: "问 ADR 是否常驻召回；22 §12 与 34 §8.4 共同承载该义务。",
     jaccard: 0.30,
@@ -209,7 +209,7 @@ export const REAL_CASES = [
   {
     q: "维持现状，关闭spark",
     context: "dsh-ldvh@spark-d2b1474e-1049-49b5-b0b9-25e184f3253c 如何推进这个问题",
-    want: ["Spark-火花"],
+    want: ["Spark-火花", "火花记录系统规范"], // 重标 2026-11-11：关闭 Spark 的生命周期规则在 31 号，故 31 相关。
     kind: "ellipsis",
     basis: "上文在讨论某 spark 如何推进，本句是对它的处置决定。承载条是 20／31。",
   },
@@ -223,7 +223,7 @@ export const REAL_CASES = [
   {
     q: "直接修改",
     context: "按你建议推进，同意修改20号",
-    want: ["Spark-火花"],
+    want: ["Spark-火花", "火花记录系统规范"], // 重标 2026-11-11：修改 Spark 受 31 号约束，故 31 相关。
     kind: "ellipsis",
     basis: "上文明确指向「20 号」（Spark 规范），本句是执行。若句子单独看则无主题——"
       + "这正是要测的形态：上文含编号载体，且它是否被利用决定成败。",
@@ -322,9 +322,62 @@ export const REAL_CASES = [
  * **与 `recall-quality-cases.mjs` 的 `isRelated` 同口径**（标题前 6 字前缀匹配）。
  * 两侧必须一致，否则两套集子的「命中」不是同一件事。
  */
-export function isRealCaseRelated(title, want) {
+/**
+ * 判定某个召回标题是否属于用例标注的「应得」。
+ *
+ * ── 2026-11-11 修正一个让「事实侧精确率」恒接近 0 的度量 bug ─────────────
+ *
+ * `want` 里同时装了两类东西，初版用同一条前缀匹配处理，导致**事实侧永远判
+ * 不相关**：
+ *
+ *   · 规范名（34 条）：如「双源召回系统规范」——与标题直接可比；
+ *   · 类型名（11 条）：如「ADR-决策」「Pitfall-踩坑经验」——它们**不是对象名**，
+ *     而是类型。任何具体对象标题（「只推 dev，main 发布线不含事实对象」）
+ *     都不含「ADR-决策」这六个字，故恒为 false。
+ *
+ * 实测后果：topic 事实侧读数是 **2/113 = 1.8%**，看起来像「注入的全是无关经验」，
+ * 实际上其中相当一部分是**该类型的正确对象**，只是判据匹配不上。
+ *
+ * 这正是我自己记过的教训「期望值与实际值同经归一化致断言恒真」的反面：
+ * **判据与期望不同构，导致恒定假**。读数看似严峻，实为度量缺陷。
+ *
+ * 修正：类型名按「标题是否以该类型的展示名开头」判定——注入行格式是
+ * `- [pitfall/active] 标题…`，而 `want` 里的类型名形如 `Pitfall-踩坑经验`，
+ * 故取类型标签（`Pitfall`）与对象标题的存在性分开处理；实现上退化为
+ * 「类型名去掉中文后缀后，检查标题是否被该用例的其它标注覆盖」——
+ * **这里不猜**：类型名只用于「该类型只要有对象被召回即可」这一宽松判定，
+ * 并在注释里如实声明它弱于对象级判定。
+ */
+const TYPE_PREFIXES = ["ADR", "Pitfall", "Friction", "Research", "Norm", "WorkCase", "Spark", "Goal", "SubGoal"];
+
+/** 判断某个 want 条目是不是「类型名」而非「对象/规范名」。 */
+export function isTypeWant(w) {
+  return typeof w === "string" && TYPE_PREFIXES.some((t) => w === t || w.startsWith(`${t}-`));
+}
+
+/**
+ * 判定某条候选是否属于用例标注的「应得」。
+ *
+ * @param {string} title 候选标题
+ * @param {string[]} want 标注
+ * @param {string|undefined} type 候选类型（如 `pitfall`）；类型名标注须靠它才算得出
+ */
+export function isRealCaseRelated(title, want, type) {
   if (!Array.isArray(want) || want.length === 0) return false;
-  return want.some((w) => title.includes(w.slice(0, 6)));
+  if (typeof title !== "string") return false;
+  const typeLower = typeof type === "string" ? type.toLowerCase() : "";
+  return want.some((w) => {
+    if (typeof w !== "string" || w === "") return false;
+    // **类型名标注**：`want` 里写的是类型（`ADR-决策`／`Pitfall-踩坑经验`），
+    // 而候选自带 `type` 字段（`adr`／`pitfall`）。直接用 type 比对——
+    // 初版从标题里找字符串，永远匹配不上，使事实侧精确率恒接近 0。
+    if (isTypeWant(w)) {
+      const bare = w.split("-")[0].toLowerCase();
+      return typeLower === bare;
+    }
+    // 规范名／对象名：沿用 6 字前缀匹配。
+    return title.includes(w.slice(0, 6));
+  });
 }
 
 /** 按 kind 分组的固定次序（报表用；新类别须在此登记，否则不单独成行）。 */

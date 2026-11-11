@@ -97,3 +97,35 @@ test("报告口径：须能算对象级召回，不得只报 any-of 命中", () 
 	// want 为空时不构成命中（否则对象级分母会被污染）。
 	assert.equal(isRealCaseRelated("任意标题", []), false, "空 want 不算命中");
 });
+
+test("判据：类型名标注须靠候选的 type 字段匹配，不得从标题里找字符串", () => {
+	// **这里修的是一个让「事实侧精确率」恒接近 0 的度量 bug**（2026-11-11）。
+	// `want` 里同时装了两类标注：
+	//   · 规范名（34 条）：如「双源召回系统规范」，与标题直接可比；
+	//   · 类型名（11 条）：如「ADR-决策」「Pitfall-踩坑经验」，**不是对象名**。
+	//
+	// 初版用同一条前缀匹配处理，于是任何具体对象标题（「只推 dev，main 发布线
+	// 不含事实对象」）都匹配不上「ADR-决策」这六个字，判为无关。
+	// 实测后果：topic 事实侧读数 2/113 = 1.8%，看着像「注入的全是无关经验」，
+	// 实际是**判据与期望不同构导致的恒定假**（与「期望值与实际值同经归一化
+	// 致断言恒真」同源的反面）。
+	assert.equal(
+		isRealCaseRelated("只推 dev，main 发布线不含事实对象", ["ADR-决策"], "adr"),
+		true,
+		"类型名标注须能命中该类型的对象",
+	);
+	assert.equal(
+		isRealCaseRelated("某条经验标题", ["ADR-决策"], "pitfall"),
+		false,
+		"别的类型的对象不得被判为命中——否则类型判据会过度宽松",
+	);
+	// **缺 type 时不得静默判真**：调用方漏传就该得到 false 而非幸运命中。
+	assert.equal(
+		isRealCaseRelated("只推 dev，main 发布线不含事实对象", ["ADR-决策"], undefined),
+		false,
+		"未传 type 时类型名标注不得命中（否则漏传 type 的调用方会得到虚高读数）",
+	);
+	// 规范名仍走前缀匹配，不受影响。
+	assert.equal(isRealCaseRelated("双源召回系统规范", ["双源召回系统规范"], "spec"), true);
+	assert.equal(isRealCaseRelated("别的规范", ["双源召回系统规范"], "spec"), false);
+});

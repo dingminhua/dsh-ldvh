@@ -48,11 +48,17 @@ async function runCase(c) {
     excludeTypes: INJECTION_EXCLUDED_TYPES,
   });
   const ok = r.ok === true;
-  const specs = ok ? (r.specs ?? []).map((x) => x.title) : [];
-  const facts = ok ? (r.facts ?? []).map((x) => x.title) : [];
-  const titles = [...specs, ...facts];
-  const relevant = titles.filter((t) => isRealCaseRelated(t, c.want)).length;
-  const relevantFacts = facts.filter((t) => isRealCaseRelated(t, c.want)).length;
+  // **必须同时保留 type**（2026-11-11 修）：`want` 里有一类标注写的是**类型名**
+  // （`ADR-决策`／`Pitfall-踩坑经验`），只有候选自己的 `type` 字段能对上。
+  // 初版只取标题，导致这类标注永远匹配不上，**事实侧精确率恒接近 0**——
+  // 读数看似「注入的全是无关经验」，实际是判据与期望不同构导致的恒定假。
+  const specs = ok ? (r.specs ?? []).map((x) => ({ title: x.title, type: x.type ?? "spec" })) : [];
+  const facts = ok ? (r.facts ?? []).map((x) => ({ title: x.title, type: x.type })) : [];
+  const all = [...specs, ...facts];
+  const titles = all.map((x) => x.title);
+  const hitOf = (rows, want) => rows.filter((x) => isRealCaseRelated(x.title, want, x.type)).length;
+  const relevant = hitOf(all, c.want);
+  const relevantFacts = hitOf(facts, c.want);
   // ── 三种命中口径必须并列（2026-11-11 独立复核后补）──────────────────
   //
   // 复核实测同一批 topic 用例：any-of 下 10/10、all-of 下 5/10、对象级 12/17。
@@ -61,8 +67,10 @@ async function runCase(c) {
   //   hitAny  —— 命中任一答案即记（宽松，看「有没有进展」）
   //   hitAll  —— 全部答案都在才记（严格，看「完整度」）
   //   objHit/objTotal —— 按对象逐个记（唯一能答「该看到的看到几成」）
-  const hitAny = c.want.length === 0 ? titles.length === 0 : titles.some((t) => isRealCaseRelated(t, c.want));
-  const perWant = c.want.map((w) => titles.some((t) => isRealCaseRelated(t, [w])));
+  const hitAny = c.want.length === 0
+    ? titles.length === 0
+    : all.some((x) => isRealCaseRelated(x.title, c.want, x.type));
+  const perWant = c.want.map((w) => all.some((x) => isRealCaseRelated(x.title, [w], x.type)));
   const objHit = perWant.filter(Boolean).length;
   const hitAll = c.want.length > 0 && objHit === c.want.length;
   const hit = hitAny;
