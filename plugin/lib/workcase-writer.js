@@ -3085,6 +3085,27 @@ export async function approveWorkcaseObject(args) {
     );
   }
 
+  // serves 有效性（2026-11-12 补，Gate 1 侧）
+  //
+  // create（:2587）与 revise/update（:4274、:4369）都在写入那一刻校验 serves 可解析，
+  // 但**批准环节此前完全没有校验**——建单到批准之间子目标可能被 retired，而 Gate 1
+  // 仍会把授权钉到一个已失效的锚上。21 §10.3 把「serves 指向的 sub-goal 被修订或
+  // 原位作废」列为授权失效事由，本条使该事由在批准这一刻可被机械拦下。
+  //
+  // 判据复用 resolveServes（→ resolveSubGoal:879 已拒 retired），**不新增失败码**：
+  // 失败时由 resolveServes 统一包成 `workcase/serves_unresolvable`（底层是
+  // subgoal 侧的解析失败，但不向 WC 调用方泄漏另一类型的内部码），与本文件其他
+  // `workcase/*` 失败码同一前缀。
+  //
+  // **省略仍合法**：21 §8 明文「无适用子目标时省略（25 §12 读操作不拦）」，故
+  // serves 缺失时 resolveServes 返回 null、本闸放行。缺失是否构成缺口属语义判断，
+  // 不在本闸范围内（不得据此声称「无 serves 的工单已被拦」）。
+  //
+  // 保证边界：只证明「此刻可解析到一个 active|achieved 的 SubGoal」；**不证明**
+  // 该子目标真的需要这件工作（21 §15.1「serves 有效」行的既有边界，此处同口径）。
+  const servesCheck = await resolveServes(factSourceRoot, fm.serves);
+  if (servesCheck) return servesCheck;
+
   const now = new Date().toISOString();
   const next = structuredClone(fm);
   next.status = "open";
