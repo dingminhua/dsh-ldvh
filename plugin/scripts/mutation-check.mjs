@@ -86,7 +86,11 @@ const MUTATIONS = [
 	// **回落路径不得被静默**（02 §12.4 禁「静默回落」）：把 fallback 判成 table，
 	// 兜底就变成「看起来像正常读表」，`criteria.fallbackTypes` 与 gaps 两处披露
 	// 同时消失。守护用例：`recall-type-channels.test.mjs` 的 fallback 用例。
-	[LIB, "兜底回落被静默（冒充正常读表）", '  return {\n    kind: parseFailed ? "disabled" : "fallback",', '  return {\n    kind: "table",'],
+	// **2026-11-11 更新缩进**：源码该段由并行会话重排（`return { kind: "table" }`
+	// 拆成多行、外层补 `if (entry !== null) {...}` 包裹），缩进由 2 空格变 4 空格，
+	// 锚点的 `from` 因此不再匹配。改的是**空白形态**，被守护的语义未变：
+	// 「解析失败时不得冒充 table」。故按新缩进重写 `from` 与 `to`，不删这条变异。
+	[LIB, "兜底回落被静默（冒充正常读表）", '    kind: parseFailed ? "disabled" : "fallback",', '    kind: "table",'],
 	[LIB, "F2 摘录为空", "excerpt: excerptOf(c.excerptSource) || c.title,", 'excerpt: "",'],
 	[LIB, "F0 层缺失", "      countsByTypeStatus: facts.reduce((acc, fact) => {", "      countsByTypeStatusX: facts.reduce((acc, fact) => {"],
 	[LIB, "gaps 缺失", "    gaps: [", "    gapsX: ["],
