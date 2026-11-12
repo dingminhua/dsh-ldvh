@@ -72,7 +72,9 @@ function fakeSubagents({ zeroContext = true, proposals = null, throws = null } =
   const calls = [];
   return {
     calls,
-    list: () => ["spawn"],
+    // **没有 list()**：宿主 0.2.2-rc.2 已删除它。名册（下方 roster）给出候选名，
+    // getProvider 现查可用性——与真宿主同一条通道。仍用内置名 `spawn`，使本
+    // 假件即便漏传 roster 也走内置名通道，不会因测试装配细节而假失败。
     getProvider: (name) => ({ name, inheritsParentContext: !zeroContext, capabilities: { outputSchema: true } }),
     startActivation: async (spec) => {
       calls.push(spec);
@@ -250,7 +252,7 @@ test("执行体被拒（refusal）**不记成 no-proposals**——两者根因�
   const base = await mkdtemp(join(tmpdir(), "review-stage-"));
   await seedBuffer(base);
   const subagents = {
-    list: () => ["spawn"],
+    // 同上：无 list()，候选名由内置名通道或名册给出。
     getProvider: (name) => ({ name, inheritsParentContext: false, capabilities: { outputSchema: true } }),
     startActivation: async () => ({
       childId: "child-1",

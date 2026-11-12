@@ -49,9 +49,10 @@ const CANDIDATES = [{ object_uid: "11111111-2222-4333-8444-555555555555", status
  */
 function fakeSubagents({ providers = [], startImpl } = {}) {
   const starts = [];
-  return {
+  const fake = {
     starts,
-    list: () => providers.map((p) => p.name),
+    // **没有 list()**：宿主 0.2.2-rc.2 已删除它（上游 86d4c75516）。假件与真宿主
+    // 同形，否则「插件是否还在偷偷依赖已删接口」这件事在测试里永远看不见。
     getProvider: (name) => providers.find((p) => p.name === name),
     startActivation: async (spec) => {
       starts.push({ spec });
@@ -63,6 +64,11 @@ function fakeSubagents({ providers = [], startImpl } = {}) {
       };
     },
   };
+  // 名册：与真实世界同形——名册只列「注册事件说存在的名字」，可用性仍由
+  // picker 现查 getProvider 确认。测试里直接由 providers 派生，免得每个用例
+  // 手写第二份名单（手写会与 providers 漂移，掩盖真实缺陷）。
+  fake.roster = { names: () => providers.map((p) => p.name) };
+  return fake;
 }
 
 /**
@@ -101,20 +107,28 @@ const SIGNAL = new AbortController().signal;
 // provider 选择（§8.4「执行体与上下文供给」段：零上下文派生，禁止全量交付）
 // ---------------------------------------------------------------------------
 
+// 宿主 0.2.2-rc.2 删除了 `ctx.subagents.list()`，枚举改由 provider 名册
+// （lib/subagent-providers.js）承担：调用方传 roster，picker 对名册里的每个名字
+// 现查 getProvider。故本节的调用形状随之改变——**但断言的能力口径一条未动**。
+const rosterOf = (...names) => ({ names: () => names });
+
 test("选择：优先 inheritsParentContext=false 的 provider 且偏好名为 spawn 者", () => {
-  const r = selectZeroContextProvider(fakeSubagents({ providers: [providerNamed("spawn"), providerNamed("fork", { inherits: true })] }));
+  const svc = fakeSubagents({ providers: [providerNamed("spawn"), providerNamed("fork", { inherits: true })] });
+  const r = selectZeroContextProvider(svc, rosterOf("spawn", "fork"));
   assert.ok(r.ok, JSON.stringify(r.error));
   assert.equal(r.value.name, "spawn");
 });
 
 test("选择：名不叫 spawn 但零上下文者同样被接受（按能力挑，不硬编码名字）", () => {
-  const r = selectZeroContextProvider(fakeSubagents({ providers: [providerNamed("fork", { inherits: true }), providerNamed("custom-zero-context")] }));
+  const svc = fakeSubagents({ providers: [providerNamed("fork", { inherits: true }), providerNamed("custom-zero-context")] });
+  const r = selectZeroContextProvider(svc, rosterOf("fork", "custom-zero-context"));
   assert.ok(r.ok, JSON.stringify(r.error));
   assert.equal(r.value.name, "custom-zero-context");
 });
 
 test("选择：**没有任何零上下文 provider 即不可用**，不退回继承形态的 fork（禁止全量交付）", () => {
-  const r = selectZeroContextProvider(fakeSubagents({ providers: [providerNamed("fork", { inherits: true })] }));
+  const svc = fakeSubagents({ providers: [providerNamed("fork", { inherits: true })] });
+  const r = selectZeroContextProvider(svc, rosterOf("fork"));
   assert.ok(!r.ok);
   assert.equal(r.error.code, "discovery_provider/unavailable");
   assert.match(r.error.message, /zero-context/);
@@ -122,16 +136,20 @@ test("选择：**没有任何零上下文 provider 即不可用**，不退回继
 });
 
 test("选择：无 provider 注册即不可用", () => {
-  const r = selectZeroContextProvider(fakeSubagents({ providers: [] }));
+  const svc = fakeSubagents({ providers: [] });
+  const r = selectZeroContextProvider(svc, rosterOf());
   assert.ok(!r.ok);
   assert.equal(r.error.code, "discovery_provider/unavailable");
 });
 
-test("选择：list() 抛错时不可用（不静默当作空）", () => {
-  const broken = { list: () => { throw new Error("boom"); }, getProvider: () => undefined, start: async () => {} };
-  const r = selectZeroContextProvider(broken);
+test("选择：名册里的名字都已不在服务上时不可用（不据事件缓存判可用）", () => {
+  // 本用例取代旧的「list() 抛错」——那个入口已从宿主消失。新口径更严：
+  // 名册说有、getProvider 查不到，必须判不可用，绝不拿事件缓存当能力证据。
+  const svc = fakeSubagents({ providers: [] });
+  const r = selectZeroContextProvider(svc, rosterOf("ghost-provider"));
   assert.ok(!r.ok);
-  assert.match(r.error.message, /cannot list subagent providers/);
+  assert.equal(r.error.code, "discovery_provider/unavailable");
+  assert.match(r.error.message, /no subagent provider is registered/);
 });
 
 // ---------------------------------------------------------------------------
@@ -252,7 +270,9 @@ test("discover：dispose 抛错不影响已取回的结果", async () => {
 
 test("discover：无零上下文 provider 时抛错（调用方将按 §8.3 入队）", async () => {
   const svc = fakeSubagents({ providers: [providerNamed("fork", { inherits: true })] });
-  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
+  // 必须显式传名册：否则 picker 只试内置名 spawn，得到的失败原因是「没有任何
+  // provider 注册」，而非本用例要断言的「有 provider 但都继承上下文」。
+  const discover = createDiscoveryProvider({ subagents: svc, roster: svc.roster, parent: PARENT, signal: SIGNAL });
   await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /zero-context/);
 });
 
@@ -548,6 +568,7 @@ function shortCircuitHarness() {
   const subagents = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({
     subagents,
+    roster: subagents.roster,
     parent: PARENT,
     signal: SIGNAL,
     onRun: (e) => events.push(e),
@@ -680,6 +701,7 @@ test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则�
   });
   const discover = createDiscoveryProvider({
     subagents,
+    roster: subagents.roster,
     parent: PARENT,
     signal: SIGNAL,
     provideWindow: () => ({ items: [{ turn: 1, user: "这是一段足够长的材料内容原文。" }], truncated: false }),
@@ -719,6 +741,7 @@ test("F-1：全成功时同样给出 watermarkTurn（回归：新条件不得反
   });
   const discover = createDiscoveryProvider({
     subagents,
+    roster: subagents.roster,
     parent: PARENT,
     signal: SIGNAL,
     provideWindow: () => ({ items: [{ turn: 1, user: "这是一段足够长的材料内容原文。" }], truncated: false }),

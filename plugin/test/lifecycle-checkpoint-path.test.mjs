@@ -89,7 +89,9 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
   // 子代理服务桩：fork = 继承上下文（§8.4 要求）
   let starts = 0;
   ctx.set("subagents", {
-    list: () => ["fork"],
+    // **没有 list()**：宿主 0.2.2-rc.2 已删除它（上游 86d4c75516）。
+    // 本假件只提供 fork（继承上下文），用于验证「只有继承形态 → 不可用」；
+    // 内置名 spawn 会被探测但 getProvider 返回 undefined，故行为不变。
     getProvider: (n) => (n === "fork" ? { name: "fork", inheritsParentContext: true, capabilities: { outputSchema: true } } : undefined),
     startActivation: async () => {
       starts += 1;
@@ -328,7 +330,7 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
   // 真实高频失败（引证核对按材料正文做字符串比对），不是人为构造的异常。
   const materialText = "本次会话材料：解析反复失败，清理缓存后恢复。";
   ctx.set("subagents", {
-    list: () => ["spawn"],
+    // **没有 list()**：候选名由内置名 spawn 提供，与真宿主同形。
     getProvider: () => ({ name: "spawn", inheritsParentContext: false, capabilities: { outputSchema: true, agentOptions: true, depthLimit: true } }),
     startActivation: async (spec) => {
       const request = spec?.request;
@@ -537,7 +539,7 @@ test("重启：无**带轮次号的**回合事件时从宿主会话记录回填�
   // 首版只断言 `stage !== "stopped"`，实测落在 `land-failed/no-signature`，
   // 于是「回填值被改小/被改 0」这类失效全绿通过（变异测试 M9，0/5 命中）。
   ctx.set("subagents", {
-    list: () => ["spawn"],
+    // **没有 list()**：候选名由内置名 spawn 提供，与真宿主同形。
     getProvider: () => ({ name: "spawn", inheritsParentContext: false, capabilities: { outputSchema: true, agentOptions: true, depthLimit: true } }),
     startActivation: async () => ({
       childId: EXECUTOR_ID,

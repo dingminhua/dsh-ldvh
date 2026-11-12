@@ -34,6 +34,7 @@ import { ensureRegistrationCarrier, setCarrierObserver } from "./governed-projec
 import { createGovernanceHandler } from "./host-api.js";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
+import { createProviderRoster } from "./subagent-providers.js";
 import { resolveIdleSettings } from "./idle-settings.js";
 import { resolveInjectionBudget } from "./source-recall.js";
 import { createSessionScopes } from "./session-scopes.js";
@@ -473,10 +474,20 @@ export function apply(ctx, config) {
   // Per-agent lifecycle: agent/created install + adoption of already-live
   // agents; guidance injection, tools guard and the pre-step skeleton all
   // live behind this registry (framework doc §4 points 1–2, 4–5).
+  // ── 零上下文 provider 名册（2026-11-12，宿主 0.2.2-rc.2）──────────────────
+  //
+  // 宿主在 0.2.2-rc.2 删除了 `ctx.subagents.list()`（上游 86d4c75516），而三处
+  // 受管辖隔离子代理的派发都要「枚举 provider 再挑零上下文的那个」。替代通道是
+  // 注册期事件 `subagent/provider-added|removed`（emit，不带 scoped carrier，
+  // 故根 ctx 能收全）。名册只决定「去查谁」，权威判断仍由 picker 现查
+  // `getProvider`——订阅失败或事件早于装载时，名册退化为空而功能不失效。
+  const providerRoster = createProviderRoster(ctx);
+
   const lifecycle = createLifecycleRegistry(ctx, {
     dshHomePath,
     workspaceRoot: PACKAGE_ROOT,
     sessionScopes,
+    providerRoster,
     hostSeams,
     // 闲时辅助的设置**每次现读**（volatile 字段无变更通知，只在同一引用里换值
     // ——见上文 readSwitch 的说明）。故传一个取值函数而非快照：Human 在设置页
@@ -614,6 +625,9 @@ export function apply(ctx, config) {
     try {
       await stopLifecycle();
     } finally {
+      // 名册的 provider 订阅也归本插件所有：显式释放使重载边界可控（旧实例不应
+      // 继续收 provider 事件）。释放失败不阻断其余清理。
+      try { providerRoster.dispose(); } catch { /* ignore */ }
       sessionScopes.clear();
     }
   }, "dsh-ldvh: lifecycle registry and session scopes");

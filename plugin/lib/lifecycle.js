@@ -521,7 +521,12 @@ function describeStopForRunlog(error) {
   return head.length > 0 ? `${base} — ${head}${more}` : `${base}${more}`;
 }
 
-export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget }) {
+export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget, providerRoster = null }) {
+  // 零上下文 provider 的发现名册（宿主 0.2.2-rc.2 删除 ctx.subagents.list() 后的
+  // 唯一枚举通道）。由装载方订阅 subagent/provider-added|removed 建立；缺省时
+  // 各派发点仍会经 getProvider 现查内置名，故不会因缺名册而完全失效。
+  // 变量名刻意区别于下方 adopt 循环里的 `roster`（那是 agents 名册，两回事）。
+  const providerRosterRef = providerRoster;
   // Per-agent state lives on the agent fiber, but this plugin owns the single
   // effect it installed there. Keep its disposer so plugin unload can release
   // just that effect without disposing the agent or another plugin's effects.
@@ -611,6 +616,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           subagents: (() => {
             try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
           })(),
+          // 同一条发现通道的候选名册（宿主 0.2.2-rc.2 删 list() 后无枚举入口）。
+          // 建前审核的 provider 挑选经它定位候选，再由 getProvider 现查确认。
+          providerRoster: providerRosterRef,
           // Durable fallback for the same channel (2026-10-18 「子代理登记表被清空」
           // 修复 · 步骤 3): the registry cannot see a child that finished before a
           // plugin rebuild, so a lookup miss asks the child's own session record.
@@ -1140,6 +1148,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               subagents: (() => {
                 try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
               })(),
+              // 名册是「查谁」的候选清单；可用性仍由 picker 现查 getProvider 判定。
+              roster: providerRosterRef,
               parent: agent,
               sessionPersistence: ctx.get("sessionPersistence") ?? null,
               // 归档血缘守卫所需（2026-10-31），与静置检查点路径同一口径。
@@ -1387,6 +1397,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 lifecycle.turns.discoveryAbort = controller;
                 discover = createDiscoveryProvider({
                   subagents,
+                  roster: providerRosterRef,
                   parent: agent,
                   signal: controller.signal,
                   // 执行体署名的取数通道：provider 在 run.dispose() 之前用它尾读
@@ -1476,6 +1487,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   subagents: (() => {
                     try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
                   })(),
+                  roster: providerRosterRef,
                   parent: agent,
                   sessionPersistence: ctx.get("sessionPersistence") ?? null,
                   // 归档血缘守卫所需（2026-10-31）：宿主的 ArchivedSessionGate 无条件

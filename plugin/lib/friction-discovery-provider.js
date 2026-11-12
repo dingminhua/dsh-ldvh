@@ -40,6 +40,7 @@
 // 却从不使用」的死引用：lint 会拦，读者也会误以为这里有直连）。
 // 任务段（buildDiscoveryPromptSection）由**登记表**分派（见下方 sections 的构造），
 // 本模块不再直接调用它；只保留公共段的构造。
+import { selectZeroContextProvider as selectZeroContextProviderFromPolicy } from "./subagent-providers.js";
 import { buildSharedPromptSection } from "./friction-subagent-contract.js";
 import { AUX_TASK_REGISTRY, buildCompositePrompt, compositeOutputSchema, splitRunnableTasks, validateCompositeOutput } from "./aux-task-registry.js";
 import { windowBody } from "./friction-window.js";
@@ -99,41 +100,22 @@ async function resolveExecutorSignature(sessionPersistence, childId) {
 /**
  * 在已注册的 provider 中挑选**零上下文**的那一个（2026-10-12 规范修订）。
  *
- * 顺序：优先 `spawn`（本宿主实测名），否则取第一个 `inheritsParentContext === false`
- * 的。**没有零上下文 provider 即不可用**——11 §7.1「禁止全量交付」：不得以「继承
+ * 挑选本身已收口到 `subagent-providers.js`——宿主 0.2.2-rc.2 删除了
+ * `ctx.subagents.list()`，本模块与另外两处派发（建前审核、经验审核）共用同一条
+ * 发现通道（注册期事件名册 + `getProvider` 现查）。这里保留同名薄封装，使本模块
+ * 对外的错误码形状（`discovery_provider/unavailable`）与历史调用点不变。
+ *
+ * **没有零上下文 provider 即不可用**——11 §7.1「禁止全量交付」：不得以「继承
  * 主控上下文」为通道向执行体交付未经水位切分的全量会话历史，故此时**不得**退回
  * `fork`（它会把父会话最后一个 turn/end 之前的全部事件作为 seed 交付执行体）。
+ *
+ * @param {object} subagents - 宿主 subagents 服务
+ * @param {{names:()=>string[]}} [roster] - provider 名册（见 createProviderRoster）
  */
-export function selectZeroContextProvider(subagents) {
-  let names;
-  try {
-    names = subagents.list();
-  } catch (error) {
-    return unavailable(`cannot list subagent providers: ${String(error?.message ?? error)}`);
-  }
-  if (!Array.isArray(names) || names.length === 0) {
-    return unavailable("no subagent provider is registered");
-  }
-
-  const zeroContext = [];
-  for (const name of names) {
-    let provider;
-    try {
-      provider = subagents.getProvider(name);
-    } catch {
-      continue;
-    }
-    if (provider?.inheritsParentContext === false) zeroContext.push({ name, provider });
-  }
-  if (zeroContext.length === 0) {
-    return unavailable(
-      `no registered subagent provider is zero-context (candidates: ${names.join(", ")}) — 11 §9 (Human 2026-10-12) requires zero-context spawn with scheduler-delivered bounded material; refusing to fall back to a context-inheriting provider (全量交付禁止)`,
-    );
-  }
-  // 能力面：需要 outputSchema 才能把判断结果升为机械校验。
-  const withSchema = zeroContext.filter((entry) => entry.provider?.capabilities?.outputSchema !== false);
-  const chosen = withSchema.find((entry) => entry.name === "spawn") ?? withSchema[0] ?? zeroContext[0];
-  return { ok: true, value: { name: chosen.name, provider: chosen.provider } };
+export function selectZeroContextProvider(subagents, roster) {
+  const picked = selectZeroContextProviderFromPolicy(subagents, roster);
+  if (picked.ok) return picked;
+  return unavailable(picked.error.message);
 }
 
 /**
@@ -160,7 +142,7 @@ export function selectZeroContextProvider(subagents) {
  * 读者会误以为署名走这条路。真正的署名由本模块在派发后自行从**执行体会话记录**
  * 取得（见 `resolveExecutorSignature`），并随返回值的 `executorSignature` 上抛。
  */
-export function createDiscoveryProvider({ subagents, parent, signal, onRun, provideWindow, registry = AUX_TASK_REGISTRY, sessionPersistence = null } = {}) {
+export function createDiscoveryProvider({ subagents, parent, signal, onRun, provideWindow, registry = AUX_TASK_REGISTRY, sessionPersistence = null, roster = null } = {}) {
   if (subagents === undefined || subagents === null) {
     throw new Error("createDiscoveryProvider requires the host `subagents` service");
   }
@@ -170,6 +152,11 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
   if (signal === undefined || signal === null) {
     throw new Error("createDiscoveryProvider requires an AbortSignal (startActivation requires spec.signal, which the host no longer uses for cancellation — see the dispatch site)");
   }
+
+  // 名册缺省时的退化：空名册。此时 picker 仍会试内置名（spawn），故“没传 roster”
+  // 不等于“找不到 provider”——装配方漏传是装配缺陷，但不应连带让派发整体失效。
+  // 传了名册则以它为准（它能覆盖内置名之外的自定义 provider）。
+  const effectiveRoster = roster ?? { names: () => [] };
 
   return async function discover({ threshold, candidates, observationGroups, crossTypeCandidates = [], crossTypeGap = null, window: windowRange, tasks: requestedTasks }) {
     // 本次要跑的**全部**任务（有序）。未给出时退回单任务 `idle-review`——保持既有
@@ -303,7 +290,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       };
     }
 
-    const picked = selectZeroContextProvider(subagents);
+    const picked = selectZeroContextProvider(subagents, effectiveRoster);
     if (!picked.ok) {
       const error = new Error(picked.error.message);
       error.code = picked.error.code;

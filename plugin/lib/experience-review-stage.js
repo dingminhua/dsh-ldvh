@@ -34,6 +34,7 @@
 import { join } from "node:path";
 
 import { reviewPendingEntries, collectExistingPitfalls } from "./observation-review.js";
+import { selectZeroContextProvider } from "./subagent-providers.js";
 import { currentRouteValuesForSession } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { isUnderArchivedLineage } from "./archived-lineage.js";
@@ -316,34 +317,18 @@ function normalizeProposals(proposals) {
   });
 }
 
-/** 挑选零上下文 provider；没有就 fail-closed（不得退化为继承父上下文）。 */
-function pickZeroContextProvider(subagents) {
-  let names = [];
-  try {
-    names = subagents.list();
-  } catch (error) {
-    return failure("review_stage/provider_list_failed", `cannot list subagent providers: ${String(error?.message ?? error)}`);
-  }
-  if (!Array.isArray(names) || names.length === 0) {
-    return failure("review_stage/no_subagent_provider", "no subagent provider is registered");
-  }
-  const candidates = [];
-  for (const name of names) {
-    let provider;
-    try {
-      provider = subagents.getProvider(name);
-    } catch {
-      continue;
-    }
-    if (provider?.inheritsParentContext === false) candidates.push({ name, provider });
-  }
-  if (candidates.length === 0) {
-    return failure(
-      "review_stage/no_zero_context_provider",
-      `no registered subagent provider is zero-context (candidates: ${names.join(", ")}) — 11 §10.2 第 1 项 requires zero-context spawn with scheduler-delivered bounded material; refusing to fall back to a context-inheriting provider`,
-    );
-  }
-  return { ok: true, value: candidates.find((c) => c.provider?.capabilities?.outputSchema !== false) ?? candidates[0] };
+/**
+ * 挑选零上下文 provider；没有就 fail-closed（不得退化为继承父上下文）。
+ *
+ * 挑选已收口到 `subagent-providers.js`：宿主 0.2.2-rc.2 删除了
+ * `ctx.subagents.list()`，本处与摩擦发现、建前审核共用同一条发现通道（注册期
+ * 事件名册 + `getProvider` 现查）。封装保留是为了让本模块对外的错误码形状
+ * （`review_stage/*`）与历史调用点不变。
+ */
+function pickZeroContextProvider(subagents, roster) {
+  const picked = selectZeroContextProvider(subagents, roster);
+  if (picked.ok) return picked;
+  return failure("review_stage/no_zero_context_provider", picked.error.message);
 }
 
 /** 从执行体结果取结构化判断。 */
@@ -367,7 +352,7 @@ function structuredOf(result) {
  */
 export async function runReviewStage({
   subagents, parent, scope, lifecycle, taskOutcomes = {}, dshHomePath, sessionPersistence = null,
-  workspaceRegistry = null, sessions = null,
+  workspaceRegistry = null, sessions = null, roster = null,
 }) {
   const activity = lifecycle?.activity;
   // **跨阶段保留的残余失败**（2026-10-31）：摩擦晋升的单条失败不再让整函数返回，
@@ -686,7 +671,7 @@ export async function runReviewStage({
   }
 
   // ── 2. 挑 provider（零上下文）────────────────────────────────────────
-  const picked = pickZeroContextProvider(subagents);
+  const picked = pickZeroContextProvider(subagents, roster);
   if (!picked.ok) {
     record("land-failed", { action: "no-provider", reason: picked.error.code });
     return picked;

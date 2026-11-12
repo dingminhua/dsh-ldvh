@@ -1491,7 +1491,11 @@ async function runAutoAuditAfterCreate({ deps, exec, factSourceRoot, result, dra
     body: bodyMarkdown ?? null,
   };
 
-  const audited = await runAutoPreGate1Audit({ subagents, parent, candidate, signal: exec?.signal });
+  const audited = await runAutoPreGate1Audit({
+    subagents, parent, candidate, signal: exec?.signal,
+    // 发现通道的候选名册（宿主 0.2.2-rc.2 删 subagents.list() 后无枚举入口）。
+    roster: deps?.providerRoster ?? null,
+  });
   if (!audited.ok) {
     return { ...attempt, status: "failed", code: audited.error.code, message: audited.error.message };
   }

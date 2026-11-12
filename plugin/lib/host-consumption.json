@@ -13,7 +13,7 @@
     { "key": "schedule", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/host-automation-probe.js", "lib/ldvh-tools.js"], "note": "0.2.2 线已重建（schedule-agent-tools）——差分器须能再次报出同类破坏" },
     { "key": "sessionController", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/host-automation-probe.js", "lib/ldvh-tools.js"], "note": "会话控制探测面" },
     { "key": "sessionPersistence", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/child-session-record.js", "lib/lifecycle.js", "lib/session-signature.js"], "note": "sessionPersistence.open" },
-    { "key": "subagents", "plane": "host-service", "consumedVia": "agent.ctx.get?.(可选链)", "callSites": ["lib/lifecycle.js"], "note": "startActivation/list/getProvider — 受管辖隔离子代理派发面（独立复核/摩擦发现/经验审核均经此）；0.2.1-rc.1 的 subagent-activations 破坏即落在此面（start/startContinuable 移除、SubagentRun.localAgent 消失）。服务经 agent.ctx 可选链取得后作参数传入 friction-discovery-provider.js/experience-review-stage.js/workcase-tools.js，故 callSites 仅列有 .get 字面调用的 lifecycle.js" },
+    { "key": "subagents", "plane": "host-service", "consumedVia": "agent.ctx.get?.(可选链)", "callSites": ["lib/lifecycle.js"], "note": "startActivation/getProvider — 受管辖隔离子代理派发面（独立复核/摩擦发现/经验审核均经此）；0.2.1-rc.1 的 subagent-activations 破坏即落在此面（start/startContinuable 移除、SubagentRun.localAgent 消失）。**0.2.2-rc.2 再次破坏：list() 被删除**（上游 86d4c75516，官方指南 v0.2.1-rc.2/subagent-service-methods 明写服务不再枚举 provider 名），本插件三处派发原依赖它挑零上下文 provider；现改经 subagent/provider-added|removed 建立候选名册 + getProvider 现查（lib/subagent-providers.js，该文件只收服务对象、不自取，故不在 callSites）。服务仍经 agent.ctx 可选链取得后作参数传入，故仅 lifecycle.js 列在 callSites" },
     { "key": "webServer", "plane": "host-service", "consumedVia": "ctx.inject", "callSites": ["lib/index.js"], "note": "webServer.register — /ldvh 路由" },
     { "key": "connection", "plane": "host-service", "consumedVia": "ctx.inject", "callSites": ["lib/index.js", "lib/rpc.js"], "note": "Web RPC 通道" }
   ],
@@ -27,6 +27,8 @@
     { "name": "fs/write-intent", "callSites": ["lib/host-seams.js"] },
     { "name": "session/event", "callSites": ["lib/child.js", "lib/lifecycle.js"] },
     { "name": "subagent/end", "callSites": ["lib/lifecycle.js"] },
+    { "name": "subagent/provider-added", "callSites": ["lib/subagent-providers.js"], "note": "provider 名册建立通道——宿主 0.2.2-rc.2 删除 subagents.list() 后，这是唯一可枚举 provider 的入口（emit，不带 scoped carrier）" },
+    { "name": "subagent/provider-removed", "callSites": ["lib/subagent-providers.js"], "note": "provider 名册维护通道，同上" },
     { "name": "system-prompt/assemble", "callSites": ["lib/child.js", "lib/lifecycle.js"] }
   ],
   "clientSlots": [

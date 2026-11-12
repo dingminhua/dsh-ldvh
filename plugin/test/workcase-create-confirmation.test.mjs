@@ -135,6 +135,10 @@ async function setup(base, { hostSeams, subagents } = {}) {
     sessionPersistence: sessionPersistenceWithRoutingLog(base),
     ...(hostSeams === undefined ? {} : { hostSeams }),
     ...(subagents === undefined ? {} : { subagents }),
+    // provider 名册（宿主 0.2.2-rc.2 删 subagents.list() 后的候选清单来源）。
+    // 假件自带 roster，故装配处一并交出——装配方漏传时审核仍会试内置名 spawn，
+    // 但假件里的 provider 叫 reviewer，不传就会得到「无可审核体」。
+    ...(subagents?.roster === undefined ? {} : { providerRoster: subagents.roster }),
   });
   const write = tools.get("ldvh_workcase_write");
   assert.ok(write, "write tool must be registered");
@@ -925,9 +929,10 @@ test("record_review: after a plugin rebuild the cited reviewer is resolved from 
 /** 造一个最小的宿主 subagents 服务替身：零上下文 provider + 可控结论。 */
 function subagentSeam({ verdict = "pass", summary = "对象恰当性：符合——候选落在 §6.1 边界内。\n方案可行性：符合——两条判据均可被证据判定。\nscope 清晰度：符合——两段边界可充当越权基准。", throwOnStart = false } = {}) {
   const started = [];
-  return {
+  const seam = {
     started,
-    list: () => ["reviewer"],
+    // **没有 list()**：宿主 0.2.2-rc.2 已删除它。假件与真宿主同形，否则
+    // 「插件是否还在依赖已删接口」在测试里永远看不见。
     getProvider: (name) => (name === "reviewer" ? { name, inheritsParentContext: false, capabilities: { outputSchema: true } } : undefined),
     startActivation: async (spec) => {
       started.push(spec);
@@ -947,6 +952,8 @@ function subagentSeam({ verdict = "pass", summary = "对象恰当性：符合—
       };
     },
   };
+  seam.roster = { names: () => ["reviewer"] };
+  return seam;
 }
 
 test("create: 成功后自动派生建前审核体（不再等主控自觉）", async () => {

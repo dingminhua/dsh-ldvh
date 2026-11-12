@@ -33,52 +33,33 @@
  * 「自动的」就降级成「当作审过了」。
  */
 
+import { selectZeroContextProvider } from "./subagent-providers.js";
+
 /** 审核体结算等待上限。建前审核是一次有界的阅读+判断，不该无限挂起。 */
 const AUDIT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * 挑一个**零上下文** provider。
  *
- * 与 `experience-review-stage.js` 的同名内部函数口径一致（那里未导出，且它的
- * 选择还绑定闲时审核的其它约束，故此处独立实现一份而不能 import——两处服务的是
- * 不同调用方，硬耦合会让一边的改动无意改变另一边）。
+ * 挑选已收口到 `subagent-providers.js`：宿主 0.2.2-rc.2 删除了
+ * `ctx.subagents.list()`，本处与摩擦发现、经验审核共用同一条发现通道（注册期
+ * 事件名册 + `getProvider` 现查）。封装保留是为了让本模块对外的错误码形状
+ * （`auto_audit/*`）与历史调用点不变。
  *
  * `inheritsParentContext === false` 是硬条件：继承父上下文的审核者已经读过候选
  * 的形成过程，独立性不成立（21 §14）。没有这样的 provider 时 fail-closed，
  * **不退化**为「随便挑一个凑一次」。
  */
-function pickZeroContextProvider(subagents) {
-  let names = [];
-  try {
-    names = subagents.list();
-  } catch (error) {
-    return { ok: false, error: { code: "auto_audit/provider_list_failed", message: `cannot list subagent providers: ${String(error?.message ?? error)}` } };
-  }
-  if (!Array.isArray(names) || names.length === 0) {
-    return { ok: false, error: { code: "auto_audit/no_subagent_provider", message: "no subagent provider is registered" } };
-  }
-  const candidates = [];
-  for (const name of names) {
-    let provider;
-    try {
-      provider = subagents.getProvider(name);
-    } catch {
-      continue;
-    }
-    if (provider?.inheritsParentContext === false) candidates.push({ name, provider });
-  }
-  if (candidates.length === 0) {
-    return {
-      ok: false,
-      error: {
-        code: "auto_audit/no_zero_context_provider",
-        message: `no registered subagent provider is zero-context (candidates: ${names.join(", ")})`,
-      },
-    };
-  }
-  // 优先能回结构化结论的（本审核要的就是三维结论对象）。
-  const value = candidates.find((c) => c.provider?.capabilities?.outputSchema !== false) ?? candidates[0];
-  return { ok: true, value };
+function pickZeroContextProvider(subagents, roster) {
+  const picked = selectZeroContextProvider(subagents, roster);
+  if (picked.ok) return picked;
+  return {
+    ok: false,
+    error: {
+      code: "auto_audit/no_zero_context_provider",
+      message: picked.error.message,
+    },
+  };
 }
 
 /** 三维结论的结构化 schema（21 §14 最低档要求）。 */
@@ -152,7 +133,7 @@ ${body ?? "（缺）"}
  * @param {AbortSignal} [args.signal] 调用方的取消信号
  * @returns {Promise<{ok:true,value:{agentId,sessionId,verdict,summary,structured}}|{ok:false,error:{code,message}}>}
  */
-export async function runAutoPreGate1Audit({ subagents, parent, candidate, signal }) {
+export async function runAutoPreGate1Audit({ subagents, parent, candidate, signal, roster = null }) {
   if (subagents === undefined || subagents === null || typeof subagents.startActivation !== "function") {
     return {
       ok: false,
@@ -175,7 +156,9 @@ export async function runAutoPreGate1Audit({ subagents, parent, candidate, signa
     };
   }
 
-  const picked = pickZeroContextProvider(subagents);
+  // 名册缺省时退化为空名册：picker 仍会试已知内置名（spawn），故装配方漏传
+  // 不会让审核整体失效，只是看不到自定义 provider。
+  const picked = pickZeroContextProvider(subagents, roster ?? null);
   if (!picked.ok) {
     // 零上下文是规范要求：继承父上下文的审核者已经读过候选的形成过程，独立性无从
     // 成立。故这里 fail-closed，不退化为「用继承上下文的 provider 凑一次」。

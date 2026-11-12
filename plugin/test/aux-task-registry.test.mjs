@@ -377,7 +377,8 @@ async function runWithTwoTasks(byTaskKey) {
   const structured = structuredOf(byTaskKey);
   let captured = null;
   const subagents = {
-    list: () => ["spawn"],
+    // **没有 list()**：宿主 0.2.2-rc.2 已删除它。候选名改由名册给出（见下方
+    // roster），可用性由 getProvider 现查，与真宿主同一条通道。
     getProvider: () => ({ inheritsParentContext: false, capabilities: { outputSchema: true } }),
     startActivation: async (spec) => {
       captured = spec.request;
@@ -386,6 +387,7 @@ async function runWithTwoTasks(byTaskKey) {
   };
   const provider = createDiscoveryProvider({
     subagents,
+    roster: { names: () => ["spawn"] },
     parent: { id: "p", session: { header: { id: "s" } } },
     signal: new AbortController().signal,
     registry,
@@ -485,7 +487,8 @@ test("N=2 逐任务校验：某任务的校验器**抛错**不掀掉另一件（
     "capacity-maintenance": fakeSecondTask({ validate: () => { throw new Error("校验器爆炸"); } }),
   };
   const subagents = {
-    list: () => ["spawn"],
+    // **没有 list()**：宿主 0.2.2-rc.2 已删除它。候选名改由名册给出（见下方
+    // roster），可用性由 getProvider 现查，与真宿主同一条通道。
     getProvider: () => ({ inheritsParentContext: false, capabilities: { outputSchema: true } }),
     startActivation: async () => ({
       childId: "session-executor",
@@ -494,7 +497,7 @@ test("N=2 逐任务校验：某任务的校验器**抛错**不掀掉另一件（
     }),
   };
   const provider = createDiscoveryProvider({
-    subagents, parent: { id: "p", session: { header: { id: "s" } } },
+    subagents, roster: { names: () => ["spawn"] }, parent: { id: "p", session: { header: { id: "s" } } },
     signal: new AbortController().signal, registry,
     provideWindow: () => ({ items: [{ turn: 1, user: "u", assistant: "这是一段足够长的材料内容原文。" }], truncated: false }),
   });
