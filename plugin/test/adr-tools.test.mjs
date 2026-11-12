@@ -98,13 +98,39 @@ async function governedFixture(base) {
   return { home, repo };
 }
 
-function makeDeps(home, base) {
+function makeDeps(home, base, { hostSeams } = {}) {
   return {
     dshHomePath: dshHome(home),
     workspaceRoot: base,
     sessionPersistence: sessionPersistenceWithRoutingLog(base),
+    // 22 §16 的两道 Human Gate 经 deps.hostSeams 注入（host-seams.js 的 seam 在
+    // 单元测试里不会真正 install）。默认给一个同意的 seam，否则每个 create/retire
+    // 都会 fail-closed；要断言拒绝路径的用例显式传 hostSeams: null 或拒绝版。
+    ...(hostSeams === null ? {} : { hostSeams: hostSeams ?? consentingSeam() }),
   };
 }
+
+/** Fake host-seam registry whose ADR confirmation answerer is driven by `reply`.
+ * Mirrors `sparkSeam` in spark-tools.test.mjs: the gate is injected through
+ * `deps.hostSeams`, NOT through ctx. */
+function adrSeam(reply) {
+  const calls = [];
+  return {
+    calls,
+    requestAdrConsent: async (payload) => {
+      calls.push(payload);
+      return reply(payload);
+    },
+  };
+}
+
+/** Default consenting answerer for the fixtures below. */
+function consentingSeam() {
+  return adrSeam(() => ({ granted: true, answer: "确认" }));
+}
+
+/** 22 §14.1 dedup conclusion required on create. */
+const DEDUP_OK = "查重结论（测试夹具）：与本仓库既有 active ADR 无同主题重叠。";
 
 // ---------------------------------------------------------------------------
 // Registration surface
@@ -151,6 +177,7 @@ test("read/list/write are unavailable outside governed sessions", async () => {
       action: "create",
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
     }, base);
     assert.equal(writeOut.outcome, "unavailable");
     assert.ok(writeOut.gaps[0].includes("not_governed"));
@@ -170,6 +197,7 @@ test("create: completed envelope, object_uid assigned, read-back ok, file on dis
       action: "create",
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
     }, repo);
 
     assert.equal(created.outcome, "completed", JSON.stringify(created));
@@ -199,6 +227,7 @@ test("create: mechanical rejection is outcome=rejected with zero writes", async 
       action: "create",
       frontmatter_draft: { ...validFrontmatterDraft(), decision: "采用方案A。采用方案B。" },
       body_markdown: validBodyMarkdown({ ...validFrontmatterDraft(), decision: "采用方案A。采用方案B。" }),
+      dedup_result: DEDUP_OK,
     }, repo);
 
     assert.equal(out.outcome, "rejected", JSON.stringify(out));
@@ -222,6 +251,7 @@ test("read: created object returns completed with active status and matching fin
       action: "create",
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
     }, repo);
     assert.equal(created.outcome, "completed");
     const uid = created.result.object_uid;
@@ -252,6 +282,7 @@ test("list: active-only by default; status=all includes retired", async () => {
       action: "create",
       frontmatter_draft: mkDraft("甲决策（工具清单）"),
       body_markdown: validBodyMarkdown(mkDraft("甲决策（工具清单）")),
+      dedup_result: DEDUP_OK,
     }, repo);
     assert.equal(active1.outcome, "completed", JSON.stringify(active1));
 
@@ -259,6 +290,7 @@ test("list: active-only by default; status=all includes retired", async () => {
       action: "create",
       frontmatter_draft: mkDraft("乙决策（工具清单）"),
       body_markdown: validBodyMarkdown(mkDraft("乙决策（工具清单）")),
+      dedup_result: DEDUP_OK,
     }, repo);
     assert.equal(active2.outcome, "completed", JSON.stringify(active2));
 
@@ -266,6 +298,7 @@ test("list: active-only by default; status=all includes retired", async () => {
       action: "create",
       frontmatter_draft: mkDraft("丙决策（工具清单）"),
       body_markdown: validBodyMarkdown(mkDraft("丙决策（工具清单）")),
+      dedup_result: DEDUP_OK,
     }, repo);
     assert.equal(terminal.outcome, "completed", JSON.stringify(terminal));
     // active → retired via CAS update
@@ -329,6 +362,7 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
       action: "create",
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
     }, repo);
     assert.equal(created.outcome, "completed");
     const uid = created.result.object_uid;
@@ -397,6 +431,7 @@ test("render: adr read output carries the FULL 64-char fingerprint and semantic 
       action: "create",
       frontmatter_draft: draft,
       body_markdown: validBodyMarkdown(draft),
+      dedup_result: DEDUP_OK,
     }, repo);
     assert.equal(created.outcome, "completed", JSON.stringify(created));
     const uid = created.result.object_uid;
@@ -429,6 +464,7 @@ test("render: retired read output carries retirement_reason (22 §9 terminal fie
       action: "create",
       frontmatter_draft: draft,
       body_markdown: validBodyMarkdown(draft),
+      dedup_result: DEDUP_OK,
     }, repo);
     assert.equal(created.outcome, "completed");
     const uid = created.result.object_uid;
@@ -491,6 +527,7 @@ test("execution_error: a throwing sessionPersistence surfaces execution_error on
       action: "create",
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
     }, repo);
     assert.equal(out.outcome, "execution_error", JSON.stringify(out));
     assert.ok(out.gaps.some((g) => g.includes("persistence store down")), JSON.stringify(out.gaps));
@@ -540,4 +577,239 @@ test("schema + handler: action=correct 拒绝 frontmatter_after / frontmatter_re
   // schema 层：enum 含 correct，且 human_authorization 已公布
   assert.ok(desc.parameters.properties.action.enum.includes("correct"), JSON.stringify(desc.parameters.properties.action.enum));
   assert.ok("human_authorization" in desc.parameters.properties, "human_authorization must be declared for correct");
+});
+
+// ---------------------------------------------------------------------------
+// 22 §16 Human Gate（workcase-3e0ad5ca）
+//
+// 22 §16 把「ADR 的创建」（第 1 项）与「ADR 的终态决定 retired」（第 2 项）定为
+// Human Gate，13 又写明创建是「Human 确认后经受控创建入口落盘」。此前实现侧零
+// 承载：两个写入点都不经任何询问即可落盘，AI 能在没有 Human 回应时让一条对全仓
+// 有法定约束力的决策生效或退出基线。本组用例钉住两条 Gate 的接线。
+//
+// 判据的可分辨性要求：必须经 lib/adr-tools.js 的 toolDescriptorFor 取描述符——
+// 既有 plugin/test/ldvh-tools.test.mjs:1188-1211 那组断言走 lib/ldvh-tools.js 的
+// 聚合 OPERATIONS，而该表不含任何 adr 条目，照抄会空转通过（friction-661831ae）。
+// ---------------------------------------------------------------------------
+
+test("22 §16: create 取确认，seam 收到含查重结论／决定／适用范围的呈报", async () => {
+  await withTemp("adr-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(home, base, { hostSeams: seam }));
+    const out = await run(descriptors, "ldvh_adr_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
+    }, repo);
+    assert.equal(out.outcome, "completed", JSON.stringify(out));
+    assert.equal(seam.calls.length, 1, "the 22 §16 Gate must be asked exactly once");
+    assert.equal(seam.calls[0].action, "create");
+    for (const needle of ["查重结论", "决定陈述", "适用范围", DEDUP_OK]) {
+      assert.ok(seam.calls[0].summary.includes(needle), `呈报 must carry ${needle}: ${seam.calls[0].summary}`);
+    }
+    assert.ok(seam.calls[0].summary.includes(validFrontmatterDraft().decision), "呈报 must carry the decision itself");
+  });
+});
+
+test("22 §16: 无 seam 时 create 返回 unavailable 且零写入（fail-closed）", async () => {
+  await withTemp("adr-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(home, base, { hostSeams: null }));
+    const out = await run(descriptors, "ldvh_adr_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
+    }, repo);
+    assert.equal(out.outcome, "unavailable", JSON.stringify(out));
+    assert.ok(out.gaps.some((g) => g.includes("22 §16")), JSON.stringify(out.gaps));
+    assert.equal((await readdir(join(repo, "ldvh-base", "adrs"))).length, 0, "zero write on a refused gate");
+  });
+});
+
+test("22 §16: Human 拒绝时 create 返回 rejected 且零写入", async () => {
+  await withTemp("adr-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const seam = adrSeam(() => ({ granted: false, reason: "human did not confirm (declined)" }));
+    const descriptors = makeDescriptors(makeDeps(home, base, { hostSeams: seam }));
+    const out = await run(descriptors, "ldvh_adr_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
+    }, repo);
+    assert.equal(out.outcome, "rejected", JSON.stringify(out));
+    assert.equal((await readdir(join(repo, "ldvh-base", "adrs"))).length, 0, "zero write when the Human declines");
+  });
+});
+
+test("22 §16: 空答复（人跳过）也是未决策 —— create 被拒且零写入", async () => {
+  await withTemp("adr-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    // 宿主把空答复表示为 granted:false（selected 为空数组）；此处直接模拟
+    // 「答应了别的问题」这一形态，确认解析不会回落到 answers[0]。
+    const seam = adrSeam(() => ({ granted: false, reason: "no selection" }));
+    const descriptors = makeDescriptors(makeDeps(home, base, { hostSeams: seam }));
+    const out = await run(descriptors, "ldvh_adr_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
+    }, repo);
+    assert.equal(out.outcome, "rejected", JSON.stringify(out));
+    assert.equal((await readdir(join(repo, "ldvh-base", "adrs"))).length, 0);
+  });
+});
+
+test("22 §14.1: 缺 dedup_result 时 create 不提问、直接 invalid_request 且零写入", async () => {
+  await withTemp("adr-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(home, base, { hostSeams: seam }));
+    const out = await run(descriptors, "ldvh_adr_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(out.outcome, "invalid_request", JSON.stringify(out));
+    assert.ok(out.gaps[0].includes("dedup_result"), JSON.stringify(out.gaps));
+    assert.equal(seam.calls.length, 0, "no question is asked before the dedup conclusion exists");
+    assert.equal((await readdir(join(repo, "ldvh-base", "adrs"))).length, 0);
+  });
+});
+
+test("22 §16: 退休（active → retired）取确认，呈报含理由与据实说明全文", async () => {
+  await withTemp("adr-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(home, base, { hostSeams: seam }));
+    const created = await run(descriptors, "ldvh_adr_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
+    }, repo);
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+    const uid = created.result.object_uid;
+    const read1 = await run(descriptors, "ldvh_adr_read", { object_uid: uid }, repo);
+    const fm = read1.result.frontmatter;
+
+    const EVIDENCE = "前提已随 SG-4 落地而消失；既有承载为 specs/20 §11 与 spark-writer.js 的写入前置校验，可被测试持续核对。";
+    seam.calls.length = 0;
+    const retired = await run(descriptors, "ldvh_adr_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: read1.result.fingerprint,
+      frontmatter_after: { ...fm, status: "retired", retirement_reason: "outdated" },
+      body_markdown_after: read1.result.body,
+      change_summary: EVIDENCE,
+    }, repo);
+
+    assert.equal(retired.outcome, "completed", JSON.stringify(retired));
+    assert.equal(seam.calls.length, 1, "the 22 §16 terminal Gate must be asked exactly once");
+    assert.equal(seam.calls[0].action, "retire");
+    for (const needle of ["retired", "outdated", "据实说明", EVIDENCE]) {
+      assert.ok(seam.calls[0].summary.includes(needle), `退休呈报 must carry ${needle}: ${seam.calls[0].summary}`);
+    }
+  });
+});
+
+test("22 §16: 退休被拒时对象保持 active、指纹不变（零写入）", async () => {
+  await withTemp("adr-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const { home: _h } = { home };
+    const descriptors = makeDescriptors(makeDeps(home, base, { hostSeams: consentingSeam() }));
+    const created = await run(descriptors, "ldvh_adr_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
+    }, repo);
+    const uid = created.result.object_uid;
+    const read1 = await run(descriptors, "ldvh_adr_read", { object_uid: uid }, repo);
+
+    const declining = makeDescriptors(makeDeps(home, base, {
+      hostSeams: adrSeam(() => ({ granted: false, reason: "human did not confirm (declined)" })),
+    }));
+    const refused = await run(declining, "ldvh_adr_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: read1.result.fingerprint,
+      frontmatter_after: { ...read1.result.frontmatter, status: "retired", retirement_reason: "outdated" },
+      body_markdown_after: read1.result.body,
+      change_summary: "拟退休（应被拒）",
+    }, repo);
+    assert.equal(refused.outcome, "rejected", JSON.stringify(refused));
+
+    const read2 = await run(descriptors, "ldvh_adr_read", { object_uid: uid }, repo);
+    assert.equal(read2.result.status, "active", "a refused retirement must leave the object active");
+    assert.equal(read2.result.fingerprint, read1.result.fingerprint, "zero write: fingerprint unchanged");
+  });
+});
+
+test("22 §16: active → active 勘误更新不触发 Gate（22 §9.3 不是 Human Gate 对象）", async () => {
+  await withTemp("adr-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(home, base, { hostSeams: seam }));
+    const created = await run(descriptors, "ldvh_adr_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+      dedup_result: DEDUP_OK,
+    }, repo);
+    const uid = created.result.object_uid;
+    const read1 = await run(descriptors, "ldvh_adr_read", { object_uid: uid }, repo);
+    seam.calls.length = 0;
+    const errata = await run(descriptors, "ldvh_adr_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: read1.result.fingerprint,
+      frontmatter_after: { ...read1.result.frontmatter, trigger_signal: "当 SG-5 落地时重审本决策" },
+      body_markdown_after: read1.result.body,
+      change_summary: "勘误：更新重审信号",
+    }, repo);
+    assert.equal(errata.outcome, "completed", JSON.stringify(errata));
+    assert.equal(seam.calls.length, 0, "an errata update must not be gated");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 描述符：awaitsHumanDecision 的消费与旁及工具的 timeoutMs
+//
+// **必须经 lib/adr-tools.js 的 toolDescriptorFor**：lib/ldvh-tools.js 的聚合
+// OPERATIONS 不含 adr 条目，其 toolDescriptor 早已是条件展开——照它的断言写这个
+// 用例会空转通过，测不到本改动（friction-661831ae 的同型失效）。
+// ---------------------------------------------------------------------------
+
+test("descriptor: adr_write 无 timeoutMs，adr_read/adr_list 仍保留正上界", async () => {
+  const { toolDescriptorFor, OPERATIONS } = await import("../lib/adr-tools.js");
+  const descs = {};
+  for (const [key, op] of Object.entries(OPERATIONS)) {
+    descs[op.toolName] = toolDescriptorFor(key, op, async () => ({}));
+  }
+  assert.equal(
+    "timeoutMs" in descs["ldvh_adr_write"],
+    false,
+    "adr write must drop timeoutMs — a 30s deadline would DISCARD a late Human answer and leave the 22 §16 Gate unenforced"
+  );
+  for (const name of ["ldvh_adr_read", "ldvh_adr_list"]) {
+    assert.equal(descs[name].timeoutMs, 30000, `${name} is purely mechanical and must keep its bounded budget`);
+  }
+});
+
+test("descriptor: OPERATIONS declares awaitsHumanDecision for adr-write-object", async () => {
+  const { OPERATIONS } = await import("../lib/adr-tools.js");
+  assert.equal(OPERATIONS["adr-write-object"].awaitsHumanDecision, true);
+  assert.equal(OPERATIONS["adr-read-object"].awaitsHumanDecision, undefined);
+  assert.equal(OPERATIONS["adr-list-objects"].awaitsHumanDecision, undefined);
+});
+
+test("schema: dedup_result 已公布且 create 需要它", async () => {
+  const { toolDescriptorFor, OPERATIONS } = await import("../lib/adr-tools.js");
+  const desc = toolDescriptorFor("adr-write-object", OPERATIONS["adr-write-object"], async () => ({}));
+  assert.ok("dedup_result" in desc.parameters.properties, "dedup_result must be declared in the schema");
+  assert.equal(typeof desc.parameters.properties.dedup_result.type, "string");
 });

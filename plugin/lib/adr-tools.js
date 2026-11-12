@@ -54,6 +54,19 @@ const OPERATIONS = {
   "adr-write-object": {
     toolName: "ldvh_adr_write",
     writeShaped: true,
+    // `create` and the terminal transition (active → retired) are the two 22 §16
+    // Human Gates carried by a host question (requestAdrConsent), so this tool
+    // can block on a person. The timeout budget is PER TOOL, not per action, so
+    // the whole tool must declare no wall-clock deadline — otherwise every CAS
+    // update silently pays for the Human wait and a late answer is DISCARDED by
+    // a 30s timeout, leaving the gate unenforced in real compositions. See
+    // `spark-tools.js` for the identical discipline and the descriptor factory
+    // for how the flag is consumed.
+    //
+    // Known cost, registered in workcase-3e0ad5ca: the same flag removes the
+    // deadline from `correct` and from `active → active` errata updates too,
+    // because one descriptor carries all three actions.
+    awaitsHumanDecision: true,
     summary: "Controlled write of ADR fact objects: create (after Human-confirmed proposal incl. dedup result), CAS update with change_log (active→active is errata-only — decision/scope field-identical, 22 §9.3; active→retired is terminal, specs/03 §9.4–§9.5), and correct — the 22 §13 terminal-record fact correction that rewrites a retired ADR's body while every frontmatter field (decision/scope/status/retirement_reason/relations/retired_at) is inherited verbatim; correct takes no frontmatter input at all, requires Human authorization and rejects no-op writes",
     effect: "may_change_state"
   }
@@ -258,6 +271,19 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("adr-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 决策背景') are required for action=create", "create");
     }
+    // 22 §14.1「查重已执行」：创建提案必含查重结论。语义判断属 AI（02 §9.2 禁止
+    // 机械相似度裁决），但「有没有记录」是可判定的——未记录即不得提请（22 §17 第 1 项）。
+    const dedupResult = args?.dedup_result;
+    if (typeof dedupResult !== "string" || dedupResult.trim().length === 0) {
+      return invalidRequest("adr-write-object", "dedup_result is required for action=create (22 §6.2/§14.1): state the semantic dedup conclusion against existing active ADRs (e.g. \"no same-topic ADR found\" / \"overlaps <uid> but the decision is materially different\"). Dedup is not mechanically decidable, but an unrecorded one is a Stop Condition.", "create");
+    }
+    // 22 §16 第 1 项（创建是 Human Gate）：写入前取得 Human 的明确确认。
+    const gate = await requestAdrGate(deps, exec, {
+      action: "create",
+      objectTitle: typeof draft.title === "string" ? draft.title : undefined,
+      summary: adrCreateReport(draft, dedupResult),
+    });
+    if (!gate.ok) return gate.envelope;
     const created = await createAdrObject({
       factSourceRoot,
       frontmatterDraft: draft,
@@ -389,6 +415,25 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return invalidRequest("adr-write-object", "change_summary is required for action=update (the change_log summary; for a retirement it carries the 22 §10 evidence statement)", "update");
   }
+  // 22 §16 第 2 项（终态决定 retired 是 Human Gate）：`active → retired` 的写入
+  // 前取得 Human 确认。只在真正进入终态时提问——`active → active` 勘误更新是
+  // 22 §9.3 的受控更新，不是本 Gate 的对象，故不打断它。
+  if (frontmatterAfter.status === "retired") {
+    // 读当前对象只为两件事：确认它此刻是 active（否则不是本 Gate 的对象，交给
+    // writer 以 status_terminal 拒绝），以及取 title 用于询问外壳。
+    const current = await readAdrObject({ factSourceRoot, objectUid });
+    const currentTitle = current.ok && typeof current.value.frontmatter?.title === "string"
+      ? current.value.frontmatter.title
+      : undefined;
+    if (current.ok && current.value.frontmatter?.status === "active") {
+      const gate = await requestAdrGate(deps, exec, {
+        action: "retire",
+        objectTitle: currentTitle,
+        summary: adrRetireReport(frontmatterAfter, changeSummary),
+      });
+      if (!gate.ok) return gate.envelope;
+    }
+  }
   const updated = await updateAdrObject({
     factSourceRoot,
     objectUid,
@@ -436,6 +481,107 @@ async function executeWriteObject(args, exec, deps) {
     verification: { checks: ["cas-baseline", "frontmatter-closed-set", "decision-single-sentence", "errata-boundary", "body-structure", "carrier-coherence", "relations-contract", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
     follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
   });
+}
+
+/**
+ * 22 §16 呈报内容 for create — what the Human needs to judge before confirming.
+ *
+ * 22 §13 要求「AI 产出提案对象（含查重结论）」，22 §14.1 把「创建提案含查重
+ * 结论」列为验证行。20:377 对同一类 Gate 的要求是「取得时须向 Human 呈报下列
+ * 内容」——本条按该形态给出 ADR 的判断材料：查重结论 + decision + scope。
+ *
+ * 空行分段（与 sparkCreateReport 同形）：宿主把呈报按 Markdown 渲染，单个 `\n`
+ * 不产生段落，四个字段会塌成一段，字段名与值齐平被误读为上一行续行。
+ */
+function adrCreateReport(draft, dedupResult) {
+  const lines = [];
+  lines.push(`查重结论：${String(dedupResult).trim()}`);
+  const decision = typeof draft?.decision === "string" ? draft.decision.trim() : "";
+  lines.push(`决定陈述：${decision.length > 0 ? decision : "（缺失）"}`);
+  const scope = typeof draft?.scope === "string" ? draft.scope.trim() : "";
+  lines.push(`适用范围：${scope.length > 0 ? scope : "（缺失）"}`);
+  return lines.join("\n\n");
+}
+
+/**
+ * 22 §16 呈报内容 for the terminal transition (retired).
+ *
+ * 22 §10 requires the retirement_reason to be substantiated: superseded 指明替代
+ * 者与变化实质；absorbed 指明承接的 Norm 方向；outdated / out-of-scope 说明哪个
+ * 前提变了；abolished 指明 Human 的作用范围与既有承载。那段据实说明落在本次
+ * 流转的 `change_log.summary` 上（22 §13），故这里把它**全文**呈报给 Human。
+ *
+ * 本函数**不判断**那段说明是否成立——「承载列得出列不出」是 §10/§9.2 的语义判定，
+ * 归 Human；机械层只保证「Human 看到了它」。
+ */
+function adrRetireReport(frontmatterAfter, changeSummary) {
+  const lines = [];
+  const reason = typeof frontmatterAfter?.retirement_reason === "string" ? frontmatterAfter.retirement_reason.trim() : "";
+  lines.push(`拟转状态：retired（理由：${reason.length > 0 ? reason : "（缺失）"}）`);
+  const relations = Array.isArray(frontmatterAfter?.relations) ? frontmatterAfter.relations : [];
+  if (relations.length > 0) {
+    const targets = relations
+      .map((r) => {
+        const uid = typeof r?.target?.object_uid === "string" ? r.target.object_uid : "";
+        return `${String(r?.relation_key ?? "?")} → ${uid.length > 0 ? objectRef({ object_uid: uid }) : "?"}`;
+      })
+      .join("；");
+    lines.push(`关系目标：${targets}`);
+  }
+  lines.push(`据实说明（change_log.summary 全文）：${String(changeSummary).trim()}`);
+  return lines.join("\n\n");
+}
+
+/**
+ * Route one of the two mechanically-carried 22 §16 Gates through the host
+ * question entry. Fail-closed on every path that is not an explicit
+ * affirmative: no answerer, a failed ask, or a declined/unchosen answer.
+ *
+ * 与 `requestSparkGate`（spark-tools.js:337）同形。22 §16 第 3 项（ADR 类型
+ * 取消或合并）**刻意不在此**——该动作无实现入口，本 seam 不承载它，也不得据
+ * 其存在声称第 3 项已获承载。
+ */
+async function requestAdrGate(deps, exec, { action, objectTitle, summary }) {
+  const gate = deps?.hostSeams;
+  if (gate === undefined || typeof gate.requestAdrConsent !== "function") {
+    return {
+      ok: false,
+      envelope: envelope("adr-write-object", "unavailable", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [],
+        gaps: ["ctx.userQuestions.ask is not wired into this composition, so the 22 §16 Human Gate "
+          + "cannot be obtained. 22 §13/§16 require an explicit Human confirmation before this action; "
+          + "REPORT TO HUMAN — an unconfirmed ADR write must not silently become a stable decision."],
+        verification: { checks: ["governance-scope", "human-confirmation"], passed: false },
+        follow_up: ["human must confirm this ADR action through a session that provides an answerer, then retry"]
+      })
+    };
+  }
+  const consent = await gate.requestAdrConsent({
+    action,
+    objectTitle,
+    summary,
+    // The host forwarder reaches the browser answerer only when the request
+    // carries the live agent — without it the waterfall exhausts to NO_PROVIDER.
+    agent: exec?.agent,
+    // This ask has no wall-clock deadline (`awaitsHumanDecision` in OPERATIONS):
+    // the caller's signal is the only release for an abandoned prompt, and
+    // forwarding it makes the ask abort (ASK_ABORTED) rather than hang.
+    signal: exec?.signal,
+  });
+  if (consent?.granted === true) return { ok: true };
+  return {
+    ok: false,
+    envelope: envelope("adr-write-object", "rejected", {
+      result: null,
+      scope: { requested: action, completed: [], not_completed: [action] },
+      sources: [],
+      gaps: [`22 §16 requires an explicit Human confirmation for this action: ${consent?.reason ?? "no confirmation obtained"}`],
+      verification: { checks: ["governance-scope", "human-confirmation"], passed: false },
+      follow_up: ["obtain the Human's explicit confirmation, then retry — do not proceed on an assumed consent"]
+    })
+  };
 }
 
 function writeRejected(operationKey, failureResult, factSourceRoot) {
@@ -575,6 +721,7 @@ function parameterSchemaFor(operationKey) {
         properties: {
           action: { type: "string", enum: ["create", "update", "correct"] },
           frontmatter_draft: adrFrontmatter,
+          dedup_result: { type: "string", description: "create (required): the semantic dedup conclusion against existing active ADRs (22 §6.2/§14.1 — 02 §9.2 forbids a mechanical similarity verdict, so the conclusion stays with you, but it is required and is presented to the Human at the 22 §16 Gate). An unrecorded dedup is a Stop Condition (22 §17 item 1)." },
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 决策背景' (H2 sections 决策背景/决定/备选与理由/后果/适用范围, plus 证据 iff urls non-empty; the H1 is generated from title)" },
           object_uid: { type: "string", description: "update/correct: target object" },
           expected_fingerprint: { type: "string", description: "update/correct: CAS baseline fingerprint from your last precise read" },
@@ -600,7 +747,7 @@ export function toolDescriptorFor(operationKey, operation, handler) {
     name: operation.toolName,
     description: operation.summary,
     parameters: toParameterSpec(parameterSchemaFor(operationKey)),
-    timeoutMs: 30000,
+    ...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 },
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);
