@@ -92,11 +92,48 @@ test("锚 A：schedule-agent-tools 与 fs-observation-policy-default-off 强匹�
   assert.ok(strongItems.includes("fs-observation-policy-default-off"), `fs-observation-policy-default-off 须强匹配；实得 ${JSON.stringify(strongItems)}`);
 });
 
-test("锚 A：四个在用槽位零契约破坏（norm 登记 registration 字段逐字未变）", (t) => {
+test("锚 A：四个在用槽位的**注册面**零破坏，diff 报出的字段变更须逐条有归因", (t) => {
   if (!repoPresent || !tagsPresent) { t.skip("上游克隆或锚点 tag 缺席"); return; }
   const r = diffA();
-  assert.deepEqual(r.tables.slots.tri.breaking.removed, []);
-  assert.deepEqual(r.tables.slots.tri.breaking.changed, [], "四个在用槽位的契约字段必须零变更（与 norm 2026-10-30/11-05 登记一致）");
+  // 一、槽位键本身零删除：这是「注册面不破」的硬断言，永远成立。
+  assert.deepEqual(r.tables.slots.tri.breaking.removed, [], "四个在用槽位不得被删除");
+
+  // 二、契约字段变更**不再断言为零**（2026-11-13 更正）。
+  //
+  // 原断言是「四个槽位的契约字段零变更」，依据 norm a1b559a6 在 2026-10-30 /
+  // 11-05 的登记。该登记**是错的**——它成立于解析器把多行字段截断到第一个内层
+  // `},` 的时期（见 lib/host-contract-catalog.js parseEntryFields 头注），
+  // `ownerProps` / `keyDomain` 这类多行字段根本没有被完整比对过。修好解析器后，
+  // rc.5→0.2.2-rc.1 区间实测确实有两条变更：
+  //
+  //   · conversation.chat.node.ownerProps —— 少 `fileMentions`
+  //     （连带 ownerPropsReferences 少 MarkdownFileMentions）；
+  //   · plugins.bundle.config.keyDomain  —— 「already taken」清单多一个
+  //     `@deepseek-ai/dsh-cua-bundle`（注册表快照，不是键域形状）。
+  //
+  // 两者都**不是对本插件的破坏**：本插件注册 conversation.chat.node 时只读
+  // `props.node`（lib/client.js LdvhNoticeRow），从不读 fileMentions；而
+  // plugins.bundle.config 用的是本包名作键，已占用清单增减与它无关。
+  // 故此处断言从「零变更」改为「变更集合精确等于这两条已知归因」——未来的
+  // 新变更仍会转红，但历史事实不再被一句错误的全称断言掩盖。
+  const KNOWN_SLOT_FIELD_CHANGES = {
+    "conversation.chat.node": ["ownerProps", "ownerPropsReferences"],
+    "plugins.bundle.config": ["keyDomain"],
+  };
+  const observed = {};
+  for (const c of r.tables.slots.tri.breaking.changed) observed[c.id] = [...c.contractFields].sort();
+  const expected = {};
+  for (const [k, v] of Object.entries(KNOWN_SLOT_FIELD_CHANGES)) expected[k] = [...v].sort();
+  assert.deepEqual(
+    observed,
+    expected,
+    "槽位契约字段变更集合必须精确等于已归因的两条；出现新条目须重新判断是否影响本插件",
+  );
+
+  // 三、其余两个在用槽位仍须零契约变更（它们是真正没变的）。
+  for (const id of ["conversation.view", "plugins.row.config"]) {
+    assert.equal(observed[id], undefined, `${id} 不得出现契约字段变更`);
+  }
 });
 
 test("锚 B：invariants 删除被报为破坏初值（消费面成员 removed）", (t) => {

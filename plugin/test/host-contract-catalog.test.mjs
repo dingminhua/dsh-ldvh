@@ -120,6 +120,35 @@ test("parseEntryFields 对无可解析字段的条目 fail-closed", () => {
   assert.throws(() => parseEntryFields("  garbage without fields\n"), /no parseable fields/u);
 });
 
+// —— 回归：多行 methods 字段曾被截断到第一条方法 ——
+//
+// 缺陷形态：旧实现以「什么缩进都匹配的 `^\s*\},?$` 行」作为条目闭合，
+// 于是 `methods: [` 里第一个 `      },` 就终结了解析，methods 只剩第一条。
+// 后果是差分器对**整个服务方法面**只比较第 1 条方法，真实的破坏性变更
+// （实测 dsh-v0.2.2-rc.1→rc.2 删除 `ctx.subagents.list()`）被报成「破坏：无」。
+// 该截断不报错、看起来像一次成功解析，故必须由这里逐字钉住完整性。
+test("parseEntryFields 的 methods 多行字段必须解析完整（不得在首个内层 }, 截断）", () => {
+  const api = parseCatalogArray(API_FIXTURE, API_ARRAYS[0]);
+  const fields = parseEntryFields(api.entries.get("tools"));
+  const methods = fields.get("methods");
+  // 两条方法都在：第一条在，最后一条也在——只检查第一条不足以抓住截断。
+  assert.ok(methods.includes("register(d: Tool)"), "methods 含第一条方法");
+  assert.ok(methods.includes("guard(g: Guard)"), "methods 含第二条方法（截断时会丢失）");
+  assert.equal((methods.match(/signature:/gu) ?? []).length, 2, "signature 条数与条目内方法数一致");
+  assert.ok(methods.trimEnd().endsWith("]"), "methods 值以 ] 收尾，未把条目闭合并进值里");
+  // 条目其余字段不受影响：截断修复后 key/summary 仍各归其位。
+  assert.equal(fields.get("key"), "'tools'");
+  assert.equal(fields.get("summary"), "'Register and guard tools.'");
+});
+
+test("parseEntryFields 不把字符串内的 } 当作条目闭合（深度扫描须跳过字面量与注释）", () => {
+  const api = parseCatalogArray(API_FIXTURE, API_ARRAYS[0]);
+  const tools = parseEntryFields(api.entries.get("tools"));
+  // 'a {b} in a string' 里的 } 若被当作闭合，methods 会在此处被腰斩。
+  assert.ok(tools.get("methods").includes("a {b} in a string"), "字符串内的 } 不得移动边界");
+  assert.ok(tools.get("methods").includes("(paren)"), "字符串内的 ( 不得移动边界");
+});
+
 test("FIELD_LAYERS 覆盖全部四张表，且契约/噪音字段互斥非空", () => {
   for (const name of ["SERVICE_API", "EVENT_API", "TYPE_API", "CLIENT_SLOT_API"]) {
     const layer = FIELD_LAYERS[name];
