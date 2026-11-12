@@ -837,8 +837,21 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     // compositions always provide it, but a minimal test/fabricated ctx may
     // not — absence means there is no roster to check against, which we
     // treat as "not a root we can verify" (skip, fail-closed).
+    //
+    // 2026-11-12 修复「新建会话失败：agentsService.roots is not a function」：
+    // 宿主 dsh-agent 0.2.2-rc.2 的 AgentRegistry **没有 roots()**（只有 get/list，
+    // 且 entry 无 owner 字段），此处却无条件调用 → TypeError 冒泡到
+    // `agent/created` 监听器 → agents.create 整体失败 → UI 报 gateway/internal。
+    //
+    // 修复：`roots()` 缺失时**放行**而非拦截。理由：这道关的唯一作用是把子代理
+    // 排除在 root 路径外，而子代理已由上方 parentSession/delegationDepth 判据
+    // 独立拦截（installChild 后即 return，压根到不了这里）。因此在缺少 roots()
+    // 的宿主上，本关是**冗余**的——用 list() 过滤也拿不到 owner 信息（entry
+    // 无 owner 字段），退化为「有 roots() 就用，没有就当根」是唯一不失真的选择。
+    // 反向（缺失即 return）会让旧宿主上的**所有**会话都装不上，等于全盘失效。
     const agentsService = ctx.get("agents");
-    if (agentsService === undefined || !agentsService.roots().includes(agent)) return;
+    if (agentsService === undefined) return;
+    if (typeof agentsService.roots === "function" && !agentsService.roots().includes(agent)) return;
 
     const lifecycle = new AgentLifecycle(agent);
     agents.set(agentId, lifecycle);
@@ -2133,9 +2146,17 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // 且父先于子注册）：子代理经 install() 的 origin/parentSession 判据走
       // installChild()，父记录先装好，子据此继承委派链状态。`list()` 不存在时
       // （旧宿主 / 虚构 ctx）回退到 `roots()`，行为与修复前一致。
+      //
+      // 2026-11-12：`roots()` 回退同样要做存在性判断——宿主 0.2.2-rc.2 没有该
+      // 方法，无保护调用会抛 TypeError 并打断整个 adopt 循环。两者都没有时
+      // 按「无可收养对象」处理（空循环），不阻断插件启动。
       const agentsService = ctx.get("agents");
       if (agentsService !== undefined) {
-        const roster = typeof agentsService.list === "function" ? agentsService.list() : agentsService.roots();
+        const roster = typeof agentsService.list === "function"
+          ? agentsService.list()
+          : typeof agentsService.roots === "function"
+            ? agentsService.roots()
+            : [];
         for (const agent of roster) {
           const adopted = agentIdOf(agent);
           install(agent);
