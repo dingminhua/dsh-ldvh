@@ -92,11 +92,11 @@ test("锚 A：schedule-agent-tools 与 fs-observation-policy-default-off 强匹�
   assert.ok(strongItems.includes("fs-observation-policy-default-off"), `fs-observation-policy-default-off 须强匹配；实得 ${JSON.stringify(strongItems)}`);
 });
 
-test("锚 A：四个在用槽位的**注册面**零破坏，diff 报出的字段变更须逐条有归因", (t) => {
+test("锚 A：三个在用槽位的**注册面**零破坏，diff 报出的字段变更须逐条有归因", (t) => {
   if (!repoPresent || !tagsPresent) { t.skip("上游克隆或锚点 tag 缺席"); return; }
   const r = diffA();
   // 一、槽位键本身零删除：这是「注册面不破」的硬断言，永远成立。
-  assert.deepEqual(r.tables.slots.tri.breaking.removed, [], "四个在用槽位不得被删除");
+  assert.deepEqual(r.tables.slots.tri.breaking.removed, [], "在用槽位不得被删除");
 
   // 二、契约字段变更**不再断言为零**（2026-11-13 更正）。
   //
@@ -111,13 +111,17 @@ test("锚 A：四个在用槽位的**注册面**零破坏，diff 报出的字段
   //   · plugins.bundle.config.keyDomain  —— 「already taken」清单多一个
   //     `@deepseek-ai/dsh-cua-bundle`（注册表快照，不是键域形状）。
   //
-  // 两者都**不是对本插件的破坏**：本插件注册 conversation.chat.node 时只读
-  // `props.node`（lib/client.js LdvhNoticeRow），从不读 fileMentions；而
-  // plugins.bundle.config 用的是本包名作键，已占用清单增减与它无关。
-  // 故此处断言从「零变更」改为「变更集合精确等于这两条已知归因」——未来的
+  // **2026-11-13 起 conversation.chat.node 退出消费面**（宿主 0.2.2-rc.2 让
+  // Context 注入行原生可见，本插件不再注册该槽位，详见 client-contract.test.mjs
+  // 与 lib/client.js）。故它不再参与本断言的「消费面变更」比对，期望集合随之
+  // 只剩 plugins.bundle.config 一条。**该槽位的历史变更是已知且无需处置的**
+  // （本插件当年只读 `props.node`，从不读 fileMentions），此处保留说明而不是
+  // 让历史事实随条目移除而消失。
+  //
+  // 剩余这条不是对本插件的破坏：plugins.bundle.config 用的是本包名作键，
+  // 已占用清单增减与它无关。故断言保持「变更集合精确等于已归因集合」——未来的
   // 新变更仍会转红，但历史事实不再被一句错误的全称断言掩盖。
   const KNOWN_SLOT_FIELD_CHANGES = {
-    "conversation.chat.node": ["ownerProps", "ownerPropsReferences"],
     "plugins.bundle.config": ["keyDomain"],
   };
   const observed = {};
@@ -127,7 +131,7 @@ test("锚 A：四个在用槽位的**注册面**零破坏，diff 报出的字段
   assert.deepEqual(
     observed,
     expected,
-    "槽位契约字段变更集合必须精确等于已归因的两条；出现新条目须重新判断是否影响本插件",
+    "槽位契约字段变更集合必须精确等于已归因的条目；出现新条目须重新判断是否影响本插件",
   );
 
   // 三、其余两个在用槽位仍须零契约变更（它们是真正没变的）。

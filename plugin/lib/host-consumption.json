@@ -33,7 +33,6 @@
   ],
   "clientSlots": [
     { "key": "conversation.view", "callSites": ["lib/client.js"], "note": "ldvh 会话视图" },
-    { "key": "conversation.chat.node", "callSites": ["lib/client.js"], "note": "ldvh-notice 注入行渲染器" },
     { "key": "plugins.bundle.config", "callSites": ["lib/client.js"], "note": "设置卡片（configForms 承载）" },
     { "key": "plugins.row.config", "callSites": ["lib/client.js"], "note": "插件行配置" }
   ],
@@ -44,7 +43,6 @@
   "clientServices": [
     { "key": "slots", "consumedVia": "inject", "callSites": ["lib/client.js"], "note": "客户端面服务，无仓内生成物目录；uncheckable，升级时经 Cordis Inspect client Service 旁证" },
     { "key": "locale", "consumedVia": "inject", "callSites": ["lib/client.js"], "note": "同上" },
-    { "key": "uiConversation", "consumedVia": "inject", "callSites": ["lib/client.js"], "note": "同上；@deepseek-ai/dsh-client-ui-conversation 为声明的 client.inject 依赖" },
     { "key": "configForms", "consumedVia": "ctx.inject(soft)", "callSites": ["lib/client.js"], "note": "软注入（宿主缺失时降级），同上" },
     { "key": "betterSidebar", "consumedVia": "ctx.inject(soft)", "callSites": ["lib/client.js"], "note": "软注入，同上" }
   ],
