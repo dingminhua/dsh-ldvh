@@ -8,7 +8,8 @@ import { test } from 'node:test';
  *
  * 该类型在 28 号规范里是独立的第 8 类事实对象。本测试锁定它的呈现面与后端
  * 类型面不再回退：类型注册、状态闭集、判据类型闭集的本地化、列表卡片分支、
- * 详情阅读布局、导航入口、以及**最重要的两条语义边界**——
+ * 详情阅读布局、导航入口的**撤除**（2026-11-13 Human 定案：侧栏不设子目标
+ * 入口，子目标由聚焦页目标区承载并下钻）、以及**最重要的两条语义边界**——
  *
  *   1. 名下工作为空时必须是「未声明或未拆解」的歧义标注，**不得**折算成进度 0；
  *   2. 达成态不得由「名下工单都关了」推出（28 §18 红线 3）。
@@ -234,28 +235,32 @@ test('聚焦目标区不呈现作废子目标，但详情与投影仍保留（28
     '投影层不得按状态过滤子目标——过滤只在聚焦呈现层');
 });
 
-test('导航与图标：subgoal 有项目态与联邦态入口，图标色相独立', () => {
+test('导航：侧栏不设子目标入口（2026-11-13 Human 定案），图标与色相仍在', () => {
   const sidebar = read('src/components/Sidebar.tsx');
   const icons = read('src/components/SemanticIcon.tsx');
   const categoryColors = read('src/utils/categoryColors.ts');
   const typeColors = read('api/services/typeColors.ts');
 
-  assert.match(sidebar, /'\/objects\/subgoal'/, '项目态导航应有 subgoal 入口');
-  assert.match(sidebar, /'\/federation\/objects\/subgoal'/, '联邦态导航应有 subgoal 入口');
+  // 2026-11-13（Human 定案）：**侧栏撤除子目标入口**（项目态与联邦态同）。
+  //
+  // 撤的是**导航入口**，不是这个事实类型：28 号载体、类型注册、列表页、详情页、
+  // 聚焦页目标区的呈现与下钻都在。故此处断言「侧栏里没有子目标入口」，
+  // 而不是断言「子目标不存在」。
+  assert.doesNotMatch(sidebar, /to: '\/objects\/subgoal'/, '项目态导航不应有 subgoal 入口');
+  assert.doesNotMatch(sidebar, /to: '\/federation\/objects\/subgoal'/, '联邦态导航不应有 subgoal 入口');
+  assert.doesNotMatch(sidebar, /nav\.subgoals/, '导航不应再引用子目标的导航词条');
+  assert.doesNotMatch(sidebar, /OBJECT_TYPE_ICONS\.subgoal/, '侧栏不应再取子目标类型图标');
 
-  // 位置：紧接「聚焦」（Human 定案 2026-11-01「子目标放在聚焦后」）。
-  // 项目态与联邦态两个数组都要满足，否则两处导航次序会分叉。
+  // 导航次序：聚焦之后直接是火花——子目标原在此处（2026-11-01 定案），现已撤除。
   const navBlock = sidebar.slice(sidebar.indexOf('const NAV_ITEMS'), sidebar.indexOf('const FEDERATION_NAV_ITEMS'));
-  const fedBlock = sidebar.slice(sidebar.indexOf('const FEDERATION_NAV_ITEMS'));
-  for (const [name, block, prefix] of [['项目态', navBlock, '/objects/subgoal'], ['联邦态', fedBlock, '/federation/objects/subgoal']] as const) {
-    const first = block.indexOf("labelKey: 'nav.cognition'");
-    const at = block.indexOf(prefix);
-    assert.ok(first >= 0 && at > first, `${name}导航应有 subgoal 且排在聚焦之后`);
-    // 聚焦与子目标之间除空白与注释外不得夹其它入口。
-    const between = block.slice(first, at);
-    const otherEntries = between.match(/\{ to:/g) ?? [];
-    assert.equal(otherEntries.length, 1, `${name}导航中 subgoal 应紧接聚焦（中间不得夹其它入口）`);
-  }
+  const first = navBlock.indexOf("labelKey: 'nav.cognition'");
+  const sparkAt = navBlock.indexOf("labelKey: 'nav.sparks'");
+  assert.ok(first >= 0 && sparkAt > first, '聚焦之后应直接是火花');
+  const between = navBlock.slice(first, sparkAt);
+  const otherEntries = between.match(/\{ to:/g) ?? [];
+  assert.equal(otherEntries.length, 1, '聚焦与火花之间不得夹其它入口（子目标已撤除）');
+
+  // 图标与色相仍在：子目标的卡面、详情头、引用行仍要取同一枚图标与同一色值。
   assert.match(icons, /subgoal: Milestone/, '应登记 subgoal 图标');
   // 前后端色值必须一致（typeColors 注释也要求对齐）。
   const front = /subgoal: '(#[0-9a-f]{6})'/.exec(categoryColors);
@@ -267,6 +272,42 @@ test('导航与图标：subgoal 有项目态与联邦态入口，图标色相独
   const goal = /goal: '(#[0-9a-f]{6})'/.exec(categoryColors);
   assert.ok(goal, 'CATEGORY_COLORS 应登记 goal 色');
   assert.notEqual(front[1], goal[1], 'subgoal 与 goal 不得同色');
+
+  // **例外反向断言**（呈现收窄登记表 `docs/13` §3 第四腿）：本条收窄只针对
+  // **侧栏入口**——子目标仍由帮助页对象地图解释（也仍由聚焦页目标区承载）。
+  // 撤掉侧栏入口若顺手把导览里那一类也删了，子目标就成了「Web 上无处可寻」
+  // 的类型；此处把这条例外钉住。
+  const help = read('src/pages/Help.tsx');
+  assert.ok(
+    help.includes('help.objects.subgoal.what'),
+    '子目标仍须在帮助页对象地图上被解释',
+  );
+});
+
+test('子目标详情页的返回落回聚焦页，不再回列表（2026-11-13 Human 定案）', () => {
+  const objectDetail = read('src/pages/ObjectDetail.tsx');
+  const federationObjects = read('src/pages/FederationObjects.tsx');
+
+  // 侧栏已无子目标入口，列表页 `/objects/subgoal` 不再有导航落点；详情页再退回
+  // 它就是把读者送进一条死路。故子目标的返回一律回聚焦页（联邦态回联邦聚焦）。
+  assert.match(
+    objectDetail,
+    /const returnPath = objType === 'subgoal'/,
+    '子目标的返回目标须单独判定',
+  );
+  assert.match(
+    objectDetail,
+    /fromPath\?\.startsWith\('\/federation'\) \? '\/federation' : '\/'/,
+    '子目标详情页应回聚焦页（联邦上下文回联邦聚焦）',
+  );
+
+  // 联邦上下文从哪来：联邦聚合列表跳详情时须带 `from`——否则详情页无从判断
+  // 读者是从联邦进来的（此前联邦跳详情不带 `from`，返回会落到项目态列表）。
+  assert.match(
+    federationObjects,
+    /state: \{ from: `\/federation\/objects\/\$\{currentType\}` \}/,
+    '联邦聚合列表跳详情须带 from',
+  );
 });
 
 test('近期动态覆盖 subgoal（加入 OBJECT_TYPES 时不得遗漏）', () => {

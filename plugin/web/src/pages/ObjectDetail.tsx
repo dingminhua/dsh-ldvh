@@ -170,7 +170,14 @@ export default function ObjectDetail() {
   const listSearch = searchParams.toString();
   const listPath = `/objects/${objType}${listSearch ? `?${listSearch}` : ''}`;
   const currentPath = `${location.pathname}${location.search}`;
-  const returnPath = getReturnPath(location.state, currentPath) ?? listPath;
+  const fromPath = getReturnPath(location.state, currentPath);
+  // 子目标的详情页**不再回列表**（Human 定案 2026-11-13）：侧栏的「子目标」入口
+  // 已撤除，子目标由聚焦页目标区承载，回一个没有入口的列表页是死路。故子目标
+  // 一律回聚焦页——项目态回 `/`，联邦态回 `/federation`（联邦上下文由来源
+  // 路径判定：联邦聚合列表跳详情时带 `from`）。
+  const returnPath = objType === 'subgoal'
+    ? (fromPath?.startsWith('/federation') ? '/federation' : '/')
+    : (fromPath ?? listPath);
 
   if (!isReadableFact(readMeta)) {
     return <FactReadFailurePage returnPath={returnPath} type={objType} id={objId} meta={readMeta} />;

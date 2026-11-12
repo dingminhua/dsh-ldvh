@@ -127,7 +127,11 @@ export default function FederationObjects() {
   const openObject = (item: FederationObjectItem) => {
     // 进入对象所属项目的单项目详情——联邦卡是入口不是第二阅读器。
     selectProject(item.federationProject.id);
-    navigate(`/objects/${currentType}/${item.id}`);
+    // 带 `from`：详情页据此知道读者是从**联邦聚合列表**进来的，返回时回联邦侧
+    // （子目标详情页一律回聚焦页，见 ObjectDetail 的 returnPath 判定）。
+    navigate(`/objects/${currentType}/${item.id}`, {
+      state: { from: `/federation/objects/${currentType}` },
+    });
   };
 
   const renderContent = (item: FederationObjectItem) => {

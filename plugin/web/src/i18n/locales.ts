@@ -1021,7 +1021,7 @@ export const UI_LOCALES = {
     'nav.studies': '调研',
     'nav.frictions': '摩擦',
     'nav.norms': '规范',
-    'nav.subgoals': '子目标',
+    // 2026-11-13：侧栏不设子目标入口，'nav.subgoals' 随之撤除（子目标在聚焦页目标区）。
     'nav.devlogs': '开发日志',
 
     'goalDetail.openDetail': '查看目标详情',
@@ -2104,7 +2104,7 @@ export const UI_LOCALES = {
     'nav.studies': 'Research',
     'nav.frictions': 'Frictions',
     'nav.norms': 'Norms',
-    'nav.subgoals': 'Sub-goals',
+    // 2026-11-13: the sidebar has no sub-goal entry; 'nav.subgoals' is withdrawn with it.
     'nav.devlogs': 'DevLogs',
 
     'goalDetail.openDetail': 'Open goal detail',

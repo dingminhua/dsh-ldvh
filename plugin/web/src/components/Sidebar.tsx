@@ -22,10 +22,10 @@ type NavIcon = ElementType<LucideProps>;
 
 const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
-  // 28 号 SubGoal：子目标紧接「聚焦」（Human 定案 2026-11-01「子目标放在聚焦后」）。
-  // 位置上它是目标层的第二级——聚焦页顶部就是目标区，点进来第一条就是子目标，
-  // 故不再与其余七类平铺在对象族里。
-  { to: '/objects/subgoal', labelKey: 'nav.subgoals', icon: OBJECT_TYPE_ICONS.subgoal },
+  // 28 号 SubGoal：**侧栏不设子目标入口**（Human 定案 2026-11-13）。
+  // 此前（2026-11-01）子目标紧接「聚焦」单列一个入口；此后聚焦页目标区已能直接
+  // 呈现并下钻子目标（2026-11-03 改版），单列入口是同一条信息的第二个入口——
+  // 删的是**导航入口**，不是子目标这个事实类型（28 号载体、详情页、下钻路径都在）。
   { to: '/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
   { to: '/objects/workcase', labelKey: 'nav.workcases', icon: OBJECT_TYPE_ICONS.workcase },
   { to: '/objects/research', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.research },
@@ -50,12 +50,12 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
 ];
 
 /** 联邦作用域导航（全部管辖计划 Step 4）：
- * 聚焦→联邦聚焦页；九类对象→联邦聚合列表（子目标紧随聚焦，同项目态次序；
- * devlog 同样收在对象族末位）；目录/变更/提交是
+ * 聚焦→联邦聚焦页；八类对象→联邦聚合列表（**子目标同样不设联邦入口**，
+ * 与项目态同一条理由：它由聚焦页目标区承载，2026-11-13 撤除）；
+ * devlog 收在对象族末位；目录/变更/提交是
  * 单项目专属页，联邦态灰显。 */
 const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [
   { to: '/federation', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
-  { to: '/federation/objects/subgoal', labelKey: 'nav.subgoals', icon: OBJECT_TYPE_ICONS.subgoal },
   { to: '/federation/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
   { to: '/federation/objects/workcase', labelKey: 'nav.workcases', icon: OBJECT_TYPE_ICONS.workcase },
   { to: '/federation/objects/research', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.research },

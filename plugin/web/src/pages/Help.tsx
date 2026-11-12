@@ -154,7 +154,16 @@ const START_BRANCHES: StageShape[] = [
   },
 ];
 
-/** 对象地图：全部九类事实对象，顺序与左侧导航的对象族一致。 */
+/** 对象地图：全部九类事实对象。
+ *
+ * **次序与左侧导航的对象族一致，子目标列在首位**——它是目标层的下级锚点。
+ *
+ * **子目标不在侧栏导航里**（Human 定案 2026-11-13：侧栏不设子目标入口），
+ * 但它**仍是事实对象、仍是地图上的一类**：它由聚焦页目标区承载并下钻进入，
+ * 列表页 `/objects/subgoal` 也仍可达（本卡就是它的落点）。撤的是**导航入口**，
+ * 不是这个事实类型。若连本卡一并撤掉，子目标就成了「Web 上无处可寻」的类型。
+ * 故本表的守卫（`help-presentation-contract` 第 4 条）比对的是
+ * 「导航对象族 ∪ 聚焦页可下钻的对象类型」，而不是单看导航。 */
 const OBJECT_MAP: { type: string; to: string; what: LocaleKey; when: LocaleKey; look: LocaleKey }[] = [
   { type: 'subgoal', to: '/objects/subgoal', what: 'help.objects.subgoal.what', when: 'help.objects.subgoal.when', look: 'help.objects.subgoal.look' },
   { type: 'spark', to: '/objects/spark', what: 'help.objects.spark.what', when: 'help.objects.spark.when', look: 'help.objects.spark.look' },

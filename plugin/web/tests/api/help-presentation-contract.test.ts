@@ -233,20 +233,38 @@ test('对象类型图标与导航入口图标必须走集中映射', () => {
   );
 });
 
-test('帮助页的对象地图必须与左侧导航的对象族一一对应', () => {
+test('帮助页的对象地图必须覆盖左侧导航的对象族与聚焦页可下钻的对象类型', () => {
   // 左侧导航里指向**事实对象**的入口（`/objects/:type`）。`/changelog` 提交记录不
   // 计入——它不是事实对象，帮助页把它放在「入口地图」而非「对象地图」里。
   const navTypes = [...new Set([...sidebar.matchAll(/to: '\/objects\/(\w+)'/g)].map((m) => m[1]))].sort();
   assert.ok(navTypes.length > 0, '须能从 Sidebar 读出导航中的事实对象类型集合');
+
+  // **聚焦页可下钻的对象类型**：2026-11-13 起侧栏不设子目标入口（Human 定案），
+  // 子目标改由聚焦页目标区承载并下钻。它仍是事实对象、仍需在地图上被解释，
+  // 故本守卫比对的是「导航对象族 ∪ 聚焦下钻类型」，而不是单看导航。
+  //
+  // 下钻类型从**实现**读出（聚焦页目标区的下钻路径），而不是写死一份名单：
+  // 名单写死，日后新增一种下钻类型时会静默漏掉地图上应解释的那一类。
+  const goalSection = read('src/components/GoalSection.tsx');
+  const drillDownTypes = [...new Set(
+    [...goalSection.matchAll(/navigate\(`\/objects\/(\w+)\//g)].map((m) => m[1]),
+  )].sort();
+  const expectedTypes = [...new Set([...navTypes, ...drillDownTypes])].sort();
 
   const mapBlock = help.slice(help.indexOf('const OBJECT_MAP'), help.indexOf('const GATES'));
   const mapTypes = [...mapBlock.matchAll(/type: '(\w+)'/g)].map((m) => m[1]).sort();
 
   assert.deepEqual(
     mapTypes,
-    navTypes,
-    '帮助页对象地图的类型集合必须与左侧导航的事实对象族完全一致——少一类等于有一个入口没被解释，多一类等于在讲不存在的东西',
+    expectedTypes,
+    '帮助页对象地图的类型集合必须等于「左侧导航的事实对象族 ∪ 聚焦页可下钻的对象类型」——' +
+      '少一类等于有一个入口没被解释，多一类等于在讲不存在的东西',
   );
+
+  // 反向断言：子目标确实走的是「聚焦下钻」这条通道（2026-11-13 定案），
+  // 且它**仍在地图上**——撤的是导航入口，不是这个事实类型。
+  assert.ok(drillDownTypes.includes('subgoal'), '子目标应仍是聚焦页可下钻的对象类型');
+  assert.ok(mapTypes.includes('subgoal'), '子目标应仍在帮助页对象地图上');
 });
 
 test('帮助页的中英文案必须一一对应，且旧流程词条不得复活', async () => {
