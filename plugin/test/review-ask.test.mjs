@@ -135,6 +135,110 @@ test("点位排除与判据清单必须是两份数据、不得合并（32 §19 
 });
 
 // ---------------------------------------------------------------------------
+// 点位排除与规范原文的漂移面（2026-11-14 行动后复核 MINOR-5）
+// ---------------------------------------------------------------------------
+
+test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原文逐字找到", async () => {
+  // 权威：01 §11.4「不得由 Code、测试、索引或页面先行制造事实上的第二规则源」。
+  // 本模块把 32 §4.2 的三类写成了常量，规范改某类的名称或所引条文而代码不跟，
+  // 代码就成了第二份规则源——且没有任何既有测试会红。故逐字回指原文。
+  //
+  // **方向是「代码里的每个值在原文中存在」**，不查「原文里的每个值在代码中存在」：
+  // 后者需要解析规范结构，越出机械层边界（同 precheck-record.spec-drift.test.mjs
+  // 的刻意不对称）。故规范新增一类而代码没跟上，本用例查不出；代码凭空多一条
+  // 或改错名，查得出。
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  let spec;
+  try {
+    spec = await readFile(join(import.meta.dirname, "..", "..", "specs/32-把关请示系统规范.md"), "utf8");
+  } catch {
+    assert.fail(`语料不可读：specs/32-把关请示系统规范.md（发布包内无语料时须如实失败，不得静默通过）`);
+  }
+  const drifted = [];
+  for (const item of GATE_POINT_EXCLUSIONS) {
+    // 类别名（label 的粗体小标题部分，即「纯…」那一段）须逐字在原文
+    const categoryName = item.label.split("（")[0];
+    if (!spec.includes(categoryName)) drifted.push(`${item.key}: 类别名「${categoryName}」`);
+    // 每条 source 指向的条文号（specs/32 §4.2）须存在
+    if (!spec.includes("### 4.2 明确排除与证明边界")) drifted.push(`${item.key}: 32 §4.2 节标题`);
+    // 承接面里的条文号须能在原文找到（只查 §编号串，不查散文）
+    for (const sec of item.carried.match(/(?:09|02|33) §[0-9.]+[a-z]?/g) ?? []) {
+      const [specNo, secNo] = [sec.slice(0, 2), sec.slice(3)];
+      const file = { "09": "09", "02": "02", "33": "33" }[specNo];
+      if (!file) continue;
+      // 33 号交付合同的编号在本仓原文里是 §14（正文编号）；此处只验 §编号在
+      // 对应规范的目录里出现过——按原文的 H 行查找。
+      const { readFile: rf2 } = await import("node:fs/promises");
+      const text = await rf2(join(import.meta.dirname, "..", "..", `specs/${file}-` + {
+        "09": "受控提交与机械守护规范.md",
+        "02": "事实源与事实模型基础规范.md",
+        "33": "调研吸收系统规范.md",
+      }[specNo]), "utf8").catch(() => null);
+      if (text === null) { drifted.push(`${item.key}: 语料不可读 specs/${file}`); continue; }
+      const head = secNo.split("/")[0];
+      if (!new RegExp(`^#+\\s+${head.replace(".", "\\.")}\\s`, "m").test(text)) {
+        drifted.push(`${item.key}: 承接条文 ${sec} 在 specs/${file} 无对应标题`);
+      }
+    }
+  }
+  assert.deepEqual(drifted, [], `点位排除常量与规范原文漂移（01 §11.4 禁第二规则源）：\n${drifted.join("\n")}`);
+});
+
+test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2 的复发面）", async () => {
+  // 中文补了、英文漏了——这是 2026-11-14 行动后复核抓到的真实失真。纯文本面，
+  // 没有任何既有测试覆盖。转红判据：删掉任一侧的排除句，本用例红。
+  //
+  // **取法不猜区块边界**：client.js 里同一个 key 在 zh/en 两套词条各出现一次，
+  // 直接取该 key 的**每一次**出现并读出其 value 字符串，再按「是否存在含关键词
+  // 的那一次」判定。这样不依赖「zh 在前 en 在后」或任何切片起点——那些写法在
+  // 词条顺序变动时会假绿或假红。
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const src = await readFile(join(import.meta.dirname, "..", "lib", "client.js"), "utf8");
+
+  /** 取出某个词条 key 的全部 value 字符串（按出现顺序）。 */
+  function valuesOf(source, key) {
+    const out = [];
+    const needle = `"${key}": "`;
+    for (let i = source.indexOf(needle); i !== -1; i = source.indexOf(needle, i + 1)) {
+      const start = i + needle.length;
+      // value 是双引号串，内部不含未转义的双引号；扫到下一个未转义 " 为止。
+      let j = start;
+      while (j < source.length) {
+        if (source[j] === "\\") { j += 2; continue; }
+        if (source[j] === '"') break;
+        j += 1;
+      }
+      out.push(source.slice(start, j));
+      i = j;
+    }
+    return out;
+  }
+
+  const failures = [];
+  for (const key of ["row.reviewAskPreHint", "row.reviewAskPostHint", "row.reviewAskSilentHint"]) {
+    const values = valuesOf(src, key);
+    // 结构前提：中英两套词条，每个 key 恰好两次；次数变了说明词条表被改，这是
+    // 另一类漂移，须报错而非静默按「找到的那一次」判定。
+    if (values.length !== 2) {
+      failures.push(`${key} 出现 ${values.length} 次（预期中英各 1），无法判定是否双侧同步`);
+      continue;
+    }
+    // 关键词集合**双语并列**，故不依赖出现顺序、也不依赖语种判定：任一侧没提到
+    // 点位排除，那一次就不匹配，即报出该侧。顺序假设在词条表重排时会假绿。
+    const mentions = /点位排除|三类情况不问|point-level exclusion|not asked/i;
+    values.forEach((v, idx) => {
+      if (!mentions.test(v)) {
+        const lang = /[㐀-䶿一-鿿]/.test(v) ? "中文" : "英文";
+        failures.push(`${key} 的${lang}侧未提到点位排除（该侧第 ${idx + 1} 次出现）`);
+      }
+    });
+  }
+  assert.deepEqual(failures, [], `设置页文案中英不同步（行动后复核 MINOR-2 的复发面）：\n${failures.join("\n")}`);
+});
+
+// ---------------------------------------------------------------------------
 // 指纹：同一件事不重问，改一点就重问
 // ---------------------------------------------------------------------------
 
