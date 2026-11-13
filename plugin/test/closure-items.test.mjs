@@ -980,18 +980,22 @@ test("signature: updates land a signed change_log entry through the real writer"
 	await withTemp("ldvh-sign.", async (base) => {
 		const { mkdir } = await import("node:fs/promises");
 		const { parse: parseYaml } = await import("yaml");
-		const { createSparkObject, updateSparkObject, readSparkObject } = await import("../lib/spark-writer.js");
+		const { createSparkObject, updateSparkObject, readSparkObject, computeSparkCreateCandidateFingerprint } = await import("../lib/spark-writer.js");
 		const { authoritativeSignature } = await import("../lib/signature-channel.js");
 		const root = join(base, "root");
 		await mkdir(root, { recursive: true });
 
 		const branded = authoritativeSignature({ provider: "workbuddy", model: "deepseek-v4.1-flash" });
 		const q = "这个字段该叫什么？", sb = "定名后即停", sm = "当前理解快照";
+		// 20 §13: create must carry the precheck's candidate fingerprint.
+		const draftT = { title: "T", question: q, scope_boundary: sb, intent: "I", summary: sm, change_summary: "init" };
+		const bodyT = `## 当前理解\n\n${sm}\n\n## 调查问题\n\n${q}\n\n## 调查边界\n\n${sb}\n`;
 		const created = await createSparkObject({
 			factSourceRoot: root,
-			frontmatterDraft: { title: "T", question: q, scope_boundary: sb, intent: "I", summary: sm, change_summary: "init" },
-			bodyMarkdown: `## 当前理解\n\n${sm}\n\n## 调查问题\n\n${q}\n\n## 调查边界\n\n${sb}\n`,
+			frontmatterDraft: draftT,
+			bodyMarkdown: bodyT,
 			sessionSignature: branded,
+			expectedCandidateFingerprint: computeSparkCreateCandidateFingerprint(draftT, bodyT),
 		});
 		assert.equal(created.ok, true, JSON.stringify(created.error));
 

@@ -27,6 +27,7 @@ import { REVIEW_ASK_ANSWERS,
   recordReviewAskDecision,
   reviewAskFingerprint,
 } from "./review-ask.js";
+import { askTextDenial, validateAskText } from "./ask-text-guard.js";
 
 /** 两处把关询问的 question id 与选项标签——问什么与认什么共用同一常量，
  * 使解析永不因一个从未提供过的标签而判定成立（与 CONSENT 同一纪律）。 */
@@ -59,6 +60,33 @@ function selectedLabelOf(entry) {
   const raw = entry.selected ?? entry.answer ?? null;
   if (Array.isArray(raw)) return raw.length === 1 ? raw[0] : null;
   return raw;
+}
+
+/**
+ * Read an optional free-text `custom` answer from one answer entry.
+ *
+ * **这个字段是本次 bug 的正主**（2026-11-14 实测）。宿主提问卡
+ * `QuestionComposer.tsx:385-395` 在「单选题 + Human 在自由输入框写了字并点提交」
+ * 时，会把 `selected` **强制置空**、把文字只放进 `custom`：
+ *   `{ id, selected: [], custom: "老丁：请特别核对 X 模块" }`
+ * 宿主工具 `dsh-tool-ask-user`（legacy 与 timed 两个 execute）、服务类型
+ * `AskUserQuestionAnswerItem`、Typert 网关 schema、投影 `answerSchema` 全都逐字
+ * 透传 `custom`——**宿主这条链是通的**。
+ *
+ * 断点是 `selectedLabelOf`：它只读 `selected`，于是 `selected:[]` 被判成
+ * 「未选/跳过」，而 `custom` 全程无人读取。Human 写的内容既不出现在 decision、
+ * 也不出现在留痕、也不出现在回给模型的信封里——即「输入被当成跳过、AI 看不到」。
+ *
+ * 本函数只负责**把文字取回来**；取到之后怎么处置由各接缝自己决定，且一律不得
+ * 冒充 `review|skip` 答复（32 §9.1 闭集）或 Gate 的明确点选（20/22 §16、07 §5.6）。
+ * Gate 接缝仍 fail-closed，只是拒绝理由里必须带上这段文字，让模型看得见。
+ */
+function customTextOf(entry) {
+  if (entry === null || entry === undefined) return null;
+  const raw = entry.custom;
+  if (typeof raw !== "string") return null;
+  const text = raw.trim();
+  return text.length > 0 ? text : null;
 }
 
 /**
@@ -293,7 +321,25 @@ export function createHostSeams() {
     }
     const dispose = tools.guard((execution) => {
       const name = execution?.name;
-      if (typeof name !== "string" || !name.startsWith("ldvh_")) return;
+      if (typeof name !== "string") return;
+      // 提请文本机械校验（Human 2026-11-14）：管辖会话里**所有** ask_user_question
+      // 工具调用都要过同一判据——只有一行动作标题（≤200 UTF-16 码元）、无 detail、
+      // 无其它呈报细节；不合格 fail-closed 拒绝、让调用方重发，绝不截断。
+      // 与 seams.ask 服务口共用 validateAskText，两个通道都不漏。
+      if (name === "ask_user_question") {
+        const cwd = execution?.agent?.session?.header?.cwd;
+        // **fail-closed 判管辖**：只有"明确 not_governed"才放行；governed /
+        // unavailable / 判定未就绪 / cwd 取不到一律过校验。理由是 guard 同步、
+        // 不能 await，而 resolve 是异步的（recall 行当年的首回合缺口同源）；
+        // 校验对格式良好的短提问无副作用（合格即放行），故"多拦一次未就绪"
+        // 不会误伤，反倒"未就绪就放行"会漏。明确不受辖的会话不该被 LDVH 约束
+        // （00 §2.6）。
+        if (typeof cwd === "string" && cwd.length > 0 && LATEST_JUDGEMENT.get(cwd) === "not_governed") {
+          return;
+        }
+        return askTextDenial(execution.arguments);
+      }
+      if (!name.startsWith("ldvh_")) return;
       // The guard sees the invocation before dispatch. It asserts the
       // precondition the operations themselves also enforce, so a caller can
       // never reach a write-shaped LDVH operation by bypassing a handler.
@@ -507,10 +553,12 @@ export function createHostSeams() {
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === CONSENT_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
+      const customNote = customTextOf(entry);
       const granted = selected === CONSENT_AFFIRMATIVE_LABEL;
+      // 自由输入不冒充明确点选（Gate 仍 fail-closed），但文字必须让模型看得见。
       return granted
-        ? { granted: true, answer: selected }
-        : { granted: false, reason: `human did not affirmatively confirm (answer: ${JSON.stringify(selected ?? null)})` };
+        ? { granted: true, answer: selected, ...(customNote === null ? {} : { custom_note: customNote }) }
+        : { granted: false, ...(customNote === null ? {} : { custom_note: customNote }), reason: `human did not affirmatively confirm (answer: ${JSON.stringify(selected ?? null)})${customNote === null ? "" : `；Human 另写了自由文本（见 custom_note），不作为授权` }` };
     } catch (error) {
       return { granted: false, reason: `consent request failed: ${String(error?.message ?? error)}` };
     }
@@ -584,8 +632,9 @@ export function createHostSeams() {
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === SPARK_CONSENT_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
-      if (selected === SPARK_CONSENT_LABEL) return { granted: true, answer: selected };
-      return { granted: false, reason: `human did not confirm the Spark ${verb} (answer: ${JSON.stringify(selected ?? null)})` };
+      const customNote = customTextOf(entry);
+      if (selected === SPARK_CONSENT_LABEL) return { granted: true, answer: selected, ...(customNote === null ? {} : { custom_note: customNote }) };
+      return { granted: false, ...(customNote === null ? {} : { custom_note: customNote }), reason: `human did not confirm the Spark ${verb} (answer: ${JSON.stringify(selected ?? null)})${customNote === null ? "" : `；Human 另写了自由文本（见 custom_note），不作为授权` }` };
     } catch (error) {
       return { granted: false, reason: `spark consent request failed: ${String(error?.message ?? error)}` };
     }
@@ -655,8 +704,9 @@ export function createHostSeams() {
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === ADR_CONSENT_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
-      if (selected === ADR_CONSENT_LABEL) return { granted: true, answer: selected };
-      return { granted: false, reason: `human did not confirm the ADR ${verb} (answer: ${JSON.stringify(selected ?? null)})` };
+      const customNote = customTextOf(entry);
+      if (selected === ADR_CONSENT_LABEL) return { granted: true, answer: selected, ...(customNote === null ? {} : { custom_note: customNote }) };
+      return { granted: false, ...(customNote === null ? {} : { custom_note: customNote }), reason: `human did not confirm the ADR ${verb} (answer: ${JSON.stringify(selected ?? null)})${customNote === null ? "" : `；Human 另写了自由文本（见 custom_note），不作为授权` }` };
     } catch (error) {
       return { granted: false, reason: `adr consent request failed: ${String(error?.message ?? error)}` };
     }
@@ -818,8 +868,25 @@ export function createHostSeams() {
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === REVIEW_ASK_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
+      // **本次 bug 的修复口**（2026-11-14）：宿主卡片「单选 + 自由输入提交」产出
+      // `{selected:[], custom:"..."}`，文字原先被 selectedLabelOf 静默丢掉，于是
+      // 被判成「跳过/未决策」且模型一个字都看不到。这里把 custom 逐字取回，作为
+      // 补充信息随结果返回；**decision 仍守 32 §9.1 的 review|skip 闭集**，自由
+      // 输入不冒充任何一个答复值，也不写进留痕载体。
+      const customNote = customTextOf(entry);
       if (selected !== REVIEW_ASK_REVIEW_LABEL && selected !== REVIEW_ASK_SKIP_LABEL) {
-        return { decision: null, asked: true, fingerprint, reason: `human did not choose an option (answer: ${JSON.stringify(selected ?? null)}) — 未决策不是答复，下次仍会问` };
+        // 区分「点跳过按钮」({selected:[]}) 与「自由输入提交」({selected:[], custom})：
+        // 前者的 reason 不该暗示 Human 写过东西；后者必须把文字交给模型。
+        const shape = customNote !== null
+          ? `free-text answer submitted (no option selected): ${JSON.stringify(customNote)}`
+          : `skipped / no option chosen (answer: ${JSON.stringify(selected ?? null)})`;
+        return {
+          decision: null,
+          asked: true,
+          fingerprint,
+          ...(customNote === null ? {} : { custom_note: customNote }),
+          reason: `human did not choose an option — ${shape} — 未决策不是答复，下次仍会问；自由文本作为补充信息回传，不冒充 review/skip`,
+        };
       }
       const decision = selected === REVIEW_ASK_REVIEW_LABEL ? REVIEW_ASK_ANSWERS.REVIEW : REVIEW_ASK_ANSWERS.SKIP;
       // **写入载体时把占位词归一为 null**（MAJOR-2）：载体里的 task 是「这件事
@@ -833,9 +900,11 @@ export function createHostSeams() {
       if (!recorded.ok) {
         // 答复已取得但留不下痕迹：仍如实返回 Human 的选择，同时把留痕失败说
         // 清楚——否则重试时会再问一次，而这正是本载体要消灭的形态。
-        return { decision, asked: true, fingerprint, recordError: `${recorded.error.code}: ${recorded.error.message}` };
+        return { decision, asked: true, fingerprint, ...(customNote === null ? {} : { custom_note: customNote }), recordError: `${recorded.error.code}: ${recorded.error.message}` };
       }
-      return { decision, asked: true, fingerprint, at: recorded.value.at };
+      // custom_note 只回给模型，**不进留痕载体**：载体只记 {point, answer, at, task}
+      // 的闭集答复，自由文本是过程信息、不是决定（32 §9.1 / §9.3）。
+      return { decision, asked: true, fingerprint, ...(customNote === null ? {} : { custom_note: customNote }), at: recorded.value.at };
     } catch (error) {
       return { decision: null, asked: true, fingerprint, reason: `review-ask request failed: ${String(error?.message ?? error)}` };
     }
@@ -850,6 +919,14 @@ export function createHostSeams() {
       const service = currentUserQuestions();
       if (service === null) return null;
       return (request, agent) => {
+        // 提请文本机械校验（Human 2026-11-14）：经服务口发出的每一份提请都必须
+        // 只有一行动作标题（≤200）、无 detail、无其它呈报细节。不合格 fail-closed
+        // 拒绝（抛错，由调用方 try/catch 转为未授权/未答复），绝不截断、不改写。
+        // 与 tools.guard 口共用同一判据。
+        const textCheck = validateAskText(request);
+        if (!textCheck.ok) {
+          throw new Error(`LDVH ask-text guard (service seam) refused the request: ${textCheck.reason}`);
+        }
         const result = service.ask(agent === undefined ? request : { ...request, agent });
         // Diagnostics must never discard an already-dispatched Human request.
         try {

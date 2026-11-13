@@ -309,6 +309,10 @@ export async function executeReviewAsk(args, exec, deps) {
   }
   if (outcome?.recordError !== undefined) gaps.push(`the answer could not be recorded (${outcome.recordError}) — a retry will ask again`);
   if (outcome?.reason !== undefined && decision === null) gaps.push(outcome.reason);
+  // **本次 bug 的修复口**（2026-11-14）：宿主卡片「自由输入提交」把文字放在
+  // `custom`、把 `selected` 置空；seam 现在把它取回为 `custom_note`。它必须出现在
+  // 模型可见的信封里——否则 Human 写了字、主控却只读到「未取得明确答复」。
+  // 它**不是** decision，不进留痕、不冒充 review/skip、不改变闭集语义。
   // 此处原有一个 `decision === null && asked === false && enabled === false` 的分支，
   // 追加同样的 switch_off 说明。**它不可达**——`enabled !== true` 时上面已提前
   // return，走到这里时 enabled 必为 true。留着它的害处不是多几行，而是让读者
@@ -321,6 +325,8 @@ export async function executeReviewAsk(args, exec, deps) {
       decision,
       asked,
       reused: outcome?.reused === true,
+      // 自由输入提交的文字逐字回传（不是决定、不进留痕）。缺位时不产出该键。
+      ...(outcome?.custom_note === undefined ? {} : { custom_note: outcome.custom_note }),
       ...(outcome?.fingerprint === undefined ? {} : { fingerprint: outcome.fingerprint }),
       switch_enabled: enabled,
       // 「安排」时才给模板——「跳过」时给模板是噪声，也会诱导主控照派。
@@ -352,6 +358,11 @@ export async function executeReviewAsk(args, exec, deps) {
       ]
       : decision === "skip"
         ? ["Human 明确选择不安排独立把关；直接推进，主控自查仍在（04 §6.1）"]
-        : ["未取得明确答复：按 00 §4.7 不得把沉默当作许可；向 Human 报告并等待"],
+        : outcome?.custom_note !== undefined
+          ? [
+            "未取得明确答复（按 00 §4.7 不得把沉默当作许可）；但 Human 在自由输入框写了字，见 result.custom_note —— 逐字读它并纳入本轮判断，不要当成跳过",
+            "该自由文本不是 review/skip 答复，不改变 decision=null；如需明确决定请重新提请",
+          ]
+          : ["未取得明确答复：按 00 §4.7 不得把沉默当作许可；向 Human 报告并等待"],
   });
 }

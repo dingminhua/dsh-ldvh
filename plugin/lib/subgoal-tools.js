@@ -373,15 +373,25 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("subgoal-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 达成条件') are required for action=create", "create");
     }
-    // 02 §10.1: this channel HAS a read-only precheck entry, so a create ought to
-    // arrive carrying the fingerprint that precheck produced. A create without it
-    // is still executed (the write must not invent a verification it never ran),
-    // but the fact that no precheck covers it is disclosed as unfulfilled scope —
-    // an unregistered gap here would read as "prechecked" afterwards.
+    // 28 §13: 未携带候选指纹即零写入。此前此处是 fail-open（执行后只披露
+    // 「未预检」），该口径与本类型规范逐字登记的要求相反——「写入请求未携带
+    // 该指纹的，按「同一性未确认」零写入」（28 §13）。披露不能替代拦下：
+    // 一个没跑过预检的写入若照常落盘，事后与预检过的写入无法区分。
     const expectedFingerprint = typeof args?.expected_candidate_fingerprint === "string"
       && args.expected_candidate_fingerprint.length > 0
       ? args.expected_candidate_fingerprint
       : null;
+    if (expectedFingerprint === null) {
+      return writeRejected("subgoal-write-object", {
+        ok: false,
+        error: {
+          code: "subgoal/candidate_fingerprint_required",
+          message: "expected_candidate_fingerprint is required for action=create (28 §13: 未携带该指纹的，按「同一性未确认」零写入) — "
+            + "run ldvh_subgoal_precheck_create on this candidate first and pass the candidate_fingerprint it returns",
+          details: {},
+        },
+      }, factSourceRoot, "create");
+    }
     const created = await createSubGoalObject({
       factSourceRoot,
       frontmatterDraft: draft,
@@ -399,23 +409,18 @@ async function executeWriteObject(args, exec, deps) {
         object_uid: created.value.object_uid,
         file: created.value.file,
         fingerprint: created.value.fingerprint,
-        precheck_fingerprint_bound: expectedFingerprint !== null,
+        precheck_fingerprint_bound: true,
         read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
       },
       scope: {
         requested: "create",
         completed: ["create", "read-back"],
-        not_completed: expectedFingerprint === null
-          ? ["precheck (no candidate fingerprint supplied — this create was NOT covered by ldvh_subgoal_precheck_create, 02 §10.1)"]
-          : [],
+        // 走到这里的 create 一定带过候选指纹：未携带的请求已在入口处按
+        // 28 §13 零写入拒绝（`subgoal/candidate_fingerprint_required`）。
+        not_completed: [],
       },
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
-      gaps: [
-        ...(readBack.ok ? [] : [readBack.error.message]),
-        ...(expectedFingerprint === null
-          ? ["precheck-not-run: 本次创建未携带候选指纹，因此没有经受控预检覆盖——入参仍按类型规范核对，但预检这一环未兑现（02 §10.1）；该事实不得在事后被读作「已预检」"]
-          : []),
-      ],
+      gaps: readBack.ok ? [] : [readBack.error.message],
       verification: { checks: ["frontmatter-closed-set", "identity-uniqueness", "parent-goal-resolvable", "body-skeleton", "write-read-back"], passed: readBack.ok },
       follow_up: [
         "whether this sub-goal really serves the goal statement, and whether the criterion is truly decidable, are AI/Human semantic judgements (28 §15) — this write only proves the shape",
@@ -436,8 +441,15 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("subgoal-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
-  if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
-    return invalidRequest("subgoal-write-object", "frontmatter_after (object) and body_markdown_after (markdown) are required for action=update", "update");
+  // 缺什么报什么：`frontmatter_after` 与正文是两个独立通道（02 §10.5），合成一句
+  // 「两者都必填」会让调用方看不出究竟缺哪一项——实测本窗口有 5 次失败其实是正文
+  // 已给、`frontmatter_after` 未给，却被读成「要重抄全文」。`frontmatter_after` 传
+  // 空对象 `{}` 合法（各类型入口参数面均标「须携带，可为空对象」）。
+  if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
+    return invalidRequest("subgoal-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return invalidRequest("subgoal-write-object", "body_markdown_after is required for action=update — the COMPLETE target body starting at \"## 达成条件\" (the H1 is generated from title); a partial body, or a body read back with its H1, is refused", "update");
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return invalidRequest("subgoal-write-object", "change_summary is required for action=update (02 §10.5: exactly one change_log entry per actual modification)", "update");
@@ -518,6 +530,8 @@ export function writeRejected(operationKey, result, factSourceRoot, action) {
     || code === "subgoal/invalid_uid"
     || code === "subgoal/not_found"
     || code === "subgoal/change_summary_required"
+    || code === "subgoal/candidate_changed"
+    || code === "subgoal/candidate_fingerprint_required"
     || code === "invalid_request";
   const outcome = isRejection ? "rejected" : "unavailable";
   const details = result.error.details?.issues ?? result.error.details ?? {};
@@ -654,7 +668,7 @@ function parameterSchemaFor(operationKey) {
       frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
       body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown, INCLUDING the H1 line — pass back what a precise read returned)" },
       change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry; for active→achieved it must state the evidence basis (28 §9.2)" },
-      expected_candidate_fingerprint: { type: "string", description: "create: the candidate_fingerprint returned by ldvh_subgoal_precheck_create for THIS candidate content. When supplied, the write refuses if the content changed in between — so a precheck verdict never silently carries over to a different candidate (28 §13). Omit only when the candidate was not prechecked, and record that as an unfulfilled scope (02 §10.1)" }
+      expected_candidate_fingerprint: { type: "string", description: "create (required): the candidate_fingerprint returned by ldvh_subgoal_precheck_create for THIS candidate content. 28 §13 makes it a required entry parameter — a create without it is refused with zero writes (「同一性未确认」). The write also refuses when the content changed since the precheck." }
     },
     required: ["action"],
     additionalProperties: false

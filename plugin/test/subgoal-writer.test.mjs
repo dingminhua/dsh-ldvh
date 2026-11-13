@@ -72,13 +72,24 @@ async function freshRoot(base) {
 	return root;
 }
 
+/**
+ * 先跑一次真实预检，把它的结论指纹拿回来——直接调用 writer 的用例必须这样写，
+ * 因为 28 §13 把 `expectedCandidateFingerprint` 列为 create 的入口必填项：
+ * 未携带即零写入（「同一性未确认」）。用真预检而不是自己算哈希，顺带把
+ * 「双入口一致」钉进每条用例。
+ */
+async function fingerprintOf(root, d, body = validBody(d)) {
+	const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: body });
+	return { fingerprint: pre.value.candidate_fingerprint, pre };
+}
+
 async function createOne(root, overrides = {}) {
 	const d = draft(overrides);
+	const body = validBody(d);
+	const { fingerprint } = await fingerprintOf(root, d, body);
 	const r = await createSubGoalObject({
-		factSourceRoot: root,
-		frontmatterDraft: d,
-		bodyMarkdown: validBody(d),
-		sessionSignature: SIG,
+		factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: body,
+		sessionSignature: SIG, expectedCandidateFingerprint: fingerprint,
 	});
 	return { result: r, draft: d };
 }
@@ -106,12 +117,14 @@ test("create requires the parent goal carrier to resolve (28 §14.1)", async () 
 		await mkdir(root, { recursive: true });
 		// No goal.md at all.
 		const d = draft();
-		const r = await createSubGoalObject({
-			factSourceRoot: root,
-			frontmatterDraft: d,
-			bodyMarkdown: validBody(d),
-			sessionSignature: SIG,
-		});
+		const { fingerprint } = await fingerprintOf(root, d);
+			const r = await createSubGoalObject({
+				factSourceRoot: root,
+				frontmatterDraft: d,
+				bodyMarkdown: validBody(d),
+				sessionSignature: SIG,
+				expectedCandidateFingerprint: fingerprint,
+			});
 		assert.equal(r.ok, false);
 		assert.equal(r.error.code, "subgoal/parent_goal_unresolvable");
 	});
@@ -121,12 +134,14 @@ test("create refuses a parent_goal that is not the singleton key (28 §8)", asyn
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ parent_goal: "some-other-goal" });
-		const r = await createSubGoalObject({
-			factSourceRoot: root,
-			frontmatterDraft: d,
-			bodyMarkdown: validBody(d),
-			sessionSignature: SIG,
-		});
+		const { fingerprint } = await fingerprintOf(root, d);
+			const r = await createSubGoalObject({
+				factSourceRoot: root,
+				frontmatterDraft: d,
+				bodyMarkdown: validBody(d),
+				sessionSignature: SIG,
+				expectedCandidateFingerprint: fingerprint,
+			});
 		assert.equal(r.ok, false);
 		assert.ok(
 			["subgoal/frontmatter_invalid", "subgoal/parent_goal_unresolvable"].includes(r.error.code),
@@ -159,12 +174,14 @@ test("order may be omitted entirely — a missing order is a legal state (28 §8
 		const root = await freshRoot(base);
 		const d = draft();
 		delete d.order;
-		const r = await createSubGoalObject({
-			factSourceRoot: root,
-			frontmatterDraft: d,
-			bodyMarkdown: validBody(d),
-			sessionSignature: SIG,
-		});
+		const { fingerprint } = await fingerprintOf(root, d);
+			const r = await createSubGoalObject({
+				factSourceRoot: root,
+				frontmatterDraft: d,
+				bodyMarkdown: validBody(d),
+				sessionSignature: SIG,
+				expectedCandidateFingerprint: fingerprint,
+			});
 		assert.equal(r.ok, true, JSON.stringify(r.error));
 		const raw = await readFile(r.value.file, "utf8");
 		assert.ok(!/^order:/m.test(raw), "a missing order must not be fabricated into the carrier");
@@ -176,12 +193,14 @@ test("order must be a positive integer when present (28 §8)", async () => {
 		const root = await freshRoot(base);
 		for (const order of [0, -1, 1.5, "1"]) {
 			const d = draft({ order });
-			const r = await createSubGoalObject({
-				factSourceRoot: root,
-				frontmatterDraft: d,
-				bodyMarkdown: validBody(d),
-				sessionSignature: SIG,
-			});
+			const { fingerprint } = await fingerprintOf(root, d);
+				const r = await createSubGoalObject({
+					factSourceRoot: root,
+					frontmatterDraft: d,
+					bodyMarkdown: validBody(d),
+					sessionSignature: SIG,
+					expectedCandidateFingerprint: fingerprint,
+				});
 			assert.equal(r.ok, false, `order=${JSON.stringify(order)} must be refused`);
 			assert.equal(r.error.code, "subgoal/frontmatter_invalid", `${JSON.stringify(order)}: ${r.error.code}`);
 		}
@@ -221,12 +240,14 @@ test("create refuses a status other than active (28 §9.2 初态必为 active)",
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ status: "achieved" });
-		const r = await createSubGoalObject({
-			factSourceRoot: root,
-			frontmatterDraft: d,
-			bodyMarkdown: validBody(d),
-			sessionSignature: SIG,
-		});
+		const { fingerprint } = await fingerprintOf(root, d);
+			const r = await createSubGoalObject({
+				factSourceRoot: root,
+				frontmatterDraft: d,
+				bodyMarkdown: validBody(d),
+				sessionSignature: SIG,
+				expectedCandidateFingerprint: fingerprint,
+			});
 		assert.equal(r.ok, false);
 		assert.equal(r.error.code, "subgoal/initial_state_violation");
 	});
@@ -362,12 +383,14 @@ test("criterion_kind is a closed set — an unknown kind is refused (28 §10.2)"
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ criterion_kind: "vibes" });
-		const r = await createSubGoalObject({
-			factSourceRoot: root,
-			frontmatterDraft: d,
-			bodyMarkdown: validBody(d),
-			sessionSignature: SIG,
-		});
+		const { fingerprint } = await fingerprintOf(root, d);
+			const r = await createSubGoalObject({
+				factSourceRoot: root,
+				frontmatterDraft: d,
+				bodyMarkdown: validBody(d),
+				sessionSignature: SIG,
+				expectedCandidateFingerprint: fingerprint,
+			});
 		assert.equal(r.ok, false);
 		assert.equal(r.error.code, "subgoal/frontmatter_invalid");
 	});
@@ -377,12 +400,14 @@ test("a retired-era `anchor` key is no longer part of the closed set (28 §8, 20
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ anchor: "SG-1" });
-		const r = await createSubGoalObject({
-			factSourceRoot: root,
-			frontmatterDraft: d,
-			bodyMarkdown: validBody(d),
-			sessionSignature: SIG,
-		});
+		const { fingerprint } = await fingerprintOf(root, d);
+			const r = await createSubGoalObject({
+				factSourceRoot: root,
+				frontmatterDraft: d,
+				bodyMarkdown: validBody(d),
+				sessionSignature: SIG,
+				expectedCandidateFingerprint: fingerprint,
+			});
 		assert.equal(r.ok, false);
 		assert.equal(r.error.code, "subgoal/frontmatter_invalid");
 		assert.ok(r.error.details.issues.some((i) => /anchor/.test(i)), JSON.stringify(r.error.details));
@@ -670,11 +695,14 @@ test("双入口一致性: precheck and create reach the SAME verdict on the same
 		// disagree while both claiming compliance, which is what §13 forbids.)
 		const bad = draft({ order: 0 });
 		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: bad, bodyMarkdown: validBody(bad) });
+		// 写入必须携带预检指纹（28 §13 入口必填项），否则它先撞同一性缺口，
+		// 这一条就测不到「两入口对同一候选判同一个结论」了。
 		const write = await createSubGoalObject({
 			factSourceRoot: root,
 			frontmatterDraft: bad,
 			bodyMarkdown: validBody(bad),
 			sessionSignature: SIG,
+			expectedCandidateFingerprint: pre.value.candidate_fingerprint,
 		});
 		assert.equal(pre.value.mechanical_outcome, "failed");
 		assert.equal(write.ok, false);
@@ -700,16 +728,18 @@ test("双入口一致性: a passing candidate passes BOTH entries", async () => 
 	});
 });
 
-test("候选指纹: excludes Code-stamped fields so two identical candidates agree", () => {
+test("候选指纹: 剥离 status、保留变更摘要（28 §13 逐字登记）", () => {
 	const d = draft();
 	const body = validBody(d);
 	const a = computeSubGoalCreateCandidateFingerprint(d, body);
 	const b = computeSubGoalCreateCandidateFingerprint(d, body);
 	assert.equal(a, b);
-	// The create-time `change_summary` flows into change_log (a Code-stamped
-	// field), so it must not move the candidate fingerprint.
-	const withSummary = { ...d, change_summary: "另一个理由" };
-	assert.equal(computeSubGoalCreateCandidateFingerprint(withSummary, body), a);
+	// 28 §13：「剥离 `status`」——省略 status 与显式 status=active 产出同一对象，
+	// 二者必须落在同一指纹上，否则同一候选被判成两份（伪拒绝）。
+	assert.equal(computeSubGoalCreateCandidateFingerprint({ ...d, status: "active" }, body), a);
+	// 28 §13：「不剥离变更摘要」——它经 Code 写入 change_log、随对象落盘，
+	// 故改摘要即改内容，必须移动指纹。此前实现恰好把这两条读反了。
+	assert.notEqual(computeSubGoalCreateCandidateFingerprint({ ...d, change_summary: "另一个理由" }, body), a);
 	// A real content change DOES move it.
 	assert.notEqual(computeSubGoalCreateCandidateFingerprint({ ...d, criterion: "换一条判据。" }, body), a);
 	assert.notEqual(computeSubGoalCreateCandidateFingerprint(d, `${body}\n补一句。`), a);
@@ -739,20 +769,23 @@ test("write refuses when the candidate changed after the precheck (28 §13)", as
 	});
 });
 
-test("a create without a precheck fingerprint is still allowed (the gap must then be disclosed)", async () => {
+test("a create without a precheck fingerprint is REFUSED with zero writes (28 §13)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft();
-		// 02 §10.1: the precheck obligation is real, but the WRITE must not invent
-		// a verification it never ran. Omitting the fingerprint is permitted; the
-		// caller then reports the missing precheck as unfulfilled scope.
+		// 28 §13 逐字：「写入请求未携带该指纹的，按「同一性未确认」零写入」。
+		// 此前实现是 fail-open（照常写入、只披露未预检），与本条相反。
 		const write = await createSubGoalObject({
 			factSourceRoot: root,
 			frontmatterDraft: d,
 			bodyMarkdown: validBody(d),
 			sessionSignature: SIG,
 		});
-		assert.equal(write.ok, true, JSON.stringify(write.error));
+		assert.equal(write.ok, false, JSON.stringify(write.value));
+		assert.equal(write.error.code, "subgoal/candidate_fingerprint_required");
+		// 零写入：没有任何载体落盘。
+		const files = await readdir(join(root, SUBGOAL_DIRECTORY)).catch(() => []);
+		assert.deepEqual(files.filter((f) => f.endsWith(".md")), []);
 	});
 });
 
@@ -769,6 +802,7 @@ test("守卫：预检的占位 object_uid 绝不会落盘（28 §13 不生成对
 			frontmatterDraft: d,
 			bodyMarkdown: validBody(d),
 			sessionSignature: SIG,
+			expectedCandidateFingerprint: pre.value.candidate_fingerprint,
 		});
 		assert.equal(write.ok, true, JSON.stringify(write.error));
 		// The real uid must be the object's own, never the placeholder the
@@ -816,11 +850,18 @@ test("subgoal tools: read/list/write lifecycle through the real handlers", async
 		assert.equal(empty.result.count, 0);
 
 		// Create through the tool plane (signature comes from the routing log).
+		// 28 §13: the create must carry the precheck's candidate fingerprint.
 		const d = draft();
+		const pre = await handlers["subgoal-precheck-create"]({
+			frontmatter_draft: d,
+			body_markdown: validBody(d),
+		}, ctx);
+		assert.equal(pre.result.mechanical_outcome, "passed", JSON.stringify(pre.gaps));
 		const created = await handlers["subgoal-write-object"]({
 			action: "create",
 			frontmatter_draft: d,
 			body_markdown: validBody(d),
+			expected_candidate_fingerprint: pre.result.candidate_fingerprint,
 		}, ctx);
 		assert.equal(created.outcome, "completed", JSON.stringify(created.gaps));
 
@@ -834,10 +875,18 @@ test("subgoal tools: read/list/write lifecycle through the real handlers", async
 
 		// The retired `anchor` key is refused as a closed-set violation, and the
 		// gap names the offending field rather than a generic rejection.
+		// 指纹仍须携带：28 §13 的同一性判定**前置于内容求值**，否则这一条会先撞
+		// 同一性缺口，测不到 anchor 这条闭集规则。
+		const badDraft = { ...d, anchor: "SG-1" };
+		const badPre = await handlers["subgoal-precheck-create"]({
+			frontmatter_draft: badDraft,
+			body_markdown: validBody(d),
+		}, ctx);
 		const dup = await handlers["subgoal-write-object"]({
 			action: "create",
-			frontmatter_draft: { ...d, anchor: "SG-1" },
+			frontmatter_draft: badDraft,
 			body_markdown: validBody(d),
+			expected_candidate_fingerprint: badPre.result.candidate_fingerprint,
 		}, ctx);
 		assert.equal(dup.outcome, "rejected");
 		assert.ok(dup.gaps.some((g) => /anchor/.test(g)), JSON.stringify(dup.gaps));
@@ -900,7 +949,7 @@ test("subgoal tools: 预检工具只读运行，交还指纹与结论，不写�
 	});
 });
 
-test("subgoal tools: 未带指纹的创建**照常执行**，但把「未预检」如实登记为未兑现范围（02 §10.1）", async () => {
+test("subgoal tools: 未带指纹的创建按 28 §13 零写入拒绝（同一性未确认）", async () => {
 	const { makeExecute } = await import("../lib/subgoal-tools.js");
 	const { initRepo, git, sessionPersistenceWithRoutingLog } = await import("./helpers.mjs");
 	await withTemp("subgoal-tools-noprecheck.", async (base) => {
@@ -932,12 +981,16 @@ test("subgoal tools: 未带指纹的创建**照常执行**，但把「未预检�
 			frontmatter_draft: d,
 			body_markdown: validBody(d),
 		}, ctx);
-		// The write is NOT blocked — 02 §10.1 forbids inventing an obligation the
-		// caller never met, but requires the gap to be visible.
-		assert.equal(created.outcome, "completed", JSON.stringify(created.gaps));
-		assert.equal(created.result.precheck_fingerprint_bound, false);
-		assert.ok(created.scope.not_completed.some((x) => /precheck/.test(x)), JSON.stringify(created.scope));
-		assert.ok(created.gaps.some((g) => /precheck-not-run/.test(g)), JSON.stringify(created.gaps));
+		// 28 §13 逐字要求：「写入请求未携带该指纹的，按「同一性未确认」零写入」。
+		// 此前的实现是 fail-open（执行后只披露「未预检」），与本条相反——披露不能
+		// 替代拦下：一个没跑过预检的写入若照常落盘，事后与预检过的写入无法区分。
+		assert.equal(created.outcome, "rejected", JSON.stringify(created.gaps));
+		const code = (created.gaps ?? []).find((g) => /candidate_fingerprint_required/.test(g));
+		assert.ok(code !== undefined, JSON.stringify(created.gaps));
+		// 零写入：对象目录里不应出现任何 .md 载体。
+		const sparksDir = join(root, "subgoals");
+		const exists = await import("node:fs/promises").then((m) => m.readdir(sparksDir).catch(() => []));
+		assert.deepEqual(exists.filter((f) => f.endsWith(".md")), [], "未携带指纹的创建必须零写入");
 	});
 });
 

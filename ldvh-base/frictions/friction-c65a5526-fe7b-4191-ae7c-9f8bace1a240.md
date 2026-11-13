@@ -23,10 +23,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 核对后保持 open：解药 9638099e 只做到三值区分，review_ask 返回 null 仍无「是否已呈现」回执，第 4 次观察所指缺陷仍在；两候选终态 voided/resolved 均被实测排除
+  - at: 2026-11-13T18:13:52.034Z
+    provider: workbuddy
+    model: hy4free
+    summary: 补充观察：count 4 → 5（11 §9 第 2 项）
 occurrence:
-  count: 4
+  count: 5
   first_at: 2026-11-05T20:53:13.640Z
-  last_at: 2026-11-12T22:02:35.919Z
+  last_at: 2026-11-13T18:07:18.454Z
 ---
 
 # 受控路由空答复不可区分致工单未建
@@ -68,3 +72,7 @@ occurrence:
 **修复方向（供后续处理，非本条结论）**：需要一个让主控能判读「问题是否到达人前」的机制，例如询问工具在未作答时回带 `delivered`（是否进入 answerer 队列/被 remote 接受）与具名原因（`noAnswerer`/`CALLER_NOT_LIVE`），使「未呈现」与「人未选」可区分。`specs/32` 已就询问的留痕有规定，但**未规定呈现回执**——这属新的机制需求，需独立评估。
 
 **复审触发**：待 `review_ask`（或其后继入口）能在未作答时回带「是否已呈现」的判据，且有一条用例钉住「未呈现」与「人未选」两种返回可区分——那时本条可销。若接缝改走其他通道，本条重核。
+
+补充观察（2026-11-13T18:07:18.454Z）：材料中主控把这条链路查到收口：引证处指出 LDVH 自己的答复解析层用的 selectedLabelOf「只读 selected，完全无视 custom」；材料同段并称宿主卡片自由输入时提交的是 `{selected:[], custom:"..."}`（selected 被强制置空），而 LDVH 侧只认 selected，于是带文字的人工答复被投影成与「跳过」按钮同形的空答复（decision:null），Human 输入内容无任何落点且无报错。该阻碍的归因落点与机制模式与既有 open 账目 friction-c65a5526（c65a5526-fe7b-4191-ae7c-9f8bace1a240）一致：根在 LDVH Human 提问接缝的答复记录/解析层，两类不同的人工答复（「未选择/未呈现/跳过」与本次的「带自由文本的答复」）被压成同一份不含内容、不携带区分信息的记录，导致接
+逐字引证：LDVH 自己的 `ldvh_review_ask` 解析答案时用的是 `selectedLabelOf`，它只读 `selected`，完全无视 `custom`
+（来源：1）

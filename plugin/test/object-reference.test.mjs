@@ -118,12 +118,29 @@ function sparkDeps(home, base) {
   };
 }
 
+/**
+ * Spark create through the tool plane, carrying the precheck's candidate
+ * fingerprint (20 §13: a required create entry parameter; the write path
+ * deliberately does not compute or backfill it).
+ */
+async function createSpark(descriptors, args, cwd) {
+  const pre = await run(descriptors, "ldvh_spark_precheck_create", {
+    frontmatter_draft: args.frontmatter_draft,
+    body_markdown: args.body_markdown,
+    dedup_result: args.dedup_result,
+  }, cwd);
+  return run(descriptors, "ldvh_spark_write", {
+    ...args,
+    expected_candidate_fingerprint: pre.result?.candidate_fingerprint,
+  }, cwd);
+}
+
 test("spark list: every item line carries a type-prefixed reference, and the projection carries fact_type_key", async () => {
   await withTemp("object-reference.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(sparkToolsModule.registerSparkTools, sparkDeps(home, base));
 
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: "查重结论（测试夹具）：与本仓库既有 Spark 无同题重叠。",
       frontmatter_draft: {
@@ -215,7 +232,7 @@ test("spark read: refs targets carry type + title, unresolvable ones keep their 
     );
     const descriptors = makeDescriptors(sparkToolsModule.registerSparkTools, sparkDeps(home, base));
 
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: "查重结论（测试夹具）：与本仓库既有 Spark 无同题重叠。",
       frontmatter_draft: {

@@ -315,8 +315,15 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("norm-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
-  if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
-    return invalidRequest("norm-write-object", "frontmatter_after (object) and body_markdown_after (markdown) are required for action=update", "update");
+  // 缺什么报什么：`frontmatter_after` 与正文是两个独立通道（02 §10.5），合成一句
+  // 「两者都必填」会让调用方看不出究竟缺哪一项——实测本窗口有 5 次失败其实是正文
+  // 已给、`frontmatter_after` 未给，却被读成「要重抄全文」。`frontmatter_after` 传
+  // 空对象 `{}` 合法（各类型入口参数面均标「须携带，可为空对象」）。
+  if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
+    return invalidRequest("norm-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return invalidRequest("norm-write-object", "body_markdown_after is required for action=update — the COMPLETE target body starting at \"## 方向定位与适用范围\" (the H1 is generated from title); a partial body, or a body read back with its H1, is refused", "update");
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return invalidRequest("norm-write-object", "change_summary is required for action=update (03 §9.5: exactly one change_log entry per actual modification)", "update");

@@ -93,6 +93,24 @@ async function run(descriptors, toolName, args, cwd) {
   }
 }
 
+/**
+ * Spark create through the tool plane, carrying the precheck's candidate
+ * fingerprint — 20 §13 makes `expected_candidate_fingerprint` a required create
+ * entry parameter, and the write path deliberately does NOT compute or backfill
+ * it itself.
+ */
+async function createSpark(descriptors, args, cwd) {
+  const pre = await run(descriptors, "ldvh_spark_precheck_create", {
+    frontmatter_draft: args.frontmatter_draft,
+    body_markdown: args.body_markdown,
+    dedup_result: args.dedup_result,
+  }, cwd);
+  return run(descriptors, "ldvh_spark_write", {
+    ...args,
+    expected_candidate_fingerprint: pre.result?.candidate_fingerprint,
+  }, cwd);
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -165,13 +183,13 @@ function makeDeps(home, base, { hostSeams } = {}) {
 // Registration surface
 // ---------------------------------------------------------------------------
 
-test("registerSparkTools registers exactly the three spark tools", async () => {
+test("registerSparkTools registers exactly the four spark tools", async () => {
   await withTemp("spark-tools.", async (base) => {
     const registered = [];
     const ctx = { tools: { register: (descriptor) => { registered.push(descriptor.name); return () => {}; } } };
     const deps = makeDeps(join(base, "home"), base);
     const dispose = sparkToolsModule.registerSparkTools(ctx, deps);
-    assert.deepEqual([...registered].sort(), ["ldvh_spark_list", "ldvh_spark_read", "ldvh_spark_write"]);
+    assert.deepEqual([...registered].sort(), ["ldvh_spark_list", "ldvh_spark_precheck_create", "ldvh_spark_read", "ldvh_spark_write"]);
     assert.equal(typeof dispose, "function");
   });
 });
@@ -199,6 +217,8 @@ test("read/write are unavailable outside governed sessions", async () => {
     const readOut = await run(descriptors, "ldvh_spark_read", { object_uid: "11111111-1111-4111-8111-111111111111" }, base);
     assert.equal(readOut.outcome, "unavailable");
     assert.ok(readOut.gaps[0].includes("not_governed"));
+    // 这一条测的是「管辖外的写入不可用」，走原始写入入口——若经 createSpark，
+    // 预检会先返回 unavailable，断言就不再落在写入面上。
     const writeOut = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       dedup_result: DEDUP_OK,
@@ -219,7 +239,7 @@ test("create: completed envelope, object_uid assigned, read-back ok, file on dis
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -267,7 +287,7 @@ test("create: optional fields (priority/serves) succeed through the tool plane a
     assert.equal(draft.priority, "P1");
     assert.equal(draft.serves, subGoalUid(1));
 
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
@@ -319,7 +339,7 @@ test("create: mechanical rejection is outcome=rejected with zero writes", async 
     const descriptors = makeDescriptors(makeDeps(home, base));
 
     // question with two terminals → frontmatter mechanical check fails
-    const out = await run(descriptors, "ldvh_spark_write", {
+    const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: { ...validFrontmatterDraft(), question: "如何验证？如何验证？" },
@@ -343,7 +363,7 @@ test("read: created object returns completed with open status and matching finge
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -373,7 +393,7 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -440,7 +460,7 @@ test("create: serves resolution flows through the tool (known uid ok, unknown ui
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    const ok = await run(descriptors, "ldvh_spark_write", {
+    const ok = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: { ...validFrontmatterDraft(), serves: subGoalUid(1) },
@@ -448,7 +468,7 @@ test("create: serves resolution flows through the tool (known uid ok, unknown ui
     }, repo);
     assert.equal(ok.outcome, "completed", JSON.stringify(ok));
 
-    const bad = await run(descriptors, "ldvh_spark_write", {
+    const bad = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: { ...validFrontmatterDraft(), serves: UNKNOWN_SUBGOAL_UID },
@@ -464,6 +484,42 @@ test("create: serves resolution flows through the tool (known uid ok, unknown ui
 // ---------------------------------------------------------------------------
 // invalid_request paths
 // ---------------------------------------------------------------------------
+
+test("update: 「缺 frontmatter_after」与「缺正文」被拆成两条独立诊断（02 §10.5 两个通道）", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(home, base));
+    const body = validBodyMarkdown();
+
+    // 正文已给、frontmatter_after 未给 —— 实测语料里这类占了「缺必填」的大头，
+    // 合并成「两者都必填」会被读成「要重抄全文」。
+    const noAfter = await run(descriptors, "ldvh_spark_write", {
+      action: "update",
+      object_uid: "11111111-1111-4111-8111-111111111111",
+      expected_fingerprint: "0".repeat(64),
+      body_markdown_after: body,
+      change_summary: "s",
+    }, repo);
+    assert.equal(noAfter.outcome, "invalid_request");
+    const noAfterGap = noAfter.gaps.join(" ");
+    assert.match(noAfterGap, /frontmatter_after is required/);
+    assert.doesNotMatch(noAfterGap, /body_markdown_after/, "缺 frontmatter_after 时不得把正文也算作缺失");
+    assert.match(noAfterGap, /EMPTY OBJECT/, "须说明空对象合法");
+
+    // frontmatter_after 已给（空对象）、正文未给 —— 反过来只报正文。
+    const noBody = await run(descriptors, "ldvh_spark_write", {
+      action: "update",
+      object_uid: "11111111-1111-4111-8111-111111111111",
+      expected_fingerprint: "0".repeat(64),
+      frontmatter_after: {},
+      change_summary: "s",
+    }, repo);
+    assert.equal(noBody.outcome, "invalid_request");
+    const noBodyGap = noBody.gaps.join(" ");
+    assert.match(noBodyGap, /body_markdown_after is required/);
+    assert.doesNotMatch(noBodyGap, /frontmatter_after is required/, "缺正文时不得把 frontmatter_after 也算作缺失");
+  });
+});
 
 test("write: missing required args is invalid_request (zero write)", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -501,7 +557,7 @@ test("render: spark read output carries the FULL 64-char fingerprint and semanti
     const descriptors = makeDescriptors(makeDeps(home, base));
 
     const draft = { ...validFrontmatterDraft(), serves: subGoalUid(1) };
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
@@ -532,7 +588,7 @@ test("render: spell/default descriptor uses the same envelope rendering with no 
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
     const draft = { ...validFrontmatterDraft(), serves: subGoalUid(2) };
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
@@ -602,7 +658,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
       };
       return draft;
     };
-    const open1 = await run(descriptors, "ldvh_spark_write", {
+    const open1 = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: subGoalUid(1) }),
@@ -610,7 +666,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
     }, repo);
     assert.equal(open1.outcome, "completed", JSON.stringify(open1));
 
-    const open2 = await run(descriptors, "ldvh_spark_write", {
+    const open2 = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: mkDraft("悬置乙（工具清单）", "问题乙如何进入清单投影？"),
@@ -618,7 +674,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
     }, repo);
     assert.equal(open2.outcome, "completed", JSON.stringify(open2));
 
-    const terminal = await run(descriptors, "ldvh_spark_write", {
+    const terminal = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: mkDraft("悬置丙（工具清单）", "问题丙如何进入清单投影？"),
@@ -681,7 +737,7 @@ test("list: limit hit returns partial outcome with the true total (never silent 
     const mkDraft = (title, question) => ({ ...validFrontmatterDraft(), title, question, summary: `总结：${title}`, change_summary: "x" });
 
     for (let i = 1; i <= 2; i++) {
-      const out = await run(descriptors, "ldvh_spark_write", {
+      const out = await createSpark(descriptors, {
         action: "create",
         dedup_result: DEDUP_OK,
         frontmatter_draft: mkDraft(`悬置${i}（限额夹具）`, `问题${i}如何出现？`),
@@ -707,7 +763,7 @@ test("list: invalid carriers (no frontmatter) are reported in gaps without faili
     const descriptors = makeDescriptors(makeDeps(home, base));
 
     const draft = { ...validFrontmatterDraft(), title: "悬置唯一（坏载体夹具）", question: "坏载体是否被静默跳过？", summary: "总结：坏载体", change_summary: "x" };
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
@@ -759,7 +815,7 @@ test("execution_error: a throwing sessionPersistence surfaces execution_error on
     const boomDeps = { ...deps, sessionPersistence: () => { throw new Error("persistence store down"); } };
     const descriptors = makeDescriptors(boomDeps);
 
-    const out = await run(descriptors, "ldvh_spark_write", {
+    const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -818,7 +874,7 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     const descriptors = makeDescriptors(makeDeps(home, base));
 
     const draft = { ...validFrontmatterDraft(), title: "无归属悬置（补充SG）", question: "补充子目标归属后能否被清单接纳？", summary: "总结：补充SG" };
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
@@ -847,7 +903,7 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
 
     // second object: an unknown uid → rejected with zero writes
     const draft2 = { ...validFrontmatterDraft(), title: "另一悬置（错误SG）", question: "伪造子目标归属是否被拒绝？", summary: "总结：错误SG" };
-    const created2 = await run(descriptors, "ldvh_spark_write", {
+    const created2 = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft2,
@@ -887,7 +943,7 @@ test("gate: create without a host seam is unavailable (fail-closed, zero writes)
   await withTemp("spark-tools.", async (base) => {
     const { repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: null }));
-    const out = await run(descriptors, "ldvh_spark_write", {
+    const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -912,7 +968,7 @@ test("gate: create is rejected when the Human declines or does not choose", asyn
     await withTemp("spark-tools.", async (base) => {
       const { repo } = await governedFixture(base);
       const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: sparkSeam(reply) }));
-      const out = await run(descriptors, "ldvh_spark_write", {
+      const out = await createSpark(descriptors, {
         action: "create",
         dedup_result: DEDUP_OK,
         frontmatter_draft: validFrontmatterDraft(),
@@ -930,10 +986,13 @@ test("gate: create is refused without a dedup conclusion (20 §6.2/§17.7 Stop C
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    // 直走写入入口：这条要证的是「缺 dedup 结论时写入被拒且不发出提问」，
+    // 经预检会先在预检处返回 unverifiable，断言就不再落在写入面与提问面上。
     const out = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
+      expected_candidate_fingerprint: "0".repeat(64),
     }, repo);
     assert.equal(out.outcome, "invalid_request", JSON.stringify(out));
     assert.ok(out.gaps.some((g) => g.includes("dedup_result")), JSON.stringify(out.gaps));
@@ -951,7 +1010,7 @@ test("gate: a reply for a DIFFERENT question id cannot grant consent", async () 
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, {
       hostSeams: sparkSeam(() => ({ granted: false, reason: "human did not confirm" })),
     }));
-    const out = await run(descriptors, "ldvh_spark_write", {
+    const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -967,7 +1026,7 @@ test("gate: the 呈报内容 reaches the answerer (dedup + question + scope + se
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
     const draft = { ...validFrontmatterDraft(), serves: subGoalUid(1) };
-    const out = await run(descriptors, "ldvh_spark_write", {
+    const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
@@ -989,7 +1048,7 @@ test("gate: terminal transition requires confirmation; a non-terminal update doe
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -1042,7 +1101,7 @@ test("gate: a declined terminal transition is rejected with zero writes", async 
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -1074,7 +1133,7 @@ test("gate: 09 §6 weak constraint — boundary delta is returned, never blockin
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -1119,7 +1178,7 @@ test("gate: boundary delta is omitted when question/scope_boundary did not chang
   await withTemp("spark-tools.", async (base) => {
     const { repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base));
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -1171,7 +1230,7 @@ test("gate: a stale CAS baseline is refused BEFORE the Human is asked (no wasted
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -1203,7 +1262,7 @@ test("gate: a mechanically-invalid create is refused BEFORE the Human is asked",
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
     // Two terminals in the question → frontmatter mechanical check fails.
-    const out = await run(descriptors, "ldvh_spark_write", {
+    const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: { ...validFrontmatterDraft(), question: "如何验证？如何验证？" },
@@ -1224,7 +1283,7 @@ test("gate: a dry run allocates no file (no directory, no staging file)", async 
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, {
       hostSeams: sparkSeam(() => ({ granted: false, reason: "declined" })),
     }));
-    const out = await run(descriptors, "ldvh_spark_write", {
+    const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -1241,7 +1300,7 @@ test("gate: a terminal update that the WRITER must refuse consumes no question (
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
@@ -1293,7 +1352,7 @@ test("list: keyword / priorities / serves narrow the result set (filter before l
     });
     const make = async (title, question, more) => {
       const draft = mkDraft(title, question, more);
-      const out = await run(descriptors, "ldvh_spark_write", {
+      const out = await createSpark(descriptors, {
         action: "create",
         dedup_result: DEDUP_OK,
         frontmatter_draft: draft,
@@ -1343,7 +1402,7 @@ test("list: narrowing is disclosed in gaps (a filtered empty list is not 'no suc
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
     const draft = { ...validFrontmatterDraft(), title: "收窄披露甲", question: "收窄是否披露？", summary: "总结：收窄披露甲", change_summary: "x" };
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
@@ -1384,7 +1443,7 @@ test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", 
     });
     const make = async (title, question, more) => {
       const draft = mkDraft(title, question, more);
-      const out = await run(descriptors, "ldvh_spark_write", {
+      const out = await createSpark(descriptors, {
         action: "create",
         dedup_result: DEDUP_OK,
         frontmatter_draft: draft,
@@ -1456,7 +1515,7 @@ test("render: hitReason 必须进模型可见文本（只进 envelope 等于没�
       change_summary: "渲染夹具",
       priority: "P1",
     };
-    const created = await run(descriptors, "ldvh_spark_write", {
+    const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
       frontmatter_draft: draft,

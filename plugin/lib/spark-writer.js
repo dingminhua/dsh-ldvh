@@ -731,42 +731,124 @@ function assembleBody(title, bodyMarkdown) {
 // Create (specs/03 §9.4 + specs/20 §13)
 // ---------------------------------------------------------------------------
 
+
+/** 预检用的占位身份：只用来满足闭集校验，绝不落盘、也不回给调用方。 */
+const PRECHECK_PLACEHOLDER_UID = "00000000-0000-4000-8000-000000000000";
+
 /**
- * `dryRun` runs EVERY mechanical check (closed sets, single-sentence question,
- * carrier coherence, body structure, serves/refs resolution) and returns the
- * same failures, but stops before touching the filesystem.
+ * 本类型的**指纹覆盖范围**（20 §13 逐字登记）：
  *
- * It exists so a caller can prove a write is mechanically possible BEFORE
- * asking the Human to authorise it. Asking first would spend the Human's
- * attention on a candidate the writer is certain to refuse (20 §16 requires an
- * explicit confirmation, and a confirmation for a doomed write is a wasted
- * one). The returned `object_uid` is the identity that a real create would
- * assign; a dry run allocates no file and leaves no trace.
+ * - 覆盖 `frontmatter_draft` 与 `body_markdown` 两个入参；
+ * - **剥离 `status`**——create 通道由 Code 钉死为 `open`，显式值只允许 `open`；
+ * - **`change_summary` 计入指纹、不剥离**——它是 `frontmatter_draft` 内的可选键，
+ *   其值经 Code 写入 `change_log[0].summary`、随对象落盘，故取值变化即内容变化；
+ * - **Code 托管字段**（`object_uid`／`fact_type_key`／`created_at`）不参与比较。
+ *
+ * 20 §13 明确：显式 `change_summary` 恰等于 Code 默认摘要串时与省略产出同一对象，
+ * 该重合造成的伪拒绝由本类型接受（重跑预检即可）——这里**不做**归一，正是为了
+ * 不把「省略」与「显式默认值」这两种本该各自成立的写法合成一份候选。
  */
-export async function createSparkObject(args) {
-  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, dryRun = false } = args;
-  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
-  // signed BY CODE and may not be written unsigned. Without a branded carrier the
-  // write is REFUSED; the caller reports it for Human handling (09 requires a
-  // definite unavailable outcome for blank/historical sessions).
-  const sig = requireAuthoritativeSignature(sessionSignature);
-  if (!sig.ok) return failure(sig.code, sig.message);
-  if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
-    return failure("invalid_request", "factSourceRoot is required");
+export function computeSparkCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
+  const { status: _statusStripped, ...draftFields } = frontmatterDraft ?? {};
+  const candidate = {
+    frontmatter_draft: draftFields,
+    body_markdown: typeof bodyMarkdown === "string" ? bodyMarkdown : null,
+  };
+  return createHash("sha256").update(stableStringify(candidate), "utf8").digest("hex");
+}
+
+/** 稳定序列化：键序无关，使同一份候选恒得同一指纹。 */
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
+}
+
+/**
+ * 只读机械预检一份 Spark 创建候选（20 §13「本类型**须设**只读预检入口」）。
+ *
+ * **只读、不落盘、不生成对象标识**（20 §13 / 02 §10.3）：不 mkdir、不写临时文件、
+ * 不回带任何 uid。跑的是与受控创建**完全相同**的求值函数，故同一候选不会从两个
+ * 入口得到不同结论。
+ *
+ * 20 §13 还要求预检**包含 create 入口对 `dedup_result` 的必填检查**——该检查在
+ * 入口层而非 writer 层，故由调用方把 `dedupResult` 传进来，这里照同一判据核。
+ */
+export async function precheckSparkCreate({ factSourceRoot, frontmatterDraft, bodyMarkdown, dedupResult }) {
+  const candidateFingerprint = computeSparkCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown);
+  if (typeof dedupResult !== "string" || dedupResult.trim().length === 0) {
+    // 与 create 入口同一判据、同一措辞，但归为「不可判定」：缺的是入口必填项，
+    // 不是候选内容有可修的缺陷（02 §10.1：预检不可判定按未通过处理）。
+    return success({
+      mechanical_outcome: "unverifiable",
+      candidate_fingerprint: candidateFingerprint,
+      issues: ["dedup_result is required for a Spark create precheck (20 §13: 预检须包含 create 入口对 dedup_result 的必填检查)"],
+      error_code: "spark/dedup_result_required",
+      error_message: "dedup_result is required for a Spark create precheck",
+    });
   }
   if (typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
-    return failure("invalid_request", "bodyMarkdown is required (the markdown body starting with '## 当前理解'; the H1 is generated from title)");
+    return success({
+      mechanical_outcome: "unverifiable",
+      candidate_fingerprint: candidateFingerprint,
+      issues: ["body_markdown is required (starting with '## 当前理解'; the H1 is generated from title)"],
+      error_code: "invalid_request",
+      error_message: "bodyMarkdown is required",
+    });
   }
+  const evaluated = await evaluateSparkCreateCandidate({
+    factSourceRoot,
+    frontmatterDraft,
+    bodyMarkdown,
+    // 预检不盖真署名：署名不是候选内容，也不该由一次只读检查产生。
+    signature: { provider: "(precheck)", model: "(precheck)" },
+    objectUid: PRECHECK_PLACEHOLDER_UID,
+    createdAt: new Date(0).toISOString(),
+  });
+  if (!evaluated.ok) {
+    const code = evaluated.error.code;
+    const issues = Array.isArray(evaluated.error.details?.issues) ? evaluated.error.details.issues : [];
+    return success({
+      // `invalid_request` 表示「这项检查没能完成」，不是「候选有可修的缺陷」——
+      // 两者混同会让环境问题被读成格式提示。
+      mechanical_outcome: code === "invalid_request" ? "unverifiable" : "failed",
+      candidate_fingerprint: candidateFingerprint,
+      error_code: code,
+      error_message: evaluated.error.message,
+      issues: issues.length > 0 ? issues : [evaluated.error.message],
+    });
+  }
+  return success({
+    mechanical_outcome: "passed",
+    candidate_fingerprint: candidateFingerprint,
+    issues: [],
+    // 不回来任何身份：预检不生成对象标识（20 §13）。
+    object_uid: null,
+  });
+}
 
-  // Code-assigned identity (03 §6.2)
-  const uid = randomUUID();
-  const now = new Date().toISOString();
+/**
+ * 一次 **CREATE 候选求值**：组装 + 全部机械校验，返回将要写入的
+ * `frontmatter`/`body`，或与写入路径**完全相同**的失败。
+ *
+ * 两个入口共用它（20 §13「与受控创建执行同一组机械校验，双入口一致性」）：
+ *   - `precheckSparkCreate` 传入占位 uid 与占位署名，**不落盘、不生成对象标识**；
+ *   - `createSparkObject` 传入 Code 铸造的真实 uid 与权威署名。
+ *
+ * 唯一不同的是 Code 托管字段（`object_uid`／`created_at`）与 `change_log` 署名，
+ * 三者都不是调用方内容，故同一候选不可能从两个入口得到不同结论。若这里改成
+ * 两套规则，就会出现「预检通过、写入被拒」这种最坏的组合。
+ */
+async function evaluateSparkCreateCandidate({
+  factSourceRoot, frontmatterDraft, bodyMarkdown, signature, objectUid, createdAt,
+}) {
   // Strip caller-only params (change_summary is a call argument, not object metadata)
   const { change_summary: _stripped, ...draftFields } = frontmatterDraft;
   const frontmatter = { ...draftFields };
-  frontmatter.object_uid = uid;
+  frontmatter.object_uid = objectUid;
   frontmatter.fact_type_key = SPARK_TYPE_KEY;
-  frontmatter.created_at = now;
+  frontmatter.created_at = createdAt;
   // 20 §9: 初态 open — create must never enter a terminal state
   if (frontmatter.status !== undefined && frontmatter.status !== "open") {
     return failure("spark/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (20 §9)`);
@@ -781,8 +863,8 @@ export async function createSparkObject(args) {
     return failure("spark/frontmatter_invalid", "create must not carry relations (20 §11: merged-into/split-into only attach to a discarded transition)");
   }
   frontmatter.change_log = [{
-    at: now,
-    ...sig.signature,
+    at: createdAt,
+    ...signature,
     summary: frontmatterDraft.change_summary ?? "受控创建 Spark 对象",
   }];
 
@@ -791,7 +873,7 @@ export async function createSparkObject(args) {
   if (!fmCheck.ok) {
     return failure("spark/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
-  const relCheck = validateSparkRelations(frontmatter, uid);
+  const relCheck = validateSparkRelations(frontmatter, objectUid);
   if (!relCheck.ok) {
     return failure("spark/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
   }
@@ -823,12 +905,95 @@ export async function createSparkObject(args) {
   }
   // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
-  // Dry run stops here: every mechanical check above has passed, so the caller
-  // can now ask the Human knowing the write would land. Nothing has been
-  // created — no directory, no staging file, no rename.
+  return success({ frontmatter, body });
+}
+
+/**
+ * `dryRun` runs EVERY mechanical check (closed sets, single-sentence question,
+ * carrier coherence, body structure, serves/refs resolution) and returns the
+ * same failures, but stops before touching the filesystem.
+ *
+ * It exists so a caller can prove a write is mechanically possible BEFORE
+ * asking the Human to authorise it. Asking first would spend the Human's
+ * attention on a candidate the writer is certain to refuse (20 §16 requires an
+ * explicit confirmation, and a confirmation for a doomed write is a wasted
+ * one).
+ *
+ * A dry run allocates no file, leaves no trace, and **returns no identity**
+ * (20 §13: 预检只读、不落盘、且不生成对象标识). It runs the same evaluator on a
+ * placeholder uid, so every mechanical check sees the same content a real write
+ * would.
+ */
+export async function createSparkObject(args) {
+  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, dryRun = false,
+    expectedCandidateFingerprint = null } = args;
+  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
+  // signed BY CODE and may not be written unsigned. Without a branded carrier the
+  // write is REFUSED; the caller reports it for Human handling (09 requires a
+  // definite unavailable outcome for blank/historical sessions).
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+  if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
+    return failure("invalid_request", "factSourceRoot is required");
+  }
+  if (typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+    return failure("invalid_request", "bodyMarkdown is required (the markdown body starting with '## 当前理解'; the H1 is generated from title)");
+  }
+
+  // Code-assigned identity (03 §6.2). **干跑不铸标识**（20 §13：预检只读、不落盘、
+  // 且不生成对象标识）——它用占位身份走同一套机械校验，占位值既不落盘、也不回给
+  // 调用方。实测缺陷（2026-11-14 复核）：上一版 dryRun 仍 `randomUUID()`，只是把
+  // 结果藏进 `frontmatter.object_uid`，两次干跑得到两个不同 uuid，与 20 §13 相反。
+  const uid = dryRun === true ? PRECHECK_PLACEHOLDER_UID : randomUUID();
+  const now = dryRun === true ? new Date(0).toISOString() : new Date().toISOString();
+  // 20 §13：**候选同一性**——预检结论所依据的候选内容指纹须与写入请求携带的
+  // 指纹逐字一致；**不一致或未携带时零写入**。
+  //
+  // 20 §13 还有一句「本类型的写入路径**不做内部候选指纹比对或补位**」。本实现的
+  // 读法（须如实说明，因为原文有歧义）：它禁的是**用自己的记录替代调用方携带的
+  // 指纹**（即拿上一次预检自己存的值来「补位」），不是禁止在收到调用方指纹后
+  // 核对它与本次内容是否一致——后者若不发生，「同一性已确认」就无从成立。
+  // 等值比对**同时**在入口层（spark-tools 的 create 分支，早于 Human Gate）执行，
+  // 那里是为了不把一次必然失败的写入浪费成一次人问；这里的比对是写入路径自身的
+  // 最后一道核，两者用同一函数、同一判据。
+  //
+  // `dryRun` 是写入前的内部干跑（20 §16 的确认前检查），不构成跨调用同一性
+  // 证据（20 §13 原话），故它豁免本项；真实写入一律要求携带。
+  if (dryRun !== true) {
+    if (typeof expectedCandidateFingerprint !== "string" || expectedCandidateFingerprint.length === 0) {
+      return failure(
+        "spark/candidate_fingerprint_required",
+        "expected_candidate_fingerprint is required for create (20 §13: 未携带时按「同一性未确认」零写入) — "
+          + "run ldvh_spark_precheck_create on this candidate first and pass the candidate_fingerprint it returns",
+      );
+    }
+    const actualCandidateFingerprint = computeSparkCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown);
+    if (actualCandidateFingerprint !== expectedCandidateFingerprint) {
+      return failure(
+        "spark/candidate_changed",
+        "the candidate content changed between precheck and write; the precheck verdict does not carry over (20 §13) — re-run the precheck on the current content",
+        { expected_candidate_fingerprint: expectedCandidateFingerprint, actual_candidate_fingerprint: actualCandidateFingerprint },
+      );
+    }
+  }
+
+  const evaluated = await evaluateSparkCreateCandidate({
+    factSourceRoot,
+    frontmatterDraft,
+    bodyMarkdown,
+    signature: sig.signature,
+    objectUid: uid,
+    createdAt: now,
+  });
+  if (!evaluated.ok) return evaluated;
+
+  const { frontmatter, body } = evaluated.value;
+
+  // Dry run stops here: every mechanical check ran on exactly the content a real
+  // create would write. It carries the **placeholder** identity, never a real one,
+  // and returns no uid/file to the caller.
   if (dryRun === true) {
-    const filePath = objectFilePath(factSourceRoot, uid);
-    return success({ object_uid: uid, file: filePath, dry_run: true });
+    return success({ dry_run: true, body });
   }
 
   // Write (single flat file, atomic)

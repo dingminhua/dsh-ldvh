@@ -457,8 +457,23 @@ function stableStringify(value) {
  * it does NOT prove: the object was not later modified, nor that the content is
  * appropriate (28 §15 — that stays with Human judgement).
  */
+/**
+ * 本类型的**指纹覆盖范围**（28 §13 逐字登记）：
+ *
+ * - 覆盖 `frontmatter_draft` 与 `body_markdown` 两个入参；
+ * - **剥离 `status`**——create 通道由 Code 钉死为 `active`，显式值只允许
+ *   `active`，故「省略 status」与「显式 status=active」产出同一个对象；
+ * - **不剥离变更摘要**——它经 Code 写入 `change_log[0].summary`、随对象落盘，
+ *   显式值与省略时的默认值一般不是同一对象。
+ *
+ * 实测缺陷（2026-11-14 修正）：此前实现恰好**把两条读反了**——剥了
+ * `change_summary`、没剥 `status`。后果有两个方向：① 改摘要不改变指纹，
+ * 于是「换了摘要的候选」能沿用旧预检结论（同一性被悄悄放宽）；② 省略/显式
+ * status 产出两个指纹，写入被误拒。前者更危险，因为它让预检结论覆盖了它没
+ * 跑过的内容。
+ */
 export function computeSubGoalCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
-  const { change_summary: _summary, ...draftFields } = frontmatterDraft ?? {};
+  const { status: _statusStripped, ...draftFields } = frontmatterDraft ?? {};
   const candidate = {
     frontmatter_draft: draftFields,
     body_markdown: typeof bodyMarkdown === "string" ? bodyMarkdown : null,
@@ -607,20 +622,26 @@ export async function createSubGoalObject(args) {
   }
 
   const uid = randomUUID();
-  const evaluated = await evaluateCreateCandidate({
-    factSourceRoot,
-    frontmatterDraft,
-    bodyMarkdown,
-    signature: sig.signature,
-    objectUid: uid,
-  });
-  if (!evaluated.ok) return evaluated;
 
-  // 28 §13: the precheck verdict belongs to the content it was run against. When
-  // the caller supplies that fingerprint, a change in between is refused rather
-  // than silently accepted — otherwise "Human approved it" would attach to a
-  // different object than the one that lands.
-  if (typeof expectedCandidateFingerprint === "string" && expectedCandidateFingerprint.length > 0) {
+  // 28 §13：预检结论只属于它跑过的那份内容。**未携带指纹即零写入**——
+  // 28 §13 逐字登记：「`expected_candidate_fingerprint` 是本类型 create 的必填项
+  // ……写入请求未携带该指纹的，按「同一性未确认」零写入」。
+  //
+  // **本校验前置于内容求值**：同一性未确认是入口必填面的缺口，与候选内容本身
+  // 是否合法无关。若排在内容校验之后，一个内容也不合法的候选会先报内容错，
+  // 调用方照改后仍会在下一轮撞上同一性缺口——两次往返才暴露一个入口缺口。
+  //
+  // 实测漂移（2026-11-14 修正）：此前实现是 fail-open——未携带指纹时照常写入，
+  // 只在交还里登记「未预检」（da5a38cb，2026-11-01 的决定，早于 28 §13 的登记）。
+  // 该口径使预检成为可绕过的环节：不跑预检反而更省事。
+  if (typeof expectedCandidateFingerprint !== "string" || expectedCandidateFingerprint.length === 0) {
+    return failure(
+      "subgoal/candidate_fingerprint_required",
+      "expectedCandidateFingerprint is required for create (28 §13: 写入请求未携带该指纹的，按「同一性未确认」零写入) — "
+        + "run ldvh_subgoal_precheck_create on this candidate first and pass the candidate_fingerprint it returns",
+    );
+  }
+  {
     const actual = computeSubGoalCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown);
     if (actual !== expectedCandidateFingerprint) {
       return failure(
@@ -630,6 +651,15 @@ export async function createSubGoalObject(args) {
       );
     }
   }
+
+  const evaluated = await evaluateCreateCandidate({
+    factSourceRoot,
+    frontmatterDraft,
+    bodyMarkdown,
+    signature: sig.signature,
+    objectUid: uid,
+  });
+  if (!evaluated.ok) return evaluated;
 
   const { frontmatter, body } = evaluated.value;
   const typeDir = join(factSourceRoot, SUBGOAL_DIRECTORY);

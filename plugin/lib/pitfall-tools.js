@@ -308,8 +308,15 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("pitfall-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
-  if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
-    return invalidRequest("pitfall-write-object", "frontmatter_after (object) and body_markdown_after (markdown) are required for action=update", "update");
+  // 缺什么报什么：`frontmatter_after` 与正文是两个独立通道（02 §10.5），合成一句
+  // 「两者都必填」会让调用方看不出究竟缺哪一项——实测本窗口有 5 次失败其实是正文
+  // 已给、`frontmatter_after` 未给，却被读成「要重抄全文」。`frontmatter_after` 传
+  // 空对象 `{}` 合法（各类型入口参数面均标「须携带，可为空对象」）。
+  if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
+    return invalidRequest("pitfall-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return invalidRequest("pitfall-write-object", "body_markdown_after is required for action=update — the COMPLETE target body starting at \"## 症状\" (the H1 is generated from title); a partial body, or a body read back with its H1, is refused", "update");
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return invalidRequest("pitfall-write-object", "change_summary (one short semantic summary for the change_log) is required for action=update", "update");
@@ -431,6 +438,8 @@ function renderEnvelope(operationKey, value) {
   // 披露，warning 是不阻断的提示。
   const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
+  // **follow_up 必须进模型可见文本**（05 §8「给出可继续读取、分页、回读、修复、分流或 Human 决定入口」）。此前本渲染只打 gap:/warning: 行，envelope 里算出的 follow_up 对模型侧那行文本不可见——与「只数据显示在 envelope 等于没给」同一失效模式；Goal/Norm/SubGoal/基础批次四处都已渲染，这里补齐以消除不一致。逐条目 stringify 与 gap/warning 同为结构化记录兜底。
+  for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
   return text(lines.join("\n"));
 }
 

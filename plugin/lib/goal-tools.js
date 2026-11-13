@@ -233,8 +233,13 @@ export function makeExecute(deps) {
     const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
     const bodyMarkdownAfter = args?.body_markdown_after;
     const changeSummary = args?.change_summary;
-    if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string") {
-      return invalidRequest("goal-write-object", "frontmatter_after (object) and body_markdown_after (markdown) are required for action=update", "update");
+    // 缺什么报什么：两个通道独立（02 §10.5）。实测本窗口有 5 次失败其实是正文已给、
+    // `frontmatter_after` 未给，却被读成「要重抄全文」。空对象 `{}` 合法。
+    if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
+      return invalidRequest("goal-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
+    }
+    if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+      return invalidRequest("goal-write-object", "body_markdown_after is required for action=update — the COMPLETE target body starting at \"## 目标陈述\" (the H1 is generated from title)", "update");
     }
     if (typeof changeSummary !== "string" || changeSummary.length === 0) {
       return invalidRequest("goal-write-object", "change_summary is required for action=update (25 §6: 每条必含修订理由)", "update");

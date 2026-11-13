@@ -21,10 +21,13 @@
 
 import {
   createSparkObject,
+  precheckSparkCreate,
+  computeSparkCreateCandidateFingerprint,
   readSparkObject,
   updateSparkObject,
   listSparkObjects,
   resolveRefsTargets,
+  SPARK_DIRECTORY,
   // 删除白名单与 writer 同源（与 friction-tools 同一做法）：schema 的 enum 由
   // writer 的具名常量算出，二者不可能漂移。schema 是模型读到的唯一入口——
   // 枚举写小了不是「拦住越权」，而是让模型以为某个合法的删除不存在。
@@ -49,6 +52,11 @@ const OPERATIONS = {
   "spark-list-objects": {
     toolName: "ldvh_spark_list",
     summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves/refs/priority) for the governed project; open-only by default; narrow with keyword / priorities / serves (specs/03 §8, specs/20 §12 — 主动查询是方向线的主要取回路径，见 specs/31 §10；按 object_uid 取单条仍用 ldvh_spark_read)",
+    effect: "read"
+  },
+  "spark-precheck-create": {
+    toolName: "ldvh_spark_precheck_create",
+    summary: "只读机械预检一份 Spark 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的求值器**，并计入 create 入口对 dedup_result 的必填检查，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/20 §13 须设的只读预检入口、写入前机械预检）",
     effect: "read"
   },
   "spark-write-object": {
@@ -410,6 +418,64 @@ async function sparkBoundaryDelta({ factSourceRoot, objectUid, frontmatterAfter 
   return changed.length === 0 ? null : changed;
 }
 
+async function executePrecheckCreate(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("spark-precheck-create", "unavailable", {
+      result: { mechanical_outcome: "unverifiable" },
+      scope: { requested: "precheck", completed: [], not_completed: ["precheck"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: the precheck contract serves governed projects only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const draft = args?.frontmatter_draft;
+  const bodyMarkdown = args?.body_markdown;
+  if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+    return invalidRequest("spark-precheck-create", "frontmatter_draft (object) and body_markdown are required for a create precheck", "precheck");
+  }
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const evaluated = await precheckSparkCreate({
+    factSourceRoot,
+    frontmatterDraft: draft,
+    bodyMarkdown,
+    dedupResult: args?.dedup_result,
+  });
+  if (!evaluated.ok) {
+    return envelope("spark-precheck-create", "unavailable", {
+      result: { mechanical_outcome: "unverifiable" },
+      scope: { requested: "precheck", completed: [], not_completed: ["precheck"] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, SPARK_DIRECTORY) }],
+      gaps: [`${evaluated.error.code}: ${evaluated.error.message}`],
+      verification: { checks: ["precheck"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = evaluated.value;
+  return envelope(
+    "spark-precheck-create",
+    value.mechanical_outcome === "unverifiable" ? "partial" : "completed",
+    {
+      result: value,
+      scope: {
+        requested: "precheck",
+        completed: ["precheck"],
+        not_completed: value.mechanical_outcome === "passed" ? [] : ["candidate has not passed the mechanical checks"],
+      },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, SPARK_DIRECTORY) }],
+      gaps: [
+        ...(value.error_code ? [`${value.error_code}: ${value.error_message}`] : []),
+        ...(value.issues ?? []),
+      ],
+      verification: { checks: ["precheck", "candidate-fingerprint"], passed: value.mechanical_outcome === "passed" },
+      follow_up: value.mechanical_outcome === "passed"
+        ? ["pass the returned candidate_fingerprint to ldvh_spark_write(action=create) as expected_candidate_fingerprint — the write refuses when the content changes in between"]
+        : ["fix the reported issues and re-run the precheck; do not retry the write hoping for a different verdict (02 §10.1)"],
+    },
+  );
+}
+
 async function executeWriteObject(args, exec, deps) {
   const action = args?.action;
   if (action !== "create" && action !== "update") {
@@ -462,6 +528,41 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof dedupResult !== "string" || dedupResult.trim().length === 0) {
       return invalidRequest("spark-write-object", "dedup_result is required for action=create (20 §6.2/§17.7): state the semantic dedup conclusion against existing open and terminal Sparks (e.g. \"no same-topic Spark found\" / \"overlaps <uid> but is a distinct direction\"). Dedup is not mechanically decidable — the conclusion stays with you, but an unrecorded one is a Stop Condition.", "create");
     }
+    // 20 §13 候选同一性：指纹是 create 的入口必填项，未携带即零写入。此处提前
+    // 给出可读诊断（写入侧同样核一遍，两处判据同源、不另立规则）。
+    const expectedCandidateFingerprint = typeof args?.expected_candidate_fingerprint === "string"
+      && args.expected_candidate_fingerprint.length > 0
+      ? args.expected_candidate_fingerprint
+      : null;
+    if (expectedCandidateFingerprint === null) {
+      return writeRejected("spark-write-object", {
+        ok: false,
+        error: {
+          code: "spark/candidate_fingerprint_required",
+          message: "expected_candidate_fingerprint is required for action=create (20 §13: 未携带时按「同一性未确认」零写入) — "
+            + "run ldvh_spark_precheck_create on this candidate first and pass the candidate_fingerprint it returns",
+          details: {},
+        },
+      }, factSourceRoot);
+    }
+
+    // 20 §13 候选同一性的**等值**比对也前移到此处：与上面的「是否携带」一样，
+    // 它是一次**廉价拒绝**，必须排在 Human Gate 之前。本文件下方
+    // （writeRejected 上方）已立过同一规矩：「every cheap refusal must precede
+    // the ask … a question cannot be un-asked」。实测缺陷（2026-11-14 复核）：
+    // 指纹不一致曾被放在 Gate 之后，于是人答完才被拒——白问一次。
+    const actualCandidateFingerprint = computeSparkCreateCandidateFingerprint(draft, bodyMarkdown);
+    if (actualCandidateFingerprint !== expectedCandidateFingerprint) {
+      return writeRejected("spark-write-object", {
+        ok: false,
+        error: {
+          code: "spark/candidate_changed",
+          message: "the candidate content changed between precheck and write; the precheck verdict does not carry over (20 §13) — re-run the precheck on the current content",
+          details: { expected_candidate_fingerprint: expectedCandidateFingerprint, actual_candidate_fingerprint: actualCandidateFingerprint },
+        },
+      }, factSourceRoot);
+    }
+
     // Every mechanical check runs FIRST, on a dry run that allocates nothing.
     // 20 §16 requires an explicit Human confirmation; asking for a candidate
     // the writer is already certain to refuse would spend the Human's attention
@@ -491,6 +592,7 @@ async function executeWriteObject(args, exec, deps) {
       frontmatterDraft: draft,
       bodyMarkdown,
       sessionSignature: sig.ok ? sig.value : null,
+      expectedCandidateFingerprint,
     });
     if (!created.ok) {
       return writeRejected("spark-write-object", created, factSourceRoot);
@@ -538,8 +640,15 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("spark-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
-  if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
-    return invalidRequest("spark-write-object", "frontmatter_after (object) and body_markdown_after (markdown) are required for action=update", "update");
+  // 缺什么报什么：`frontmatter_after` 与正文是两个独立通道（02 §10.5），合成一句
+  // 「两者都必填」会让调用方看不出究竟缺哪一项——实测本窗口有 5 次失败其实是正文
+  // 已给、`frontmatter_after` 未给，却被读成「要重抄全文」。`frontmatter_after` 传
+  // 空对象 `{}` 合法（各类型入口参数面均标「须携带，可为空对象」）。
+  if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
+    return invalidRequest("spark-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return invalidRequest("spark-write-object", "body_markdown_after is required for action=update — the COMPLETE target body starting at \"## 当前理解\" (the H1 is generated from title); a partial body, or a body read back with its H1, is refused", "update");
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return invalidRequest("spark-write-object", "change_summary (one short semantic summary for the change_log) is required for action=update", "update");
@@ -693,6 +802,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     "spark/relations_invalid", "spark/relation_target_unresolvable", "spark/serves_unresolvable", "spark/refs_unresolvable",
     "spark/initial_state_violation", "spark/status_transition_invalid", "spark/status_terminal",
     "spark/cas_conflict", "spark/change_summary_required", "spark/invalid_uid",
+    "spark/candidate_changed", "spark/candidate_fingerprint_required", "spark/dedup_result_required",
     "invalid_request",
   ]);
   const outcome = mechanicalCodes.has(code) ? "rejected" : "unavailable";
@@ -745,6 +855,12 @@ function renderEnvelope(operationKey, value) {
   // the CAS baseline unobtainable and blocks every controlled update.
   if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
   if (result?.body_valid !== undefined) lines.push(`body_valid: ${result.body_valid}`);
+  // 预检结论（20 §13）：三个字段必须可见——模型只有这扇窗，藏在 envelope 里
+  // 等同于没有。`mechanical_outcome` 与 `candidate_fingerprint` 缺一，调用方要么
+  // 不知道候选过没过，要么拿不到可携带的指纹。
+  if (result?.mechanical_outcome !== undefined) lines.push(`mechanical_outcome: ${result.mechanical_outcome}`);
+  if (result?.candidate_fingerprint !== undefined) lines.push(`candidate_fingerprint: ${result.candidate_fingerprint}`);
+  if (result?.error_code !== undefined) lines.push(`error_code: ${result.error_code}`);
   if (result?.read_back?.ok !== undefined) lines.push(`read_back: ${result.read_back.ok ? "ok" : "FAILED"}`);
   if (result?.actual_ref !== undefined) lines.push(`file: ${result.actual_ref}`);
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
@@ -772,6 +888,8 @@ function renderEnvelope(operationKey, value) {
   // 但用 `warning:` 前缀区分：gap 是缺口披露，warning 是不阻断的提示。
   const warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
+  // **follow_up 必须进模型可见文本**（05 §8「给出可继续读取、分页、回读、修复、分流或 Human 决定入口」）。此前本渲染只打 gap:/warning: 行，envelope 里算出的 follow_up 对模型侧那行文本不可见——与「只数据显示在 envelope 等于没给」同一失效模式；Goal/Norm/SubGoal/基础批次四处都已渲染，这里补齐以消除不一致。逐条目 stringify 与 gap/warning 同为结构化记录兜底。
+  for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
   return text(lines.join("\n"));
 }
 
@@ -828,6 +946,17 @@ function parameterSchemaFor(operationKey) {
     additionalProperties: false
   };
   switch (operationKey) {
+    case "spark-precheck-create":
+      return {
+        type: "object",
+        properties: {
+          frontmatter_draft: (() => { const { required: _r, ...rest } = sparkFrontmatter; return { ...rest, description: "the candidate's AI-supplied type fields, exactly as create would receive them (Code-managed fields excluded; `status` is stripped from the candidate fingerprint per 20 §13)" }; })(),
+          body_markdown: { type: "string", description: "the candidate body markdown starting with '## 当前理解' (exactly what create would receive)" },
+          dedup_result: { type: "string", description: "required: 20 §13 puts the create entry's dedup_result check INSIDE the precheck, so the precheck must receive the same dedup conclusion the write would carry" }
+        },
+        required: ["frontmatter_draft", "body_markdown", "dedup_result"],
+        additionalProperties: false
+      };
     case "spark-read-object":
       return {
         type: "object",
@@ -862,7 +991,8 @@ function parameterSchemaFor(operationKey) {
           frontmatter_after: (() => { const { required: _r, ...rest } = sparkFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
           frontmatter_removals: { type: "array", description: `update: explicit deletion declarations (specs/02 §10.5: 未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-list (SPARK_REMOVABLE_FIELDS for update: ${[...SPARK_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...SPARK_REMOVABLE_FIELDS] } },
           body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown)" },
-          change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }
+          change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" },
+          expected_candidate_fingerprint: { type: "string", description: "create (required): the candidate_fingerprint returned by ldvh_spark_precheck_create for THIS candidate content. 20 §13 makes it a required create entry parameter — a create without it is refused with zero writes (「同一性未确认」). The write refuses when the content changed since the precheck." }
         },
         required: ["action"],
         additionalProperties: false
@@ -924,6 +1054,7 @@ export function registerSparkTools(ctx, deps) {
   const handlers = {
     "spark-read-object": (args, exec) => executeReadObject(args, exec, deps),
     "spark-list-objects": (args, exec) => executeListObject(args, exec, deps),
+    "spark-precheck-create": (args, exec) => executePrecheckCreate(args, exec, deps),
     "spark-write-object": (args, exec) => executeWriteObject(args, exec, deps),
   };
   const disposers = [];
