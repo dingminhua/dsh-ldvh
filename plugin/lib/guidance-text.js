@@ -117,7 +117,7 @@ const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md�
 6. §5 价值纪律——机制准入（§5.1）、价值不因材料存在而成立（§5.2）、冲突与变更（§5.3）
 规则读取：ldvh_read_specification_candidates / ldvh_read_specification_content（L0–L4 渐进披露）；
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
-把关请示：在行动前与收口前两处向 Human 请示是否安排一次独立核对，答复留痕，答复不构成授权凭据、也不使行动在取得答复前暂停（§2.6）；两处各有开关，缺省关闭；关着只保证「不问」，不禁止 AI 按 04 §6.1 自行安排隔离视角；「算不算复杂」由 AI 判断，机械层不判定，故这不构成机械保障；
+把关请示：在行动前与收口前两处向 Human 请示是否安排一次独立核对，答复留痕，答复不构成授权凭据、也不使行动在取得答复前暂停（§2.6）；两处各有开关，缺省关闭；关着只保证「不问」，不禁止 AI 按 04 §6.1 自行安排隔离视角；两处询问之上另有执行档位（征询／静默，缺省征询），静默时该处不逐次征询、按 Human 的预先答复直接安排那次核对并留执行痕迹，它只免征询不免核对、不越过该处的询问开关，且不外推到 ADR／火花／管辖项目等 Human Gate 的提请；「算不算复杂」由 AI 判断，机械层不判定，故这不构成机械保障；
 模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，请将 question 控制在 200 字符内，判断依据写进对话正文；此为对 AI 的指令、无机械保障（该工具不转发 detail，长内容无承载位）；
 待处置队列：11 §12 第4条把「下一个接管受影响对象的主控」列为读取者——接管前先读账（账在本机 ~/.dsh/ldvh/pending-queue.jsonl；源码布局下 node plugin/scripts/resolve-pending-entry.mjs --list --unresolved-only；Web 诊断页只给计数与截断原因、不含 entry_id）；核查后由接管的主控或 Human 用 ldvh_pending_queue_resolve 结案，note 必填、写明核查看到了什么；核查前对受影响对象的事实效力按 11 §12 第5条处理；
 管辖状态：ldvh_resolve_governance_scope。完整规则以规范源原文为准，本引导不复制规则正文。`;
