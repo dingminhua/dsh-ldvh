@@ -22,13 +22,10 @@ const STATUS_FILTER_ORDER = [
   'resolved',
   // 26 §9：Friction 已废弃（记错了的账目）——排在 resolved 后，属终态族。
   'voided',
-  // 29 §9：DevLog 的三个终态。「已被承接」（absorbed）排在「被推翻」
-  // （superseded）与「不再承重」（dropped）之前：它是三种退出里唯一的
-  // **正向**结局（结论还在，只是搬到承接物那里去了），与 achieved/resolved
-  // 属同一族；后两者是结论失去地位，排在更后。
-  'absorbed',
-  'superseded',
-  'dropped',
+  // 29 号 DevLog 的三个终态（absorbed/superseded/dropped）已随该类型于
+  // 2026-11-14 撤除出本序。注意 `superseded` 仍是 ADR/Norm/Research 的
+  // retirement_reason 取值（那是原因不是状态，经 FIELD_VALUE_LOCALES 另表
+  // 呈现，与本序无关），absorbed 同属 ADR 的 retirement_reason 闭集（22 §9.2）。
   'discarded',
   'archived',
   'retired',

@@ -1610,7 +1610,7 @@ export const UI_LOCALES = {
     'help.spine.execution.title': '执行',
     'help.spine.execution.body': '动手之前它问你要不要安排一次审查，收口之前再问一次要不要复核；你答跳过也照常往下走——它不拦你，只把「要不要多一双眼」这个决定交到你手上。',
     'help.spine.learning.title': '积累',
-    'help.spine.learning.body': '踩过的坑写成经验，待修的系统性阻碍记成摩擦账，成体系的方向写成规范，收敛的过程结论写成开发日志——下次能直接复用。',
+    'help.spine.learning.body': '踩过的坑写成经验，待修的系统性阻碍记成摩擦账，成体系的方向写成规范，对外部对象的调研沉淀成报告——下次能直接复用。',
     'help.spine.recallTitle': '动手前它还会做一次双源召回：',
     'help.spine.recall': '从规范源和事实源找回「当前该遵守什么、该依据什么、哪些事必须停下来问你」，并把召回到的东西落实成实际动作。这一步不留独立对象，但决定了它接下来怎么动。',
 
@@ -2434,7 +2434,7 @@ export const UI_LOCALES = {
     'help.spine.execution.title': 'Execution',
     'help.spine.execution.body': 'Before acting it asks whether to arrange a review, and again before closing out whether to arrange a re-check; answering skip moves on as usual — it does not block you, it only hands you the choice of a second pair of eyes. a terminal state only after review and closure judgment.',
     'help.spine.learning.title': 'Accumulation',
-    'help.spine.learning.body': 'Pitfalls become lessons, systemic blockers become entries in the friction ledger, settled directions become norms, and converged process conclusions become dev logs — all reusable the next time round.',
+    'help.spine.learning.body': 'Pitfalls become lessons, systemic blockers become entries in the friction ledger, settled directions become norms, and research on external objects becomes reports — all reusable the next time round.',
     'help.spine.recallTitle': 'Before acting it also runs one dual-source recall:',
     'help.spine.recall': 'It fetches back from the specification source and the fact source what currently applies, what the grounds are, and what has to stop for you — then turns what it recalled into actual changes. This step leaves no object of its own, but it decides how it acts next.',
 

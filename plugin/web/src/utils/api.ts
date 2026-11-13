@@ -99,14 +99,10 @@ export interface ObjectItem {
   serves?: string;
   /** 终态去向与理由（implemented/discarded 时必填） */
   disposition?: string;
-  /**
-   * 29 §10.4 `occurred_at`：DevLog 条目所记工作的**发生时间**。
-   *
-   * 与 `created_at`（该条目形成的时间）**不同轴、不可互换**——存量并入时二者常相差
-   * 很远（一次过去的工作在很久之后才被整理成条目）。列表卡与详情面呈现它；详情同时
-   * 呈现 `created_at`，二者各自标注，没有一个「统一时间」能同时回答两个问题。
-   */
-  occurred_at?: string;
+  // `occurred_at`（29 §10.4 DevLog 工作的发生时间）已随 29 号类型于 2026-11-14
+  // 撤除：字段契约不再登记它（factFieldContract 无此项），列表投影不再携带，
+  // 盘上也无任何该类型载体。近期动态另有自己的 occurred_at（取自 change_log
+  // 的写入时刻，见 api/routes/cognition.ts），与本接口字段无关，不随之撤。
   /** Exact-read formal relation targets for every fact list card. */
   factAssociations?: FactCardAssociation[];
   /** 03 §7.2 关联引用型 / 20 §8：refs 的精确读取投影。与 factAssociations

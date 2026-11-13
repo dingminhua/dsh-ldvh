@@ -15,7 +15,8 @@ import { getGitCommit } from './git.js'
 // 已登记载体与目录）——纳入列表/详情/关联解析的活跃类型面。
 //
 // 29 号 DevLog 已于 2026-11-14 撤除（Human 根决定，01 §8 号位表 29 为空位）：
-// 'devlog' 退出类型值域；存量 ldvh-base/devlogs/ 暂留为历史档案，Web 不再列出。
+// 'devlog' 退出类型值域；21 条存量载体已于同日删除批（91b3d727）物理移除，
+// 其逐字副本存于 docs/devlog-archive/（普通文档，非事实源）。
 // （原「列表次序排最后」的导航口径随之作废——本数组是类型值域，不是呈现次序。）
 export const ACTIVE_OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const
 export const OBJECT_TYPES = ACTIVE_OBJECT_TYPES
