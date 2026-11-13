@@ -2204,6 +2204,18 @@ export function renderEnvelope(operationKey, value) {
       lines.push(`decision: review — Human 已同意安排${r.point === "post-work" ? "复核" : "审查"}`);
     } else if (r.decision === "skip") {
       lines.push(`decision: skip — Human 选择不安排独立把关，直接推进（主控自查仍在）`);
+    } else if (r.decision === "silent") {
+      // 静默执行（2026-11-13 晚）：**这一段是 A1 在模型侧的唯一窗口**。
+      //
+      // 缺了它，静默结果会落进下面的 else，被渲染成「未发起询问」——而它其实
+      // 已经按设置安排了核对；更糟的是 `notice` 从未被渲染，模型只看得到
+      // follow_up 里「原样引用 result.notice」，却看不到 notice 本身，那条
+      // 「静默不等于无痕」的要求在真实路径上不可执行（独立复核 BLOCKER）。
+      lines.push(`decision: silent — 静默执行：未询问，按设置直接安排${r.point === "post-work" ? "复核" : "审查"}（不是 Human 的答复，也不是 skip）`);
+      // `notice` **逐字给出**：它是交付说明里必须原样引用的那一行。
+      if (typeof r.notice === "string" && r.notice.length > 0) {
+        lines.push(`notice（须原样写进本次交付说明）: ${r.notice}`);
+      }
     } else {
       // 文案须分三种（2026-11-13 独立审核 MINOR-6）：此前无论什么情况都说
       // 「下次仍会问」，但开关关闭或配置不可用时**根本没问**，下次也不会问

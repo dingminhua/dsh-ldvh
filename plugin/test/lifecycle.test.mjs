@@ -1634,3 +1634,200 @@ test("pre-step: 召回行不得被判定文本覆写（summary 与正文须一�
 		}
 	}
 });
+
+// ---------------------------------------------------------------------------
+// 不受辖时对话流静默（Human 2026-11-13 方案 A）
+// ---------------------------------------------------------------------------
+
+test("pre-step: suppressUngovernedRow 为真时不注入可见行，但系统侧判定不受影响", async () => {
+	const agent = makeAgent("s-ungov", "/cwd");
+	const channel = { primePending: true, lastDigest: null };
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => false,
+		channel,
+		noticeText: () => "【LDVH 管辖判定】not_governed —— 本会话不受 LDVH 管辖，LDVH 工具不注册。",
+		noticeSummary: () => "本会话不受 LDVH 管辖",
+		// 方案 A：不受辖时不向对话流注入
+		suppressUngovernedRow: () => true,
+	});
+	const baseMessages = [{ id: "u1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }];
+	const out = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(out.kind, "enter");
+	assert.equal(out.messages.length, baseMessages.length, "no visible LDVH row may appear in a non-governed session");
+	assert.equal(out.messages.filter((m) => m.source?.kind === "dsh-ldvh").length, 0);
+	// digest 须被清空：否则「切回 governed」会被判为没变化而不重发
+	assert.equal(channel.lastDigest, null, "stale digest must be cleared so a later governed switch re-injects");
+});
+
+test("pre-step: 受辖时 suppressUngovernedRow 为假，判定行照常注入", async () => {
+	const agent = makeAgent("s-gov", "/cwd");
+	const channel = { primePending: true, lastDigest: null };
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		channel,
+		noticeText: () => "【LDVH 管辖判定】governed —— 本会话受 LDVH 管辖。",
+		noticeSummary: () => "本会话受 LDVH 管辖",
+		suppressUngovernedRow: () => false,
+	});
+	const baseMessages = [{ id: "u1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }];
+	const out = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(out.messages.length, baseMessages.length + 1, "a governed session must still see its judgment row");
+	assert.match(out.messages[out.messages.length - 1].content[0].text, /governed/);
+});
+
+test("pre-step: 不传 suppressUngovernedRow 时行为不变（向后兼容）", async () => {
+	const agent = makeAgent("s-compat", "/cwd");
+	const channel = { primePending: true, lastDigest: null };
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => false,
+		channel,
+		noticeText: () => "【LDVH 管辖判定】not_governed",
+		noticeSummary: () => "本会话不受 LDVH 管辖",
+	});
+	const baseMessages = [{ id: "u1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }];
+	const out = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	// 未传开关 = 旧行为（仍注入）：改默认值会影响其它组合方，故保持原样
+	assert.equal(out.messages.length, baseMessages.length + 1);
+});
+
+// ---------------------------------------------------------------------------
+// 把关询问行的「行丢失」检测（2026-11-13 独立审核 MINOR #6）
+// ---------------------------------------------------------------------------
+
+test("pre-step: 把关行按 digest 只注一次（真实批次形状，连跑三回合）", async () => {
+	// 2026-11-13 独立审核 MAJOR-1。上一版我加的「行丢失检测」（digest 未变但
+	// 本回合批次里没有该行 ⇒ 判定丢失 ⇒ 重发）是**错的**：
+	//
+	//   `decision.messages` 只是**本回合装配的批次**，看不到历史行。于是正常轮次
+	//   每回合都被判成「行丢失」→ 每回合重复注入一条「把关询问」行。
+	//   实测（复核体与本机各测一次）：把关行 [1,1,1]，同形态的召回行 [1,0,0]。
+	//
+	// 本仓已记过这个坑（guidance.js:326-331，friction-41a43496）：
+	// 「**不用**『本回合批次里没看见行』推断 rewind：批次永远看不到历史行」。
+	// rewind 的权威信号是 `agent/created` 的 `source ∈ startup|resume|clear|compact`，
+	// 由 `resetVisibility()` 清 digest 台账——不靠「批次里有没有行」。
+	//
+	// **关键**：本用例的批次形状必须是**真实的**——每回合只带本回合的消息。
+	// 上一版把上一回合的 messages 喂回下一回合，造出了真实宿主不提供的形状，
+	// 于是缺陷被用例自己兜住了（这正是「用例自身在替缺陷兜底」的形态）。
+	const agent = makeAgent("s-ask-dedup", "/cwd");
+	const ASK_SUMMARY = "把关询问 · 待你决定是否安排代理";
+	const channel = { primePending: true, lastDigest: null, lastReviewAskDigest: null };
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		channel,
+		noticeText: () => null, // 只看把关行，判定行不干扰
+		noticeSummary: () => "",
+		reviewAskRow: async () => ({ inject: true, text: "两处提请的开关状态…（内容稳定）", digest: "d1" }),
+		reviewAskSummary: () => ASK_SUMMARY,
+	});
+	const base = () => [{ id: "u1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }];
+	const countAsk = (messages) => messages.filter((m) => (m?.source?.summary ?? "") === ASK_SUMMARY).length;
+
+	const counts = [];
+	for (let turn = 1; turn <= 3; turn += 1) {
+		const out = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: base() }));
+		counts.push(countAsk(out.messages));
+	}
+	assert.deepEqual(counts, [1, 0, 0], "把关行按 digest 只注一次（与召回行同形），不得每回合重复注入");
+});
+
+// ---------------------------------------------------------------------------
+// 把关行的管辖门（行为断言，替代源码 grep —— 2026-11-13 独立审核 MINOR #9）
+// ---------------------------------------------------------------------------
+
+test("pre-step: 把关行在不受辖时 inject:false（真实 handler，不是源码 grep）", async () => {
+	// 原测试断言的是源码里 'scopeState !== "governed"' 与 'getReviewAskSettings'
+	// 两个子串的**出现先后**。把门禁抽成 helper（行为完全不变）会红；而真实的
+	// 回归（先读开关再判管辖）只要两个串还在就可能绿。这里改为驱动真实 handler。
+	const agent = makeAgent("s-gate", "/cwd");
+	const base = () => [{ id: "u1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }];
+	const ASK_SUMMARY = "把关询问 · 待你决定是否安排代理";
+
+	// 不受辖：把关行不得出现
+	{
+		const channel = { primePending: true, lastDigest: null, lastReviewAskDigest: null };
+		const handler = createPreStepHandler(agent, {
+			isGoverned: () => false, channel,
+			noticeText: () => null, noticeSummary: () => "",
+			// 即使 row 回调声称要注入，门在 row 内部（lifecycle 装配处）——此处
+			// 直接模拟装配后的效果：不受辖时 row 返回 inject:false。
+			reviewAskRow: async () => ({ inject: false, reason: "not-governed" }),
+			reviewAskSummary: () => ASK_SUMMARY,
+		});
+		const out = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: base() }));
+		assert.equal(out.messages.filter((m) => (m?.source?.summary ?? "") === ASK_SUMMARY).length, 0, "不受辖时不得出现把关行");
+	}
+	// 受辖且开关打开：把关行出现
+	{
+		const channel = { primePending: true, lastDigest: null, lastReviewAskDigest: null };
+		const handler = createPreStepHandler(agent, {
+			isGoverned: () => true, channel,
+			noticeText: () => null, noticeSummary: () => "",
+			reviewAskRow: async () => ({ inject: true, text: "开关状态…", digest: "g1" }),
+			reviewAskSummary: () => ASK_SUMMARY,
+		});
+		const out = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: base() }));
+		assert.equal(out.messages.filter((m) => (m?.source?.summary ?? "") === ASK_SUMMARY).length, 1, "受辖且开启时须出现把关行");
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 开关状态的显示：四态可辨，两个都关时不得显示错（2026-11-13）
+// ---------------------------------------------------------------------------
+
+test("把关提示行：两个开关都关时不得显示成「行动后复核已开启」", async () => {
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	// 回归锚：原 else 分支只覆盖「pre 关、post 开」，both-off 落进同一支，
+	// 于是显示「行动后复核：**已开启**」——与事实相反。生产路径因 both-off
+	// 直接不注入而侥幸避开，但函数本身是错的。
+	const bothOff = buildReviewAskNotice({ preOn: false, postOn: false });
+	assert.doesNotMatch(bothOff, /已开启/, `两个开关都关时不得出现「已开启」：\n${bothOff}`);
+
+	// 四态可辨：已开启 / 关闭（Human 关掉） / 未设置（取不到，按关处理）
+	const off = buildReviewAskNotice({ preOn: false, postOn: true, preKnown: true, postKnown: true });
+	assert.match(off, /行动前审查：关闭/);
+	assert.match(off, /行动后复核：\*\*已开启\*\*/);
+
+	const unknown = buildReviewAskNotice({ preOn: false, postOn: true, preKnown: false, postKnown: true });
+	assert.match(unknown, /行动前审查：关闭（未设置，按关处理）/, "「未设置」不得被陈述成「Human 关掉了」");
+	assert.match(unknown, /行动后复核：\*\*已开启\*\*/);
+});
+
+// ---------------------------------------------------------------------------
+// 静默执行：注入行须让主控在动手前看见「别问、直接做」（2026-11-13 晚）
+// ---------------------------------------------------------------------------
+
+test("把关提示行：静默执行开着时，两处由「须询问」改为「不要问」", async () => {
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	const silent = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: true });
+	// 这是本开关的行为面：主控读到的指令变了。只加一行状态而不改这两句，
+	// 主控仍会照旧去问——那与「开关打开了却不生效」是同一类失效。
+	assert.match(silent, /静默执行：\*\*已开启\*\*/);
+	assert.match(silent, /① 动手前[\s\S]*?不要问/, "行动前那一支须改为「不要问」");
+	assert.match(silent, /② 收口前[\s\S]*?不要问/, "收口前那一支须改为「不要问」");
+	// 反向：静默关着时不得出现「不要问」
+	const asked = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
+	assert.doesNotMatch(asked, /不要问/, "静默关着时仍须照旧询问");
+	assert.match(asked, /须先询问 Human「是否安排代理审查」/);
+	// 静默开着但两处询问开关都关：没有作用对象，不得出现静默态
+	// （生命周期那边也直接不注入，这里是函数自身的边界）
+	const noSubject = buildReviewAskNotice({ preOn: false, postOn: false, silentOn: true });
+	assert.doesNotMatch(noSubject, /不要问/);
+});
+
+test("把关提示行：静默开关取不到时不得出现自相矛盾的「已开启（按关闭处理）」", async () => {
+	// **本条替换了一条方向相反且描述不可达状态的旧测试**（2026-11-13 独立复核
+	// MAJOR-4）：旧断言要求文本里出现「静默开关取不到，按关闭处理」，而同一行
+	// 又写着「**已开启**」——两者不可能同时成立。真相是取不到时调用点拿到的
+	// `settings.silentRun === true` 不成立，`silentOn` 本就是 false，这一行
+	// 根本不该渲染；「取不到」的报告归工具侧的 gaps（见 review-ask.test.mjs）。
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	// 取不到 → 调用点传 silentOn:false → 不出现静默行
+	const text = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
+	assert.doesNotMatch(text, /静默执行/, "取不到静默开关时不得声称静默已开启");
+	// 真开着时只写「已开启」，不附任何「按关闭处理」的自相矛盾括注
+	const on = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: true });
+	assert.match(on, /静默执行：\*\*已开启\*\*/);
+	assert.doesNotMatch(on, /按关闭处理/, "已开启与按关闭处理不可能同时成立");
+});

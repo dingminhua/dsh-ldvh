@@ -83,7 +83,7 @@ import { COMPLEXITY_CRITERIA, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
  * 「两个开关都关」这一支的显示**没有任何测试覆盖**——而那一支原本是错的
  * （会显示「行动后复核：**已开启**」）。导出后才有一条测试能直接驱动它。
  */
-export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown = true }) {
+export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown = true, silentOn = false }) {
   const criteria = COMPLEXITY_CRITERIA
     .map((item, index) => `  ${index + 1}. ${item.label}（${item.source}）`)
     .join("\n");
@@ -104,13 +104,28 @@ export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown
   // 且被单测直接调用时随时会暴露。
   const stateOf = (on, known) => (on ? "**已开启**" : (known ? "关闭" : "关闭（未设置，按关处理）"));
   lines.push(`- 行动前审查：${stateOf(preOn, preKnown)} ｜ 行动后复核：${stateOf(postOn, postKnown)}`);
+  // 静默执行**单独一行**，不并进上面那行：它不是一个开关的状态，而是那两个
+  // 开关的**执行档位**。混在一行里会让读者以为「静默」是第三处独立把关。
+  if (silentOn) {
+    // **不写「已开启（取不到，按关闭处理）」**（独立复核 MAJOR-4）：那是自相矛盾的
+    // 文案——「已开启」与「按关闭处理」不可能同时成立。取不到时 silentOn 本就
+    // 不该为 true（调用点按 `settings.silentRun === true` 取值，取不到即 false）。
+    // **不接收 silentKnown**（同日同上）：它的语义（这个值有没有被配置写明）
+    // 由 `reviewAskMode` 在工具侧如实报告，本行只表达「开着会怎样」。
+    // 收下一个不用的参数，等于给下一位读者留一个「它应该有用」的假信号。
+    lines.push("- 静默执行：**已开启** —— 判为复杂任务后**不问**，直接自动安排那次代理核对；每次须在交付里原样引用该次结果的 notice 一行（静默不等于无痕）。");
+  }
   lines.push("", "判据（不新造；specs/04 §6.1 三条正面是条文原文，其排除五条取反是据此推导的判据而非条文）：");
   lines.push(criteria);
   lines.push("");
-  if (preOn) {
+  if (preOn && silentOn) {
+    lines.push("① 动手前：按上面判据判定本次是否「复杂任务」。判为复杂时，**不要问**——调 `ldvh_review_ask` 会直接返回派发模板，按它派零上下文子代理审查，结论回来后再动手。");
+  } else if (preOn) {
     lines.push("① 动手前：按上面判据判定本次是否「复杂任务」。判为复杂时，须先询问 Human「是否安排代理审查」，取得明确答复后才动手。");
   }
-  if (postOn) {
+  if (postOn && silentOn) {
+    lines.push("② 收口前：一件复杂任务做完时，**不要问**——调 `ldvh_review_ask` 直接取派发模板，派零上下文子代理逐条核对后再收口。");
+  } else if (postOn) {
     lines.push("② 收口前：一件复杂任务做完时，须询问 Human「是否安排代理复核」，取得明确答复后再收口。");
   }
   lines.push("");
@@ -1145,6 +1160,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               postOn,
               preKnown: settings.preActionKnown !== false,
               postKnown: settings.postWorkKnown !== false,
+              // 静默执行（2026-11-13 晚）：它只改**怎么执行**，不改注入条件——
+              // 两枚询问开关都关时整行仍不注入（此时静默没有作用对象）。
+              silentOn: settings.silentRun === true,
             });
             return { inject: true, text, digest: text };
           } catch (error) {

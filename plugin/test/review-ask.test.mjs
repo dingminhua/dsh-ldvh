@@ -32,6 +32,8 @@ import {
   recordReviewAskDecision,
   resolveReviewAskSettings,
   reviewAskFingerprint,
+  reviewAskMode,
+  silentRunNotice,
 } from "../lib/review-ask.js";
 
 // ---------------------------------------------------------------------------
@@ -39,10 +41,21 @@ import {
 // ---------------------------------------------------------------------------
 
 test("resolveReviewAskSettings：两代宿主取值形态都认，缺省按关", () => {
-  assert.deepEqual(
-    resolveReviewAskSettings({ preActionReviewAskEnabled: true, postWorkReviewAskEnabled: false }),
-    { preAction: true, postWork: false, preActionKnown: true, postWorkKnown: true },
-  );
+  // **不再用 deepEqual 覆盖整个返回对象**（2026-11-13 晚）：新增静默执行字段后，
+  // 全等断言会把「新增一个字段」判成回归，逼着每次扩字段都来改这条断言。
+  // 逐项断言只钉住语义（这正是这条测试要守的东西），字段增减不再误伤。
+  const both = resolveReviewAskSettings({ preActionReviewAskEnabled: true, postWorkReviewAskEnabled: false });
+  assert.equal(both.preAction, true);
+  assert.equal(both.postWork, false);
+  assert.equal(both.preActionKnown, true);
+  assert.equal(both.postWorkKnown, true);
+  // 静默执行缺省关，且 **known=false**（没配置 ≠ Human 关掉）
+  assert.equal(both.silentRun, false);
+  assert.equal(both.silentRunKnown, false);
+  // 显式配置时才 known=true
+  const silentOn = resolveReviewAskSettings({ reviewAskSilentRunEnabled: true });
+  assert.equal(silentOn.silentRun, true);
+  assert.equal(silentOn.silentRunKnown, true);
   // volatile { get() } 形态（0.1.7+）
   assert.equal(resolveReviewAskSettings({ preActionReviewAskEnabled: { get: () => true } }).preAction, true);
   // 全缺：按关，且 known=false 使「没配置」与「Human 关掉」可区分
@@ -302,6 +315,134 @@ test("executeReviewAsk：skip 是合法答复（不得当成拒绝/失败）", a
 });
 
 // ---------------------------------------------------------------------------
+// 静默执行（2026-11-13 晚 Human 确认 A1：不问即做）
+// ---------------------------------------------------------------------------
+
+test("reviewAskMode：静默只在询问开关开着时有对象；关着询问时静默不越过它", () => {
+  // 三态：ask / silent / off——「静默」与「目标位置不存在」不是一回事
+  assert.equal(reviewAskMode({ preAction: true, silentRun: false }, "pre-action").mode, "ask");
+  assert.equal(reviewAskMode({ preAction: true, silentRun: true }, "pre-action").mode, "silent");
+  // **核心断言**：询问开关关着时，静默开着也不派代理。
+  // 关掉询问开关的语义是「这一处不必有人盯着」；静默若能越过它，关开关就
+  // 失去了「省掉这次核对」的意思。Human 原话是「打开后才自动执行而不请示」
+  // ——静默是询问的替代形态，不是询问的取消。
+  assert.equal(reviewAskMode({ preAction: false, silentRun: true }, "pre-action").mode, "off");
+  assert.equal(reviewAskMode({ postWork: false, silentRun: true }, "post-work").mode, "off");
+  // 未知位置不猜（与 askEnabledFor 同纪律）
+  assert.equal(reviewAskMode({ preAction: true, silentRun: true }, "whenever").mode, "off");
+  // 静默开关取不到时如实标记（调用方须报告，不假装是 Human 关的）
+  assert.equal(reviewAskMode({ preAction: true, silentRun: true, silentRunKnown: false }, "pre-action").silentUnknown, true);
+});
+
+test("executeReviewAsk：静默开着时**不问**，直接给派发模板与痕迹行（A1）", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  let asked = 0;
+  const env = await executeReviewAsk(
+    { point: "pre-action", task: "重构召回注入" },
+    { agent: null },
+    {
+      getReviewAskSettings: () => ({ preAction: true, postWork: true, silentRun: true }),
+      hostSeams: { requestReviewAsk: async () => { asked += 1; return { decision: "review", asked: true }; } },
+    },
+  );
+  // 不问——这是静默的全部意义
+  assert.equal(asked, 0, "静默开着就不得走到 Human 询问");
+  assert.equal(env.outcome, "completed");
+  assert.equal(env.result.decision, "silent");
+  assert.equal(env.result.asked, false);
+  assert.equal(env.result.silent_run, true);
+  // A1 的核心：**免掉询问，不免掉核对**——必须给出派发模板
+  assert.ok(env.result.review_template?.prompt?.length > 0, "静默执行必须给派发模板（A1：不问即做）");
+  assert.match(env.result.review_template.prompt, /## 本次要审的对象/);
+  // 静默不等于无痕：痕迹行必须存在，且可被原样引用
+  assert.match(env.result.notice, /静默执行/);
+  assert.match(env.result.notice, /重构召回注入/);
+  // 这一支没有经过任何宿主服务，sources 须如实留空
+  assert.deepEqual(env.sources, []);
+  // 不给「reused」这类会造成误读的字段
+  assert.equal(env.result.reused, undefined);
+});
+
+test("executeReviewAsk：静默不得越过询问开关（关着时既不问也不派）", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  let asked = 0;
+  const env = await executeReviewAsk(
+    { point: "post-work", task: "某任务" },
+    { agent: null },
+    {
+      getReviewAskSettings: () => ({ preAction: true, postWork: false, silentRun: true }),
+      hostSeams: { requestReviewAsk: async () => { asked += 1; return { decision: "review", asked: true }; } },
+    },
+  );
+  assert.equal(asked, 0);
+  assert.equal(env.result.decision, null, "询问开关关着时静默没有作用对象——不得派代理");
+  assert.equal(env.result.review_template, undefined, "这一支不得给模板，否则等于替 Human 开了那次核对");
+  assert.ok(env.gaps.some((g) => /switch_off/.test(g)));
+});
+
+test("executeReviewAsk：静默不依赖询问通道（宿主无 userQuestions 也能静默）", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  // 静默的全部意义正是绕开那个人工接缝：把它排在 seam 检查之后，会让
+  // 「宿主没有 userQuestions 服务」把静默一并判成 unavailable。
+  const env = await executeReviewAsk(
+    { point: "pre-action", task: "某任务" },
+    { agent: null },
+    { getReviewAskSettings: () => ({ preAction: true, silentRun: true }), hostSeams: {} },
+  );
+  assert.equal(env.outcome, "completed", "没有询问通道时静默仍须成立");
+  assert.equal(env.result.decision, "silent");
+});
+
+test("executeReviewAsk：静默开关取不到时保守退回询问，并如实报告", async () => {
+  // **本条改过一次，方向反了**（2026-11-13 独立复核 MAJOR-4）。
+  //
+  // 原写法喂 `{ silentRun: true, silentRunKnown: false }` 并断言「按开处理、
+  // 不重复打扰」——但真实读取器里 `silentRun = silent === true`、
+  // `silentRunKnown = silent !== undefined`，**这个组合永远不可能出现**。
+  // 那条测试钉住的是它自己捏的状态，而且与 lifecycle 侧另一条
+  // 「按关处理」互相矛盾。真相是：取不到时 mode 落进 `ask`，即**照旧询问**。
+  //
+  // 保守退回本身是对的（不知道就别擅自免掉询问），缺陷在于不报告——那会让
+  // 「配了静默却不生效」与「我本来没开」不可区分。故本条钉的是**退回 + 报告**。
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  let asked = 0;
+  const env = await executeReviewAsk(
+    { point: "pre-action", task: "某任务" },
+    { agent: null },
+    {
+      // 真实读取器的形态：静默键缺失 → silentRun=false、silentRunKnown=false
+      getReviewAskSettings: () => ({ preAction: true, silentRun: false, silentRunKnown: false }),
+      hostSeams: { requestReviewAsk: async () => { asked += 1; return { decision: "skip", asked: true }; } },
+    },
+  );
+  assert.equal(asked, 1, "取不到静默开关时须照旧询问——不得擅自免掉核对");
+  assert.equal(env.result.decision, "skip");
+  assert.ok(
+    env.gaps.some((g) => /silent-run switch could not be read/.test(g)),
+    "退回询问须如实报告，否则「配了静默却不生效」看不出来（00 §4.6）",
+  );
+});
+
+test("reviewAskMode：静默键缺失时退回 ask 并标记 silentUnknown（真实 resolver 可达）", () => {
+  // 用**真实**的 resolveReviewAskSettings 驱动，而不是手捏一个对象——
+  // 这正是上一条测试曾经翻车的地方（构造了不可达状态）。
+  const fromReal = resolveReviewAskSettings({ preActionReviewAskEnabled: true });
+  assert.equal(fromReal.silentRun, false);
+  assert.equal(fromReal.silentRunKnown, false, "配置里没有静默键");
+  const mode = reviewAskMode(fromReal, "pre-action");
+  assert.equal(mode.mode, "ask", "取不到 → 保守退回询问");
+  assert.equal(mode.silentUnknown, true, "取不到须可辨认，否则「没配」与「关掉」不可区分");
+  // 配了 true 时才真静默
+  const on = reviewAskMode(resolveReviewAskSettings({ preActionReviewAskEnabled: true, reviewAskSilentRunEnabled: true }), "pre-action");
+  assert.equal(on.mode, "silent");
+  assert.equal(on.silentUnknown, false);
+  // 配了 false（Human 显式关掉）→ 询问，且**不是**「取不到」
+  const off = reviewAskMode(resolveReviewAskSettings({ preActionReviewAskEnabled: true, reviewAskSilentRunEnabled: false }), "pre-action");
+  assert.equal(off.mode, "ask");
+  assert.equal(off.silentUnknown, false, "显式关掉不是取不到，不得混为一谈");
+});
+
+// ---------------------------------------------------------------------------
 // 派发模板：两份、方向相反、共用纪律
 // ---------------------------------------------------------------------------
 
@@ -442,6 +583,45 @@ test("renderEnvelope 必须把答复与模板渲染给模型（BLOCKER：原实�
   assert.match(reviewed, /请逐条核对。/, "模板尾部不得被截断");
   // skip 时不得渲染模板（没安排就没有模板）
   assert.doesNotMatch(skipped, /review_template/);
+});
+
+test("renderEnvelope 必须把 silent 与 notice 渲染给模型（独立复核 BLOCKER）", async () => {
+  // 这是本次改动里**最要紧**的一条：quietly 的整条链路最终只在模型能读到
+  // `decision: silent` 与 `notice` 时才成立。原实现只处理 review/skip，
+  // silent 落进 else 被渲染成「未发起询问」，notice 从未被渲染——
+  // 于是「每次须原样引用 notice」这句要求，在真实路径上无法执行。
+  const { renderEnvelope } = await import("../lib/ldvh-tools.js");
+  const { silentRunNotice } = await import("../lib/review-ask.js");
+  const notice = silentRunNotice({ point: "pre-action", task: "改开关" });
+  const env = {
+    envelope: {
+      operation_key: "review-ask",
+      outcome: "completed",
+      result: {
+        point: "pre-action",
+        task: "改开关",
+        decision: "silent",
+        asked: false,
+        switch_enabled: true,
+        silent_run: true,
+        notice,
+        review_template: { kind: "pre-action-review", prompt: "# 独立审查\n请看方案。" },
+      },
+      gaps: [], scope: { not_completed: [] }, follow_up: [],
+    },
+  };
+  const text = renderEnvelope("review-ask", env)[0].text;
+  // ① 不得被渲染成「未发起询问」——那是把「按设置做了」说成「没做」
+  assert.doesNotMatch(text, /未发起询问/, "silent 不得落进 null 分支的文案");
+  assert.doesNotMatch(text, /decision: null/, "silent 不是 null");
+  // ② 必须写明 silent，且说明它不是 Human 的答复
+  assert.match(text, /decision: silent/);
+  assert.match(text, /不是 Human 的答复/);
+  // ③ **notice 必须逐字出现**——模型要原样把它写进交付说明
+  assert.ok(text.includes(notice), "notice 须逐字渲染，否则「静默不等于无痕」不可执行");
+  // ④ 模板仍要整段给出（A1：静默仍要做那次核对）
+  assert.match(text, /review_template\.kind: pre-action-review/);
+  assert.match(text, /# 独立审查/);
 });
 
 test("开关状态读不到时不得报成「开关关闭」（MAJOR #3）", async () => {

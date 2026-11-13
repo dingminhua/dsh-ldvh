@@ -14,6 +14,13 @@
  * **开关不开就没有这两处询问**——这是 Human 的原话「打开才有，否则就是不安排
  * 审核与复核」。
  *
+ * ## 静默执行（2026-11-13 晚 Human 确认 A1）
+ *
+ * 两处询问之上还有一枚**执行档位**开关 `reviewAskSilentRunEnabled`：打开后
+ * 判为复杂任务时**不问，直接按设置安排**那次核对。它不是第三处把关，也不
+ * 越过各自的询问开关（关着的那一处静默没有作用对象）。免掉的是**询问**，
+ * 不是**核对**——故它仍产出派发模板，并要求在交付里留痕迹（`silentRunNotice`）。
+ *
  * ## 判据从哪来（不新造）
  *
  * 「复杂任务」的判据**不新增**，但两处来源的**性质不同**（2026-11-13 更正）：
@@ -183,11 +190,14 @@ function readSwitchValue(value) {
  * 读出两处询问的当前开关状态。
  *
  * @param {object|null} config - 本插件的 Cordis Config。
- * @returns {{preAction: boolean, postWork: boolean, preActionKnown: boolean, postWorkKnown: boolean}}
+ * @returns {{preAction: boolean, postWork: boolean, preActionKnown: boolean, postWorkKnown: boolean,
+ *   silentRun: boolean, silentRunKnown: boolean}}
+ *   `silentRun` 是**执行档位**（不问直接做）而非第三处把关，见 index.js 的 schema 注释。
  */
 export function resolveReviewAskSettings(config) {
   const pre = readSwitchValue(config?.preActionReviewAskEnabled);
   const post = readSwitchValue(config?.postWorkReviewAskEnabled);
+  const silent = readSwitchValue(config?.reviewAskSilentRunEnabled);
   return {
     // 未设置时按「关」——与 schema 默认一致；但**另带 known 标记**，使消费方
     // 能区分「Human 关掉了」与「配置面取不到」（后者应如实报告，不假装是关）。
@@ -195,8 +205,71 @@ export function resolveReviewAskSettings(config) {
     postWork: post === true,
     preActionKnown: pre !== undefined,
     postWorkKnown: post !== undefined,
+    // 静默执行（2026-11-13 晚 Human 确认 A1）：**只作用在「已判定为复杂任务」
+    // 之后的询问环节**，不影响任何 Human Gate。
+    silentRun: silent === true,
+    silentRunKnown: silent !== undefined,
   };
 }
+
+/**
+ * 该位置在执行档位上是「问」还是「静默」。
+ *
+ * 返回三态而非布尔——**「静默执行目标位置不存在」与「静默执行」是两回事**：
+ *
+ * - `{ mode: "ask" }`：对应询问开关开着、静默关 → 照旧问 Human；
+ * - `{ mode: "silent" }`：对应询问开关开着、静默开 → **不问**，直接安排那次核对；
+ * - `{ mode: "off" }`：对应询问开关关着 → 不问也不安排。
+ *
+ * **静默不越过询问开关**（这是本函数唯一的判断）：`preActionReviewAskEnabled`
+ * 关着时，即使静默开着也不派代理——关掉询问开关的语义是「这一处不必有人盯着」，
+ * 若静默能越过它，关开关就失去了「省掉这次核对」的意思。Human 原话是
+ * 「打开后才自动执行而不请示」：**静默是询问的替代形态，不是询问的取消**。
+ *
+ * @param {object|null} settings - `resolveReviewAskSettings` 的返回值
+ * @param {"pre-action"|"post-work"} point
+ * @returns {{mode: "ask"|"silent"|"off", point: string|null, silentUnknown: boolean}}
+ */
+export function reviewAskMode(settings, point) {
+  const enabled = askEnabledFor(settings, point);
+  if (!enabled) return { mode: "off", point: point ?? null, silentUnknown: false };
+  // **「静默开关取不到」必须在这里被真正处理**（2026-11-13 独立复核 MAJOR-4）。
+  //
+  // 原实现只在 `silentRun === true` 且 `silentRunKnown === false` 时标记
+  // `silentUnknown`——而真实读取器里 `silentRun = silent === true`、
+  // `silentRunKnown = silent !== undefined`，**该组合不可能出现**：那个分支
+  // 是死代码，两条测试却在手工构造它并互相矛盾。
+  //
+  // 真实的「取不到」是 `silentRunKnown === false`（配置里没有这个键）——
+  // 它现在落进 `ask` 分支，即**照旧询问**。这不是缺陷，是保守选择，但必须
+  // **如实报告**：否则配了静默却没生效时，Human 看不出「开关没被读到」与
+  // 「我关掉了」的区别（本仓既有失效形态）。
+  if (settings?.silentRunKnown === false) {
+    return { mode: "ask", point, silentUnknown: true };
+  }
+  if (settings?.silentRun === true) return { mode: "silent", point, silentUnknown: false };
+  return { mode: "ask", point, silentUnknown: false };
+}
+
+/**
+ * 静默执行的**痕迹行**（00 §4.6 据实声明；11 §6.2 对「无痕抑制」的同源纪律）。
+ *
+ * 「静默」指的是**不问**，不是**不留痕**。这两件事必须分开：一次静默执行若在
+ * 交付里什么都不说，Human 事后无从判断「这轮到底派没派代理、为什么没问他」，
+ * 那与本仓反复否定的「无痕迹的抑制」是同一类缺陷。
+ *
+ * 故每次静默执行须原样引用本函数产出的这一行（而不是「说一句大概」）——
+ * 固定的形态使它在交付里可被辨识、可被核对。
+ */
+export function silentRunNotice({ point, task } = {}) {
+  const what = point === REVIEW_ASK_POINTS.PRE_ACTION ? "行动前审查" : "收口前复核";
+  const subject = typeof task === "string" && task.trim().length > 0 ? task.trim() : "当次任务";
+  // **时态须如实**（独立复核 MINOR-9）：产出这一行时工具只返回了派发模板，
+  // 代理**尚未派出**。写「已安排」会把一件还没发生的事说成已发生——
+  // 故写「将按此安排」，由主控派发后在交付里回报结果。
+  return `【静默执行】${what}：已按设置跳过询问，将按返回的模板安排一次零上下文代理核对（${subject}）。此为执行痕迹，不构成授权凭据，也不代表核对已完成。`;
+}
+
 
 /** 该位置对应的开关是否打开。未知位置返回 false（不猜）。 */
 export function askEnabledFor(settings, point) {
