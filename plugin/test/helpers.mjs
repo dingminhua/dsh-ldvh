@@ -210,7 +210,7 @@ export function testSignature({ provider = "test-provider", model = "test-model"
 export function sessionPersistenceWithRoutingLog(base, { provider = "test-provider", model = "test-model", sessionId = null } = {}) {
 	const logPath = join(base, "session.v3.jsonl");
 	const lines = [
-		// Optional leading session record: identity resolution (10 §5.9 fail-closed
+		// Optional leading session record: identity resolution (fail-closed
 		// on identity-less attempt allocation) needs it; tests that exercise the
 		// unavailable-identity path leave it off.
 		...(sessionId === null ? [] : [JSON.stringify({ type: "session", id: sessionId })]),
