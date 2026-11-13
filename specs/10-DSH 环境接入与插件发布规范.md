@@ -126,7 +126,7 @@ LDVH CLI 确定性服务规范定义的 LDVH CLI 操作经 DSH 正式工具注�
 
 ### 5.5 交互面
 
-DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + scoped answerer waterfall；调用者限制 CALLER_NOT_LIVE/DELEGATED_CALLER——子代理直接问人被拒），承载 Human Gate 决策提请、计划审查与验收交还。行动授权不设独立宿主 API：由 DSH 审批通道（user-approval，ApprovalPolicy 'ask'|'never'，与沙箱三档固化联动）与 00 §3 Human 决定权组合承载。语义区分：宿主存在 `ctx.authorization` 服务，但它是凭证获取流程注册表（credential-obtaining flows），不是行动授权通道，本规范不将其作为授权入口消费。**在 WorkCase/授权承接规范定义授权包结构之前，不得主张授权包结构已定稿。**
+DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + scoped answerer waterfall；调用者限制 CALLER_NOT_LIVE/DELEGATED_CALLER——子代理直接问人被拒），承载 Human Gate 决策提请、计划审查与验收交还。行动授权不设独立宿主 API：由 DSH 审批通道（user-approval，ApprovalPolicy 'ask'|'never'，与沙箱三档固化联动）与 00 §3 Human 决定权组合承载。语义区分：宿主存在 `ctx.authorization` 服务，但它是凭证获取流程注册表（credential-obtaining flows），不是行动授权通道，本规范不将其作为授权入口消费。**在授权承接规范定义授权包结构之前，不得主张授权包结构已定稿。**
 
 ### 5.6 管辖登记接入
 
@@ -150,11 +150,11 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 
 ### 5.8 宿主目标服务接入
 
-插件的受控写入点须接入宿主 `goals` 服务（`ctx.get("goals")`，可选依赖，取用前须做未定义检查）：`get`／`create`／`edit`／`resume`／`pause`／`complete`／`clear`／`disarm`，其 `ref` 取 `{id, revision}`。**服务不可用时按 fail-closed 拒绝该写入**，不得静默跳过，也不得以本地状态冒充宿主目标——**何种写入点必须拒绝、何种可降级为「不做任何事」并如实登记，由使用该能力的事实类型规范定义**。**该服务由会话日志背书**（不落事实源），故其状态**不构成事实对象的回读依据**，也不得据此建立第二账本或状态登记。谁在哪个动作点调用、目标文本的形式要求与冲突处置，同样由该事实类型规范定义（WorkCase 见 21 号）；本节只定义接入形态与失败处置。
+插件的受控写入点须接入宿主 `goals` 服务（`ctx.get("goals")`，可选依赖，取用前须做未定义检查）：`get`／`create`／`edit`／`resume`／`pause`／`complete`／`clear`／`disarm`，其 `ref` 取 `{id, revision}`。**服务不可用时按 fail-closed 拒绝该写入**，不得静默跳过，也不得以本地状态冒充宿主目标——**何种写入点必须拒绝、何种可降级为「不做任何事」并如实登记，由使用该能力的事实类型规范定义**。**该服务由会话日志背书**（不落事实源），故其状态**不构成事实对象的回读依据**，也不得据此建立第二账本或状态登记。谁在哪个动作点调用、目标文本的形式要求与冲突处置，同样由该事实类型规范定义；本节只定义接入形态与失败处置。
 
 ### 5.9 attempt 令牌的宿主接入与并发语义
 
-attempt 的类型契约（字段、单调性、至多一个活跃、孤立判定、心跳语义）由 21 §10.4 定义，本节不复制；Code 侧实现与测试纪律归 06。本节只承接**宿主接入与并发语义**：attempt 经哪些受控写入点产生与变更、并发写入如何被拒绝、以及本规范不要求、也不假定宿主提供什么。
+attempt 的类型契约（字段、单调性、至多一个活跃、孤立判定、心跳语义）随 WorkCase 类型撤除而不再定义，本节只保留宿主侧的并发语义；Code 侧实现与测试纪律归 06。本节只承接**宿主接入与并发语义**：attempt 经哪些受控写入点产生与变更、并发写入如何被拒绝、以及本规范不要求、也不假定宿主提供什么。
 
 **接入点**：attempt 只经事实源受控写入入口变更，编排接入点（§5.7）不直接读写 attempt。对应关系如下（动作名沿用受控工具面的 `attempt_operation` 取值；本节只登记宿主时点）：
 
@@ -162,20 +162,20 @@ attempt 的类型契约（字段、单调性、至多一个活跃、孤立判定
 |---|---|
 | Gate 1 批准落盘 | 分配新 `attempt_id`，写 `started_at`／`controller`／`heartbeat_at`／`session_id`；身份不可用则拒绝分配 |
 | 执行期进度写入 | 心跳：刷新 `heartbeat_at`；`attempt_id` 不变，实施者基线只在缺失时补齐、已有值不改 |
-| 复核结论（`record_review`） | 不触碰 `attempt`（21 §14 明定不改变 `attempt`） |
-| 增量申请（`request_adjustment`） | 不改 `attempt`（该动作只登记 `gate_1.amendments` 的待批条目，21 §14 乙档；attempt 时点由本节登记） |
+| 复核结论（`record_review`） | 不触碰 `attempt` |
+| 增量申请（`request_adjustment`） | 不改 `attempt`（attempt 时点由本节登记） |
 | 执行者接管 | `takeover`：分配严格更高的 `attempt_id`，基线随新执行者；身份不可用则拒绝 |
 | 冷恢复重新分配 | `reallocate`：作废旧号并分配新号，基线随新执行者；身份不可用则拒绝 |
 | Gate 2 关闭落盘 | 收口：删除 `attempt`，历史留在 `change_log` |
 | C2 局部重批 | 作废：删除 `attempt`，重批后新号高于旧号 |
 
-**身份不可用时的处置**：Gate 1 批准、`takeover`、`reallocate` 在会话身份不可用时**拒绝分配**（fail-closed，零写入）——21 §8 把 `session_id` 定为执行期必填，无身份的 attempt 既不能满足该字段，也不能充当关闭侧的实施者基线。`heartbeat` 不分配新号，身份不可用时只刷新 `heartbeat_at`，不补齐基线；存量 attempt 缺 `session_id` 时由关闭侧 fail-closed 承接。**该处置由 Human 决定**（00 §3.2），不再是待决偏离。
+**身份不可用时的处置**：Gate 1 批准、`takeover`、`reallocate` 在会话身份不可用时**拒绝分配**（fail-closed，零写入）——`session_id` 是执行期必填，无身份的 attempt 既不能满足该字段，也不能充当关闭侧的实施者基线。`heartbeat` 不分配新号，身份不可用时只刷新 `heartbeat_at`，不补齐基线；存量 attempt 缺 `session_id` 时由关闭侧 fail-closed 承接。**该处置由 Human 决定**（00 §3.2），不再是待决偏离。
 
 **并发语义（无锁）**：本规范**不要求也不假定**宿主提供 attempt 锁。受控写入以内容指纹（`expected_fingerprint`）做 CAS 校验，但该校验发生在**写入之前**：它只能拒绝「持有过期指纹的写入」；两个执行者同时读到同一指纹时存在先读后写的窗口（落盘前不复验），故本规范**不把该指纹校验表述为互斥、锁或丢更新防护**。「至多一个活跃 attempt」由单字段结构与 `attempt` 仅在 `open` 期存在的校验保证，不依赖并发防护。
 
-**本规范不要求、也不假定宿主提供以下三项**：① 持有者存活探测——`heartbeat_at` 只是时间戳，不证明持有者仍在运行；② 自动故障转移——接管与重分配由执行者按 21 §10.4 第 3 项发起；③ 跨进程互斥。
+**本规范不要求、也不假定宿主提供以下三项**：① 持有者存活探测——`heartbeat_at` 只是时间戳，不证明持有者仍在运行；② 自动故障转移——接管与重分配由执行者依本节并发语义发起；③ 跨进程互斥。
 
-**孤立 attempt 的归属**：孤立判定是 21 §10.4 第 2 项定义的**判定规则**（attempt 存在、但没有可确认的活跃持有者），其识别依赖会话记录与 `heartbeat_at` 的语义判断，**不是宿主机械检查**。本规范不声称该判定已获机械保障。
+**孤立 attempt 的归属**：孤立判定是本节定义的**判定规则**（attempt 存在、但没有可确认的活跃持有者），其识别依赖会话记录与 `heartbeat_at` 的语义判断，**不是宿主机械检查**。本规范不声称该判定已获机械保障。
 
 **条件式要求**：在宿主提供持有者存活探测之前，不得据本节主张 attempt 已具备「持有者存活保障」或「自动接管保障」；本节的接入点形态（名称、签名）按 01 §7.2 由读取时的观察取得，本节不陈述其当前状态。
 
