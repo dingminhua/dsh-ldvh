@@ -56,7 +56,7 @@ The plugin targets DSH Desktop and **declares macOS and Windows as its supported
 | Windows | Implemented (below) | **Not verified on a real Windows host (`unverified`)** |
 | Linux | Runs against the same contract | CI-covered only, not accepted |
 
-The 10 measured macOS items (each recorded in the repository's `docs/governed-project-lifecycle-verification.md`): the candidate path must be the real Git root; first install creates the five `ldvh-base/` directories; first install writes the registration and sets the default project; the hook lands in the Git common-dir; the hook marker digest reads back as `managed`; an invalid message is blocked in a real commit; a conforming message is admitted; the registration and `ldvh-base/` survive hook removal; re-installing repairs a missing hook without duplicating registration; unregistering removes the registration and auto-removes the hook.
+The 10 measured macOS items (each recorded in the repository's `../docs/governed-project-lifecycle-verification.md`): the candidate path must be the real Git root; first install creates the five `ldvh-base/` directories; first install writes the registration and sets the default project; the hook lands in the Git common-dir; the hook marker digest reads back as `managed`; an invalid message is blocked in a real commit; a conforming message is admitted; the registration and `ldvh-base/` survive hook removal; re-installing repairs a missing hook without duplicating registration; unregistering removes the registration and auto-removes the hook.
 
 Platform differences fall in three core mechanisms, plus one interaction adaptation:
 
