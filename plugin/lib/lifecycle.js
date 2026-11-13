@@ -70,8 +70,8 @@ import { COMPLEXITY_CRITERIA, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
  *
  * ## 为什么把判据原文抄进注入行
  *
- * 判据来自 04 §6.1 与 21 §6.3，**不是新造**。但两者性质不同：**04 §6.1 三条是
- * 条文原文**；**21 §6.3 的取反是据此推导的判据，不是条文原文**（§6.3 只列排除项，
+ * 判据来自 04 §6.1，**不是新造**。但其中两部分性质不同：**三条正面是
+ * 条文原文**；**五条排除的取反是据此推导的判据，不是条文原文**（该节只列排除清单，
  * 规范里没有正面规定「什么情况该建工单」——2026-11-13 逐条核对原文后的更正）。
  * 此处抄的是**判据清单**而非规则正文
  * ——10 §5.3 的「不复制第二份规则源」针对的是把规范条文整体搬进引导面形成第二
@@ -106,7 +106,7 @@ export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown
   // 且被单测直接调用时随时会暴露。
   const stateOf = (on, known) => (on ? "**已开启**" : (known ? "关闭" : "关闭（未设置，按关处理）"));
   lines.push(`- 行动前审查：${stateOf(preOn, preKnown)} ｜ 行动后复核：${stateOf(postOn, postKnown)}`);
-  lines.push("", "判据（不新造；04 §6.1 三条是条文原文，21 §6.3 取反是据此推导的判据而非条文）：");
+  lines.push("", "判据（不新造；specs/04 §6.1 三条正面是条文原文，其排除五条取反是据此推导的判据而非条文）：");
   lines.push(criteria);
   lines.push("");
   if (preOn) {

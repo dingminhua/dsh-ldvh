@@ -293,7 +293,7 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
   // 无从判断、Human 也看不出判定结果。方案 A 保留系统侧，只撤可见行，
   // **不推翻那次决定**。
   const shouldSuppressRow = typeof suppressUngovernedRow === "function" ? suppressUngovernedRow : () => false;
-  // onTurnStart(): **环境性**检查，每回合第一次 step 跑一次、受管辖时（21 §14
+  // onTurnStart(): **环境性**检查，每回合第一次 step 跑一次、受管辖时（既有审核边界
   // 「以及该会话续接本对象」）。它不产出任何上下文行，也不得影响本回合的进行：
   // 抛错只记日志——「会话继续干活」不该被环境检查拦住。
   const runOnTurnStart = typeof onTurnStart === "function" ? onTurnStart : null;

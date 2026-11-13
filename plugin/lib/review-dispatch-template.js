@@ -119,7 +119,7 @@ function describeSubject({ subject, claims, evidence, task } = {}) {
  * 追问方向：这个方案在想什么层面可能错？漏了哪些前提？有没有更简单的做法？
  * 依据是否真的支持结论？边界有没有说清？
  *
- * **不对它问「该不该做」**：需求裁夺归 Human（21 §14 对审核体的同一条边界，
+ * **不对它问「该不该做」**：需求裁夺归 Human（对审核体的同一条边界，
  * 此处沿用理由——审核体不知道 Human 的取舍权重，问它等于让它替 Human 决定）。
  */
 export function composePreActionReviewPrompt({ subject, claims, evidence, task } = {}) {
