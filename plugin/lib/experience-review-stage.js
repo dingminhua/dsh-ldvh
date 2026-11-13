@@ -758,11 +758,14 @@ export async function runReviewStage({
     activation = await subagents.startActivation({
       provider: picked.value.name,
       label: `ldvh-review ${new Date().toISOString()}`,
-      request: {
-        prompt: [{ type: "text", text: prompt }],
-        parent,
-        outputSchema: reviewOutputSchema(),
-      },
+      // 宿主 0.2.2-rc.2 把激活任务选项拆平（上游 575606a356「refactor(subagent):
+      // flatten activation task options」）：rc.1 的 spec 带一层 `request`，
+      // rc.2 改为 `extends Omit<SubagentStartRequest,'label'|'signal'>` 平铺，
+      // 实现随之改读 `spec.parent`。此前塞在 `request` 内层，宿主读到
+      // `spec.parent` 为 undefined 即抛 TypeError，派发在第一跳失败。
+      prompt: [{ type: "text", text: prompt }],
+      parent,
+      outputSchema: reviewOutputSchema(),
       signal: controller.signal,
       delivery: "caller",
     });

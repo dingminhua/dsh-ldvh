@@ -23,10 +23,18 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 4 → 5（11 §9 第 2 项）
+  - at: 2026-11-13T07:35:44.150Z
+    provider: minmax
+    model: MiniMax-M3.1-Flash
+    summary: 补充观察：count 5 → 6（11 §9 第 2 项）
+  - at: 2026-11-13T09:26:09.064Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补充观察：count 6 → 7（11 §9 第 2 项）
 occurrence:
-  count: 5
+  count: 7
   first_at: 2026-11-05T06:36:09.895Z
-  last_at: 2026-11-11T16:03:29.616Z
+  last_at: 2026-11-13T09:10:00.287Z
 ---
 
 # 后台子代理失败退出无结束消息
@@ -52,3 +60,11 @@ occurrence:
 补充观察（2026-11-11T16:03:29.616Z）：委派的规范一致性审核子代理（98de8f30）在返回任何结论前以 500 fetch failed 失败退出，工作树未留下任何文件产物。
 逐字引证：失败：500 fetch failed
 来源：主控会话（水位后新增内容）turn 11 助手回复「规范一致性审核（98de8f30）：中途失败，零产出」；turn 13 助手回复中派发记录表格行「["98de8f30","规范一致性","qoder-global / qmodel_38max","失败：500 fetch failed"]」
+
+补充观察（2026-11-13T07:19:29.951Z）：隔离审核子代理 spec-reviewer 已结束（inactive）后，父会话按 agentId 取结果被拒、子代理记录与会话记录都查不到它，其审核产出没有留下。
+逐字引证：它运行过，但产出没有留下
+来源：本次观察材料 [turn 25] assistant 回复「二、我派出的独立审核，结论取不回来了」段末句（材料内未给出会话 id，位置为该段末句）
+
+补充观察（2026-11-13T09:10:00.287Z）：第二轮复审子代理运行 50+ 分钟没有返回任何结论，进程中看不到测试活动，主控只能据此怀疑其空转并两次催收。
+逐字引证：已 50+ 分钟未回，进程里没有测试活动，疑似空转
+来源：本次观察材料 [turn 1] assistant 正文「## 卡在哪里」段；主控会话本轮进展报告第 3 节（会话 id 未出现在材料中）。

@@ -51,10 +51,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-12T21:52:35.798Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补充观察：count 12 → 13（11 §9 第 2 项）
 occurrence:
-  count: 12
+  count: 13
   first_at: 2026-11-02T20:15:51.816Z
-  last_at: 2026-11-07T19:46:27.153Z
+  last_at: 2026-11-12T21:04:27.096Z
 ---
 
 # 并行会话未提交改动致召回用例失效
@@ -112,3 +116,7 @@ occurrence:
 补充观察（2026-11-07T19:46:27.153Z）：plugin 全量测试中 recall-injection 的一项「零词法命中」前提用例失败，stash 掉本次改动后复跑仍失败。
 逐字引证：全量测试有一项 recall-injection 的「零词法命中」前提用例失败；我把该改动 stash 掉后复跑仍然失败
 来源：本次观察材料 turn 1 助手回复末段「验证与收尾」中「另外提醒一句」之后的一句
+
+补充观察（2026-11-12T21:04:27.096Z）：材料记明全量测试的 3 项失败都落在召回预算相关用例，且经逐层隔离后判定其来源是工作树里别人（或先前会话）未提交的 `source-recall.js`、`recall-injection.js` 改动，与本轮改动无关。这与既有 open 账目 friction-451c4a7d 是同一阻碍：其现象即「本次改动提交前的测试中，plugin/lib/source-recall.js 与 plugin/lib/recall-injection.js 里他人尚未提交的改动使 4 条用例失败」，归因同为「多代理共享同一工作树、并行会话在途未提交改动无隔离」——同一批文件、同一种「他人未提交改动使召回用例转红」的机制模式，仅失败条数不同（4 与 3），按 26 §6.2 以归因落点与机制模式判同，报 same-obstacle 而非新建观察。另如实说明：本次 Pitfall 侧候选仅交付 40/70
+逐字引证：这 3 个失败来自这些既有改动，与我无关。
+（来源：4）

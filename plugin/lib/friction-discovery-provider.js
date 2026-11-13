@@ -11,7 +11,9 @@
  * `startActivation(spec)`；它返回 `SubagentActivation`
  * （`{ childId, messageId?, result, dispose() }`），`await activation.result`
  * 仍是取结构化判断 `SubagentResult.structured` 的通道，`outputSchema` 经
- * `spec.request.outputSchema` 传入。本机制**不需要可续能力**（每次检查点独立
+ * `spec.outputSchema` 传入
+ * （宿主 0.2.2-rc.2 起激活任务选项已拆平，见下方派发处）。
+ * 本机制**不需要可续能力**（每次检查点独立
  * 派生、跑完即结束），但**需要**结构化判断——故取 `startActivation`。
  * （2026-10-11 第三次 C2 重批选定 `start`；2026-10-17 随宿主契约迁移。）
  *
@@ -147,7 +149,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     throw new Error("createDiscoveryProvider requires the host `subagents` service");
   }
   if (parent === undefined || parent === null) {
-    throw new Error("createDiscoveryProvider requires the initiating `parent` Agent (startActivation requires spec.request.parent — the governed-isolation linkage, not context inheritance)");
+    throw new Error("createDiscoveryProvider requires the initiating `parent` Agent (startActivation requires spec.parent — the governed-isolation linkage, not context inheritance)");
   }
   if (signal === undefined || signal === null) {
     throw new Error("createDiscoveryProvider requires an AbortSignal (startActivation requires spec.signal, which the host no longer uses for cancellation — see the dispatch site)");
@@ -370,10 +372,18 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
 
     // 宿主 0.2.1-rc.1 起 `start` 已移除，改由 `startActivation` 派发。
     //
-    // spec 的必填项是 provider / label / request / signal / delivery；`childId`
-    // 可选且**本机制不传**——传入等于「指定复用既有子会话」，会触发
-    // DUPLICATE_CHILD 语义门槛。原 `start` 的 label/signal/outputSchema 分工随之
-    // 改变：label 与 signal 升到 spec 顶层，其余三个留在 `request` 内层。
+    // spec 的必填项是 provider / label / prompt / parent / signal / delivery；
+    // `childId` 可选且**本机制不传**——传入等于「指定复用既有子会话」，会触发
+    // DUPLICATE_CHILD 语义门槛。
+    //
+    // 2026-11-13 适配（宿主 0.2.2-rc.2）：上游把激活任务选项**拆平**了——rc.1 的
+    // `SubagentActivationSpec` 带一层 `request: Omit<SubagentStartRequest,
+    // 'label'|'signal'>`，rc.2 改为 `extends Omit<SubagentStartRequest,
+    // 'label'|'signal'>` 直接平铺（上游提交 575606a356「refactor(subagent):
+    // flatten activation task options」），实现随之改读 `spec.parent`（此前读
+    // `spec.request.parent`）。本处原先把 prompt/parent/outputSchema 塞在
+    // `request` 内层，宿主读到 `spec.parent` 为 undefined 即抛 TypeError，
+    // 派发在第一跳失败。
     //
     // `delivery: 'caller'`（非默认的 'parent'）：本次派发的结论由**调用方**
     // 取回并落地，不需要宿主建立 catalog 子项、也不需要结算通知——'parent'
@@ -382,11 +392,9 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     const activation = await subagents.startActivation({
       provider: picked.value.name,
       label: `ldvh-idle ${dispatchedAt}`,
-      request: {
-        prompt: [{ type: "text", text: prompt }],
-        parent,
-        outputSchema,
-      },
+      prompt: [{ type: "text", text: prompt }],
+      parent,
+      outputSchema,
       signal,
       delivery: "caller",
     });

@@ -35,10 +35,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-12T23:37:43.787Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补充观察：count 8 → 9（11 §9 第 2 项）
 occurrence:
-  count: 8
+  count: 9
   first_at: 2026-11-03T22:18:47.703Z
-  last_at: 2026-11-04T21:13:24.099Z
+  last_at: 2026-11-12T23:32:37.623Z
 ---
 
 # record_review 取不到子代理复核结论
@@ -76,3 +80,7 @@ record_review 取不到子代理复核结论，六份已取得且判定成立的
 补充观察（2026-11-04T21:13:24.099Z）：工单关闭前已取得的复核结论未能被 record_review 收下，reviews 为空导致 close 被机械拦下，直到宿主重启、子代理登记表清空后同一通道才读到结论。
 逐字引证：重启前那三轮结论只能留在转录里
 来源：主控会话 turn 7，assistant 回复「重启解决了什么」一节（[turn 7] assistant 第 2–4 段）；对应工作单 workcase-608786b8 的关闭过程。
+
+补充观察（2026-11-12T23:32:37.623Z）：材料中 assistant 自陈「独立审核没拿到结果……它跑了但结论没回来，工单里 reviews 还是 0」，即已派出的隔离子代理 spec-reviewer 运行后其审核结论未能进入工单 reviews 字段，工单的复核记录仍为空。按 26 §6.2 的查重锚比对归因落点与机制模式：open 账目 friction-5c1b2d1d 的现象正是 record_review 取不到子代理复核结论、已取得的复核结论无一进入 reviews 字段、close 因此被机械拦下；其归因同样落在工单复核记录链路的取数接缝——父会话凭 reviewer_child_agent_id 从宿主子代理登记表读取子代理 turn-end 捕获的最终产出再写入 reviews。本条与它落点相同（子代理结论→reviews 的取数接缝）、机制模式相同（子代理侧已运行/已产出，reviews 记录侧取不到），非仅
+逐字引证：它跑了但结论没回来
+（来源：24）
