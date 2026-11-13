@@ -56,7 +56,7 @@ SubGoal 对象存在、状态为 `active` 或 `change_log` 条目存在，均不
 1. 项目目标陈述的内容、Goal 的单例约束与收官判定（归 25 号）；
 2. 子目标可核对性的语义判据、确立路径与偏离识别（归 30 号）；
 3. 执行授权、执行编排与结果审计（归 21 号与 32 号）；
-4. 工单与火花的类型语义及其字段（归 21 号与 20 号）——本文只定义 `serves` 指向本类型时的解析口径；
+4. 下游各类型的类型语义及其字段（归 21 号 WorkCase、20 号 Spark、29 号 DevLog、24 号 Research）——本文只定义 `serves` 指向本类型时的解析口径，不定义该字段本身、不决定谁可采用；
 5. 受控提交契约与机械守护（归 09 号）；
 6. Web 呈现的视觉与交互细节（归 07 号）；
 7. Human 作出或废除某个子目标的过程本身——本类型记录已确立的子目标，不产生决定过程。
@@ -279,7 +279,7 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 
 ### 12.3 `serves` 的解析口径
 
-下游对象（WorkCase、Spark、**DevLog**——29 号 §12.3 已声明采用本节的解析口径）的 `serves` 指向本类型时：
+下游对象（WorkCase、Spark、**DevLog**——29 号 §12.3 已声明采用本节的解析口径；**Research**——24 号 §8.1 声明采用同一字段名与同一解析口径）的 `serves` 指向本类型时：
 
 1. **取值形态为 `object_uid`**，与 `refs` 等其它事实对象引用同口径。业务键形态不存在（§7）；`serves` 是常规对象引用，02 §7.1 的锚点型字段因此没有登记实例（该形态的存废由 02 号裁定，本规范只如实登记其已无采用者）。
 2. **解析成立条件**：该 `object_uid` 解析到一条 `status ∈ {active, achieved}` 的 SubGoal 对象，且其 `parent_goal` 可解析为当前项目目标。任一条件不成立即解析失败，下游写入须 fail closed（21 §10.1：Gate 1 无目标可引则无法受理）。
@@ -302,11 +302,22 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 ## 13. 受控操作
 
 - **创建**：C1 提案对象模式——AI 只产出提案对象（含查重结论与完整字段），Human 确认后经受控创建入口落盘。**创建前必须查重**（§6.2）；**提请前机械预检**：把候选提请 Human 作出创建决定之前，须先对该候选执行本节所列机械校验；未通过者不得提请。该预检只读、不落盘、不生成对象标识，且与受控创建执行同一组机械校验（双入口一致性）。机械校验：字段闭集合法、`title` ≤ 40 字、`order` 为正整数或缺失、`parent_goal = project-goal` 且目标载体可解析、`criterion` 非空、`criterion_kind` 属闭集、`alignment` 非空、`status = active` 且无 `disposition`、正文与字段一致性的差异报告（`criterion`／`alignment` 与正文段的差异**只报告不阻断**，02 §7.1、Human 2026-11-10 取消逐字义务）。创建后精确回读。
+  **本类型的指纹覆盖范围**：覆盖 `frontmatter_draft` 与 `body_markdown` 两个入参；**剥离 `status`**（create 通道由 Code 钉死为 `active`，显式值只允许 `active`）；**不剥离变更摘要**（它经 Code 写入 `change_log[0].summary`、随对象落盘，显式值与省略时的默认值一般不是同一对象；显式值恰等于 Code 默认摘要串时二者产出同一对象，该重合造成的伪拒绝由本类型接受——重跑预检即可）；**Code 托管字段**（`object_uid`／`fact_type_key`／`created_at`）不参与候选比较，调用方不得携带。**除剥离项外，预检请求与写入请求的 `frontmatter_draft` 须逐字一致，含变更摘要**。
+  本类型的 `create` 通道**不提供** `frontmatter_removals`（该参数只在 `update` 通道有效）；`create` 携带即拒绝。顶层 `change_summary` 是 `update` 通道的参数；`create` 携带即拒绝——`frontmatter_draft` 内的 `change_summary` 才是 create 的摘要入参。
 - **补充级更新**：02 §10.5 受控更新；CAS 以完整文件为单位；每次恰好一条 `change_log`；`status` 不变（变了拒绝——走流转）；`object_uid` 不可改；`order` 可改。
+  **删除通道**：本类型 × `update` 的可删字段白名单为 `anchor`。该字段是 2026-11-01 起的**存量字段清理通道**：旧载体的 frontmatter 里仍留着它，而它已不在本类型的字段闭集内——没有删除通道，这些对象就永远无法通过受控更新：**当前实现**按继承基线处理，省略它会被继承下来并在闭集校验处被拒（报 `subgoal/frontmatter_invalid`）。新对象不得带 `anchor`。字段删除只经本类型声明的 `frontmatter_removals` 删除通道生效，不得靠「after 不带该键」表达删除，也不得使用 `null`、空字符串或空列表表达省略（02 §7.1）。该参数在 create 通道携带即拒绝。
+  **字段通道划分**（02 §10.5）：字段值经 `frontmatter_after` 生效，字段删除经本类型声明的 `frontmatter_removals` 删除通道生效，正文经 `body_markdown_after` 生效（须为完整正文）；各通道的具体名称与形态由本类型规定（02 §10.5）。
 - **状态流转**：Human Gate；AI 先精确读取 F3 核对流转依据；`achieved` 须附证据清单（§10.3）；`retired` 须附 `disposition`。Code 检查目标状态属闭集、字段、`disposition` 互斥、CAS 与回读。
 - **更正**：仅改错述，不改判断结论（§9.4）；与更新同一通道与纪律。
 - **多对象操作**：本类型**不声明**多对象原子变化——02 §10 要求范围匹配的公开原子操作且本类型未登记此类操作；批量迁移、批量状态翻转须逐份受控执行并逐份回读，不得宣称原子性。
 - **删除**：不存在删除操作（§9.5）。
+
+- **入口参数必填面**（02 §10.1）：
+
+  - `create`：`action` + `frontmatter_draft` + `body_markdown` + `expected_candidate_fingerprint`
+  - `update`：`action` + `object_uid` + `expected_fingerprint` + `frontmatter_after`（须携带，可为空对象）+ `body_markdown_after` + `change_summary`
+
+  `expected_candidate_fingerprint` 是本类型 create 的必填项——本类型设有只读预检入口 `ldvh_subgoal_precheck_create`，02 §10.1 要求预检候选与写入候选的同一性须确认，未确认时受影响写入 fail closed；写入请求未携带该指纹的，按「同一性未确认」零写入。`expected_fingerprint` 即该对象的 `content_fingerprint`（02 §7.1）。`action` 是写入专有参数，不出现在预检请求中（02 §10.1）。可选入参（`frontmatter_removals`）不在必填面内，其通道见「删除通道」条。本表为**入口参数必填面**（02 §10.1）；字段级必填项取 §8 字段契约条。工具入参声明与本表不一致时的处置按 02 §10.1 的规定执行（以本表为准并报告实现漂移）。本类型 update 通道**不提供公开只读预检入口**，也不产出可携带的候选指纹；这一事实须在该次写入交还的 **scope 与未完成范围**中如实登记（05 §8 的 `scope.not_completed`；未兑现范围的口径见 02 §10.8）。
 
 ## 14. 类型特有验证与类型退出
 
