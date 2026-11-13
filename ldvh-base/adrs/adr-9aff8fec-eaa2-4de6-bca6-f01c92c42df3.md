@@ -1,9 +1,11 @@
 ---
 title: 无锚点内部结论准予但须标注降权
-status: active
+status: retired
 decision: 无锚点的内部结论准予作为事实对象存在，但须显式标注为「无锚点·待补证」并在呈现与召回时降权。
 scope: 适用于 DevLog（29 号）的内部结论准入判据，以及呈现与召回对无锚点条目的处置。
 trigger_signal: 当无锚点条目累积到足以影响召回质量、或补证机制建立后可强制回查时重审
+retirement_reason: outdated
+retired_at: 2026-11-13T20:32:24.744Z
 object_uid: 9aff8fec-eaa2-4de6-bca6-f01c92c42df3
 fact_type_key: adr
 created_at: 2026-11-12T19:50:21.877Z
@@ -12,6 +14,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 ADR 对象
+  - at: 2026-11-13T20:32:24.744Z
+    provider: qoder
+    model: qmodel_38max
+    summary: 前提已失效，按 Human 2026-11-14 决定以 outdated 退役（不新建承接 ADR）：本决定的准入判据以「内部结论由 DevLog 对象化」为前提（D1/adr-2c4a680b 已同批退役），而 29 号类型已整体撤除（规范源 aeb5cb7b、代码 6c1b15e3/91b3d727）——内部信息吸收结论现按 02 §6.4 判据 9 与 33 §12.1 不对象化，「无锚点·待补证」的标注与降权处置失去可施加的对象。00 §2.4.2 的可回查要求仍由规范源对现存七类事实对象承载，不因本条退役而减损。
 ---
 
 # 无锚点内部结论准予但须标注降权

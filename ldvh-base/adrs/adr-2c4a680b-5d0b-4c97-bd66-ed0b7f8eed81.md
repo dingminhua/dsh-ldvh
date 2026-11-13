@@ -1,9 +1,11 @@
 ---
 title: 调研吸收结论按判据分流承载
-status: active
+status: retired
 decision: 调研吸收系统的结论承载按 02 §6.4 的公共判据分流——外部对象调研结论由 Research 事实对象承载，内部信息吸收结论由 DevLog 事实对象承载。
 scope: 适用于调研吸收系统（33 号）的结论承载条款，以及 24 号与 29 号的承载边界衔接。
 trigger_signal: 当 02 §6.4 的归属判据次序、或 24 号与 29 号的类型边界发生变更时重审
+retirement_reason: outdated
+retired_at: 2026-11-13T20:28:56.267Z
 object_uid: 2c4a680b-5d0b-4c97-bd66-ed0b7f8eed81
 fact_type_key: adr
 created_at: 2026-11-12T19:47:46.620Z
@@ -12,6 +14,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 ADR 对象
+  - at: 2026-11-13T20:28:56.267Z
+    provider: qoder
+    model: qmodel_38max
+    summary: 前提已失效，按 Human 2026-11-14 决定以 outdated 退役（不新建承接 ADR）：本决定的分流双支中 DevLog 一支已随 29 号类型整体撤除（规范源 aeb5cb7b、代码 6c1b15e3/91b3d727）而不复存在——「内部信息吸收结论由 DevLog 承载」失去承载对象，决定文本已事实失效。现行口径由规范源直接承载：02 §6.4 判据 6/7 已废止（号位不复用）、内部吸收结论落判据 9「不承载」，33 §12.1 已改写为外部调研→Research、内部吸收结论不对象化（落交还正文或暂存 docs/）。Research 一支不受影响，24 号类型边界不变。
 ---
 
 # 调研吸收结论按判据分流承载

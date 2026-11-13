@@ -1,9 +1,11 @@
 ---
 title: DevLog 创建免事前 Human 确认
-status: active
+status: retired
 decision: DevLog 条目的创建不再设事前 Human Gate，AI 可直接经受控创建入口落盘。
 scope: 适用于 DevLog 事实类型的创建环节（29 号 §13、§16 第 1 项）；不适用于状态流转、替换档修订与源文档删除。
 trigger_signal: 当免事前确认的后果被证明不可控时重审（如查重留痕失效、条目量增长到 Human 无法回看、或 29 号的 Human Gate 清单再次变更）。
+retirement_reason: outdated
+retired_at: 2026-11-13T20:28:23.521Z
 object_uid: 6bddf3cd-586e-49db-b620-06cd31b9c25e
 fact_type_key: adr
 created_at: 2026-11-13T08:02:36.658Z
@@ -12,6 +14,10 @@ change_log:
     provider: minmax
     model: MiniMax-M3.1-Flash
     summary: 记录 Human 决定（2026-11-13）：DevLog 条目的创建不再设事前 Human Gate。
+  - at: 2026-11-13T20:28:23.521Z
+    provider: qoder
+    model: qmodel_38max
+    summary: 前提已失效，按 Human 2026-11-14 决定以 outdated 退役（不新建承接 ADR）：DevLog 类型整体撤除——规范源删除（aeb5cb7b）、四个 ldvh_devlog_* 工具注册移除与专属模块删除（6c1b15e3、91b3d727），「创建免事前 Human Gate」的决定失去作用对象（受控创建入口已不存在）。事实类型创建的 Gate 面随 02 §7.1 类型值域闭集（不含 devlog）收敛。
 ---
 
 # DevLog 创建免事前 Human 确认
