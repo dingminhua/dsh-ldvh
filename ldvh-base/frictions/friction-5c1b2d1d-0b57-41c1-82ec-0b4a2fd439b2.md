@@ -1,6 +1,6 @@
 ---
 title: record_review 取不到子代理复核结论
-status: open
+status: voided
 phenomenon: record_review 取不到子代理复核结论，六份已取得且判定成立的复核结论无一进入 reviews 字段，工单 close 因此被机械拦下。
 attribution: 工单复核记录链路（record_review 通道）的取数接缝：父会话凭 reviewer_child_agent_id 从宿主子代理登记表读取子代理 turn-end 捕获的最终产出，再经逐字摘录写入 reviews；该接缝跨登记表、结论捕获与摘录校验三段，任一段失配都表现为 reviews 为空、close 被拦，缺少把「已取得的非空结论」与「未入账」对应起来的可观测绑定。
 object_uid: 5c1b2d1d-0b57-41c1-82ec-0b4a2fd439b2
@@ -39,10 +39,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 8 → 9（11 §9 第 2 项）
+  - at: 2026-11-13T19:34:55.247Z
+    provider: qoder-global
+    model: qmodel_38max
+    summary: 状态流转 open→voided：record_review/reviews/Gate2 整条承载面随 WorkCase 类型撤除（specs/21 删除 d4008808、代码层删除 4b279bdb、契约清理 5463ff4a），无「修好的接缝」可指故不标 resolved，按 dc85ad59 判例走 voided（Human 2026-11-14 授权；行动前审查 skip）
 occurrence:
   count: 9
   first_at: 2026-11-03T22:18:47.703Z
   last_at: 2026-11-12T23:32:37.623Z
+disposition: 承载面已随 WorkCase 类型整体撤除：record_review 通道、reviews 字段与 Gate 2 关闭校验（specs/21 删除 d4008808、代码层删除 4b279bdb）不复存在，无修好的接缝可指，按 dc85ad59 判例走 voided 而非 resolved；若未来重建同类「子代理结论→结构化字段」取数接缝，本条失效机制应作设计核对清单重新取用（按新账目入账，不重开本条）
 ---
 
 # record_review 取不到子代理复核结论
@@ -84,3 +89,6 @@ record_review 取不到子代理复核结论，六份已取得且判定成立的
 补充观察（2026-11-12T23:32:37.623Z）：材料中 assistant 自陈「独立审核没拿到结果……它跑了但结论没回来，工单里 reviews 还是 0」，即已派出的隔离子代理 spec-reviewer 运行后其审核结论未能进入工单 reviews 字段，工单的复核记录仍为空。按 26 §6.2 的查重锚比对归因落点与机制模式：open 账目 friction-5c1b2d1d 的现象正是 record_review 取不到子代理复核结论、已取得的复核结论无一进入 reviews 字段、close 因此被机械拦下；其归因同样落在工单复核记录链路的取数接缝——父会话凭 reviewer_child_agent_id 从宿主子代理登记表读取子代理 turn-end 捕获的最终产出再写入 reviews。本条与它落点相同（子代理结论→reviews 的取数接缝）、机制模式相同（子代理侧已运行/已产出，reviews 记录侧取不到），非仅
 逐字引证：它跑了但结论没回来
 （来源：24）
+
+## 处置
+废弃（voided）。本条记账时（count 9）现象真实存在，废弃不否定入账依据。废弃理由：该阻碍的整条承载面已随 WorkCase 事实类型与「工单执行」业务系统一并撤除——`record_review` 通道、`reviews` 字段、Gate 2 关闭校验（workcase/review_required）全部是工单类型的组成部分：specs/21 已物理删除（d4008808，2026-11-13「全域清除工单类型与其系统」，Human 根决定 + adr-39547fb1「取消工单执行并新增把关请示系统」）；代码层 workcase-tools.js / workcase-writer.js 及 56 个存量载体已删除（4b279bdb，2026-11-13）；`5463ff4a`（2026-11-14）进一步清除了 Gate 1/2 与 attempt 契约的规范残留。本次核验（2026-11-14）：plugin/lib 已无 workcase 文件、无 record_review 活代码（host-seams.js 的 recordReviewAskDecision 是把关请示的答复记录，与本条的工单复核记录链路无关）。**不标 resolved**：resolved 要求 informs 指向「修好它的解药」，而这里没有「修好的接缝」可指——接缝本身不存在了；与 6c787082 中 friction-dc85ad59（工单轮次上限）同一判例。**不标 accepted**：accepted 是「阻碍仍在、选择不清偿」，与本条相反。复审触发：若未来重新引入任何「子代理结论 → 结构化字段入账」的取数接缝（无论叫什么名字），本条记录的失效机制（登记表命中但结论为空时不回退、终态与结论回传无绑定、空结论不可区分）应作为设计核对清单重新取用——届时按新账目入账，不重开本条（终态不重开，26 §9.2）。
