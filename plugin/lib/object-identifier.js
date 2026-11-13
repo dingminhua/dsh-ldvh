@@ -161,7 +161,6 @@ export const FACT_TYPE_DIRECTORIES = Object.freeze({
   research: "researches",
   spark: "sparks",
   subgoal: "subgoals",
-  workcase: "workcases",
 });
 
 /** 载体文件名形如 `<type>-<uuid>.md`；只取 uuid 部分比对短标识。 */

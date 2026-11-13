@@ -160,7 +160,7 @@ test("目录缺失不算错误（该类型尚无对象）", async () => {
 // 4. 类型目录表须与九个 writer 的常量逐项相等
 // ---------------------------------------------------------------------------
 
-test("FACT_TYPE_DIRECTORIES 与九个 writer 的 *_DIRECTORY 常量一致", async () => {
+test("FACT_TYPE_DIRECTORIES 与八个 writer 的 *_DIRECTORY 常量一致", async () => {
   const writers = {
     adr: ["adr-writer.js", "ADR_DIRECTORY"],
     devlog: ["devlog-writer.js", "DEVLOG_DIRECTORY"],
@@ -170,7 +170,6 @@ test("FACT_TYPE_DIRECTORIES 与九个 writer 的 *_DIRECTORY 常量一致", asyn
     research: ["research-writer.js", "RESEARCH_DIRECTORY"],
     spark: ["spark-writer.js", "SPARK_DIRECTORY"],
     subgoal: ["subgoal-writer.js", "SUBGOAL_DIRECTORY"],
-    workcase: ["workcase-writer.js", "WORKCASE_DIRECTORY"],
   };
   for (const [type, [file, constant]] of Object.entries(writers)) {
     const mod = await import(new URL(`../lib/${file}`, import.meta.url).href);
@@ -239,22 +238,6 @@ test("读取入口：类型前缀与实际类型不符时给出 type_prefix_mism
 // ---------------------------------------------------------------------------
 // 6. 写路径不得随读路径放宽（scope 边界：写错对象的代价与读错不对等）
 // ---------------------------------------------------------------------------
-
-test("workcase 写路径的存续门仍是 canonical-only（不得被读入口的宽松解析连带放宽）", () => {
-  // 这条用例的来源：独立复核发现 workcase-writer 的 assertValidUid 一度成为孤儿
-  // （定义在 :550 但无调用点）——因为 12 条写流程都经 loadAndCheckFingerprint →
-  // readWorkcaseObject，而后者已接宽松解析；于是写路径静默接受了四种书写形态，
-  // 越过 scope「不改写路径的 uid 入参」这一条。此用例钉住「写路径另有 canonical 门」。
-  const source = readFileSync(new URL("../lib/workcase-writer.js", import.meta.url), "utf8");
-  const start = source.indexOf("async function loadAndCheckFingerprint");
-  assert.notEqual(start, -1, "loadAndCheckFingerprint 应存在");
-  const body = source.slice(start, source.indexOf("\n}\n", start));
-  assert.match(
-    body,
-    /assertValidUid\(objectUid\)/,
-    "写路径的 CAS 入口必须保留 canonical-only 门；缺了它，读入口的四形态放宽会连带上溯到写路径",
-  );
-});
 
 test("其余八个 writer 的写路径仍各自持有 canonical-only 门", () => {
   const writers = ["adr", "devlog", "friction", "norm", "pitfall", "research", "spark", "subgoal"];

@@ -35,7 +35,6 @@ import { VALID_FM_KEYS as ADR_FM_KEYS } from "../lib/adr-writer.js";
 import { VALID_FM_KEYS as PITFALL_FM_KEYS } from "../lib/pitfall-writer.js";
 import { VALID_FM_KEYS as FRICTION_FM_KEYS } from "../lib/friction-writer.js";
 import { VALID_FM_KEYS as NORM_FM_KEYS } from "../lib/norm-writer.js";
-import { VALID_FM_KEYS as WORKCASE_FM_KEYS } from "../lib/workcase-writer.js";
 import { VALID_FM_KEYS as SUBGOAL_FM_KEYS } from "../lib/subgoal-writer.js";
 import { VALID_FM_KEYS as DEVLOG_FM_KEYS } from "../lib/devlog-writer.js";
 
@@ -94,12 +93,6 @@ const TYPES = [
 		load: () => import("../lib/research-tools.js"),
 		operationKey: "research-write-object",
 		writerFile: "research-writer.js",
-	},
-	{
-		name: "workcase",
-		writerKeys: WORKCASE_FM_KEYS,
-		load: () => import("../lib/workcase-tools.js"),
-		operationKey: "workcase-write-object",
 	},
 	{
 		name: "subgoal",
@@ -395,7 +388,6 @@ test("schema/writer agreement: every fact-type writer is covered by this guard",
 
 /** writer 模块 → 其导出的键序数组名。未导出序数组者不列入（无法机械核对）。 */
 const ORDER_ARRAYS = [
-	{ name: "workcase", module: "workcase-writer.js", arrayExport: "FRONTMATTER_FIELD_ORDER" },
 ];
 
 test("schema/writer agreement: the frontmatter order array covers the writer's whole closed set", async () => {

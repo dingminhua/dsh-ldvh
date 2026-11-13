@@ -17,7 +17,6 @@ import assert from "node:assert/strict";
 import { SUMMARY_MAX_CHARS, summaryLength, summaryLimitIssue } from "../lib/summary-limit.js";
 import { validateSparkFrontmatter } from "../lib/spark-writer.js";
 import { validateDevLogFrontmatter } from "../lib/devlog-writer.js";
-import { validateWorkcaseFrontmatter } from "../lib/workcase-writer.js";
 
 /** 一个字段齐备的 Spark frontmatter（缺字段会产生无关 issue，淹没断言）。 */
 function sparkCase(summary) {
@@ -99,26 +98,8 @@ test("Spark：skip 只豁免长度，不豁免其它校验", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. WorkCase / DevLog：不设上限（乙）
+// 4. DevLog：不设上限（乙）
 // ---------------------------------------------------------------------------
-
-test("WorkCase：长 summary 不受 200 字约束（执行载体靠分块保可读）", () => {
-  // 构造合规的分块长文本：>200 且首块之外以 H3 开头
-  const long = `总述一段。${"并逐条说明其依据与未覆盖范围，使后续执行者无需回读原讨论即可独立接手".repeat(3)}`
-    + `\n\n### 处置方向\n- 甲${"补充说明".repeat(40)}`;
-  assert.ok(long.length > 200, "用例须真的超过 200，否则断言空转");
-  const fm = {
-    title: "测试工单",
-    gist: "验证 WorkCase 不设 summary 上限",
-    summary: long,
-    scope: "做什么：\n- 验证上限\n\n明确不做什么：\n- 不改实现",
-    plan: [{ step: "验证", done_criteria: "长 summary 被接受" }],
-    status: "draft",
-  };
-  const r = validateWorkcaseFrontmatter(fm);
-  const limitIssues = r.issues.filter((i) => i.includes("≤ 200") && i.includes("summary"));
-  assert.equal(limitIssues.length, 0, `WorkCase 不应有 summary 长度上限，实际：${JSON.stringify(limitIssues)}`);
-});
 
 test("DevLog：长 summary 不受 200 字约束（结论快照需完整）", () => {
   const fm = {

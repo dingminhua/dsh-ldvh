@@ -19,7 +19,6 @@
 // Every registration returns a disposer and is owned by the caller's fiber
 // (08 §6 + cordis effect discipline): nothing here leaks past plugin stop.
 
-import { findRouteDecision, recordRouteDecision } from "./workcase-route-ledger.js";
 import { REVIEW_ASK_ANSWERS,
   REVIEW_ASK_PLACEHOLDER_TASK,
   REVIEW_ASK_POINTS,
@@ -76,7 +75,7 @@ export const ASK_QUESTION_MAX_CHARS = 200;
  * 按字符预算裁剪外壳文本，不拆散代理对。
  *
  * 预算以 **UTF-16 码元**（`String.prototype.length`）计量，与仓内既有 200 字符
- * 上界（`workcase-writer.js` 的 `GIST_MAX_CHARS`）同一口径——否则含代理对的文本
+ * 上界同一口径——否则含代理对的文本
  * （emoji 等）会以「码点数 ≤ 200 而 .length 达 366」的形式越过上界。裁剪时按
  * 码元回退，不把一个代理对劈成两半（半个码元会渲染成替换字符）。
  *
@@ -114,32 +113,6 @@ function assembleBoundedAsk({ head, detail }) {
   };
 }
 
-/**
- * 把候选摘要摊成可读的若干行（21 §6.3 路由询问的「看不到候选」补救）。
- *
- * 只列**已落定的候选字段**，不加评价：title / gist / scope / plan 步骤。这些
- * 都是候选内容本身，不是 AI 的倾向理由（后者仍然不进呈报，见调用方注释）。
- *
- * 缺席即省略该行，不用占位符伪造（03 §6.1「不编造」）——若整个候选摘要都缺席
- * （如上游没传），返回空数组，询问照旧进行而不多加一段空壳。
- */
-function briefToLines(brief) {
-  if (brief === null || typeof brief !== "object") return [];
-  const lines = [];
-  const oneLine = (value) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
-  const title = oneLine(brief.title);
-  const gist = oneLine(brief.gist);
-  const scope = oneLine(brief.scope);
-  if (title !== "") lines.push(`候选工单：${title}`);
-  if (gist !== "") lines.push(`要点：${gist}`);
-  if (scope !== "") lines.push(`范围：${scope}`);
-  const steps = Array.isArray(brief.planSteps) ? brief.planSteps.map(oneLine).filter((s) => s !== "") : [];
-  if (steps.length > 0) {
-    lines.push(`计划 ${steps.length} 步：`);
-    steps.forEach((step, index) => lines.push(`  ${index + 1}. ${step}`));
-  }
-  return lines;
-}
 
 /** 21 §6.3 路由询问 identity — the Human decides between carrying the work as a
  * WorkCase or handling it directly. Same discipline as the registration consent:
@@ -151,9 +124,6 @@ function briefToLines(brief) {
  * whole object; asking for内容 here would demand a judgement the Human cannot
  * yet make. Only the "carry it as a WorkCase" answer authorises creation —
  * "handle it directly" means no object is created at all. */
-const ROUTE_QUESTION_ID = "ldvh-workcase-route";
-const ROUTE_WORKCASE_LABEL = "建工单走流程";
-const ROUTE_DIRECT_LABEL = "直接执行";
 
 /** 20 §16 Spark Human Gate identity — 创建与终态转换两项共用同一询问 id
  * （一次处置只问一次；两项的呈报内容不同，故 id 相同而 question 文本分列）。
@@ -548,175 +518,6 @@ export function createHostSeams() {
   }
 
   /**
-   * Ask the Human to route this piece of work (21 §6.3 / §14 C1).
-   *
-   * `create` may only proceed when the Human explicitly chooses to carry the
-   * work as a WorkCase. Returns `{ granted, routedTo }`:
-   *   - granted=true,  routedTo="workcase" — create may proceed
-   *   - granted=false, routedTo="direct"   — the Human chose direct handling;
-   *                                          NO object is created
-   *   - granted=false, reason=…            — no answerer / failed ask / declined
-   *
-   * A missing answerer or a failed ask fails closed exactly like the
-   * registration consent: silence is not a routing decision, and 21 §6.3
-   * excludes "当次行动可直接处理的低风险改动" from objectification — so an
-   * un-routed candidate must NOT silently become an object either.
-   *
-   * `rationale` is accepted for call compatibility but is NOT presented:
-   * Human decided (2026-10) that the AI's own lean reasons must not appear in
-   * the prompt — they are unverifiable self-report and turn a triage question
-   * into an argument transcript. Nothing in 21 §6.3 requires presenting them.
-   *
-   * `request` is carried verbatim — in `question` while it fits ADR 7ceaf7fc's
-   * 200-char bound, and in the scrollable `detail` when it does not, so the
-   * Human's own words are never truncated. The prompt therefore carries no
-   * `detail` at all in the ordinary case.
-   *
-   * `signal` is the calling tool's cancellation signal. It MUST be forwarded:
-   * this ask carries no wall-clock deadline (it waits for a human), so an
-   * abandoned session would otherwise leave the prompt pending forever.
-   *
-   * ## 先读后问（2026-10-17，消灭「同一件事问两次」）
-   *
-   * 答复一旦取得即写入持久载体（`workcase-route-ledger.js`），以 `candidate_fingerprint`
-   * 为键。再次针对**同一候选**调用本函数时，先读载体：
-   *
-   *   - 命中 → **直接复用**当时的答复，**不再提问**。这解掉「预检通过、人已作答、
-   *     随后写入失败、重试再问一遍」——那种重复提问没有任何信息增量，只是在消耗
-   *     Human 的注意力预算。
-   *   - 未命中 → 才提请，并在拿到**已确定**的答复后落载体。
-   *
-   * 为什么键是候选指纹而不是「会话 + 时间」：提问的对象是**那份候选内容**。
-   * 内容没变（指纹相同）就是同一个问题，答案可复用；内容变了就是新问题，必须重问。
-   *
-   * `candidateKey` 缺席时**不读也不写载体**（保持旧行为）：那是调用方没有提供
-   * 候选身份的情形，此时无法判断「是不是同一个问题」，宁可问一次也不算错复用。
-   *
-   * 载体读写失败一律 fail-closed（返回 granted=false）：既不得当成「没问过」
-   * （会导致重复提问），也不得当成「已获授权」（会免去 Human 决定）。
-   */
-  async function requestWorkcaseRouting({ request, rationale, agent, signal, candidateKey, candidateBrief } = {}) {
-    if (typeof seams.ask !== "function") {
-      return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
-    }
-    const head = [];
-    let detail = null;
-    if (typeof request === "string" && request.trim().length > 0) {
-      head.push(`你的要求：${request.trim()}`);
-      // 极长的原话装不进有界标题区时（ADR 7ceaf7fc），改由可滚动的 detail 逐字
-      // 承载——裁剪只发生在外壳，绝不发生在这句原话上。
-      if (head[0].length + "需要你的判断（21 §6.3）".length > ASK_QUESTION_MAX_CHARS) {
-        detail = request.trim();
-      }
-    }
-    head.push("需要你的判断（21 §6.3）");
-    // 只问「建工单还是直接执行」，不呈报 AI 的倾向理由（Human 2026-10-xx 裁定：
-    // 理由是 AI 自陈、Human 无从核对的一串文字，实测把弹窗撑成一大段，反而使
-    // 本提请看起来像论证材料而非一次分诊）。`rationale` 仍被接受（入参契约不变）
-    // 但不再进入任何呈报载体；语义上它本就只是 advisory，21 §6.3 未要求呈报。
-    // 「你的要求」仍在 head（标题区）逐字呈现，Human 仍能认出在路由哪件事。
-    //
-    // ── 候选摘要进入可滚动区（2026-11-12）──────────────────────────────
-    //
-    // 上述「不呈报 AI 的理由」针对的是 `rationale`（AI 自陈的倾向），**不是**
-    // 候选本身。此前两者的区别被一概而论，于是 Human 被问「要不要建工单」时
-    // 看不到这个工单长什么样——他答的是一个尚不存在的东西。而此刻候选已经过
-    // 机械预检，title/gist/scope/plan 都是具体可读的**事实**（不是 AI 的论证）。
-    //
-    // 因此候选摘要进入 `detail`（可滚动区），不进 `head`（有界标题区，
-    // ADR 7ceaf7fc）。它不改变询问与被问的性质：这仍是一次路由分诊，Human
-    // 看到的是「这确实是我要的那件事吗」，而不是被要求代替 Gate 1 做内容裁决。
-    const briefLines = briefToLines(candidateBrief);
-    if (briefLines.length > 0) {
-      detail = detail === null ? briefLines.join("\n") : `${detail}\n\n${briefLines.join("\n")}`;
-    }
-    const assembled = assembleBoundedAsk({ head, detail });
-
-    // ── 先读后问（消灭「同一件事问两次」）──────────────────────────────
-    //
-    // 候选身份缺席时不读也不写载体：无从判断「是不是同一个问题」，此时宁可
-    // 问一次，也不算错复用（误复用会把「直接执行」的旧答案套到新候选上）。
-    const reusableKey = typeof candidateKey === "string" && candidateKey.length > 0 ? candidateKey : null;
-    if (reusableKey !== null) {
-      const prior = await findRouteDecision(seams.dshHomePath, reusableKey);
-      if (!prior.ok) {
-        // 载体不可读：既不能当成「没问过」（会重复提问），也不能当成「已授权」
-        // （会免去 Human 决定）。停在报告上。
-        return { granted: false, routedTo: null, reason: `route-decision carrier unreadable (${prior.error.code}): ${prior.error.message}` };
-      }
-      if (prior.value !== null) {
-        // 命中：同一候选已问过且已答。直接复用，**不再提问**。
-        const reused = {
-          routedTo: prior.value.routed_to,
-          answer: prior.value.answer,
-          reused: true,
-          decidedAt: prior.value.at,
-        };
-        return prior.value.routed_to === "workcase"
-          ? { granted: true, ...reused }
-          : { granted: false, ...reused, reason: "Human chose 直接执行 — 21 §6.3 不对象化（复用既有答复，未重复提问）" };
-      }
-    }
-
-    // The ledger read above can yield while the provider changes. Resolve the
-    // current service immediately before asking; never replay an in-flight question.
-    const ask = seams.ask;
-    if (typeof ask !== "function") {
-      return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
-    }
-    try {
-      const answer = await ask({
-        questions: [{
-          id: ROUTE_QUESTION_ID,
-          header: "需要你的判断",
-          question: assembled.question,
-          ...(assembled.detail === undefined ? {} : { detail: assembled.detail }),
-          options: [
-            { label: ROUTE_WORKCASE_LABEL, description: "创建 WorkCase（draft），随后在 Gate 1 待办中审视内容" },
-            { label: ROUTE_DIRECT_LABEL, description: "不创建对象，直接在当前行动中处理" }
-          ]
-        }],
-        // Same cancellation contract as requestRegistrationConsent: this ask
-        // imposes no wall-clock deadline, so the caller's signal is the ONLY
-        // way an abandoned prompt gets released (ASK_ABORTED → fail closed).
-        ...(signal === undefined ? {} : { signal })
-      }, agent);
-      const answers = Array.isArray(answer?.answers) ? answer.answers : [];
-      const entry = answers.find((a) => a?.id === ROUTE_QUESTION_ID) ?? null;
-      const selected = selectedLabelOf(entry);
-      // 空答复（`selected: []`，人按了跳过或关掉）是「未决策」，不是「答了」。
-      // 不写入载体：写入会让下一次 create 误以为问过而直接复用一个不存在的决定。
-      if (selected !== ROUTE_WORKCASE_LABEL && selected !== ROUTE_DIRECT_LABEL) {
-        return { granted: false, routedTo: null, reason: `human did not choose a routing option (answer: ${JSON.stringify(selected ?? null)})` };
-      }
-      // 已确定的答复 → 立即落载体，使重试可复用、事后可回读。
-      if (reusableKey !== null) {
-        const recorded = await recordRouteDecision(seams.dshHomePath, {
-          candidate_fingerprint: reusableKey,
-          answer: selected,
-          routed_to: selected === ROUTE_WORKCASE_LABEL ? "workcase" : "direct",
-          request: typeof request === "string" ? request : undefined,
-        });
-        if (!recorded.ok) {
-          // 答复已取得但留不下痕迹：仍如实返回 Human 的选择，但把「留痕失败」
-          // 说清楚——不能静默，否则重试时会再问一次而这正是本模块要消灭的形态。
-          return {
-            granted: selected === ROUTE_WORKCASE_LABEL,
-            routedTo: selected === ROUTE_WORKCASE_LABEL ? "workcase" : "direct",
-            answer: selected,
-            recordError: `${recorded.error.code}: ${recorded.error.message}`,
-            ...(selected === ROUTE_WORKCASE_LABEL ? {} : { reason: "Human chose 直接执行 — 21 §6.3 不对象化" }),
-          };
-        }
-      }
-      if (selected === ROUTE_WORKCASE_LABEL) return { granted: true, routedTo: "workcase", answer: selected };
-      return { granted: false, routedTo: "direct", answer: selected, reason: "Human chose 直接执行 — 21 §6.3 不对象化" };
-    } catch (error) {
-      return { granted: false, routedTo: null, reason: `routing request failed: ${String(error?.message ?? error)}` };
-    }
-  }
-
-  /**
    * Ask the Human to confirm one Spark action (20 §16).
    *
    * 20 §16 registers three Human Gates for this type (创建 / 终态转换 /
@@ -725,7 +526,7 @@ export function createHostSeams() {
    * the note on `SPARK_CONSENT_QUESTION_ID`; it is a `09 §6` weak constraint
    * whose judgement the implementation must NOT make.
    *
-   * Same discipline as `requestWorkcaseRouting`: the Human's own answer is
+   * Same discipline as the other consent seams: the Human's own answer is
    * recorded by the host, not asserted by the AI. A missing answerer, a failed
    * ask or an unchosen/declined answer all yield `granted: false` — silence is
    * not consent, and this path must fail closed.
@@ -872,7 +673,7 @@ export function createHostSeams() {
      *   - `null`     —— 未取得答复（无答题器／询问失败／人跳过未选）。
      *
      * 空答复（`selected: []`）**不落载体**：它是「未决策」，落盘会让下一次误以为
-     * 问过了而直接复用一个不存在的决定（与 `requestWorkcaseRouting` 同纪律）。
+     * 问过了而直接复用一个不存在的决定（与其他接缝同纪律）。
      *
      * 开关关闭时**直接返回 null 且不问**——这是 Human 的原话「打开才有」。调用方
      * 传入 `enabled: false` 即走这条路径；本函数不自己读配置，因为配置读取属
@@ -1063,19 +864,17 @@ export function createHostSeams() {
     /**
      * The host home resolver captured at install; `null` until then.
      *
-     * `requestWorkcaseRouting` needs it to locate the route-decision carrier
-     * (21 §6.3 先读后问). Before install() it is null, and the seam treats a
-     * null resolver exactly like an unreadable carrier: fail closed rather than
-     * assume "never asked" (that would re-ask the Human — the very defect the
-     * carrier exists to remove).
+     * The review-ask decision carrier needs it to locate its file (先读后问).
+     * Before install() it is null, and the seam treats a null resolver exactly
+     * like an unreadable carrier: fail closed rather than assume "never asked"
+     * (that would re-ask the Human — the very defect the carrier exists to
+     * remove).
      */
     dshHomePath: null,
     /** The host fs service captured at install; `null` when unavailable. */
     fs: null,
     /** 07 §5.6 consent request routed through ctx.userQuestions.ask. */
     requestRegistrationConsent,
-    /** 21 §6.3 routing request routed through ctx.userQuestions.ask. */
-    requestWorkcaseRouting,
     /** 20 §16 Spark create/terminal confirmation routed through ctx.userQuestions.ask. */
     requestSparkConsent,
     /** 22 §16 ADR create/retire confirmation routed through ctx.userQuestions.ask. */
@@ -1139,8 +938,8 @@ export function createHostSeams() {
       const questionEpoch = ++questionGeneration;
       questionContext = ctx;
       usedQuestionService = null;
-      // 路由询问的持久载体需要 home 解析器（21 §6.3 先读后问）。在此保存：install
-      // 是唯一能拿到它的地方，而 `requestWorkcaseRouting` 在之后被调用。
+      // 询问的持久载体需要 home 解析器（先读后问）。在此保存：install 是唯一
+      // 能拿到它的地方，而询问接缝在之后被调用。
       seams.dshHomePath = typeof dshHomePath === "function" ? dshHomePath : null;
       seams.emitter = ctx;
       return {

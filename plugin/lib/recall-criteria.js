@@ -65,7 +65,6 @@ export const RECALL_CRITERIA_NOT_APPLICABLE = "不采用";
  */
 export const FACT_TYPE_BY_SPEC_ID = Object.freeze({
   "20": "spark",
-  "21": "workcase",
   "22": "adr",
   "23": "pitfall",
   "24": "research",

@@ -596,75 +596,6 @@ test("lifecycle reload: plugin unload awaits the lifecycle stop Promise (pending
   });
 });
 
-// ---------------------------------------------------------------------------
-// 7. an already-dispatched Human ask is not replayed by a rebuilt seam
-// ---------------------------------------------------------------------------
-
-test("lifecycle reload: an already-dispatched Human ask is not replayed when the plugin seams are rebuilt", async () => {
-  await withTemp("ldvh-reload-ask.", async (home) => {
-    const root = new Context();
-    const asks = [];
-    const answerers = [];
-    let allowNewCandidate = false;
-    root.provide("userQuestions", {
-      ask(request, agent) {
-        asks.push({ request, agent });
-        if (asks.length > 1 && !allowNewCandidate) throw new Error("recorded candidate was asked again");
-        return new Promise((resolve) => answerers.push(resolve));
-      },
-    });
-
-    const dshHomePath = (...segments) => join(home, ...segments);
-    const oldSeams = createHostSeams();
-    const oldInstall = oldSeams.install(root, { dshHomePath });
-
-    try {
-      const agent = { id: "ask-agent", session: { header: { id: "ask-agent" } } };
-      const candidateKey = "a".repeat(64);
-      const oldPending = oldSeams.requestWorkcaseRouting({ request: "old request", agent, candidateKey });
-      await waitFor(() => asks.length === 1, { label: "the first Human ask to be dispatched" });
-      assert.equal(typeof oldSeams.ask, "function", "old seams are live before stop");
-
-      oldInstall.dispose();
-      assert.equal(oldSeams.ask, null, "old seams are disposed: their ask entry is gone");
-      assert.equal(oldSeams.humanGateAvailable, false, "old seams report no answerer after disposal");
-
-      // The old in-flight answer completes and records its decision even after
-      // the old seam is disposed; no automatic redispatch occurs.
-      answerers[0]({ answers: [{ id: "ldvh-workcase-route", selected: ["直接执行"] }] });
-      const oldResult = await oldPending;
-      assert.equal(oldResult.routedTo, "direct");
-      assert.equal(oldResult.recordError, undefined, "the old answer must be durably recorded");
-      assert.equal(asks.length, 1, "answering the old question must not replay it");
-
-      const newSeams = createHostSeams();
-      const newInstall = newSeams.install(root, { dshHomePath });
-      try {
-        assert.equal(typeof newSeams.ask, "function", "rebuilt seams expose a callable ask entry");
-        const reused = await newSeams.requestWorkcaseRouting({ request: "old request", agent, candidateKey });
-        assert.equal(reused.routedTo, "direct");
-        assert.equal(reused.reused, true, "the same candidate must reuse the recorded decision");
-        assert.equal(asks.length, 1, "reusing a decision after rebuild must not re-ask");
-
-        // A genuinely new candidate remains a new dispatch.
-        allowNewCandidate = true;
-        const newPending = newSeams.requestWorkcaseRouting({ request: "new request", agent, candidateKey: "b".repeat(64) });
-        await waitFor(() => asks.length === 2, { label: "the rebuilt seam to dispatch a new question" });
-        answerers[1]({ answers: [{ id: "ldvh-workcase-route", selected: ["直接执行"] }] });
-        const newResult = await newPending;
-        assert.equal(newResult.routedTo, "direct");
-        assert.equal(newResult.recordError, undefined);
-        assert.equal(asks.length, 2, "one new dispatch per distinct request");
-      } finally {
-        newInstall.dispose();
-      }
-    } finally {
-      oldInstall.dispose();
-      await root.fiber.dispose();
-    }
-  });
-});
-
 test("lifecycle reload: real plugin unload reports a listener cleanup error to Cordis", async () => {
   await withTemp("ldvh-reload-real-failure.", async (base) => {
     const harness = await createHarness(base);
@@ -751,7 +682,8 @@ test("lifecycle reload: cleanup failure is reported while other agents are still
     const registry = createLifecycleRegistry(host, { dshHomePath, workspaceRoot: base, sessionScopes: createSessionScopes() });
     const stop = registry.start();
     try {
-      await waitFor(() => first.tools.has("ldvh_workcase_write") && second.tools.has("ldvh_workcase_write"), { label: "both tool batches" });
+      // 用仍存在的工具做就绪探针：原探针是已撤除的 ldvh_workcase_write。
+      await waitFor(() => first.tools.has("ldvh_adr_write") && second.tools.has("ldvh_adr_write"), { label: "both tool batches" });
       await assert.rejects(stop(), /cleanup/i, "a partial cleanup must not be reported as successful");
       assert.equal(first.tools.size, 0, "the failing agent's synchronous cleanup was attempted");
       assert.equal(second.tools.size, 0, "the other agent was cleaned despite the failure");

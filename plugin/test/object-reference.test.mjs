@@ -14,9 +14,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as sparkToolsModule from "../lib/spark-tools.js";
 import * as pitfallToolsModule from "../lib/pitfall-tools.js";
-import * as workcaseToolsModule from "../lib/workcase-tools.js";
 import { listSparkObjects } from "../lib/spark-writer.js";
-import { listWorkcaseObjects } from "../lib/workcase-writer.js";
 import { objectRef, objectRefOf, promptObjectRef } from "../lib/object-reference.js";
 import { registerProject } from "../lib/governed-projects.js";
 import { initRepo, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
@@ -71,13 +69,13 @@ const SPARK_UID_RE = /spark-([0-9a-f]{8})/;
 // ---------------------------------------------------------------------------
 
 test("objectRef: minimum form is type + 8-hex short id", () => {
-  assert.equal(objectRef({ object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7", fact_type_key: "workcase" }), "workcase-996e207a");
+  assert.equal(objectRef({ object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7", fact_type_key: "spark" }), "spark-996e207a");
 });
 
 test("objectRef: title is appended only when asked (02 §9.3 第 2 条 is the writer's reader judgement)", () => {
-  const item = { object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7", fact_type_key: "workcase", title: "事实对象指称须带类型与标题" };
-  assert.equal(objectRef(item), "workcase-996e207a");
-  assert.equal(objectRef(item, { withTitle: true }), "workcase-996e207a 事实对象指称须带类型与标题");
+  const item = { object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7", fact_type_key: "spark", title: "事实对象指称须带类型与标题" };
+  assert.equal(objectRef(item), "spark-996e207a");
+  assert.equal(objectRef(item, { withTitle: true }), "spark-996e207a 事实对象指称须带类型与标题");
 });
 
 test("objectRef: an unknown type degrades to the bare short id instead of fabricating a type", () => {
@@ -198,66 +196,6 @@ test("pitfall list: the projection carries fact_type_key and the rendered line i
 });
 
 // ---------------------------------------------------------------------------
-// Layer ④ (workcase): the sixth writer projection must carry the type too
-// ---------------------------------------------------------------------------
-// 第 6 轮独立复核（2026-10-19）发现 workcase 层是「声称＞实际」的具体落点：
-// listWorkcaseObjects 未投 fact_type_key，渲染即退化为裸 8hex。workcase 与
-// spark/adr/pitfall/friction/norm 同属被授权的消费面，缺一层等于条款在那一层
-// 无声失效——故此处分别钉住「投影带类型」与「渲染带前缀」两环。
-
-test("workcase list: the projection carries fact_type_key for every item", async () => {
-  await withTemp("object-reference.workcase.", async (base) => {
-    const { repo } = await governedFixture(base);
-    // 落一个最小 WorkCase 载体：本用例只关心列表投影，不驱动写入通道。
-    const uid = "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7";
-    await mkdir(join(repo, "ldvh-base", "workcases"), { recursive: true });
-    await writeFile(
-      join(repo, "ldvh-base", "workcases", `workcase-${uid}.md`),
-      [
-        "---",
-        "title: 事实对象指称须带类型与标题",
-        "object_uid: " + uid,
-        "fact_type_key: workcase",
-        "status: draft",
-        "created_at: 2026-10-18T00:00:00.000Z",
-        "change_log:",
-        "  - at: 2026-10-18T00:00:00.000Z",
-        "    summary: fixture",
-        "---",
-        "",
-        "# 事实对象指称须带类型与标题",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-    const listed = await listWorkcaseObjects({ factSourceRoot: join(repo, "ldvh-base"), includeClosed: false, limit: 10 });
-    assert.ok(listed.ok, JSON.stringify(listed.error));
-    assert.equal(listed.value.items.length, 1);
-    assert.equal(
-      listed.value.items[0].fact_type_key,
-      "workcase",
-      "F1 projection must carry fact_type_key — otherwise the render layer can only hard-code the type (a second authority)",
-    );
-  });
-});
-
-test("workcase list line: rendered with a type prefix, never as a bare 8-hex id", () => {
-  // 与 pitfall 用例同法：直接驱动 render，钉形态。
-  const descriptor = makeDescriptors(workcaseToolsModule.registerWorkcaseTools, {
-    dshHomePath: () => "/nope",
-    workspaceRoot: "/nope",
-  })["ldvh_workcase_list"];
-  const envelope = {
-    operation_key: "workcase-list-objects",
-    outcome: "completed",
-    result: { items: [{ object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7", fact_type_key: "workcase", title: "事实对象指称须带类型与标题", status: "open" }], total: 1 },
-    gaps: [],
-  };
-  const text = renderText(descriptor, {}, envelope);
-  assert.ok(text.includes("workcase-996e207a"), `workcase list line must be type-prefixed:\n${text}`);
-  assert.ok(!/^-\s+996e207a\b/m.test(text), `workcase list line must not be a bare short id:\n${text}`);
-});
-
 // ---------------------------------------------------------------------------
 // Layer ②: refs targets render as type-prefixed references too
 // ---------------------------------------------------------------------------

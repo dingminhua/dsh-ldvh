@@ -42,8 +42,6 @@ import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { recallLimitForBudget } from "./source-recall.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
-import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
-import { readWorkcaseObject, bodyHasResultSection } from "./workcase-writer.js";
 import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, pendingReasonFromLanding, residualFromLandingError } from "./friction-landing.js";
@@ -679,7 +677,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 才能查到**已经结束**的子代理——原实现只读活体 Map，而子代理结束
           // 时记录被移入 retiredChildren，导致「只在运行中查得到」（2026-09-26 修）。
           listChildren: childRecords,
-          // 子代理身份的可信来源（workcase-2be11478 计划步骤 4）：子代理本身
+          // 子代理身份的可信来源（源于一次实测）：子代理本身
           // 不注册 ldvh_* 工具（`origin === "subagent"` 走 installChild 后即返回），
           // 故它无法自行记录复核结论。宿主侧的这张登记表持有 Code 亲观测到的
           // 子代理会话身份（`agent.session.header.id`）与其结论，是**调用方不可
@@ -778,12 +776,12 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
    * that had ALREADY FINISHED. That is exactly the child the review channel asks
    * about (「复核者跑完了，现在登记它的结论」), which made独立复核 mechanically
    * impossible after any reload: five isolated reviewers lost this way on
-   * workcase-996e207a. The durable source is the session record the host itself
+   * one observed failure. The durable source is the session record the host itself
    * wrote; identity and lineage rules live in child-session-record.js, and the
    * hydrated record lands in retiredChildren so the next lookup — collect
    * included — is an ordinary registry hit.
    *
-   * Reported as a result rather than thrown: the caller (workcase-tools) turns a
+   * Reported as a result rather than thrown: the caller turns a
    * miss into a fail-closed refusal that names the reason for Human.
    *
    * @param {string} childId cited agent/session id.
@@ -977,42 +975,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       const onPreStep = createPreStepHandler(agent, {
         isGoverned: () => lifecycle.scopeState === "governed",
         channel: lifecycle.preStep,
-        // 接手侧的环境检查（21 §14「以及该会话续接本对象」）：会话继续干活时，把
-        // **已在办且处于执行期**的工单的宿主目标恢复到武装状态。与受控写入点的分工
-        // 见 workcase-goals.js：这里不拒绝任何动作（会话继续干活不该被环境检查拦住）；
-        // 工单不在执行期（draft／closed）时什么都不做——否则会把局部重批对目标的
-        // 暂停无声撤销。
-        //
-        // 返回值**不许丢弃**（2026-10-19 修复）：`ok:false` 表示「对象仍在执行期，
-        // 目标却没能武装」——该状态若不落到日志，就是 workcase-996e207a 那种
-        // 「每回合都在失败、外面什么都看不见」的形态。成功方向只在真正动过目标
-        // （recreated／rearmed）时才记 warn 级以外的信息，避免每回合刷噪音。
-        onTurnStart: async () => {
-          const judged = lifecycle.lastScope;
-          const projectPath = judged?.project?.path;
-          if (typeof projectPath !== "string" || projectPath.length === 0) return;
-          const factSourceRoot = join(projectPath, "ldvh-base");
-          const rearm = await rearmInFlightWorkcaseGoal({
-            ctx: { get: (key) => (key === "goals" ? ctx.get("goals") : undefined) },
-            agent,
-            readWorkcaseStatus: async (objectUid) => {
-              const read = await readWorkcaseObject({ factSourceRoot, objectUid });
-              return read.ok ? read.value.frontmatter.status : null;
-            },
-            // 待批准关闭期（21 §8）不重新武装：`propose_close` 在那一刻暂停了推进目标，
-            // 而对象 status 仍是 open——只看 status 会让每次接手把那次暂停撤销掉。
-            // 判据与呈现层 `awaiting_gate2` 同源：正文含「## 结果」节。
-            readAwaitingGate2: async (objectUid) => {
-              const read = await readWorkcaseObject({ factSourceRoot, objectUid });
-              return read.ok ? bodyHasResultSection(read.value.body ?? "") : false;
-            }
-          });
-          if (rearm?.ok === false) {
-            ctx.logger?.warn?.(`[dsh-ldvh] host goal is not armed for an in-flight workcase: ${rearm.message ?? rearm.code}`);
-          } else if (rearm?.action === "recreated" || rearm?.action === "rearmed") {
-            ctx.logger?.info?.(`[dsh-ldvh] host goal ${rearm.action} for workcase-${rearm.detail?.object_uid}: ${rearm.detail?.objective ?? ""}`);
-          }
-        },
         // Visible judgment row (Human 2026-09-04 "这里要能看到啊"): the
         // assemble handler updates noticeText on every judgement; the
         // pre-step injects it as a DSH-native context-injection row whenever

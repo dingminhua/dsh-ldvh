@@ -38,7 +38,6 @@ import { listAdrObjects, ADR_DIRECTORY } from "../lib/adr-writer.js";
 import { listPitfallObjects, PITFALL_DIRECTORY } from "../lib/pitfall-writer.js";
 import { listResearchObjects, RESEARCH_DIRECTORY } from "../lib/research-writer.js";
 import { listFrictionObjects, FRICTION_DIRECTORY } from "../lib/friction-writer.js";
-import { listWorkcaseObjects, WORKCASE_DIRECTORY } from "../lib/workcase-writer.js";
 
 /** A canonical v4 uid (the shape writers mint). */
 const V4 = "11111111-1111-4111-8111-111111111111";
@@ -186,9 +185,6 @@ const LISTS = [
   ["pitfall", PITFALL_DIRECTORY, listPitfallObjects, { includeTerminal: true }],
   ["research", RESEARCH_DIRECTORY, listResearchObjects, { includeTerminal: true }],
   ["friction", FRICTION_DIRECTORY, listFrictionObjects, { includeResolved: true }],
-  // WorkCase 是第六处：它在 2026-11-04 的首轮修复中被漏掉，同一缺陷原样存在。
-  // 列在这里，是为了让「哪个 list 还没接入单点」不再只靠人记。
-  ["workcase", WORKCASE_DIRECTORY, listWorkcaseObjects, {}],
 ];
 
 /** Minimal body per type so the carrier parses (structure checks run later). */
@@ -198,9 +194,8 @@ const BODIES = {
   pitfall: "## 症状\nx\n",
   research: "## 研究问题\nx\n",
   friction: "## 现象\nx\n",
-  workcase: "## 摘要\nx\n\n## 授权范围\n做什么：\n- a\n\n明确不做什么：\n- b\n\n## 计划\n1. s\n",
 };
-const STATUS = { spark: "open", adr: "active", pitfall: "active", research: "active", friction: "open", workcase: "draft" };
+const STATUS = { spark: "open", adr: "active", pitfall: "active", research: "active", friction: "open" };
 
 for (const [type, directory, listFn, options] of LISTS) {
   test(`${type} list: a mismatched filename is reported, never dropped`, async () => {

@@ -25,7 +25,6 @@
  */
 const FACT_TYPE_KEYS = new Set([
   "spark",
-  "workcase",
   "adr",
   "pitfall",
   "friction",

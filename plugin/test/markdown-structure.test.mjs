@@ -150,7 +150,6 @@ test("结构守卫: 消费方 writer 均已引用共享实现", async () => {
     "pitfall-writer.js",
     "research-writer.js",
     "spark-writer.js",
-    "workcase-writer.js",
   ];
   for (const name of consumers) {
     const src = await readFile(join(LIB, name), "utf8");

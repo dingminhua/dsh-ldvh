@@ -122,15 +122,6 @@ const CASES = [
     body: `# T\n\n## 达成条件\n\n${BODY_MARK}\n`,
     clause: "28 §8",
   },
-  {
-    type: "workcase",
-    file: "workcase-writer.js",
-    fn: "validateCarrierCoherence",
-    frontmatter: { summary: LONG, scope: "做什么：x" },
-    body: `# T\n\n## 摘要\n\n${BODY_MARK}\n`,
-    // 条款号曾是错的「03 §6.1」；更正后应为 21 §8
-    clause: "21 §8",
-  },
 ];
 
 for (const c of CASES) {

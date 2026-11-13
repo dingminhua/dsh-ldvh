@@ -51,9 +51,10 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	const ranked = await q({ action: "把 34 号规范改名成双源召回", limit: 3, budgetBytes: 2400 });
 	assert.equal(ranked.specs.filter((s) => s.weakHit).length, 0, "弱命中不应占名额");
 
-	// 第 28 轮：类型点名层（且只对规范生效）。
-	const wc = await q({ action: "写一个 WorkCase", limit: 2, budgetBytes: 24000 });
-	assert.ok(wc.specs[0]?.title?.includes("WorkCase"), "类型点名须居首");
+	// 第 28 轮：类型点名层（且只对规范生效）。21 号 WorkCase 已撤除，
+	// 改用仍在的类型做同一点名验证（机制与具体类型无关）。
+	const named = await q({ action: "写一个 Pitfall", limit: 2, budgetBytes: 24000 });
+	assert.ok(named.specs[0]?.title?.includes("Pitfall"), "类型点名须居首");
 
 	// 第 29 轮：ADR/Pitfall 事实优先。
 	const adr = await q({ action: "写一个 ADR", limit: 3, budgetBytes: 24000 });

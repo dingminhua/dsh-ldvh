@@ -2,54 +2,327 @@
   "$comment": "机器可读消费面清单 — Norm host-upgrade-followup (norm-e188af99) 第 4 步三态判定的比对基准。每一项都必须有代码调用点（callSites 为 plugin/ 相对路径，由 test/host-consumption-consistency.test.mjs 与 lib/*.js 双向核对：清单缺项或代码新增未登记消费点都会被抓）。plane 说明差分通道：host-service/host-event 走 api-catalog.ts 三表，client-slot 走 slot-catalog.ts，value-service 与 client-service 无仓内生成物目录（差分报 uncheckable），non-contract 是宿主未承诺的锚点（宿主改名即静默失效）。",
   "version": 1,
   "hostServices": [
-    { "key": "tools", "plane": "host-service", "consumedVia": "inject + ctx.get", "callSites": ["lib/index.js", "lib/host-seams.js"], "note": "ctx.tools.register / ctx.tools.guard（specs/10 §5.2）" },
-    { "key": "systemPrompt", "plane": "host-service", "consumedVia": "inject", "callSites": ["lib/index.js"], "note": "引导面注入（specs/10 §5.3）" },
-    { "key": "userQuestions", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/host-seams.js"], "note": "ctx.userQuestions.ask — Human Gate 承载；缺失时 fail-closed（friction-95fa6df2 相关面）" },
-    { "key": "fs", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/host-seams.js"], "note": "fs 服务与 fs/observed 挂载点" },
-    { "key": "invariants", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/host-seams.js"], "note": "ctx.invariants.register — 宿主 0.2.1 线已移除（remove-runtime-invariants），本插件按 specs/10 §6 报告 absent/not consumed；保留在清单是为了「已消失的消费面」继续被差分器盯住" },
-    { "key": "agents", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/child.js", "lib/lifecycle.js"], "note": "agent 事件派发与子代理面" },
-    { "key": "commands", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/index.js"], "note": "registerLdvhCommands（定义在 lib/rpc.js，经 index.js 的 ctx.get(\"commands\") 取得服务）" },
-    { "key": "goals", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/lifecycle.js", "lib/workcase-goals.js"], "note": "goal 服务（宿主辅助任务面）" },
-    { "key": "schedule", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/host-automation-probe.js", "lib/ldvh-tools.js"], "note": "0.2.2 线已重建（schedule-agent-tools）——差分器须能再次报出同类破坏" },
-    { "key": "sessionController", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/host-automation-probe.js", "lib/ldvh-tools.js"], "note": "会话控制探测面" },
-    { "key": "sessionPersistence", "plane": "host-service", "consumedVia": "ctx.get", "callSites": ["lib/child-session-record.js", "lib/lifecycle.js", "lib/session-signature.js"], "note": "sessionPersistence.open" },
-    { "key": "subagents", "plane": "host-service", "consumedVia": "agent.ctx.get?.(可选链)", "callSites": ["lib/lifecycle.js"], "note": "startActivation/getProvider — 受管辖隔离子代理派发面（独立复核/摩擦发现/经验审核均经此）；0.2.1-rc.1 的 subagent-activations 破坏即落在此面（start/startContinuable 移除、SubagentRun.localAgent 消失）。**0.2.2-rc.2 再次破坏：list() 被删除**（上游 86d4c75516，官方指南 v0.2.1-rc.2/subagent-service-methods 明写服务不再枚举 provider 名），本插件三处派发原依赖它挑零上下文 provider；现改经 subagent/provider-added|removed 建立候选名册 + getProvider 现查（lib/subagent-providers.js，该文件只收服务对象、不自取，故不在 callSites）。服务仍经 agent.ctx 可选链取得后作参数传入，故仅 lifecycle.js 列在 callSites" },
-    { "key": "webServer", "plane": "host-service", "consumedVia": "ctx.inject", "callSites": ["lib/index.js"], "note": "webServer.register — /ldvh 路由" },
-    { "key": "connection", "plane": "host-service", "consumedVia": "ctx.inject", "callSites": ["lib/index.js", "lib/rpc.js"], "note": "Web RPC 通道" }
+    {
+      "key": "tools",
+      "plane": "host-service",
+      "consumedVia": "inject + ctx.get",
+      "callSites": [
+        "lib/index.js",
+        "lib/host-seams.js"
+      ],
+      "note": "ctx.tools.register / ctx.tools.guard（specs/10 §5.2）"
+    },
+    {
+      "key": "systemPrompt",
+      "plane": "host-service",
+      "consumedVia": "inject",
+      "callSites": [
+        "lib/index.js"
+      ],
+      "note": "引导面注入（specs/10 §5.3）"
+    },
+    {
+      "key": "userQuestions",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/host-seams.js"
+      ],
+      "note": "ctx.userQuestions.ask — Human Gate 承载；缺失时 fail-closed（friction-95fa6df2 相关面）"
+    },
+    {
+      "key": "fs",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/host-seams.js"
+      ],
+      "note": "fs 服务与 fs/observed 挂载点"
+    },
+    {
+      "key": "invariants",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/host-seams.js"
+      ],
+      "note": "ctx.invariants.register — 宿主 0.2.1 线已移除（remove-runtime-invariants），本插件按 specs/10 §6 报告 absent/not consumed；保留在清单是为了「已消失的消费面」继续被差分器盯住"
+    },
+    {
+      "key": "agents",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/child.js",
+        "lib/lifecycle.js"
+      ],
+      "note": "agent 事件派发与子代理面"
+    },
+    {
+      "key": "commands",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/index.js"
+      ],
+      "note": "registerLdvhCommands（定义在 lib/rpc.js，经 index.js 的 ctx.get(\"commands\") 取得服务）"
+    },
+    {
+      "key": "goals",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/lifecycle.js"
+      ],
+      "note": "goal 服务（宿主辅助任务面）"
+    },
+    {
+      "key": "schedule",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/host-automation-probe.js",
+        "lib/ldvh-tools.js"
+      ],
+      "note": "0.2.2 线已重建（schedule-agent-tools）——差分器须能再次报出同类破坏"
+    },
+    {
+      "key": "sessionController",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/host-automation-probe.js",
+        "lib/ldvh-tools.js"
+      ],
+      "note": "会话控制探测面"
+    },
+    {
+      "key": "sessionPersistence",
+      "plane": "host-service",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/child-session-record.js",
+        "lib/lifecycle.js",
+        "lib/session-signature.js"
+      ],
+      "note": "sessionPersistence.open"
+    },
+    {
+      "key": "subagents",
+      "plane": "host-service",
+      "consumedVia": "agent.ctx.get?.(可选链)",
+      "callSites": [
+        "lib/lifecycle.js"
+      ],
+      "note": "startActivation/getProvider — 受管辖隔离子代理派发面（独立复核/摩擦发现/经验审核均经此）；0.2.1-rc.1 的 subagent-activations 破坏即落在此面（start/startContinuable 移除、SubagentRun.localAgent 消失）。**0.2.2-rc.2 再次破坏：list() 被删除**（上游 86d4c75516，官方指南 v0.2.1-rc.2/subagent-service-methods 明写服务不再枚举 provider 名），本插件三处派发原依赖它挑零上下文 provider；现改经 subagent/provider-added|removed 建立候选名册 + getProvider 现查（lib/subagent-providers.js，该文件只收服务对象、不自取，故不在 callSites）。服务仍经 agent.ctx 可选链取得后作参数传入，故仅 lifecycle.js 列在 callSites"
+    },
+    {
+      "key": "webServer",
+      "plane": "host-service",
+      "consumedVia": "ctx.inject",
+      "callSites": [
+        "lib/index.js"
+      ],
+      "note": "webServer.register — /ldvh 路由"
+    },
+    {
+      "key": "connection",
+      "plane": "host-service",
+      "consumedVia": "ctx.inject",
+      "callSites": [
+        "lib/index.js",
+        "lib/rpc.js"
+      ],
+      "note": "Web RPC 通道"
+    }
   ],
   "hostEvents": [
-    { "name": "agent/created", "callSites": ["lib/lifecycle.js"] },
-    { "name": "agent/pre-step", "callSites": ["lib/child.js", "lib/lifecycle.js"] },
-    { "name": "agent/status", "callSites": ["lib/lifecycle.js"] },
-    { "name": "agent/turn-stopping", "callSites": ["lib/lifecycle.js"] },
-    { "name": "fs/edit-intent", "callSites": ["lib/host-seams.js"] },
-    { "name": "fs/observed", "callSites": ["lib/host-seams.js"] },
-    { "name": "fs/write-intent", "callSites": ["lib/host-seams.js"] },
-    { "name": "session/event", "callSites": ["lib/child.js", "lib/lifecycle.js"] },
-    { "name": "subagent/end", "callSites": ["lib/lifecycle.js"] },
-    { "name": "subagent/provider-added", "callSites": ["lib/subagent-providers.js"], "note": "provider 名册建立通道——宿主 0.2.2-rc.2 删除 subagents.list() 后，这是唯一可枚举 provider 的入口（emit，不带 scoped carrier）" },
-    { "name": "subagent/provider-removed", "callSites": ["lib/subagent-providers.js"], "note": "provider 名册维护通道，同上" },
-    { "name": "system-prompt/assemble", "callSites": ["lib/child.js", "lib/lifecycle.js"] }
+    {
+      "name": "agent/created",
+      "callSites": [
+        "lib/lifecycle.js"
+      ]
+    },
+    {
+      "name": "agent/pre-step",
+      "callSites": [
+        "lib/child.js",
+        "lib/lifecycle.js"
+      ]
+    },
+    {
+      "name": "agent/status",
+      "callSites": [
+        "lib/lifecycle.js"
+      ]
+    },
+    {
+      "name": "agent/turn-stopping",
+      "callSites": [
+        "lib/lifecycle.js"
+      ]
+    },
+    {
+      "name": "fs/edit-intent",
+      "callSites": [
+        "lib/host-seams.js"
+      ]
+    },
+    {
+      "name": "fs/observed",
+      "callSites": [
+        "lib/host-seams.js"
+      ]
+    },
+    {
+      "name": "fs/write-intent",
+      "callSites": [
+        "lib/host-seams.js"
+      ]
+    },
+    {
+      "name": "session/event",
+      "callSites": [
+        "lib/child.js",
+        "lib/lifecycle.js"
+      ]
+    },
+    {
+      "name": "subagent/end",
+      "callSites": [
+        "lib/lifecycle.js"
+      ]
+    },
+    {
+      "name": "subagent/provider-added",
+      "callSites": [
+        "lib/subagent-providers.js"
+      ],
+      "note": "provider 名册建立通道——宿主 0.2.2-rc.2 删除 subagents.list() 后，这是唯一可枚举 provider 的入口（emit，不带 scoped carrier）"
+    },
+    {
+      "name": "subagent/provider-removed",
+      "callSites": [
+        "lib/subagent-providers.js"
+      ],
+      "note": "provider 名册维护通道，同上"
+    },
+    {
+      "name": "system-prompt/assemble",
+      "callSites": [
+        "lib/child.js",
+        "lib/lifecycle.js"
+      ]
+    }
   ],
   "clientSlots": [
-    { "key": "conversation.view", "callSites": ["lib/client.js"], "note": "ldvh 会话视图" },
-    { "key": "plugins.bundle.config", "callSites": ["lib/client.js"], "note": "设置卡片（configForms 承载）" },
-    { "key": "plugins.row.config", "callSites": ["lib/client.js"], "note": "插件行配置" }
+    {
+      "key": "conversation.view",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "ldvh 会话视图"
+    },
+    {
+      "key": "settings.section",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "设置页中的一节（LDVH 配置的唯一入口；id 为本插件自有，与宿主 Loader 条目名无关）"
+    },
+    {
+      "key": "settings.section.icon",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "设置页导航图标（与节共用同一 id；宿主按 { only: row.id } 寻址）"
+    }
   ],
   "valueServices": [
-    { "key": "dshHomePath", "consumedVia": "ctx.get", "callSites": ["lib/index.js", "lib/idle-runlog.js"], "note": "ctx.provide 值服务，不在 SERVICE_API（research-21ea3e9f 已证）；差分通道 uncheckable，升级时人工核 boot 源码" },
-    { "key": "remote.directoryPicker", "consumedVia": "ctx.get", "callSites": ["lib/client.js"], "note": "远端服务投影，不在 SERVICE_API；uncheckable" }
+    {
+      "key": "dshHomePath",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/index.js",
+        "lib/idle-runlog.js"
+      ],
+      "note": "ctx.provide 值服务，不在 SERVICE_API（research-21ea3e9f 已证）；差分通道 uncheckable，升级时人工核 boot 源码"
+    },
+    {
+      "key": "remote.directoryPicker",
+      "consumedVia": "ctx.get",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "远端服务投影，不在 SERVICE_API；uncheckable"
+    }
   ],
   "clientServices": [
-    { "key": "slots", "consumedVia": "inject", "callSites": ["lib/client.js"], "note": "客户端面服务，无仓内生成物目录；uncheckable，升级时经 Cordis Inspect client Service 旁证" },
-    { "key": "locale", "consumedVia": "inject", "callSites": ["lib/client.js"], "note": "同上" },
-    { "key": "configForms", "consumedVia": "ctx.inject(soft)", "callSites": ["lib/client.js"], "note": "软注入（宿主缺失时降级），同上" },
-    { "key": "betterSidebar", "consumedVia": "ctx.inject(soft)", "callSites": ["lib/client.js"], "note": "软注入，同上" }
+    {
+      "key": "slots",
+      "consumedVia": "inject",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "客户端面服务，无仓内生成物目录；uncheckable，升级时经 Cordis Inspect client Service 旁证"
+    },
+    {
+      "key": "locale",
+      "consumedVia": "inject",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "同上"
+    },
+    {
+      "key": "configForms",
+      "consumedVia": "ctx.inject(soft)",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "软注入（宿主缺失时降级），同上"
+    },
+    {
+      "key": "betterSidebar",
+      "consumedVia": "ctx.inject(soft)",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "软注入，同上"
+    }
   ],
   "nonContract": [
-    { "anchor": "data-question-key", "kind": "dom-attribute", "callSites": ["lib/client.js"], "note": "提问卡观感覆写的契约属性锚点（宿主承诺面，GATE_CSS 根选择器）" },
-    { "anchor": "optionSelected", "kind": "css-module-substring", "callSites": ["lib/client.js"], "note": "宿主 CSS module 局部类名子串——非契约面，宿主改名即静默失效（0.2.2-rc.1 提问卡 DOM 双层化即此类破坏，已配机械守卫）" },
-    { "anchor": "descriptionToggle", "kind": "css-module-substring", "callSites": ["lib/client.js"], "note": "同上，:not() 排除锚点" },
-    { "anchor": "cardMinimized", "kind": "css-module-substring", "callSites": ["lib/client.js"], "note": "同上" }
+    {
+      "anchor": "data-question-key",
+      "kind": "dom-attribute",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "提问卡观感覆写的契约属性锚点（宿主承诺面，GATE_CSS 根选择器）"
+    },
+    {
+      "anchor": "optionSelected",
+      "kind": "css-module-substring",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "宿主 CSS module 局部类名子串——非契约面，宿主改名即静默失效（0.2.2-rc.1 提问卡 DOM 双层化即此类破坏，已配机械守卫）"
+    },
+    {
+      "anchor": "descriptionToggle",
+      "kind": "css-module-substring",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "同上，:not() 排除锚点"
+    },
+    {
+      "anchor": "cardMinimized",
+      "kind": "css-module-substring",
+      "callSites": [
+        "lib/client.js"
+      ],
+      "note": "同上"
+    }
   ]
 }

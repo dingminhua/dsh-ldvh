@@ -39,7 +39,6 @@ import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
 import { registerAdrTools } from "./adr-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
-import { registerWorkcaseTools } from "./workcase-tools.js";
 import { registerFrictionTools } from "./friction-tools.js";
 import { registerNormTools } from "./norm-tools.js";
 import { registerGoalTools } from "./goal-tools.js";
@@ -71,7 +70,7 @@ const OPERATIONS = {
   },
   "inspect-loaded-modules": {
     toolName: "ldvh_inspect_loaded_modules",
-    summary: "Report which plugin/lib modules on disk are newer than this host process (mtime vs process start). Purely informational: it never gates a write and cannot say which version is actually loaded (workcase-e487cdf4; specs/09 §5.4)",
+    summary: "Report which plugin/lib modules on disk are newer than this host process (mtime vs process start). Purely informational: it never gates a write and cannot say which version is actually loaded (specs/09 §5.4)",
     effect: "read"
   },
   "precheck-git-commit": {
@@ -580,7 +579,7 @@ function makeExecute(deps) {
   }
 
   /**
-   * 报告 `plugin/lib` 下哪些模块比本宿主进程新（workcase-e487cdf4）。
+   * 报告 `plugin/lib` 下哪些模块比本宿主进程新（源于一次实测的模块陈旧度问题）。
    *
    * **结论是 informational，不参与任何判定**：它不改写预检 `verdict`、不拒绝任何
    * 写入、也不回答「载入的是哪一版代码」。判据只有一条确定性事实——文件 mtime 晚于
@@ -643,7 +642,7 @@ function makeExecute(deps) {
       // 「这是一条规范要求但实现没声明」的缺口，那是假缺口。05 §6.2 明写「操作目录
       // 不等于许可白名单」，反向亦然：不在目录里不等于它不存在。
       // **实现侧诊断工具不进 discovery**：`probe-host-automation`（上面已述）与
-      // `inspect-loaded-modules`（workcase-e487cdf4）同属此类——两者都不在任何规范
+      // `inspect-loaded-modules`（源于一次实测的模块陈旧度问题）同属此类——两者都不在任何规范
       // 声明表里。若让它们出现在枚举中，会被显示为「已声明=false」，读者会据以认为
       // 存在「规范要求但实现没声明」的缺口，那是假缺口。05 §6.2 明写「操作目录不等于
       // 许可白名单」，反向亦然：不在目录里不等于它不存在。二者仍注册为 DSH 工具、
@@ -1952,10 +1951,6 @@ export function registerLdvhTools(ctx, deps) {
   disposers.push(registerAdrTools(ctx, deps));
   // Pitfall mechanical layer (specs/23 writer), same registration surface.
   disposers.push(registerPitfallTools(ctx, deps));
-  // WorkCase mechanical layer (specs/21 writer) — the 工单 lifecycle:
-  // create/approve(Gate 1)/execute/close(Gate 2)/rebatch/cancel/revise
-  // with C2 authorization pinning and monotonic attempt tokens.
-  disposers.push(registerWorkcaseTools(ctx, deps));
   // Friction mechanical layer (specs/26 writer), same registration surface.
   disposers.push(registerFrictionTools(ctx, deps));
   // Norm mechanical layer (specs/27 writer) — carries uniqueness layer 1
@@ -2088,7 +2083,7 @@ function parameterSchemaFor(operationKey) {
       };
     case "inspect-loaded-modules":
       // 只读、无参数：结论是「磁盘上哪些模块比本进程新」，不接受任何筛选——
-      // 让它可以被参数收窄，就等于给了「看不见」一条路（workcase-e487cdf4）。
+      // 让它可以被参数收窄，就等于给了「看不见」一条路（源于一次实测的模块陈旧度问题）。
       return { type: "object", properties: {}, additionalProperties: false };
     case "observation-buffer-list":
       // 11 §12ter.1：status 可选闭集四值、limit 可选正整数（只可降低返回条数，
@@ -2324,7 +2319,7 @@ export function renderEnvelope(operationKey, value) {
     }
     lines.push(`verdict: ${env.result.verdict}`);
   }
-  // **陈旧模块报告**（workcase-e487cdf4）：它的字段是 process_start_ms / library_dir /
+  // **陈旧模块报告**（源于一次实测的模块陈旧度问题）：它的字段是 process_start_ms / library_dir /
   // checked / stale / unreadable，与上面几种结构都不同。不补这段的后果**已实测**：
   // 真机调用 `ldvh_inspect_loaded_modules` 时模型侧只看到一行
   // 「LDVH inspect-loaded-modules: completed」——查了几个文件、有没有陈旧、哪些陈旧，
