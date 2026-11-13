@@ -40,3 +40,6 @@ rsch/
 
 # DSH runtime scratch (vision-router artifacts, not project content)
 .dsh-vision-router/
+
+# WorkBuddy 本地记忆（每日运行记录，属本机状态，非项目内容）
+.workbuddy/
