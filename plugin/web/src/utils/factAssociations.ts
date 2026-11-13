@@ -34,6 +34,7 @@ export function associationLocator(association: FactCardAssociation) {
 export function factCardAssociationKey(association: FactCardAssociation, index: number): string {
   const target = association.target;
   if (!target) return `unavailable:${index}`;
+  // eslint-disable-next-line no-control-regex -- 目标键须把 NUL 换成可读分隔符，属正当用途
   return associationTargetKey(target).replace(/\u0000/g, ':');
 }
 

@@ -3,9 +3,7 @@ import { useParams, useNavigate, useSearchParams, useLocation } from 'react-rout
 import { ArrowDownWideNarrow, CalendarClock, CircleAlert, Clock3, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
-import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
 import ObjectStatusFilter from '@/components/ObjectStatusFilter';
-import WorkCaseProgressFilter from '@/components/WorkCaseProgressFilter';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -23,16 +21,10 @@ import {
   FACT_ASSOCIATION_ROWS_ZONE_CLASS,
 } from '@/components/FactAssociationRows';
 
-import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS, WORKCASE_SURFACE_GEOMETRY_CLASS } from '@/components/WorkCaseCriteriaList';
-import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 // 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
-import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
-import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
-import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
-import WorkCaseClosedStatusBadge from '@/components/WorkCaseClosedStatusBadge';
-import { fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type ServingWorkItem, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
+import { fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type ServingWorkItem } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusDisplayLabel, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
+import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusDisplayLabel, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import {
   DECISION_AMBER_BODY_HUE_CLASS,
@@ -43,7 +35,7 @@ import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '
 import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
-import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
+import { LDVH_ERROR_TEXT_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
 import { getTypeSurfaceTint } from '@/utils/typeSurface';
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -131,170 +123,6 @@ function StatusReasonNote({ reason }: { reason: StatusReason }) {
 }
 
 
-/** 21 号三态直读列表 Card 主体（v5）。按 obj.group 分流 draft/open/closed 呈现。
- *
- * **单一装配路径**：卡体只此一处装配，调用方不得自行拼 `ObjectCardFrame` + 卡体——
- * 两处装配时任何一处漏改都会让卡片形态漂移（仓内实测过一次：手写 HTML 的演示页因
- * 样式仿造而与正式列表有差距，Human 2026-09-30 据此拒绝使用该演示页）。
- *
- * **导出面（2026-09-30 收窄）**：本函数曾为「展示台」路由（`/showcase`）导出——
- * 该路由已于 2026-09-30 按 Human 裁定**整体删除**，导出改为仅供本文件内的
- * `WorkCaseListCard` 与测试消费。 */
-export function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
-  const group = obj.group ?? null;
-  // 10 §5.5「卡面与详情的字段分工」：卡体**首行恒为 `gist`**，四个派生组一致。
-  // 此前 pending_gate1 渲染 `summary`（完整快照，可长、可含 Markdown 标记），
-  // 而 open/closed 卡面根本没有可渲染的 Human 向文本——同一字段在四组间形态不一，
-  // 且卡面是扫读窗口（10 §5.2），放快照必然溢出。
-  if (group === 'pending_gate1') {
-    return (
-      <div className="min-w-0">
-        <WorkCaseGistLine gist={obj.gist} group="pending_gate1" boxed />
-        {/* 计划清单此前**无容器**（只有蓝点 + 蓝字），是四组卡体里唯一的无框块——
-            与「执行中」的流水、「待批准关闭／已关闭」的核对/去向/残留都不一致，
-            表现偏弱（Human 2026-09-24 指出）。现包一层与**详情页判据面板同源**的
-            `WORKCASE_CRITERIA_SURFACE_CLASS`：两处渲染的是**同一份 `plan` 数据**，
-            形态因此呼应（`docs/10 §1.10` 要求列表卡与详情共用同一套设计语言）。
-            蓝点本就是该面板的标记，加蓝底后不再是「悬浮的点」。 */}
-        {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
-          <div className={`${WORKCASE_CRITERIA_SURFACE_CLASS} mt-1.5`}>
-            <WorkCaseCriteriaList
-              density="card"
-              items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
-            />
-          </div>
-        ) : null}
-        {/* 变更流水（Human 2026-10-16 定）：draft 卡与「执行中」同形显示 changelog，
-            使 Human 能看出这份候选「有没有动静」——尤其是否已有一条建前审核记录
-            （`record_audit` 会向 change_log 追加一条带 `pre-gate1 audit recorded by
-            session …` 的条目）。组件与执行中卡**同一份**，不另写一套呈现。
-            徽标「· 待审核」给出的是**权威判据**（读 pre_reviews 字段），流水只是佐证；
-            两者不互相顶替。 */}
-        <WorkCaseExecFlow
-          className="mt-1.5"
-          changeLog={obj.change_log}
-          reviews={obj.reviews}
-          amendments={obj.gate_1?.amendments}
-          selfUid={obj.id}
-        />
-      </div>
-    );
-  }
-  if (group === 'executing') {
-    // 卡片主体呈现「变更流水」（Human 2026-09-23）：关键行动用「复核」「修订」二字
-    // 标出，**不显示阶段标签**——对象头部的状态显示恒为 21 号状态机的真实值。
-    // 标记与归属口径全部来自 shared/workcaseLifecycle，本组件不自行判断。
-    return (
-      <div className="min-w-0">
-        <WorkCaseGistLine gist={obj.gist} group="executing" boxed />
-        <WorkCaseExecFlow
-          className="mt-1.5"
-          changeLog={obj.change_log}
-          reviews={obj.reviews}
-          amendments={obj.gate_1?.amendments}
-          selfUid={obj.id}
-        />
-      </div>
-    );
-  }
-  if (group === 'awaiting_gate2') {
-    // 「待批准关闭」呈现**两块：逐条核对 + 残留（含去向）**（10 §5.5，2026-09-28 二次
-    // 修订），**不再列计划清单**——核对条目已带 `plan[].step` 标题，重复列出计划无增益。
-    // 数据由投影层从正文「## 结果」节解析而来（`21 §8`：该期 `result` 字段尚不存在）。
-    // 去向**长在每条残留里面**（合并式主从结构），故传 `residualEntries` 而非只传平铺
-    // 文本——后者给不出「哪条去向属于哪条残留」。存量分离式对象仍由 `advice` 承载。
-    return (
-      <div className="min-w-0">
-        <WorkCaseGistLine gist={obj.gist} group="awaiting_gate2" boxed />
-        <WorkCaseResultDraft
-          className="mt-1.5"
-          plan={obj.plan}
-          checks={obj.result_checks}
-          advice={obj.advice}
-          adviceNote={obj.advice_note}
-          residual={obj.result_residual}
-          residualEntries={obj.result_residual_entries}
-        />
-        {/* 变更流水（Human 2026-10-17：全部 WC 卡都要显示 changelog）。本组默认展开：
-            待批准关闭是**当下要做判断**的一档（Gate 2），流水是判断所需。 */}
-        <WorkCaseExecFlow
-          className="mt-1.5"
-          changeLog={obj.change_log}
-          reviews={obj.reviews}
-          amendments={obj.gate_1?.amendments}
-          selfUid={obj.id}
-        />
-      </div>
-    );
-  }
-  if (group === 'closed') {
-    // 「已关闭」呈现**三块：结论行 + 逐条核对 + 去向**（Human 2026-09-24 方案 A；
-    // 2026-09-28 二次修订）。此前是 outcome chip + 「已满足 · <整段证据>」+ 一行无内容
-    // 的「Gate 1 授权」：证据最长 258 字撑破扫读窗口、outcome 与核对各自成串、残留完全
-    // 不可见。证据与 Gate 1 明细归详情面（10 §5.3）。
-    // 按决定 A 不再呈现残留一侧；**条件豁免**由 `WorkCaseClosedSummary` 内部按
-    // `obj.closure_narrows_residual` 处置（不满足前提的存量对象如实保留残留块）。
-    return (
-      <div className="min-w-0">
-        <WorkCaseGistLine gist={obj.gist} group="closed" boxed />
-        <WorkCaseClosedSummary className="mt-1.5" obj={obj} />
-        {/* 变更流水（Human 2026-10-17：全部 WC 卡都要显示 changelog；**已关闭默认收起**）。
-            已关闭件数量最多、流水只增不减，全部铺开会把列表压成日志墙（10 §5.2 卡面是
-            扫读窗口）。收起为一行「显示 N 条变更流水」，点击展开。 */}
-        <WorkCaseExecFlow
-          className="mt-1.5"
-          changeLog={obj.change_log}
-          reviews={obj.reviews}
-          amendments={obj.gate_1?.amendments}
-          selfUid={obj.id}
-          defaultCollapsed
-        />
-      </div>
-    );
-  }
-  return (
-    <p className={`ldvh-card-decision-body rounded-md border ${LDVH_ERROR_SURFACE_CLASS} px-3 py-2 ${LDVH_ERROR_TEXT_CLASS}`}>
-      {t('objectList.workcaseProgressGroupUnavailable')}
-    </p>
-  );
-}
-
-/** workcase 卡片的**唯一装配点**（列表网格与收件箱共用）。
- *
- * 任何调用方若自行拼 `ObjectCardFrame` + 卡体，就会成为第二条装配路径——两处任何一处
- * 漏改都会让两处的卡片不一致（这正是仓内「演示页不可信」的根因）。故抽到此处单一出口。
- *
- * **沿革**：本函数此前另有一个消费方——「展示台」路由（`/showcase`），已于 2026-09-30
- * 按 Human 裁定整体删除；单一装配出口的纪律不因该路由消失而放松。 */
-export function WorkCaseListCard({
-  obj,
-  locale,
-  onOpen,
-}: {
-  obj: ObjectItem;
-  locale: string;
-  onOpen: (objId: string) => void;
-}) {
-  return (
-    <ObjectCardFrame
-      obj={obj}
-      locale={locale}
-      onOpen={onOpen}
-      showNonActiveReason={false}
-      displayStatus={obj.group ?? 'unknown'}
-      showAssociations={obj.group !== 'closed'}
-    >
-      <WorkCaseCardBodyWithT obj={obj} />
-    </ObjectCardFrame>
-  );
-}
-
-/** 卡体需要 `t`，而 `useI18n` 只能在组件内调用——此处包一层，避免把 `t` 透传到导出面。 */
-function WorkCaseCardBodyWithT({ obj }: { obj: ObjectItem }) {
-  const { t } = useI18n();
-  return <WorkCaseListCardBody obj={obj} t={t} />;
-}
-
 function sortObjectsForList(items: ObjectItem[], sort: ObjectListSort): ObjectItem[] {
   return [...items].sort((a, b) => {
     // `priority_asc`（`20 §8`/§12「按 `priority` 或时间排序」）：先按处置次序，
@@ -338,13 +166,6 @@ export function ObjectCardFrame({
   // 20 §9：Spark 状态闭集直接呈现（open/implemented/discarded）——v4 从关联
   // 推导 settled/unclosed 展示态的逻辑已随规范移除。
   const presentedStatus = displayStatus ?? obj.status;
-  // 「已关闭」的 WorkCase 用**合并徽标**（状态词 + 中心圆点 + 结论词，Human 裁定 2026-09-30）。
-  //
-  // 三个条件同时成立才算：① 类型是 workcase（只改 wc 的已关闭卡）；② 状态是 closed
-  // （draft/open 无 `outcome` 可合并）；③ `outcome` 确实存在（缺它时合并徽标无从取值，
-  // 按 fail-safe 回落默认状态徽标——宁可不合并，也不画一枚只有状态词的半成品）。
-  const isWorkCaseClosed =
-    obj.type === 'workcase' && presentedStatus === 'closed' && typeof obj.outcome === 'string';
   const typeColor = CATEGORY_COLORS[obj.type] || CATEGORY_COLORS.other;
   const activityCount = Array.isArray(obj.change_log) ? obj.change_log.length : 0;
   // 状态徽标文案（含「待批准执行 · 待审核」后缀）。判据收敛在
@@ -421,23 +242,11 @@ export function ObjectCardFrame({
         </div>
         {/* List cards expose a stable object identity, not an exact-read source path. */}
         <ObjectIdentityActions
-          // 「已关闭」的 WorkCase 走**合并徽标**（状态词 + 中心圆点 + 结论词，配色由结论定）：
-          // 此时 `status` 传空、改为传 `statusBadge`——两者互斥，不并排（Human 裁定 2026-09-30，
-          // 只作用于 wc 的已关闭卡；其余类型与其余状态一律走默认 `StatusBadge`）。
-          status={isWorkCaseClosed ? undefined : presentedStatus}
+          status={presentedStatus}
           statusLabel={cardStatusLabel}
-          statusBadge={
-            isWorkCaseClosed ? (
-              <WorkCaseClosedStatusBadge
-                statusLabel={getObjectStatusLocale(obj.type, presentedStatus, locale)}
-                source={obj}
-              />
-            ) : undefined
-          }
           objectType={obj.type}
           projectId={selectedProjectId}
           target={obj.id}
-          statusLeadingBadges={<WorkCaseCapabilityStatusBadge source={obj} />}
           copyLabel={t('common.copyObjectId')}
           copiedLabel={t('common.copiedObjectId')}
           compact
@@ -794,7 +603,7 @@ export function NormCardContent({ obj }: { obj: ObjectItem }) {
  * 早先「对齐 workcase」时照抄的结果，但蓝是 WorkCase 自己的类型色。DevLog 当时的类型色是
  * magenta `#ca21a0`，卡头那枚「开发日志」chip 是品红、块却是蓝的，同一张卡上两个色相
  * 各说各话（该类型色已于 2026-11-03 改为青绿 `#2c9e43`，本段的色相名字仍是历史记录）。
- * 现在几何仍取 `WORKCASE_SURFACE_GEOMETRY_CLASS`（四边同宽 1px、8px 圆角、
+ * 现在几何仍取 `"min-w-0 rounded-lg border px-3 py-2"`（四边同宽 1px、8px 圆角、
  * 8/12 内距），**色相改由 `getTypeSurfaceTint(obj.type)` 从类型色单一来源计算**。
  * 由此本块与卡头 chip、侧栏图标天然同源，不再需要第二张色表。
  *
@@ -826,7 +635,7 @@ export function DevLogCardContent({ obj }: { obj: ObjectItem }) {
   const tint = getTypeSurfaceTint(obj.type);
   return (
     <section
-      className={WORKCASE_SURFACE_GEOMETRY_CLASS}
+      className={"min-w-0 rounded-lg border px-3 py-2"}
       style={tint.surface}
       onClick={(event) => event.stopPropagation()}
     >
@@ -945,7 +754,7 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
 /** 活跃子目标的判据面（只说一件事：这一条怎么算达成）。
  *
  * **几何对齐 WorkCase 判据面**（Human 定案 2026-11-02：「这里的样式对齐 workcase 的，
- * 左侧的线条不要加粗」）：复用 `WORKCASE_SURFACE_GEOMETRY_CLASS` —— 四边同宽 1px、
+ * 左侧的线条不要加粗」）：复用 `"min-w-0 rounded-lg border px-3 py-2"` —— 四边同宽 1px、
  * `rounded-lg`、`px-3 py-2`，**没有左侧 2px 粗线**。故本框 2026-11-02 起退出
  * `DECISION_CARD_SHELL_CLASS` 家族（该家族的定义特征正是左色条）。
  *
@@ -982,7 +791,6 @@ export default function ObjectList() {
   const [items, setItems] = useState<ObjectItem[]>([]);
   const [statusOptions, setStatusOptions] = useState<ObjectStatusOption[]>([]);
   const [priorityOptions, setPriorityOptions] = useState<ObjectStatusOption[]>([]);
-  const [lifecycleOptions, setLifecycleOptions] = useState<WorkCaseLifecycleOption[]>([]);
   const [statusTotal, setStatusTotal] = useState(0);
   const [coverageStatus, setCoverageStatus] = useState<FactCoverageStatus>('complete');
   const [coverageProblemCount, setCoverageProblemCount] = useState(0);
@@ -993,16 +801,9 @@ export default function ObjectList() {
   const [error, setError] = useState<string | null>(null);
   const { t, locale } = useI18n();
 
-  const currentType = type ?? 'workcase';
+  const currentType = type ?? 'spark';
   const statusParam = searchParams.get('status');
-  const activeStatus = currentType === 'workcase' ? null : getEffectiveListStatus(currentType, statusParam);
-  const lifecycleParam = searchParams.get('lifecycle');
-  // WorkCase 列表筛选 = 21 号三态直读派生五档（pending_gate1/executing/awaiting_gate2/closed/all）。
-  const isWorkCaseListGroup = (value: string | null): value is WorkCaseListGroup =>
-    value === 'pending_gate1' || value === 'executing' || value === 'awaiting_gate2' || value === 'closed' || value === 'all';
-  const activeLifecycle = currentType === 'workcase' && isWorkCaseListGroup(lifecycleParam)
-    ? lifecycleParam
-    : null;
+  const activeStatus = getEffectiveListStatus(currentType, statusParam);
   // Spark 三联过滤之三：priority（20 §8，仅 spark 生效；闭集 P0–P3）。
   const priorityParam = searchParams.get('priority');
   const supportsPriorityNavigation = currentType === 'spark';
@@ -1012,7 +813,7 @@ export default function ObjectList() {
     : null;
   const sortParam = searchParams.get('sort');
   // `priority_asc` 只在 spark 生效：`priority` 是 Spark 专有字段（`20 §8`；
-  // `21 §8` WorkCase 闭集无此项），对其它类型提供该排序会让「按优先级排」
+  // 其它类型闭集亦无此项），对它们提供该排序会让「按优先级排」
   // 对它们退化成纯时间序，名称与实际不符。
   const supportsPrioritySort = currentType === 'spark';
   const activeSort: ObjectListSort = supportsPrioritySort && sortParam === 'priority_asc'
@@ -1024,15 +825,13 @@ export default function ObjectList() {
 
   useEffect(() => {
     const removesLegacyCategory = currentType === 'spark' && searchParams.has('category');
-    const removesWorkCaseStatus = currentType === 'workcase' && searchParams.has('status');
-    const removesForeignProgress = currentType !== 'workcase' && searchParams.has('progress');
+    const removesForeignProgress = searchParams.has('progress');
     // 2026-11-01：`serves` 筛选已从 Web 撤除（见下方撤除说明），旧链接里的
     // `?serves=<uid>` 一律清掉——留着会让 URL 看起来仍在生效。
     const removesRetiredServes = searchParams.has('serves');
-    if (!removesLegacyCategory && !removesWorkCaseStatus && !removesForeignProgress && !removesRetiredServes) return;
+    if (!removesLegacyCategory && !removesForeignProgress && !removesRetiredServes) return;
     const nextParams = new URLSearchParams(searchParams);
     if (removesLegacyCategory) nextParams.delete('category');
-    if (removesWorkCaseStatus) nextParams.delete('status');
     if (removesForeignProgress) nextParams.delete('progress');
     if (removesRetiredServes) nextParams.delete('serves');
     setSearchParams(nextParams, { replace: true });
@@ -1042,20 +841,18 @@ export default function ObjectList() {
     setLoading(true);
     setError(null);
     setStatusOptions([]);
-    setLifecycleOptions([]);
     setPriorityOptions([]);
     setStatusTotal(0);
     setCoverageStatus('complete');
     setCoverageProblemCount(0);
     setCoverageProblems([]);
-    fetchObjects(currentType, activeStatus ?? undefined, activeLifecycle ?? undefined, activePriority ?? undefined)
+    fetchObjects(currentType, activeStatus ?? undefined, undefined, activePriority ?? undefined)
       .then((result) => {
         const receivedItems = result.data?.items ?? [];
         const nextItems = receivedItems
           .filter((item) => !isDeprecatedListCard(item) || searchParams.get('status') === ALL_STATUS_PARAM || activeStatus === item.status);
         setItems(nextItems);
         setStatusOptions(result.data?.statusOptions ?? []);
-        setLifecycleOptions(result.data?.lifecycleOptions ?? []);
         setPriorityOptions(result.data?.priorityOptions ?? []);
         setStatusTotal(result.data?.statusTotal ?? nextItems.length);
         setCoverageStatus(result.data?.coverage_status ?? 'complete');
@@ -1072,7 +869,7 @@ export default function ObjectList() {
   // 却会因此触发重取并把列表清成 spinner。最干净的写法是在该 filter 里直接用
   // statusParam，但那行表达式被 pitfall-card-contract.test.ts:13 逐字钉住。
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上方说明：读取值已在依赖中，加对象反致多余重取
-  }, [currentType, activeStatus, activeLifecycle, activePriority, statusParam]);
+  }, [currentType, activeStatus, activePriority, statusParam]);
 
   const sortedItems = sortObjectsForList(items, activeSort);
   const normalizedObjectSearch = objectSearch.trim().toLowerCase();
@@ -1101,14 +898,6 @@ export default function ObjectList() {
   const handleStatusChange = (status: string | null) => {
     const nextParams = new URLSearchParams(searchParams);
     writeListStatusParam(currentType, nextParams, status);
-    setSearchParams(nextParams);
-  };
-
-  const handleLifecycleChange = (group: WorkCaseListGroup | null) => {
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete('status');
-    if (group) nextParams.set('lifecycle', group);
-    else nextParams.delete('lifecycle');
     setSearchParams(nextParams);
   };
 
@@ -1170,11 +959,6 @@ export default function ObjectList() {
   );
 
   const renderObjectCard = (obj: ObjectItem) => {
-
-    if (currentType === 'workcase') {
-      // 唯一装配点（见 WorkCaseListCard）——就地再拼一遍会让两处样式漂移。
-      return <WorkCaseListCard key={obj.id} obj={obj} locale={locale} onOpen={openObject} />;
-    }
 
     if (currentType === 'adr') {
       return (
@@ -1267,29 +1051,14 @@ export default function ObjectList() {
             Web 呈现与筛选。子目标名下的工作由子目标详情页正向回答。 */}
         <div className="relative flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
-            {currentType === 'workcase' ? (
-              <>
-                <WorkCaseProgressFilter
-                  activeGroup={activeLifecycle}
-                  onChange={handleLifecycleChange}
-                  options={lifecycleOptions}
-                  total={statusTotal}
-                  loading={loading}
-                  coverageStatus={coverageStatus}
-                />
-              </>
-            ) : (
-              <>
-                <ObjectStatusFilter
-                  type={currentType}
-                  activeStatus={activeStatus}
-                  onChange={handleStatusChange}
-                  options={statusOptions}
-                  total={statusTotal}
-                  loading={loading}
-                />
-              </>
-            )}
+            <ObjectStatusFilter
+              type={currentType}
+              activeStatus={activeStatus}
+              onChange={handleStatusChange}
+              options={statusOptions}
+              total={statusTotal}
+              loading={loading}
+            />
           </div>
           <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
             {renderObjectSearch()}
@@ -1328,22 +1097,22 @@ export default function ObjectList() {
               {coverageStatus === 'type_not_integrated'
                 ? t('objectList.typeNotIntegrated')
                 : coverageStatus === 'complete'
-                ? t(currentType === 'workcase' ? 'objectList.workcaseObjectProblems' : 'objectList.objectProblems')
+                ? t('objectList.objectProblems')
                 : coverageStatus === 'partial'
-                ? t(currentType === 'workcase' ? 'objectList.workcaseCoveragePartial' : 'objectList.coveragePartial')
-                : t(currentType === 'workcase' ? 'objectList.workcaseCoverageUnavailable' : 'objectList.coverageUnavailable')}
+                ? t('objectList.coveragePartial')
+                : t('objectList.coverageUnavailable')}
             </p>
             {coverageProblemCount > 0 && (
               <details className="mt-2">
                 <summary className="ldvh-meta cursor-pointer">
-                  {t(currentType === 'workcase' ? 'objectList.workcaseCoverageProblemCount' : 'objectList.coverageProblemCount', { count: String(coverageProblemCount) })}
+                  {t('objectList.coverageProblemCount', { count: String(coverageProblemCount) })}
                 </summary>
                 <ul className="mt-2 grid gap-2">
                   {coverageProblems.map((problem, index) => {
                     const problemIdentity = problem.object_ref?.object_id
-                      ?? t(currentType === 'workcase' ? 'objectList.workcaseCoverageCollectionScope' : 'objectList.coverageCollectionScope');
+                      ?? t('objectList.coverageCollectionScope');
                     return (
-                    <li key={`${problem.object_ref?.object_id ?? problem.scope ?? 'scope'}-${index}`} className="rounded-md border border-current/20 px-3 py-2">
+                    <li key={`${problem.object_ref?.object_id ?? 'scope'}-${index}`} className="rounded-md border border-current/20 px-3 py-2">
                       <div className="ldvh-meta-primary break-all font-mono">
                         {problemIdentity}
                       </div>
@@ -1373,13 +1142,7 @@ export default function ObjectList() {
           <div className="ldvh-spinner" />
         </div>
       ) : error ? (
-        currentType === 'workcase' ? (
-          <div className={`mx-auto max-w-2xl rounded-lg border ${LDVH_ERROR_SURFACE_CLASS} px-5 py-8 text-center`}>
-            <CircleAlert className={`mx-auto mb-3 ${LDVH_ERROR_TEXT_CLASS}`} size={24} />
-            <p className={`ldvh-card-title ${LDVH_ERROR_TITLE_CLASS}`}>{t('objectList.workcaseCoverageUnavailable')}</p>
-            <p className={`ldvh-meta mt-2 break-words ${LDVH_ERROR_BODY_CLASS}`}>{error}</p>
-          </div>
-        ) : (
+        (
           <div className="py-20 text-center">
             <p className="ldvh-body-muted">{t('common.loadFailed')}</p>
             <p className={`ldvh-meta ${LDVH_ERROR_TEXT_CLASS}`}>{error}</p>
@@ -1391,7 +1154,7 @@ export default function ObjectList() {
         </div>
       ) : coverageStatus === 'unavailable' ? (
         <div className="ldvh-body-muted py-20 text-center">
-          {t(currentType === 'workcase' ? 'objectList.workcaseCoverageUnavailableEmpty' : 'objectList.coverageUnavailableEmpty')}
+          {t('objectList.coverageUnavailableEmpty')}
         </div>
       ) : filteredItems.length === 0 && normalizedObjectSearch ? (
         <div className="ldvh-body-muted py-20 text-center">
@@ -1399,11 +1162,11 @@ export default function ObjectList() {
         </div>
       ) : filteredItems.length === 0 && coverageStatus === 'partial' ? (
         <div className="ldvh-body-muted py-20 text-center">
-          {t(currentType === 'workcase' ? 'objectList.workcaseCoveragePartialEmpty' : 'objectList.coveragePartialEmpty')}
+          {t('objectList.coveragePartialEmpty')}
         </div>
       ) : filteredItems.length === 0 && coverageProblemCount > 0 ? (
         <div className="ldvh-body-muted py-20 text-center">
-          {t(currentType === 'workcase' ? 'objectList.workcaseObjectProblemsEmpty' : 'objectList.objectProblemsEmpty')}
+          {t('objectList.objectProblemsEmpty')}
         </div>
       ) : filteredItems.length === 0 ? (
         // 空态分两句（Human 定案 2026-11-02）：读者看到空屏时问的是两个不同的问题——

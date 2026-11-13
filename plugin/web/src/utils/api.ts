@@ -1,18 +1,4 @@
 import type { FactCarrier, FactReadStatus } from '@/utils/factReadMeta';
-import type {
-  WorkCaseV5View,
-  WorkCaseV5Status,
-  WorkCaseV5Outcome,
-  WorkCaseV5Group,
-  WorkCaseV5Filter,
-} from '@/shared/workcaseLifecycle';
-import type {
-  WorkCaseCancellationRecord,
-  WorkCaseDraftAdvice,
-  WorkCaseDraftCheck,
-  WorkCaseDraftResidualEntry,
-} from '@/shared/workcaseResultDraft';
-
 // 基址跟随 vite base：dev（BASE_URL='/'）保持 '/api' 走 vite 代理；
 // DSH 挂载构建（vite build --base=/ldvh/）下请求落在 '/ldvh/api'——由插件
 // 的 /ldvh/api 路由（本地治理端点 + Web API 子进程代理）承接。
@@ -38,14 +24,6 @@ function withProjectScope(url: string): string {
   return `${pathname}${query ? `?${query}` : ''}`;
 }
 
-// 21 号三态直读 + 派生分组（v5）。筛选五档与派生 group 共用 workcaseLifecycle 派生函数。
-export type { WorkCaseV5View, WorkCaseV5Status, WorkCaseV5Outcome, WorkCaseV5Group, WorkCaseV5Filter };
-/** 列表筛选五档值（pending_gate1/executing/awaiting_gate2/closed/all）。 */
-export const WORKCASE_V5_FILTER_VALUES = ['pending_gate1', 'executing', 'awaiting_gate2', 'closed', 'all'] as const;
-
-/** WorkCase 列表项的派生分组（21 号三态直读派生）。 */
-export type WorkCaseListGroup = WorkCaseV5Group;
-
 export interface ObjectItem {
   id: string;
   type: string;
@@ -53,9 +31,6 @@ export interface ObjectItem {
   title_en?: string;
   title_zh?: string;
   status: string;
-  /** 21 号三态直读派生分组（pending_gate1/executing/awaiting_gate2/closed）。 */
-  group?: WorkCaseV5Group;
-  outcome?: WorkCaseV5Outcome;
   has_result_draft?: boolean;
   /**
    * 建前审核轴（21 §8 `pre_reviews`，2026-10-16 建立）：draft 期是否已存在一条
@@ -63,59 +38,11 @@ export interface ObjectItem {
    * 指纹覆盖关系由 Gate 1 覆盖闸在写入侧保证，呈现层不重复实现。
    */
   pre_audit_passed?: boolean;
-  current_snapshot_projection?: WorkCaseV5View;
-  /** workcase 目标范围；22 §8 ADR scope（必填）复用同声明。 */
-  scope?: string;
   path: string;
   created?: string;
   updated: string;
   priority?: string;
   independentSubagentUnavailable?: boolean;
-  // v5 WorkCase 字段（21 §8 闭集）：plan/attempt/result/gate_1。
-  // summary 与 serves 已在其它类型段声明（类型 string?，共用），不重复。
-  //
-  // 这四项**复用**下方 WorkCaseDetailData 所用的同一组类型
-  // （WorkCasePlanStep/WorkCaseAttempt/WorkCaseResult/WorkCaseGate1），不在此
-  // 另起一套内联形状。此前列表侧内联声明 `satisfied?: string`、`residual?: string`，
-  // 与详情侧的 `boolean`/`string[]` 相互矛盾——同一字段两套类型使类型系统无法
-  // 拦截投影层的类型错位（WorkCase 呈现保真缺陷 D5）。契约只有一份。
-  plan?: WorkCasePlanStep[];
-  attempt?: WorkCaseAttempt;
-  result?: WorkCaseResult;
-  gate_1?: WorkCaseGate1;
-  // 10 §5.5「执行期阶段」：`executing` 组的四阶段（执行中/复核中/修订中/结项中）
-  // 由 reviews 与 change_log 的数组序派生。`change_log` 已在恒复制清单内；`reviews`
-  // 需投影层显式搬运，否则卡片侧恒判为「执行中」。复用详情侧同一类型，不另起形状。
-  reviews?: WorkCaseReviewEntry[];
-  // 「待批准关闭」：`21 §8` 的 `result` 字段出现 ⇔ `status = closed`，故该期的核对结论与
-  // 去向只在正文「## 结果」节里；投影层解析后以此二字段搬运（见 shared/workcaseResultDraft）。
-  /** 21 §8 取消记录（仅 outcome=cancelled）：正文 `- cancellation:` 段的解析结果。 */
-  cancellation?: WorkCaseCancellationRecord;
-  result_checks?: WorkCaseDraftCheck[];
-  /** 去向条目（**平铺**，两期共用）：合并式取各残留的去向子项，存量分离式取 `- advice:` 段。 */
-  advice?: WorkCaseDraftAdvice[];
-  /** 残留段（或存量建议段）前的事后补记声明（仅补写过的对象有；21 §8）。 */
-  advice_note?: string;
-  /** 「待批准关闭」期的残留条目（`21 §8` 正文承载；已关闭期改读 `result.residual` 字段）。 */
-  result_residual?: string[];
-  /** 「待批准关闭」期的残留条目**及其去向子项**（合并式主从结构，`21 §8`）。
-   *  卡面「残留（含去向）」一块的数据源——去向子项缩进显示在所属残留之下。 */
-  result_residual_entries?: WorkCaseDraftResidualEntry[];
-  /**
-   * 决定 A 的**条件豁免判据**结果（`10 §5.5`「条件豁免」段 / `21 §15.3`），
-   * 仅 `closed` 期投影。
-   *
-   * `true` = 该对象**每条残留都带有去向子项** → 按 A 只呈现去向、不呈现残留；
-   * `false` = 不满足前提（存量分离式对象为主）→ **如实保留残留块**，否则那些残留
-   * 会从卡面静默消失（`§15.3` 明文禁止的后果）。
-   *
-   * 判据由服务端经 `workCaseClosureNarrowsResidual` **单点算出**（`10 §5.5` 要求
-   * 卡面与详情同源，不得两处各写一套）；组件只读这个值，不自行解析正文。
-   */
-  closure_narrows_residual?: boolean;
-  /** 21 §8：给 Human 扫读的一句话要点。卡面渲染它而非 summary（10 §5.5）；
-   * draft/open 必填、closed 条件（终态缺失合法，卡面须如实降级）。 */
-  gist?: string;
   /** ADR-specific（22 §8：decision 必填；scope 见上公共段；trigger_signal/终态字段条件） */
   decision?: string;
   trigger_signal?: string;
@@ -190,7 +117,6 @@ export interface ObjectItem {
    * Read-time reverse projection of ordinary refs that point at this object.
    * This is intentionally separate from outgoing `factRefs` and lifecycle
    * `factAssociations`; it records only a declared source→target association.
-   * The API currently attaches it to WorkCase cards for closed-advice recall.
    */
   factRefSources?: FactRefSource[];
   /** Exact field-level source metadata. */
@@ -295,8 +221,7 @@ export interface FactCardAssociation {
   title_en?: string;
   title_zh?: string;
   status?: string;
-  /** WorkCase 关联目标携带 21 号派生 group（v5；facts.ts 投影，非对象字段）。 */
-  group?: WorkCaseV5Group;
+
   available: boolean;
 }
 
@@ -309,8 +234,6 @@ export interface UrlItem {
 /**
  * 子目标「名下的工作」一行（28 §8.1 反查派生，不落盘）。
  *
- * `group` 仅 workcase 有——它是 21 号的**派生分组**，由服务端 `deriveWorkCaseV5View`
- * 单点算出后随行搬运；呈现层据此判「推进中／待处理」，**不重算**（09 §5）。
  */
 export interface ServingWorkItem {
   object_uid?: string;
@@ -318,7 +241,6 @@ export interface ServingWorkItem {
   id: string;
   title: string;
   status: string;
-  group?: WorkCaseV5Group;
   /** 目标所属项目——联邦视图里它与卡片所在项目可能不同，统一关联行据此判可否打开。 */
   governed_project_id?: string;
   href?: string;
@@ -326,12 +248,6 @@ export interface ServingWorkItem {
 
 export interface ObjectStatusOption {
   status: string;
-  count: number;
-}
-
-/** WorkCase 列表筛选五档聚合（v5）：group + 计数。 */
-export interface WorkCaseLifecycleOption {
-  group: WorkCaseV5Filter;
   count: number;
 }
 
@@ -347,7 +263,6 @@ export interface FactListProblem {
     fact_type_key?: string;
     object_id?: string;
   };
-  scope?: 'workcase_collection';
   read_status?: string;
 }
 
@@ -362,141 +277,6 @@ export interface UnparsedStructure {
   path: string;
   reason: string;
   raw_value?: unknown;
-}
-
-export interface RelatedObjectSummary {
-  id: string;
-  type: string;
-  title: string;
-  title_en?: string;
-  title_zh?: string;
-  status: string;
-  path: string;
-  updated: string;
-  priority?: string;
-  role?: string;
-  mode?: string;
-  expectedOutput?: string;
-  resultSummary?: string;
-  blockingReason?: string;
-  inputRefs?: string[];
-  evidenceRefs?: string[];
-}
-
-// 21 号 v5 WorkCase 投影类型（§8 字段闭集）。
-export interface WorkCasePlanStep {
-  step?: string;
-  done_criteria?: string;
-}
-
-export interface WorkCaseResultCheck {
-  /** 21 §9.3：布尔判定，来源 frontmatter `satisfied`。 */
-  satisfied?: boolean;
-  evidence?: string;
-}
-
-export interface WorkCaseResult {
-  criteria_checks?: WorkCaseResultCheck[];
-  achieved_scope?: string;
-  /** 21 §9.3：残留责任为字符串数组（可空数组表示无残留）。 */
-  residual?: string[];
-}
-
-/** 21 §8：复核节点概要的单条记录；`at`/署名由 Code 托管。 */
-export interface WorkCaseReviewEntry {
-  at?: string;
-  provider?: string;
-  model?: string;
-  /** 结构化概要，≤ 600 字符，含 02 §16 判据七要素。 */
-  summary?: string;
-}
-
-export interface WorkCaseAttempt {
-  attempt_id?: unknown;
-  controller?: string;
-  heartbeat_at?: string;
-  started_at?: string;
-  /**
-   * 21 §8/§14：该 attempt 所属执行会话的权威身份（Code 从 DSH 会话记录取得，
-   * AI 不得自填）。它是**关闭侧独立性比对的基准**——21 §14 关闭前置条件二按条目
-   * 比对 `reviews[].session_id` 与 `implementer_session_id`。
-   *
-   * 缺席合法（身份不可得时 writer 条件展开）：**未知不等于独立**，故消费者不得把
-   * 缺失读作「无独立复核义务」（21 §14）。
-   */
-  session_id?: string;
-  /** 同一身份的 provenance（`host` 可采信 / `shell` 一律不计入，21 §14）。 */
-  session_source?: string;
-}
-
-/** 「增量审批」流水的一条（21 §8/§14）：申请（items + rationale）＋可选的决定。 */
-export interface WorkCaseAmendment {
-  requested_at?: string;
-  items: { step?: string; done_criteria?: string }[];
-  rationale?: string;
-  decision?: {
-    kind?: 'approved' | 'rejected';
-    by?: string;
-    at?: string;
-    resulting_fingerprint?: string;
-    /** Code 盖戳的决定者会话身份（`by` 是自报，可核痕迹在这里；身份不可得时缺席）。 */
-    session_id?: string;
-    session_source?: string;
-  };
-}
-
-export interface WorkCaseGate1 {
-  approved_at?: string;
-  approver?: string;
-  /** 21 §8/§10.3 C2 授权钉扎：绑定当次 `plan`+`scope` 的内容指纹（授权失效比对基准）。 */
-  authorization_fingerprint?: string;
-  /** 21 §8/§10.3 授权时的范围快照——越权拒绝的比对基准。 */
-  scope_snapshot?: string;
-  /**
-   * 21 §8/§14 增量授权流水。
-   * **待批的判据＝末项无 `decision`**（10 §5.5）——呈现层据此判「有增量待批」。
-   */
-  amendments?: WorkCaseAmendment[];
-}
-
-/** Exact-detail fields from the single current WorkCase contract (21 §8 三态直读). */
-export interface WorkCaseDetailData extends Record<string, unknown> {
-  object_id: string;
-  fact_type_key: 'workcase';
-  title: string;
-  status: WorkCaseV5Status;
-  created_at: string;
-  updated_at: string;
-  /** 21 §8：给 Human 扫读的一句话要点（≤200 字符、纯文本、无正文承载）。
-   * draft/open 必填，closed 条件（终态只读，缺失合法）。卡面渲染它而非 summary。 */
-  gist?: string;
-  summary?: string;
-  serves?: string;
-  scope?: string;
-  plan?: WorkCasePlanStep[];
-  attempt?: WorkCaseAttempt;
-  /** 21 §8：复核节点概要流水（Human 裁定 2026-09-16）。详情不入对象。 */
-  reviews?: WorkCaseReviewEntry[];
-  result?: WorkCaseResult;
-  outcome?: WorkCaseV5Outcome;
-  gate_1?: WorkCaseGate1;
-  change_log?: unknown[];
-  current_snapshot_projection?: WorkCaseV5View;
-  relations?: Array<Record<string, unknown>>;
-  /** 去向条目（平铺）：合并式取各残留的去向子项，存量分离式取 `- advice:` 段（`21 §8`）。 */
-  advice?: WorkCaseDraftAdvice[];
-  /** 残留段（或存量建议段）前的事后补记声明（`21 §8`）。 */
-  advice_note?: string;
-  /**
-   * 决定 A 的条件豁免判据结果（`10 §5.5`「条件豁免」段 / `21 §15.3`）。
-   *
-   * `true` → 关闭后详情面按 A **只呈现去向、不再呈现残留一侧**；
-   * `false` → 不满足前提（存量分离式对象为主）→ **如实保留残留一侧**，
-   * 否则那 22 条当年就没有去向的残留会从详情面静默消失（`§15.3` 明文禁止）。
-   *
-   * 判据由服务端单点算出（与卡面**同一个值**，`10 §5.5` 要求判据同源、不得两处各写一套）。
-   */
-  closure_narrows_residual?: boolean;
 }
 
 export interface ObjectDetail<TData extends Record<string, unknown> = Record<string, unknown>> {
@@ -546,47 +326,21 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 
-/** 认知中心待决类型（v5）：两个 WorkCase Human Gate，
- * 加 Friction `open` 待修（Human 2026-10-19 决定：只收 open；
+/** 认知中心待决类型（v5）：Friction `open` 待修（Human 2026-10-19 决定：只收 open；
  * 2026-10 修订后 26 §9 闭集为 open/resolved/voided/accepted，但待决只收 open——
  * accepted 是已接受、不再报告，不进待决；resolved/voided 亦不进）。
  * **`pitfall_confirmation` 已移除**（2026-11-03）：Pitfall 取消 `draft` 待确认态后
  * 不再有「待确认的经验」这一档（23 §9），机械通道产出即 `active`。 */
-export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'friction_repair';
+export type CognitionInboxKind = 'friction_repair';
 
-/**
- * 决定依据区内联投影（Q3）：与 WorkCase 列表 Card 同源的 source-bound 字段子集，
+/** 决定依据区内联投影（Q3）：source-bound 字段子集，
  * 不含对象身份字段（id/title/status 等在条目层）。
  */
 export interface CognitionInboxCard extends Record<string, unknown> {
-  /** 21 §8：给 Human 扫读的一句话要点。聚焦收件箱卡体渲染它而非 summary（10 §5.5）。 */
-  gist?: string;
-  summary?: string;
-  serves?: string;
-  scope?: string;
-  plan?: WorkCasePlanStep[];
-  attempt?: WorkCaseAttempt;
-  result?: WorkCaseResult;
-  outcome?: WorkCaseV5Outcome;
-  gate_1?: WorkCaseGate1;
-  // 以下四项供聚焦卡体与列表卡**共用同一组件**（Human 2026-09-24：聚焦两处 WC 卡
-  // 「保持与 wc card 一样的显示」）。此前聚焦另写一套、只读 `result.criteria_checks`，
-  // 故残留与去向在聚焦卡上完全缺失。字段由服务端投影一并给出（实测已在响应里）。
-  result_checks?: WorkCaseDraftCheck[];
-  result_residual?: string[];
-  result_residual_entries?: WorkCaseDraftResidualEntry[];
-  advice?: WorkCaseDraftAdvice[];
-  advice_note?: string;
-  closure_narrows_residual?: boolean;
-  change_log?: unknown[];
-  reviews?: WorkCaseReviewEntry[];
-  /**
-   * 建前审核轴（21 §8 `pre_reviews`，2026-10-16 建立）：draft 期是否已存在一条
-   * `verdict = pass` 的审核条目。与 `ObjectItem.pre_audit_passed` 同源同义——
-   * 聚焦卡与列表卡必须**同形**呈现（Human 2026-09-24：「聚焦两处 WC 卡保持与
-   * wc card 一样的显示」），故该字段须在两处类型里都声明，缺一处就有一处不同步。
-   */
-  pre_audit_passed?: boolean;
+  summary?: string
+  serves?: string
+  scope?: string
+  change_log?: unknown[]
 }
 
 interface CognitionInboxItemBase {
@@ -615,32 +369,13 @@ interface CognitionInboxItemBase {
   occurrence?: Record<string, unknown>;
 }
 
-/** 21 号三态直读：WorkCase 待办收件只携带派生 group（pending_gate1 / awaiting_gate2）。 */
-export interface CognitionWorkCaseInboxItem extends CognitionInboxItemBase {
-  type: 'workcase';
-  group: WorkCaseV5Group;
-  inboxKind: 'plan_confirmation' | 'closure_confirmation';
-}
-
-/**
- * 26 §12「Web 账本呈现」：Friction `open` 账目进待决定事项（Human 2026-10-19 决定）。
- *
- * `status` 是来源状态的直读值而不是派生值——本收件只收 `open`（类型专属状态直接
- * 呈现，不新造展示态）。
- */
 export interface CognitionFrictionInboxItem extends CognitionInboxItemBase {
   type: 'friction';
   status: 'open';
   inboxKind: 'friction_repair';
 }
 
-export type CognitionInboxItem = CognitionWorkCaseInboxItem | CognitionFrictionInboxItem;
-
-/** 处于执行主链的 WorkCase（group=executing）；与两个 Human Gate 的待决定事项互斥。 */
-export interface CognitionActiveWorkCaseItem extends Omit<CognitionInboxItemBase, 'inboxKind'> {
-  type: 'workcase';
-  group: 'executing';
-}
+export type CognitionInboxItem = CognitionFrictionInboxItem;
 
 /** 近期动态由事实对象自身的 change_log 派生；不承载 Git 提交记录或字段级 diff。 */
 export type CognitionRecentActivityWindow = '1d' | '3d' | '7d';
@@ -677,8 +412,6 @@ export interface CognitionRecentActivityItem {
     first_at?: string;
     last_at?: string;
   };
-  /** WorkCase 只携带派生 group；其它对象携带自身当前状态。 */
-  group?: WorkCaseV5Group;
   status?: string;
   /**
    * 建前审核轴（21 §8 `pre_reviews`）的派生判据：draft 期是否已有 pass 结论。
@@ -742,7 +475,6 @@ export interface CognitionData {
   generatedAt: string;
   scope: { governedProjectId: string };
   inbox: { items: CognitionInboxItem[]; total: number };
-  activeWorkCases: { items: CognitionActiveWorkCaseItem[]; total: number };
   recentActivity: {
     window: CognitionRecentActivityWindow;
     windowStart: string;
@@ -835,8 +567,6 @@ export async function fetchObjects(
     observed_at?: string;
     collection_issues?: FactListProblem[];
     statusOptions?: ObjectStatusOption[];
-    /** WorkCase 列表筛选五档聚合（v5）。 */
-    lifecycleOptions?: WorkCaseLifecycleOption[];
     /** Spark 三联过滤之 priority（20 §8）计数。 */
     priorityOptions?: ObjectStatusOption[];
     statusTotal?: number;
@@ -1154,7 +884,6 @@ export interface FederationProjectCard {
   color?: string;
   isDefault: boolean;
   sparkOpen?: number;
-  activeWorkCases?: number;
   pendingDecisions?: number;
   lastActivityAt?: string;
   issues: string[];

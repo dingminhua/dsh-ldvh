@@ -216,7 +216,6 @@ test('cognition recent activity row drops the research question display; researc
   // teal 一致）——认知页标题旁类型图标用后端 typeColor，不再是灰色兜底。
   const { getTypeColor } = await import('../../api/services/typeColors.ts');
   assert.equal(getTypeColor('research'), '#14b8a6');
-  assert.equal(getTypeColor('workcase'), '#0ea5e9');
   assert.equal(getTypeColor('no-such-type'), '#6b7280');
 });
 

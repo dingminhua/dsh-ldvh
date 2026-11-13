@@ -113,7 +113,7 @@ const SPINE_STAGES: StageShape[] = [
   {
     title: 'help.spine.execution.title',
     body: 'help.spine.execution.body',
-    links: [{ to: '/objects/workcase', type: 'workcase' }],
+    links: [],
   },
   {
     title: 'help.spine.learning.title',
@@ -167,7 +167,6 @@ const START_BRANCHES: StageShape[] = [
 const OBJECT_MAP: { type: string; to: string; what: LocaleKey; when: LocaleKey; look: LocaleKey }[] = [
   { type: 'subgoal', to: '/objects/subgoal', what: 'help.objects.subgoal.what', when: 'help.objects.subgoal.when', look: 'help.objects.subgoal.look' },
   { type: 'spark', to: '/objects/spark', what: 'help.objects.spark.what', when: 'help.objects.spark.when', look: 'help.objects.spark.look' },
-  { type: 'workcase', to: '/objects/workcase', what: 'help.objects.workcase.what', when: 'help.objects.workcase.when', look: 'help.objects.workcase.look' },
   { type: 'research', to: '/objects/research', what: 'help.objects.research.what', when: 'help.objects.research.when', look: 'help.objects.research.look' },
   { type: 'adr', to: '/objects/adr', what: 'help.objects.adr.what', when: 'help.objects.adr.when', look: 'help.objects.adr.look' },
   { type: 'pitfall', to: '/objects/pitfall', what: 'help.objects.pitfall.what', when: 'help.objects.pitfall.when', look: 'help.objects.pitfall.look' },
@@ -253,7 +252,7 @@ const SYSTEM_MAP: {
     duty: 'help.systems.workOrder.duty',
     usage: 'help.systems.workOrder.usage',
     limit: 'help.systems.workOrder.limit',
-    objects: [{ to: '/objects/workcase', type: 'workcase' }],
+    objects: [],
   },
   {
     key: 'researchAbsorb',

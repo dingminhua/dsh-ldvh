@@ -23,7 +23,7 @@
 | 当前来源支持 | 00 §6 的 HV1-HV5、§7 第 3 条（Web 交互协作为 Human 提供直接价值）；08 §1；`web/docs/01-全局设计约束.md` §1.2.1（第一入口已确认，仍不写死其余入口） |
 | Human 决定 | 2026-07-29 Human 在 AI 对话中明确决定：废弃仪表盘，以项目认知中心取代；设计细节以本文为准 |
 | 验收依据 | 本文 §10 验收标准 + 范围匹配的 API、组件与代表性浏览器测试（08 §10 对应行） |
-| 明确不变范围 | 五个基准模块（提交、研究、决策、火花、经验）与 WorkCase 阅读形态不因本变更改动；本变更不新增事实源、状态机、对象类型、写入白名单或 Human Gate 结论 |
+| 明确不变范围 | 五个基准模块（提交、研究、决策、火花、经验）的阅读形态不因本变更改动；本变更不新增事实源、状态机、对象类型、写入白名单或 Human Gate 结论 |
 
 ### 0.1 2026-07-30 导航可见名与图标微调（Human 决定）
 
@@ -74,7 +74,7 @@
 | 标准 | 名称 | 本页承接与边界 |
 |---|---|---|
 | HV1 | 决策提请清晰可决 | 待决定事项汇集当前 Human Gate、draft Pitfall 与 open Friction，复用同源 Card、次级阅读和模块摘要呈现决定对象、依据、处理入口及可见缺口；页面不补造选项或结论 |
-| HV2 | 授权执行受控可续 | 推进中事项呈现 WorkCase 的当前推进位置、阻塞和接续入口；对已获批对象，完整授权基线与边界仍进入同源次级阅读核查，页面不把推进状态解释为新增授权 |
+| HV2 | 授权执行受控可续 | 对象详情呈现其当前推进位置与接续入口；完整授权基线与边界仍进入同源次级阅读核查，页面不把推进状态解释为新增授权 |
 | HV3 | 入档闭环节点可验 | 待决定事项呈现当前 Human Gate 与 open Friction（含重复观察次数），Spark 健康度呈现状态分布和静默 open 条目；被展示对象可进入同源阅读核查。页面不提供完整生命周期日志或全部终态明细，对象存在或计数不等于闭环完成 |
 | HV4 | 积累效用直观可见 | **尚未完整承接**；近期热点只能显示哪些对象在事实流水中活跃及其正式关系，不能证明积累被实际使用或复用、产生可观察效用 |
 | HV5 | 项目演进脉络可循 | 近期动态与近期热点关系提供明确时间窗口内的事实流水和一跳正式关系材料；本页不串联长期意图、关键决定、重要工作和结果，不声明完整 HV5 已成立 |
@@ -88,7 +88,7 @@
 1. HV1-HV5 是当前 Human 价值判断框架，不是功能清单。每个模块只按 §1 声明其实际直接价值或支持范围，不因页面已实现就扩大为整项价值成立；HV4 缺口保持可见。
 2. 默认只读。本页不提供批准、关闭、分流、处置或任何可能改变项目状态的控件；每条目只提供查看详情、复制引用、复制摘要。
 3. 一切从既有字段派生。不新增事实字段、状态、对象类型；所有聚合、计数、筛选、排序与"未关联"检测都是派生信息，如实标注来源、转换规则与遗漏范围。
-4. 继承五个基准模块与 WorkCase 阅读形态的设计语言；新增组件使用同一套 `ldvh-*` 语义类、复制语义、扩展阅读与 i18n 契约，不另起视觉和信息秩序。
+4. 继承五个基准模块的阅读形态与设计语言；新增组件使用同一套 `ldvh-*` 语义类、复制语义、扩展阅读与 i18n 契约，不另起视觉和信息秩序。
 
 ## 3. 页面结构
 
@@ -123,7 +123,7 @@ Human 2026-11-03 定案两条，本区据此收密度：
 3. **子目标行除标题外默认收起**（点开才见判据面与名下的工作）。聚焦页一屏要并列回答五件事；目标区若把四条子目标的判据全展开，它就是整页最重的一块，把「待决定事项」这类需要立即行动的模块压到下面——而本区的首要职责是让人知道「现在该动什么」，不是「长期意图的完整档案」。收起不等于删：判据一行不少地在那里，点开即得。
 4. **展开区＝子目标卡的那两块**（Human 2026-11-03 定案，**取代**同日早些时候的「名下工作不进聚焦页」）：展开后就是**判据面**（`criterion`）与**名下的工作**（`serves` 反查的关联行，每类先展 3 条、可展开其余）——与子目标卡同形、同源（`components/SubGoalCardParts`）。展开区**不给小标题**（「达成条件」「对齐说明」两个小标题已撤：判据面自带类型色，小标题是复述；对齐说明是**理由**不是判定，留在子目标详情页读），也**不重复给进度**（比值常显在标题行上，同一条子目标不出现第二个比值——`docs/10` §5.5「同类信息只有一处」）。
 
-- **目标陈述**：`## 目标陈述` 段的原文，≤ 200 字符（25 §7 机械校验）。陈述之外不另设概要、副标题或「一句话版」；`title` 是 frontmatter 短标题（≤ 40 字），只用于列表与导航识别，不进入本区正文。陈述块按**本类型色**（goal = emerald）上色：几何取 `WORKCASE_SURFACE_GEOMETRY_CLASS`（四边同宽 1px、`rounded-lg`、`px-3 py-2`），色相取 `getTypeSurfaceTint('goal')` 的 `surface` 与 `body` **成对**。
+- **目标陈述**：`## 目标陈述` 段的原文，≤ 200 字符（25 §7 机械校验）。陈述之外不另设概要、副标题或「一句话版」；`title` 是 frontmatter 短标题（≤ 40 字），只用于列表与导航识别，不进入本区正文。陈述块按**本类型色**（goal = emerald）上色：几何取 全站统一的判据面形态（四边同宽 1px、`rounded-lg`、`px-3 py-2`），色相取 `getTypeSurfaceTint('goal')` 的 `surface` 与 `body` **成对**。
 - **子目标行**：一行五段——次序 chip（`SubGoalOrderBadge`；`order` 缺失回落 `·`）+ 标题 + 状态 chip（非 active 时才显示）+ legacy chip（仅迁移遗留行）+ 进度组 + 展开按钮。标题用 `ldvh-body`（承载阅读与可点击的内容不得用 `ldvh-caption`，`docs/01` §1.5 约束 5）；状态词经 `getObjectStatusLocale` 本地化后交给 `StatusBadge`，不渲染 raw 枚举，也不显示 `criterion_kind`（判据类型是判定口径，不上呈现面）。
 - **标题换行**：行**不整行换行**（关掉 `flex-wrap`），标题在**自己的格子里换行**（`min-w-0 flex-1 break-words`），右边两格宽度固定不动。整行换行会把进度组与展开按钮甩到标题下一行，四条子目标于是错成两种行高，扫读时「哪条走得远」对不上；窗口再窄，窄掉的是标题，不是标尺。
 - **行内垂直基准＝标题那一条线**（Human 2026-11-03 定案）：行内每一件东西——次序 chip、状态 chip、legacy chip、进度组的数字、展开按钮的文字——都落在标题的光心上。为此：数字的行盒与标题同高（`leading-6`，标题是 `ldvh-body` 14px/24px）；chip 外裹一枚 24px 盒子（`h-6`），使它 18px 的盒心落在标题线上；展开按钮内边距取 `py-0.5`，其 20px 内容盒居中后正落在标题线上。数字行盒变高后，条上提 4px（`-mt-1`）以免中间浮出空白，整组高度（28px）与行高不变。行仍取 `items-start`（不 `items-center`）：标题换行时各项对齐标题的**首行**，而不是整块居中到两行中间。
@@ -141,9 +141,9 @@ Human 2026-11-03 定案两条，本区据此收密度：
 
 | 待决类型 | 派生条件 | 决定依据区直读字段 |
 |---|---|---|
-| 待批准计划 | WorkCase resolved `current_snapshot_projection.handoff_narrative_key = gate1_waiting` 且 `blocking_overlay = false` | 与对象列表相同的紧凑 Gate 1 Card：`goal`、成功标准、执行授权边界；存在时必须显示能力限制与低保证 fallback，不能把同一 AI 视角写成独立 subagent |
-| 待确认关闭 | WorkCase resolved `current_snapshot_projection.handoff_narrative_key = gate2_waiting` 且 `blocking_overlay = false` | 与对象列表相同的关闭确认 Card：`goal`、`closure_proposal` 与实际 contributed Pitfall |
-| 阻塞待处置 | WorkCase resolved `progress_group = plan_confirmation / closure_confirmation` 且 `blocking_overlay = true` | 显示完整 `blocking_summary` 与当前确认位置；不显示 Gate waiting、批准计划或确认关闭入口 |
+| 待批准计划 | 已解析 `current_snapshot_projection.handoff_narrative_key = gate1_waiting` 且 `blocking_overlay = false` | 与对象列表相同的紧凑 Gate 1 Card：`goal`、成功标准、执行授权边界；存在时必须显示能力限制与低保证 fallback，不能把同一 AI 视角写成独立 subagent |
+| 待确认关闭 | 已解析 `current_snapshot_projection.handoff_narrative_key = gate2_waiting` 且 `blocking_overlay = false` | 与对象列表相同的关闭确认 Card：`goal`、`closure_proposal` 与实际 contributed Pitfall |
+| 阻塞待处置 | 已解析派生分类且 `blocking_overlay = true` | 显示完整 `blocking_summary` 与当前确认位置；不显示 Gate waiting、批准计划或确认关闭入口 |
 | 待确认经验 | Pitfall `status = draft` | 与对象列表共享普通 Pitfall Card；正文显示可读的 `symptoms`、`trigger_conditions`、`resolution`、`avoidance`、`validation_summary`、`applicability` |
 | 待修摩擦 | Friction `status = open` | 与对象列表共享普通 Friction Card；卡体留空（与列表卡一致），身份与状态由卡头托承载：类型、`occurrence` 重复观察、修改次数；标题即现象单句的浓缩，现象全文与入账依据住详情页（原卡头的 `impact` 轻/中/重 chip 已于 2026-11-02 随 26 §8 撤销分级制度移除） |
 
@@ -152,26 +152,13 @@ Human 2026-11-03 定案两条，本区据此收密度：
 - 待修摩擦不是 Human Gate：本页不新增任何授权动作，流转由 26 §9 的 Human Gate 与补充级更新承载。其 `inboxKind` 取 `friction_repair`，模块摘要标签为「待修摩擦」而非「待确认」——避免 Human 在页面上寻找一个不存在的批准按钮。
 - `occurrence` 由服务端**平铺到条目根**（`CognitionFrictionInboxItem`），不要求客户端翻 `card`：卡头徽标读对象根字段，只投影进 `card` 会让徽标在聚焦页静默消失（近期动态投影当初即踩此坑）。
 
-- 排序：有合法 `priority` 的 WorkCase（P0→P3）→ 无优先级条目（含 Pitfall draft 与 Friction open，后者 26 §8 闭集无 `priority` 字段）→ `updated_at` 正序（等待最久在前）。排序是派生展示规则，不表达语义重要性结论。
-- 待决类型是 UI 枚举：resolved WorkCase 先由 `progress_group` 确定性归入既有两个行动模块；plan/closure group 进入待决定事项，progressing 进入推进中事项。未阻塞的实际 Gate 类型继续只由两个 handoff key 证明；`blocking_overlay=true` 的 Human-position 改用 `blocked_resolution`，保留在待决定事项但不是 Human Gate。Pitfall 只由类型专属 `draft` 映射为待确认。
+- 排序：有合法 `priority` 的 Spark（P0→P3）→ 无优先级条目（含 Friction open，26 §8 闭集无 `priority` 字段）→ `updated_at` 正序（等待最久在前）。排序是派生展示规则，不表达语义重要性结论。
+- 待决类型是 UI 枚举：条目先由派生分类确定性归入待决定事项。未阻塞的实际 Gate 类型继续只由两个 handoff key 证明；`blocking_overlay=true` 的 Human-position 改用 `blocked_resolution`，保留在待决定事项但不是 Human Gate。Pitfall 只由类型专属 `draft` 映射为待确认。
 - 条目形态直接复用对象列表 Card；聚焦页不新增对象正文。点击标题打开右侧扩展阅读（复用同源对象阅读布局）；标题以外区域不触发路由。
 - 复制入口只位于模块标题带：“复制模块摘要”面向 AI 对话，含各待确认类型计数与条目稳定 ID。条目本身保持与对象列表 Card 相同的复制与交互，不因进入聚焦页增加按钮；近期动态的当前时间范围由高亮的快捷按钮表达，不重复显示范围说明。
 - 决定在 AI 对话中作出，经 Helper 受控写入回写事实源；本模块不承载决定动作。
 - 待决规模如实可见：默认完整展示全部待决条目；条目超出首屏时按上述排序截断，并在面板底部如实提示总数与未显示数量，不用分页掩盖待决规模。该呈现边界不代替对每项提请内容是否满足 HV1 的核查。
 - 空态：当前没有待你决定的事项（双语）。
-
-#### 4.1.1 推进中事项（HV2 授权执行受控可续）
-
-回答 Human 的问题：**哪些 WorkCase 正在行动，它们当前推进到哪里？**
-
-- 只收纳当前 `current_snapshot_projection` resolved 且 `progress_group = progressing` 的 WorkCase；它与两个实际 Gate handoff 互斥，不和待决定事项重复。
-- `progressing` 包含计划修订、执行项执行、控制器自检、结果复核和控制器综合/关闭准备；复核实际方法与保证边界只按同源事实呈现。`status = blocked` 但仍处于上述推进链的 WorkCase继续保留，并在同源 Card 内显示阻塞说明与等待对象。
-- 条目直接复用对象列表的进行中 WorkCase Card：目标和当期执行项来自同一次 source-bound Card 形成，进展分组、生命周期位置、轨道步骤与阻塞覆盖只来自其 `current_snapshot_projection`；聚焦页不另写行动摘要，也不从 raw `status / phase` 新增状态推断。
-- 模块使用 `ldvh-section-grid` 随容器宽度自动排成多列，默认展开并支持整块折叠；标题带保留总数和复制模块摘要。
-- 点击标题不跳转聚焦页路由，而是在右侧（窄容器时底部）打开同源次级阅读。模块只读，不提供推进、阻塞解除或关闭操作。
-- Card 只表达当前推进和接续位置；Human 核查批准对象、范围、边界及其与当前执行的关系时，继续进入同源 WorkCase 阅读。模块不得把 `progressing`、item 状态或复制摘要解释为执行正确、范围内行动已获新增授权或 Human 已验收。
-- 排序与待决定事项保持同一确定规则：合法优先级 P0→P3、更新时间正序、稳定 ID；超过首屏阈值时如实显示已展示和未展示数量。
-- 空态：当前没有推进中的 WorkCase（双语）。
 
 ### 4.2 模块二 近期动态（HV2 当前状态核查与 HV5 演进阅读材料）
 
@@ -192,7 +179,7 @@ Human 2026-11-03 定案两条，本区据此收密度：
 
 - 时间范围与模块二完全共用：最近 1 天、最近 3 天、最近 1 周。切换范围只更新当前聚焦页快照，不把“近期”解释为 Human 离开期间。
 - 热点中心至少来自一条当前窗口内的事实 `change_log` 流水；历史对象没有可读流水时，才允许其单条 `created_at` / `updated_at` 兼容标记作为活跃证据。热点表示事实记录活跃度，不表示优先级、重要性、执行建议或方向正确性。
-- 热点首先按事实流水条数、最近流水时间排序；只有两者相同时，非终态 WorkCase 才作为稳定阅读顺序的兜底。每个热点是独立的一跳阅读单元，页面以更大的中心卡、对象图标和更强的标题层级表达中心，不重复显示“主热点”标签；必须优先呈现完整标题与流水数，不能把事实类型、优先级或关系数量误当成热度。
+- 热点首先按事实流水条数、最近流水时间排序；只有两者相同时，非终态对象才作为稳定阅读顺序的兜底。每个热点是独立的一跳阅读单元，页面以更大的中心卡、对象图标和更强的标题层级表达中心，不重复显示“主热点”标签；必须优先呈现完整标题与流水数，不能把事实类型、优先级或关系数量误当成热度。
 - 每个热点只展开**与自身直接相连**的入边和出边，并统一收在“围绕它展开的工作”下。相同对象即使存在多条正式关系也只显示一次；原始 `relation_key` 与方向由连线、箭头和顶部图释表达，不在对象卡内重复显示关系文字。无障碍关系文本仍保留同源的本地化关系含义。没有流水、但与热点有正式关系的对象可以作为一跳工作；相邻对象的流水徽标只表示其自身在当前窗口内的事实流水数，不递归展开下一跳。
 - 有事实流水但没有正式关系的对象不进入本模块，也不为凑图而连线；完整 Git 提交仍可在 `/changelog` 阅读。页面不把无向连通分量整体归到某个中心，不把多跳对象写成“围绕它展开”，也不表达关系强度、优先级、重要性、方向正确性或执行建议。
 - 顶部信息带显示读取流水数、热点数和正式关系数，并以“流水图标 + 示例数字 + 流水数”解释热点卡右侧的计数徽标；该数字只表示当前时间窗口内该对象的事实流水数量，不表示关系数、优先级或重要性。对象类型由对象图标直接表达；不再维护需要来回对照的事实类型图例。关系通过有向曲线、箭头、线型和展开态对象卡上的本地化弱提示共同表达，不能只依赖颜色；SVG 之外同时保留同源的无障碍关系文本。
@@ -250,13 +237,13 @@ Helper 成功写入并回读后，浏览器没有可被 Helper 直接调用的�
 
 1. 不把本页做成营销首页、 hero 区或卡片堆叠的装饰页；面向重复阅读与判断，优先信息密度与扫描效率。
 2. 不提供批准、关闭、分流、处置、优先级编辑或任何写入口；占位按钮、禁用按钮也不出现。
-3. WorkCase 统计只使用 `byProgressGroup`，WorkCase 条目只使用 `progress_group`；不得把派生进展分组放入名为 `status` 或 `byStatus` 的字段。resolved open/blocked WorkCase 在两个既有行动模块中唯一归属：plan/closure group 进入待决定事项，progressing 进入推进中；unresolved 不从 `source_status`、raw status/phase 或文案回退。
+3. 派生分类统计与条目分列不同字段；不得把派生分类放入名为 `status` 或 `byStatus` 的字段。orkCase 在两个既有行动模块中唯一归属：plan/closure group 进入待决定事项，progressing 进入推进中；unresolved 不从 `source_status`、raw status/phase 或文案回退。
 4. 不新增事实字段、状态、对象类型、第五进展分组或第二状态模型；待决类型、近期动态时间窗口、静默阈值均为 UI 层派生，如实标注。
 5. 收件箱正文直接复用对象列表 Card：计划确认显示 Gate 1 紧凑入口，并把授权中的 capability limitations 作为 Human 判断输入；关闭确认显示关闭判断输入区与后续贡献，blocked Human-position 显示阻塞待处置与当前位置，Pitfall `draft` 使用共享普通 Card 显示当前可读的六类判断字段。完整同源事实在标题打开的次级阅读中展开；模块摘要只提供当前收件箱的观察信息与对象索引。缺失或类型不符必须在对应消费位置如实降级，不能过滤坏成员后拼成看似完整的批准材料。
 6. 近期动态与近期热点关系都不读取或展示 Git 提交；二者均只从当前事实源的 `change_log` 读取活动，旧事实在没有可读流水时才回退自身时间字段。热点只使用事实源中已声明的正式关系；不得由标题、关键词、相近文件或语义推断连接。完整提交阅读仍进入现有提交页面。
 7. 复制语义按 01 §5；候选条目不用 `path`、`target` 或对象 ID 伪造 `canonical_path`；本模块只增加“复制模块摘要”，tooltip 按内容语义命名。
 8. i18n 全量双语；事实正文（goal、提案、commit message 等）不翻译；英文长文案允许换行，不以截断替代阅读。
-9. 扩展阅读与详情页复用同一身份头部与 `WorkCaseReadingLayout`，不维护第二套对象摘要。
+9. 扩展阅读与详情页复用同一身份头部与其类型阅读布局，不维护第二套对象摘要。
 10. 颜色遵守 01 §1.10：Human 待确认紫色系、阻塞/风险警示色、类型色只用于识别；不以单一色相支配页面。
 11. 本页确认最前面入口的可见名为“聚焦 / Focus”，内部概念、API 与源码仍使用 Cognition Center；其余入口的名称、顺序与信息架构仍按 01 §1.2.1 保持不写死，本页实现不得反向固定它们。
 
@@ -265,8 +252,7 @@ Helper 成功写入并回读后，浏览器没有可被 Helper 直接调用的�
 `GET /api/cognition?locale=&window=1d|3d|7d` 聚合返回（类型命名仅为契约描述，实现以 TS 类型为准）：
 
 ```typescript
-type CognitionObjectType = 'workcase' | 'adr' | 'pitfall' | 'spark' | 'study' | 'friction';
-type WorkCaseProgressGroup = 'plan_confirmation' | 'progressing' | 'closure_confirmation' | 'closed';
+type CognitionObjectType = 'adr' | 'pitfall' | 'spark' | 'study' | 'friction';
 type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'blocked_resolution' | 'pitfall_confirmation' | 'friction_repair';
 
 interface CognitionInboxItemBase {
@@ -289,9 +275,8 @@ interface CognitionInboxItemBase {
 
 type CognitionInboxItem =
   | (CognitionInboxItemBase & {
-      type: 'workcase';
+      type: 'friction';
       progress_group: 'plan_confirmation' | 'closure_confirmation';
-      lifecycle_position: WorkCaseLifecyclePosition;
       isBlocked: boolean;
       inboxKind: 'plan_confirmation' | 'closure_confirmation' | 'blocked_resolution';
     })
@@ -318,7 +303,6 @@ interface CognitionRecentActivityItem {
   relativeTime: string;
   typeColor: string;
   priority?: string;
-  progress_group?: WorkCaseProgressGroup;
   status?: string;
   read_status: string;
   field_issues?: FieldIssue[];
@@ -347,8 +331,7 @@ interface CognitionData {
         title: string;
         title_en?: string;
         title_zh?: string;
-        progress_group?: WorkCaseProgressGroup;
-        status?: string;
+              status?: string;
         priority?: string;
         read_status: string;
         typeColor: string;
@@ -383,10 +366,10 @@ interface CognitionData {
 }
 ```
 
-- WorkCase 聚合遵守 §7 第 3 条命名纪律；其它类型不使用 `progress_group` / `byProgressGroup`。
+- 各类型聚合遵守 §7 第 3 条命名纪律；派生分类不得放入名为 `status` 或 `byStatus` 的字段。
 - 待决定条目首屏内联复用各自对象列表 Card 的投影；完整事实在点击标题后的同源次级阅读中展开。模块摘要只保留当前收件箱的观察信息与对象索引，不另造事实或写回摘要。
 - 本端点是派生视图服务，不成为事实权威；读取限定在当前唯一管辖项目与实际 worktree。
-- 已实现注记（2026-08-08）：`GET /api/cognition` 返回 `{ generatedAt, scope, inbox, recentActivity, sparkHealth, recentHotspots, issues }`。inbox 收录 plan_confirmation / closure_confirmation WorkCase 与 draft Pitfall，按 `priority → updated_at` 正序排序；近期动态读取五类对象，按 `change_log[].at` 倒序返回窗口内的创建或更新流水；没有可读流水的历史对象才回退到自身时间字段。Spark 健康从当前 Spark 的 `status`、`priority` 和 `updated_at` 派生终态/待处理比例、全部待处理对象、静默计数与静默列表；近期热点关系复用同一时间窗口，只展示至少有一条事实流水且至少具有一条符合当前类型规则正式关系的热点。API 为每个热点返回独立 `primary + relations[]` 一跳投影，前端将相同相关对象合并为一张卡；缩略态以多列紧凑关系簇概览，展开态将所选热点切换为跨满模块宽度的中心式一跳思维导图，并保留关系方向、本地化弱提示与无障碍关系文本。无正式关系的活跃对象不进入热点关系，Git 提交仍只在 Changelog 阅读；blocked 保留在对象列表/详情，不进入 inbox。原规划中的演进时间线与方向对照不再提供字段或页面占位。
+- 已实现注记（2026-08-08）：`GET /api/cognition` 返回 `{ generatedAt, scope, inbox, recentActivity, sparkHealth, recentHotspots, issues }`。inbox 收录 open Friction 等待决条目，按 `priority → updated_at` 正序排序；近期动态读取五类对象，按 `change_log[].at` 倒序返回窗口内的创建或更新流水；没有可读流水的历史对象才回退到自身时间字段。Spark 健康从当前 Spark 的 `status`、`priority` 和 `updated_at` 派生终态/待处理比例、全部待处理对象、静默计数与静默列表；近期热点关系复用同一时间窗口，只展示至少有一条事实流水且至少具有一条符合当前类型规则正式关系的热点。API 为每个热点返回独立 `primary + relations[]` 一跳投影，前端将相同相关对象合并为一张卡；缩略态以多列紧凑关系簇概览，展开态将所选热点切换为跨满模块宽度的中心式一跳思维导图，并保留关系方向、本地化弱提示与无障碍关系文本。无正式关系的活跃对象不进入热点关系，Git 提交仍只在 Changelog 阅读；blocked 保留在对象列表/详情，不进入 inbox。原规划中的演进时间线与方向对照不再提供字段或页面占位。
 
 ## 9. 响应式与移动端
 
@@ -394,7 +377,7 @@ interface CognitionData {
 
 ## 10. 验收标准
 
-1. Human 打开 `/` 后第一屏看到两个 WorkCase Human Gate 类型、draft Pitfall 与 open Friction 形成的全部待决定事项；blocked 对象与终态（`resolved` / `voided`）Friction 不混入该收件箱。每项复用自身 Card，标题可直接打开同源次级阅读。
+1. Human 打开 `/` 后第一屏看到 open Friction 等形成的全部待决定事项；blocked 对象与终态（`resolved` / `voided`）Friction 不混入该收件箱。每项复用自身 Card，标题可直接打开同源次级阅读。
 2. 完成一次真实闭环：收件箱模块摘要或对象稳定 ID → 粘贴到 AI 对话 → AI 经 Helper 精确读取同一对象 → Human 作出决定 → 受控写入回写事实源 → 重新进入本页后收件箱反映新状态。
 3. 每个模块可见派生身份；某类型读取失败时模块级降级并如实标注，不整页失败。近期动态切换窗口时保留旧列表，成功返回后原位替换。
 4. 双语切换：无 raw status / raw enum / raw 字段名；事实正文不翻译；英文布局不溢出。

@@ -5,13 +5,13 @@
  * entry retains its 05.Att.01 field_key and is mechanically reconciled with
  * 05.Att.01, the type bindings, and 08.Att.01 by fact-field-contract.test.ts.
  */
-export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const
+export const FACT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
 
 /**
- * `expected: 'object'` 的内容核验形状（workcase-54d4d176 复核发现 3）。
+ * `expected: 'object'` 的内容核验形状（一次复核发现 3）。
  *
  * 只登记 `'object'` 无法回答「什么样的对象才算数」：读取层的
  * `matchesExpectation` 对 object 只能做 `isRecord` 判定，于是 `{}` 与
@@ -60,54 +60,6 @@ const common = {
 
 
 export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
-  // 21 号 §8 frontmatter 闭集（v5）。v4 字段（phase/work_items/goal/
-  // success_criterion_*/execution_approval/closure_proposal/…）已全部
-  // 退出传输契约——21 号对象不携带它们，投影层也不再认识它们。
-  // urls 不在 workcase 契约中：21 §8 明文「不采用 urls」。
-  workcase: {
-    // common minus urls：21 §8 明文「不采用 urls」。
-    ...(({ urls: _omitUrls, ...rest }) => rest)(common),
-    // 21 §8：`gist`（要点）是给 Human 扫读的一句话，draft/open 必填、closed
-    // 条件（终态只读、无受控入口可补写，缺失合法）。卡面渲染它而非 summary
-    // （10 §5.5「卡面与详情的字段分工」）。required=false 反映「按状态分层」：
-    // 契约的 required 是**跨状态**口径，而终态缺失合法，故不入
-    // TYPE_REQUIRED_FIELDS（那会要求所有状态都携带）。
-    gist: field('workcase-gist', 'string', false),
-    summary: field('workcase-summary', 'string', true),
-    serves: field('workcase-serves', 'string', false),
-    scope: field('workcase-scope', 'string', true),
-    plan: field('workcase-plan', 'array', true),
-    gate_1: field('workcase-gate-1', 'object', false),
-    attempt: field('workcase-attempt', 'object', false),
-    // 21 §8：复核节点概要流水（Human 裁定 2026-09-16）。每项
-    // {at, provider, model, summary}；summary ≤ 600 字符、条数 ≤ 20；
-    // 复核详情不入对象，此处只承载节点概要。
-    reviews: field('workcase-reviews', 'array', false),
-    // 21 §8：建前独立审核的节点概要流水（审核轴，2026-10-16 建立）。每项
-    // {at, provider, model, summary, session_id, session_source, auditor_origin,
-    // candidate_fingerprint, verdict}；draft 期可行、open/closed 期保留为历史。
-    //
-    // 此前遗漏登记（缺陷，2026-10-17 补）：它已作为 frontmatter 闭集成员落盘在
-    // 真实载体上，而 Web 传输契约未登记，读取层据此判为 `unconsumed_field` 并从
-    // 对象投影中**整段丢弃**——draft 卡的 `pre_audit_passed` 派生读的是
-    // `fact_object.pre_reviews`（facts.ts 的 draft 分支），于是「· 待审核」后缀
-    // 恒成立、与落盘事实相反；详情面则把该字段列进「未解析结构」。
-    //
-    // 登记为**顶层字段**而非 report_body 一类详情消费字段：审核轴徽标是卡面
-    // 判据，列表投影必须携带它（见 projectCurrentWorkCaseCard 的 draft 分支）。
-    // 条目明细仍不入卡面——卡上只回答「审了没」（facts.ts 只投影派生布尔）。
-    pre_reviews: field('workcase-pre-reviews', 'array', false),
-    result: field('workcase-result', 'object', false),
-    outcome: field('workcase-outcome', 'string', false),
-    // 03 §7.2 / 21 §8：refs 是状态中立的普通内容关联，目标为
-    // object_uid；不属于 WorkCase 生命周期 relations，也不证明建议履行或闭环。
-    refs: field('workcase-refs', 'array', false),
-    // transport-only：报告正文（非 frontmatter 字段）。「待批准关闭」派生
-    // 判据需要「open ∧ 正文含 ## 结果 节」——body 经 localFactReader 的
-    // extra 通道进入此处，随 fact_object 一起传输（10 号呈现契约登记的
-    // 派生规则，不写回对象）。
-    report_body: field('workcase-report-body', 'string', false),
-  },
   // v5 ADR（22 §8 薄索引）：decision/scope 必填（正文对应段逐字包含）、
   // trigger_signal 条件出现（遵守预检消费）、终态字段随 status 约束
   // （retirement_reason/retired_at 仅 retired，§9）；正文「决策背景/决定/
@@ -155,7 +107,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     attribution: field('friction-attribution', 'string', false),
     // 26 §8/§11（2026-10 订正）：attribution_ref 是**对象形态**
     // { object_uid }，与 relations 的 target 同一承载——原登记 string 致
-    // 真实载体（对象形态）被读取层 type_mismatch 静默丢弃（workcase-54d4d176）。
+    // 真实载体（对象形态）被读取层 type_mismatch 静默丢弃。
     attribution_ref: objectField('friction-attribution-ref', false, {
       requiredKeys: ['object_uid'],
       nonEmptyKeys: ['object_uid'],
@@ -303,7 +255,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
  * `recall_digest` 已于 2026-11-11 退场（02 §7.1），故不再有「从列表投影排除它」
  * 这一步——排除一个不存在的键只会让人以为它还在。
  */
-export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readonly string[]> = {
+export const FACT_LIST_FIELD_NAMES: Record<FactType, readonly string[]> = {
   adr: Object.keys(FACT_FIELD_CONTRACT.adr).filter((field) => field !== 'report_body' ),
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall).filter((field) => field !== 'report_body' ),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body' ),
@@ -326,7 +278,6 @@ export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readon
  * (specs/20–24); changing any set requires updating the type spec first.
  */
 export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
-  workcase: ['closed'],
   adr: ['retired'],
   pitfall: ['discarded'],
   spark: ['implemented', 'discarded'],
@@ -350,7 +301,6 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
  * 25 Goal 为单例（ldvh-base/goal.md），不占目录，故不在本表。
  */
 export const FACT_TYPE_DIR_NAMES: Record<FactType, string> = {
-  workcase: 'workcases',
   adr: 'adrs',
   pitfall: 'pitfalls',
   spark: 'sparks',

@@ -20,7 +20,6 @@ test('fact-object copy controls require the owning project and preserve the full
   const cognition = read('src/pages/CognitionCenter.tsx');
   const detail = read('src/pages/ObjectDetail.tsx');
   const associations = read('src/pages/object-detail/FactAssociationsSection.tsx');
-  const workcaseReading = read('src/pages/object-detail/WorkCaseReadingLayout.tsx');
   const referenceCard = read('src/components/ReferenceCard.tsx');
   const panelContent = read('src/components/reading-panel/PanelContent.tsx');
 
@@ -37,15 +36,13 @@ test('fact-object copy controls require the owning project and preserve the full
   assert.match(panelContent, /target=\{objectType === 'goal' \? readMeta\.canonicalPath \?\? objectId : objectId\}/);
   assert.doesNotMatch(associations, /ObjectReferenceCopyButton/);
   assert.match(associations, /objectType=\{locator\.factTypeKey\} size="xs"/);
-  // 2026-09-17（WC 364df30e）：WorkCase 详情不再自持复制入口——复制归共享
-  // ObjectIdentityHeader（docs/01 §1.8.1 身份头部契约），与其余六类阅读布局一致
-  // （六类布局的复制入口数均为 0）。此前布局内重复渲染身份行与复制按钮，
+  // 2026-09-17：详情不再自持复制入口——复制归共享
+  // ObjectIdentityHeader（docs/01 §1.8.1 身份头部契约），与其余各阅读布局一致
+  // （各布局的复制入口数均为 0）。此前布局内重复渲染身份行与复制按钮，
   // 形成「详情页两套头部」。
-  assert.doesNotMatch(workcaseReading, /ObjectReferenceCopyButton/);
-  assert.doesNotMatch(workcaseReading, /status:\s*\{obj\.status\}/);
   assert.match(referenceCard, /<ObjectReferenceCopyButton projectId=\{selectedProjectId\} objectId=\{refId\}/);
 
-  for (const source of [associations, workcaseReading, referenceCard]) {
+  for (const source of [associations, referenceCard]) {
     assert.doesNotMatch(source, /CopyPathButton path=\{(?:canonicalPath|info\?\.path)\}/);
   }
 });

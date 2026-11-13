@@ -457,24 +457,23 @@ test('次序呈现在卡头，与其余卡头 chip 同规格（Human 定案 2026
     parts.indexOf('export function SubGoalDisclosureButton'),
   );
   assert.ok(body.length > 0, '应能定位到判据框源码段');
-  assert.doesNotMatch(body, /order/, '判据框不得再读 order');
+  assert.doesNotMatch(body, /\bordery?:/, '判据框不得再读 order 字段');
   assert.doesNotMatch(body, /subGoalOrderLabel/, '判据框不得再渲染「次序」小标题');
   // 判据类型（「闭环记录」等）同样退出卡面（Human 定案 2026-11-02「次序 闭环记录
   // 都不用显示」）——它是判定口径，住详情页判据锚点，卡面只回答「算什么」。
   assert.doesNotMatch(body, /criterion_kind/, '判据框不得再读 criterion_kind');
   assert.doesNotMatch(body, /subgoal_criterion_kind/, '判据框不得再渲染「判据类型」标题');
 
-  // 几何对齐 WorkCase 判据面（同一次定案「样式对齐 workcase 的，左侧的线条不要
-  // 加粗」），但**色相取本类型色**（Human 同日晚定案「圈出来的要和类型的颜色对上，
-  // 也就是同一个色系的」）。故：几何单源复用、色相不得复用 WorkCase 的蓝面，
-  // 也不得再用决策块壳（左色条家族）。
-  assert.match(body, /WORKCASE_SURFACE_GEOMETRY_CLASS/, '判据框几何须复用 WorkCase 判据面的几何单源');
+  // 几何对齐统一判据面形态（同一次定案「左侧的线条不要加粗」），但**色相取本类型色**
+  // （Human 同日晚定案「圈出来的要和类型的颜色对上，也就是同一个色系的」）。故：
+  // 几何单源复用、色相不得复用别的类型的色面，也不得再用决策块壳（左色条家族）。
+  assert.match(body, /min-w-0 rounded-lg border px-3 py-2/, '判据框几何须复用统一判据面形态');
   assert.match(body, /getTypeSurfaceTint\(type\)/, '判据框色相须由类型色单一来源算得');
   assert.match(body, /style=\{tint\.surface\}/, '承载面的色相须贴在面上');
   assert.match(body, /style=\{tint\.body\}/, '正文色须同源取用（面与正文成对，不得各写一份）');
-  assert.doesNotMatch(body, /WORKCASE_CRITERIA_SURFACE_CLASS/,
-    '判据框不得再整面复用 WorkCase 判据面——那会把 WorkCase 的类型色（蓝）当成这一类面的通用色');
-  assert.doesNotMatch(body, /WORKCASE_CRITERIA_BODY_HUE_CLASS/, '正文色不得再取 WorkCase 的蓝灰档');
+  assert.doesNotMatch(body, /border-blue-400\/20 bg-blue-500/,
+    '判据框不得整面复用另一类型的判据面色——那会把某个类型的类型色当成这一类面的通用色');
+  assert.doesNotMatch(body, /text-blue-900\/70/, '正文色不得取别的类型的蓝灰档');
   assert.doesNotMatch(body, /DECISION_CARD_SHELL_CLASS/,
     '判据框不得再用决策块壳（该类带左侧 2px 粗线，Human 明确不要）');
   assert.doesNotMatch(body, /border-l-2/, '判据框不得出现左侧粗线');

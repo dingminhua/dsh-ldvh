@@ -79,8 +79,8 @@ test('两张卡的卡体主块都按本类型色上色，且面与正文成对',
   // 2026-11-02 实测正是如此——外层已生效、块内正文仍是近黑。
   assert.match(devlogCard, /bodyStyle=\{tint\.body\}/,
     'DevLog 正文色须经 SummaryText 的 bodyStyle 传入（Markdown 的 p 不继承外层 color）');
-  assert.doesNotMatch(devlogCard, /WORKCASE_CRITERIA_SURFACE_CLASS/,
-    'DevLog 卡体不得再整面复用 WorkCase 判据面（蓝是 WorkCase 的类型色）');
+  assert.doesNotMatch(devlogCard, /border-blue-400\/20 bg-blue-500/,
+    'DevLog 卡体不得整面复用另一类型的判据面色（蓝曾是某个类型的类型色）');
 
   // ② 子目标判据面（渲染在共享组件里；列表卡调用它）
   const subGoalCard = subGoalParts.slice(
@@ -91,20 +91,12 @@ test('两张卡的卡体主块都按本类型色上色，且面与正文成对',
   assert.match(subGoalCard, /getTypeSurfaceTint\(type\)/, '子目标判据面须按本类型色上色');
   assert.match(subGoalCard, /style=\{tint\.surface\}/);
   assert.match(subGoalCard, /style=\{tint\.body\}/);
-  assert.doesNotMatch(subGoalCard, /WORKCASE_CRITERIA_SURFACE_CLASS/,
-    '子目标判据面不得再整面复用 WorkCase 判据面');
-  // 几何仍与 WorkCase 同源：2026-11-02「对齐 workcase」定案在几何上继续成立，
+  assert.doesNotMatch(subGoalCard, /border-blue-400\/20 bg-blue-500/,
+    '子目标判据面不得整面复用另一类型的判据面色');
+  // 几何仍取全站统一形态（四边同宽 1px、rounded-lg、px-3 py-2），
   // 本契约只改色相，不允许顺手把几何另写一份。
-  assert.match(subGoalCard, /WORKCASE_SURFACE_GEOMETRY_CLASS/,
-    '几何仍取自单一来源常量，不得自写一套');
-});
-
-test('WorkCase 自己的判据面保持蓝面（类型色未变，不因本次改动被泛化）', async () => {
-  const criteria = await read('src/components/WorkCaseCriteriaList.tsx');
-  // 反向断言：本契约不是「所有判据面都染类型色」，而是「WorkCase 的面本来就是它自己的
-  // 类型色」。若有人把 WorkCase 判据面也改成中性或另一套，这条会红。
-  assert.match(criteria, /WORKCASE_CRITERIA_SURFACE_CLASS =\s*\n?\s*`\$\{WORKCASE_SURFACE_GEOMETRY_CLASS\} border-blue-400\/20 bg-blue-500\/\[0\.025\] dark:bg-blue-950\/20`/,
-    'WorkCase 判据面须保持蓝（那是它自己的类型色，这次不动）');
+  assert.match(subGoalCard, /min-w-0 rounded-lg border px-3 py-2/,
+    '几何仍取统一形态，不得自写一套');
 });
 
 test('类型色语义面不与左色条家族混用（几何四边同宽、无 border-l）', async () => {
@@ -193,7 +185,7 @@ test('九类类型色 × 两主题的正文都过 4.5:1（混合比例由本判�
   const css = await read('src/index.css');
 
   // 事实类型九类（CATEGORY_COLORS 里还混着 conventional commit scope 色，不属于事实对象）。
-  const factTypes = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'];
+  const factTypes = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'];
 
   const failures: string[] = [];
   for (const mode of ['light', 'dark'] as const) {

@@ -113,13 +113,6 @@ function compareSort(a: Record<string, unknown>, b: Record<string, unknown>): nu
  * 该辅助器对每条 WorkCase 都返回 null，`item.inboxKind` 与它比对上必然不相等——
  * 只是恰好当日事实源里没有 WorkCase-in-inbox 样本，断言空转而未暴露。
  */
-function expectedInboxKind(item: Record<string, unknown>): string | null {
-  const group = item.group
-  if (group === 'pending_gate1') return 'plan_confirmation'
-  if (group === 'awaiting_gate2') return 'closure_confirmation'
-  return null
-}
-
 test('recent activity rows display localized type labels while preserving full ids for actions', () => {
   const source = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
   const recentActivityRow = source.slice(source.indexOf('function RecentActivityRow'), source.indexOf('function RecentActivityUsageBars'))
@@ -134,14 +127,13 @@ test('recent activity rows display localized type labels while preserving full i
   assert.match(detailSource, /projectId=\{selectedProjectId\}/)
 })
 
-test('all five AI module summaries use human-readable type and title without machine locators', () => {
+test('AI module summaries use human-readable type and title without machine locators', () => {
   const source = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
   assert.match(source, /return `\$\{getTypeLabel\(type, locale\)\}《\$\{title\}》`/)
 
   const summaryNames = [
     'buildModuleSummary',
     'buildRecentActivitySummary',
-    'buildActiveWorkCaseSummary',
     'buildSparkHealthSummary',
   ]
   for (const [index, name] of summaryNames.entries()) {
@@ -166,10 +158,6 @@ test('cognition endpoint returns inbox, fact activity, and Spark health contract
   const inbox = body.inbox as Record<string, unknown>
   assert.ok(Array.isArray(inbox.items))
   assert.equal(typeof inbox.total, 'number')
-  assert.ok(body.activeWorkCases && typeof body.activeWorkCases === 'object')
-  const activeWorkCases = body.activeWorkCases as Record<string, unknown>
-  assert.ok(Array.isArray(activeWorkCases.items))
-  assert.equal(activeWorkCases.total, (activeWorkCases.items as unknown[]).length)
   assert.ok(body.recentActivity && typeof body.recentActivity === 'object')
   const recent = body.recentActivity as Record<string, unknown>
   assert.equal(recent.window, '1d')
@@ -545,80 +533,19 @@ test('inbox collects only decision-baseline items with a deterministic sort orde
   })
 })
 
-test('active WorkCases contain ordinary progress or termination cleanup and reuse the list Card projection', async () => {
-  const body = await cognition('zh')
-  const active = body.activeWorkCases as Record<string, unknown>
-  const items = active.items as Array<Record<string, unknown>>
-  const inboxIds = new Set(
-    ((body.inbox as Record<string, unknown>).items as Array<Record<string, unknown>>)
-      .map((item) => String(item.id)),
-  )
-
-  assert.equal(active.total, items.length)
-  assert.deepEqual(items.map((item) => String(item.id)), items.slice().sort(compareSort).map((item) => String(item.id)))
-  for (const item of items) {
-    assert.equal(item.type, 'workcase')
-    // 21 §8 / 10 §4.2.1：v5 三态直读，「推进中」= status=open ∧ 正文无「## 结果」节
-    // ⇒ 派生分组 `executing`。v4 的 `progress_group`（progressing/termination_cleanup）
-    // 与 `isBlocked` 已不存在，断言它们为假而非断言其取值（此前该断言恒失败，
-    // 只因当日事实源内 activeWorkCases 为空才未暴露）。
-    assert.equal(item.group, 'executing')
-    assert.equal('progress_group' in item, false)
-    assert.equal('isBlocked' in item, false)
-    assert.equal('lifecycle_position' in item, false)
-    assert.equal('phase' in item, false)
-    assert.equal('status' in item, false)
-    assert.equal('inboxKind' in item, false)
-    assert.equal(inboxIds.has(String(item.id)), false, 'active item must not duplicate a Human Gate item')
-    assert.ok(item.card && typeof item.card === 'object')
-    const card = item.card as Record<string, unknown>
-    assert.equal(typeof card.goal, 'string')
-    assert.equal('object_id' in card, false)
-    assert.equal('status' in card, false)
-    assert.equal('phase' in card, false)
-    if ('progress_step' in item) {
-      assert.ok(['item_execution', 'controller_self_check', 'independent_review', 'controller_synthesis'].includes(String(item.progress_step)))
-    }
-  }
-})
-
-test('inbox keeps WorkCase Human positions separate from Friction repairs', async () => {
+test('inbox collects friction repairs with the projection contract (26 §12)', async () => {
   const body = await cognition('zh')
   const items = (body.inbox as Record<string, unknown>).items as Array<Record<string, unknown>>
 
-  const kinds = new Set<string>()
-  let workCaseCount = 0
-  let frictionCount = 0
   for (const item of items) {
-    if (item.type === 'workcase') {
-      workCaseCount += 1
-      // 21 §8 / 10 §4.2.1：v5 派生分组是 `group`，四值闭集；v4 的 `progress_group`
-      // 与 `isBlocked` 不得再出现在投影里（它们是 v4 词汇，也从未有产出方）。
-      assert.ok(['pending_gate1', 'awaiting_gate2'].includes(String(item.group)))
-      assert.equal('progress_group' in item, false)
-      assert.equal('isBlocked' in item, false)
-      assert.ok(['plan_confirmation', 'closure_confirmation'].includes(String(item.inboxKind)))
-      // WorkCase 条目不得把来源 status 放在名为 status 的字段（02 §7.3）。
-      assert.equal('status' in item, false)
-      assert.equal(item.inboxKind, expectedInboxKind(item))
-    } else if (item.type === 'friction') {
-      // 26 §12：open 摩擦账目进待决定事项，`status` 是来源状态的直读值。
-      assert.equal(item.status, 'open')
-      frictionCount += 1
-      assert.equal(item.inboxKind, 'friction_repair')
-      assert.equal('progress_group' in item, false)
-    } else {
-      assert.fail(`unexpected inbox object type: ${String(item.type)}`)
-    }
+    // 26 §12：open 摩擦账目进待决定事项，`status` 是来源状态的直读值。
+    assert.equal(item.type, 'friction', `unexpected inbox object type: ${String(item.type)}`)
+    assert.equal(item.status, 'open')
+    assert.equal(item.inboxKind, 'friction_repair')
+    assert.equal('progress_group' in item, false)
     assert.equal(typeof item.relativeTime, 'string')
     assert.equal(typeof item.typeColor, 'string')
     assert.equal('source_status' in item, false)
-    kinds.add(String(item.inboxKind))
-  }
-  assert.equal(workCaseCount + frictionCount, items.length)
-  // 当前事实源不保证每次读取都包含全部待决对象；只校验实际出现对象的投影契约。
-  for (const kind of kinds) {
-    assert.ok(['plan_confirmation', 'closure_confirmation', 'friction_repair'].includes(kind))
   }
 })
 

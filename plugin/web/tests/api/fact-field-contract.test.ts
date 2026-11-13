@@ -34,14 +34,10 @@ const COMMON_FIELD_EXEMPTIONS: Record<string, readonly string[]> = {
   // refs（与工单的连接由**工单侧** refs 单向声明，条目侧不复制反向边）。
   // relations 仍采用（absorbed-into / superseded-by 两条终态边）。
   devlog: ['urls', 'refs'],
-  // 21 §8：WorkCase 不采用 urls——证据是当次执行的观察与回读，长期外部资料归 22/24。
-  workcase: ['urls'],
 };
 
 // 每类型固定的必填面：这些字段被当前阅读面无条件消费。
 const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
-  // 21 §8：summary/scope/plan 必填（serves/gate_1/attempt/result/outcome 条件）。
-  workcase: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'summary', 'scope', 'plan'],
   // 22 §8：decision/scope 必填（trigger_signal/retirement_reason/retired_at 条件）。
   adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision', 'scope'],
   // 23 §8：scope 必填（trigger_signal/disposition 条件；六要素住正文）。
@@ -66,7 +62,7 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
 };
 
 test('field contract is internally consistent for every fact type', () => {
-  assert.deepEqual(FACT_TYPES, ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog']);
+  assert.deepEqual(FACT_TYPES, ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog']);
 
   for (const type of FACT_TYPES) {
     const contract = FACT_FIELD_CONTRACT[type];
@@ -125,40 +121,6 @@ test('spark carries the 20-spec field closure without v4 leftovers', () => {
   assert.ok(FACT_LIST_FIELD_NAMES.spark.includes('serves'));
 });
 
-test('workcase carries the 21-spec field closure without v4 leftovers', () => {
-  // 21 §8 字段闭集无 priority；v5 两侧均无优先级字段（20 §289 / 22 §271 /
-  // 23 §252 / 26 §258——priority 类为无消费方装饰字段，03 §11.3-4）。
-  assert.ok(!('priority' in FACT_FIELD_CONTRACT.workcase), 'workcase 不应登记 priority');
-  assert.ok(!('urls' in FACT_FIELD_CONTRACT.workcase), 'workcase 不应登记 urls（21 §8 明文不采用）');
-  // 21 §8 锚点型 serves（SG-n 轻量锚点，条件出现）。
-  assert.equal(FACT_FIELD_CONTRACT.workcase.serves.expected, 'string');
-  assert.equal(FACT_FIELD_CONTRACT.workcase.serves.required, false);
-  // 21 §8：gist（要点）是给 Human 扫读的纯文本字段，draft/open 必填、closed
-  // 条件（终态只读，缺失合法）。契约的 required 是**跨状态**口径，故为 false；
-  // 「按状态分层必填」由 writer 承担（validateWorkcaseFrontmatter），此处只登记
-  // 字段存在性与类型，使卡面投影不会把它判为 unconsumed_field。
-  assert.equal(FACT_FIELD_CONTRACT.workcase.gist.expected, 'string');
-  assert.equal(FACT_FIELD_CONTRACT.workcase.gist.required, false);
-  // 21 §8 结构化字段：plan 必填（数组）；gate_1/attempt/result 条件（object）；
-  // outcome 条件（string）。
-  assert.equal(FACT_FIELD_CONTRACT.workcase.plan.expected, 'array');
-  assert.equal(FACT_FIELD_CONTRACT.workcase.plan.required, true);
-  assert.equal(FACT_FIELD_CONTRACT.workcase.gate_1.expected, 'object');
-  assert.equal(FACT_FIELD_CONTRACT.workcase.attempt.expected, 'object');
-  assert.equal(FACT_FIELD_CONTRACT.workcase.result.expected, 'object');
-  assert.equal(FACT_FIELD_CONTRACT.workcase.outcome.expected, 'string');
-  // 03 §7.2 / 21 §8：refs 是可选的状态中立普通关联，不能被误并入
-  // relations，也不能因为字段存在就推断建议已履行。
-  assert.equal(FACT_FIELD_CONTRACT.workcase.refs.expected, 'array');
-  assert.equal(FACT_FIELD_CONTRACT.workcase.refs.required, false);
-  // transport-only 正文（派生判据通道；不复制进列表投影）。
-  assert.equal(FACT_FIELD_CONTRACT.workcase.report_body.expected, 'string');
-  // v4 字段全部退出契约。
-  for (const retired of ['phase', 'work_items', 'goal', 'success_criterion_definitions', 'closure_proposal', 'execution_approval', 'closure_outcome', 'termination']) {
-    assert.ok(!(retired in FACT_FIELD_CONTRACT.workcase), `workcase 不应登记 v4 字段 ${retired}`);
-  }
-});
-
 test('list candidates are a declared subset of each type contract', () => {
   for (const type of ['adr', 'pitfall', 'spark', 'research'] as const) {
     const names = FACT_LIST_FIELD_NAMES[type];
@@ -173,9 +135,8 @@ test('terminal status closures are non-empty and cover each lifecycle', () => {
     assert.ok(terminals.length > 0, `${type} 终态闭集不能为空`);
     assert.equal(new Set(terminals).size, terminals.length, `${type} 终态闭集不应有重复`);
   }
-  // 各类型的终态语义：workcase 关闭、决策退休、经验废弃、火花落实/废弃（20 §9
+  // 各类型的终态语义：决策退休、经验废弃、火花落实/废弃（20 §9
   // 状态闭集 open/implemented/discarded，implemented 与 discarded 均为终态）、调研退休。
-  assert.deepEqual(FACT_TERMINAL_STATUSES.workcase, ['closed']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.adr, ['retired']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.pitfall, ['discarded']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.spark, ['implemented', 'discarded']);
@@ -188,23 +149,8 @@ test('terminal status closures are non-empty and cover each lifecycle', () => {
   assert.ok(!FACT_TERMINAL_STATUSES.friction.includes('observing'),
     'observing 已退出 26 §9 闭集，不得出现在摩擦终态集里');
 });
-test('workcase registers both review axes (21 §8): pre_reviews and reviews', () => {
-  // 审核轴（`pre_reviews`，2026-10-16 建立）与复核轴（`reviews`）是两个独立字段，
-  // 21 §8 明文「分立互不替代」（01 §5 第 12 项）——传输契约不得只登记其一。
-  //
-  // 回归点（实测缺陷）：`pre_reviews` 曾是 frontmatter 闭集成员却未登记进本契约，
-  // 读取层据此把它判为 `unconsumed_field` 并从 `fact_object` 丢弃；而 draft 卡的
-  // `pre_audit_passed` 派生读的正是 `fact_object.pre_reviews`，于是徽标恒显示
-  // 「· 待审核」、详情面把合法字段列进「未解析结构」。缺这一行，两个呈现面就一起错。
-  assert.equal(FACT_FIELD_CONTRACT.workcase.reviews.expected, 'array');
-  assert.equal(FACT_FIELD_CONTRACT.workcase.pre_reviews.expected, 'array');
-  // 二者都是「按状态条件出现」的流水（draft 期审、open 期复核），跨状态口径可选。
-  assert.equal(FACT_FIELD_CONTRACT.workcase.reviews.required, false);
-  assert.equal(FACT_FIELD_CONTRACT.workcase.pre_reviews.required, false);
-});
-
 test('friction registers attribution_ref as an object reference (26 §8/§11)', () => {
-  // 回归点（workcase-54d4d176）：attribution_ref 原登记为 string，而真实载体
+  // 回归点：attribution_ref 原登记为 string，而真实载体
   // （ldvh-base/frictions/friction-abf557e1…md）写的是 {object_uid} 对象形态——
   // 读取层按 type_mismatch 静默丢弃该字段（Web 详情与 CLI 列表/详情三处全丢）。
   // 26 §8 字段表已订正为 object 形态（与 relations 的 target 同一承载），契约随之。

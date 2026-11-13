@@ -15,7 +15,6 @@ import { useI18n } from '@/i18n/context';
 import { copyText } from '@/utils/clipboard';
 import { LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
 import { getTypeSurfaceTint } from '@/utils/typeSurface';
-import { WORKCASE_SURFACE_GEOMETRY_CLASS } from '@/components/WorkCaseCriteriaList';
 import StatusBadge from '@/components/StatusBadge';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
 import {
@@ -321,7 +320,7 @@ export default function GoalSection() {
 
   // 目标陈述按本类型色（goal = emerald）上色。面与正文必须**成对**取用：
   // 只贴 `surface` 会让正文沿用中性近黑，色相面与正文分家（docs/01 §1.6、
-  // `utils/typeSurface.ts` 头注）。几何仍取 WorkCase 判据面那一个常量——
+  // `utils/typeSurface.ts` 头注）。几何仍取判据面那一个形态——
   // 四边同宽 1px、rounded-lg、px-3 py-2，本区只接管色相。
   const statementTint = getTypeSurfaceTint('goal');
 
@@ -429,7 +428,7 @@ export default function GoalSection() {
           )}
           {goalError && <p className={`ldvh-body-muted ${LDVH_ERROR_TEXT_CLASS}`}>{goalError}</p>}
           {goal?.statement && (
-            <div className={WORKCASE_SURFACE_GEOMETRY_CLASS} style={statementTint.surface}>
+            <div className="min-w-0 rounded-lg border px-3 py-2" style={statementTint.surface}>
               <p className="ldvh-body min-w-0 break-words" style={statementTint.body}>
                 {goal.statement}
               </p>

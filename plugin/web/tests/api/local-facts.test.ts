@@ -9,5 +9,5 @@ test('all current fact types remain available to the local reader', () => {
   //
   // 本数组的顺序是**类型值域**，不是呈现次序：devlog 在侧栏排在对象族末位
   //（``Sidebar.tsx`` 的 NAV_ITEMS 承担），两处不互相推演。
-  assert.deepEqual(ACTIVE_OBJECT_TYPES, ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog']);
+  assert.deepEqual(ACTIVE_OBJECT_TYPES, ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog']);
 });

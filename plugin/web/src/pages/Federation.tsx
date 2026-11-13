@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Inbox, Layers, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowRight, Inbox, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import ProjectIssuesNotice from '@/components/ProjectIssuesNotice';
 import { fetchFederationOverview, type FederationOverviewData, type FederationProjectCard } from '@/utils/api';
@@ -100,10 +100,6 @@ export default function Federation() {
                           <p className="mt-0.5 ldvh-stat-value">
                             {countText(project.sparkOpen)}
                           </p>
-                        </div>
-                        <div className="rounded-md border border-ldvh-border/60 bg-ldvh-bg/40 px-2.5 py-2">
-                          <p className="ldvh-caption-strong flex items-center gap-1.5"><Layers size={12} />{t('federation.activeWorkCases')}</p>
-                          <p className="mt-0.5 ldvh-stat-value">{countText(project.activeWorkCases)}</p>
                         </div>
                         <div className="rounded-md border border-ldvh-border/60 bg-ldvh-bg/40 px-2.5 py-2">
                           <p className="ldvh-caption-strong flex items-center gap-1.5"><Inbox size={12} />{t('federation.pendingDecisions')}</p>

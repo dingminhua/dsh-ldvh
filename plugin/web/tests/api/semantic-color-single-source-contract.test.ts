@@ -16,8 +16,7 @@ import test from 'node:test';
  *
  * 豁免边界（与 semanticColors.ts 头注一致）：
  * - diff 语法高亮（project-files/model.ts 等）——代码高亮豁免；
- * - 域内单源表（workcaseCheckState / objectSignals / WorkCaseClosedStatusBadge
- *   / WorkCaseGistLine / WorkCaseCriteriaList）——WorkCase 域 600 系强 chip 档；
+ * - 域内单源表（objectSignals）——域内 600 系强 chip 档；
  * - 文件内一次性映射（状态图标 map、Friction 决策面板、布尔对偶等）。
  *
  * 范围外登记（2026-10-04 逐处实测后确认，非漏网——勿机械「清干净」）：
@@ -121,8 +120,7 @@ test('批次 B 收敛掉的漂移变体不得回潮（src 内禁止再写）', a
 /**
  * 域内单源表**自身的消费方守卫**。
  *
- * 本契约头注把若干「域内单源表」（workcaseCheckState / objectSignals /
- * WorkCaseClosedStatusBadge / …）列为豁免——它们不归横切原子管，这没问题。
+ * 本契约头注把若干「域内单源表」（objectSignals 等）列为豁免——它们不归横切原子管，这没问题。
  * 但**豁免不等于无人守卫**：表被豁免了，表的值却仍会被消费方手抄。
  * 实测缺口（2026-10-03）：`WORKCASE_CHECK_TAG_CLASS` 的 satisfied / partial /
  * unsatisfied 三个值在 `WorkCaseExecFlow.tsx` 与 `WorkCaseReadingLayout.tsx`
@@ -134,14 +132,7 @@ test('批次 B 收敛掉的漂移变体不得回潮（src 内禁止再写）', a
  * 区分开的最小守卫。
  */
 const DOMAIN_SINGLE_SOURCE_TABLES: Array<[string, string[]]> = [
-  [
-    'utils/workcaseCheckState.ts',
-    [
-      'border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-      'border-amber-600/50 bg-amber-500/15 text-amber-700 dark:text-amber-300',
-      'border-red-600/45 bg-red-500/10 text-red-700 dark:text-red-300',
-    ],
-  ],
+  // 当前无登记项：原登记的域内单源表已随其事实类型撤除。
 ];
 
 test('域内单源表的值不得被消费方手抄（表在、且真的只有一个源）', async () => {

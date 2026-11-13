@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Code2, ExternalLink, FileText, History, Link2, Radar } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Code2, ExternalLink, FileText, History, Link2 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -13,14 +13,12 @@ import EvidenceBlock from '@/components/EvidenceBlock';
 import CopyPathButton from '@/components/CopyPathButton';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
-import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
-import { hasUnavailableIndependentSubagentReview } from '@/shared/workcaseCapability';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
-import { fetchObjectDetail, type ObjectDetail, type WorkCaseDetailData } from '@/utils/api';
+import { fetchObjectDetail, type ObjectDetail } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import {
   getFieldLabel as getLocalizedFieldLabel,
@@ -36,7 +34,6 @@ import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { getFactReadMeta, isReadableFact, reconstructFactYaml, sortedResearchFrontmatterYaml, type FactCarrier, type FactReadMeta } from '@/utils/factReadMeta';
 import { getObjectUpdatedAt } from '@/utils/factChangeLog';
-import WorkCaseReadingLayout from '@/pages/object-detail/WorkCaseReadingLayout';
 import { AdrReadingLayout, ChangeLogReadingNode, DevLogReadingLayout, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, PitfallTextNodeContent, SparkReadingLayout, SubGoalReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
 import { fieldIssue } from '@/pages/object-detail/fieldIssues';
@@ -61,7 +58,6 @@ import {
   type RelatedContentEntry,
 } from '@/pages/object-detail/model';
 import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
-export { default as WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
 export { AdrReadingLayout, DevLogReadingLayout, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, SparkReadingLayout, SubGoalReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 
 // v5 Research（24 号薄索引）阅读布局消费的字段全集：固定 H2 正文（report_body）、
@@ -281,9 +277,7 @@ export function FactReadingContent({
 
   return (
     <>
-      {objType === 'workcase' ? (
-        <WorkCaseReadingLayout obj={obj as WorkCaseDetailData} locale={locale} />
-      ) : objType === 'research' ? (
+      {objType === 'research' ? (
         <ResearchReadingLayout
           obj={obj}
           extraEntries={primaryEntries}
@@ -334,7 +328,7 @@ export function FactReadingContent({
           不再按 objType 白名单挑选：事实源现状为八类全 markdown 载体，读取层
           （localFactReader 的 readable()）对 markdown 载体一律透传 frontmatter
           原文，白名单已无存在依据。goal 是单例、不走事实对象读取层，其原文由
-          /api/cognition/goal 响应投影 yaml_source（workcase 9208ce82 补齐）——
+          /api/cognition/goal 响应投影 yaml_source——
           原先「goal 缺 yaml_source 故落重建兜底」的例外已消除，故此处不再需要
           按类型分支：八类含 goal 一律原文直显（research 另按 24 §7 规范阅读序重排）。
           frontmatter 机器索引的解释性呈现（启发节点）已按 Human 划线标注移除
@@ -564,13 +558,9 @@ type LocalizedTitleItem = {
 export function getObjectHeaderStatus(
   objectType: string,
   status: string | undefined,
-  source: Record<string, unknown>,
+  _source: Record<string, unknown>,
 ): string | undefined {
-  if (objectType !== 'workcase') return status;
-  // 21 号三态直读：列表/详情头状态直接用派生 group（pending_gate1/executing/awaiting_gate2/closed）。
-  const group = source.group;
-  if (typeof group === 'string') return group;
-  return typeof status === 'string' ? status : 'unknown';
+  return typeof status === 'string' ? status : undefined;
 }
 
 export function ObjectIdentityHeader({
@@ -643,9 +633,6 @@ export function ObjectIdentityHeader({
   const inlineTitleMeta = titleMetaAlign === 'content' ? titleMetaEntries : [];
   const actionAlignedTitleMeta = titleMetaAlign === 'actions' ? titleMetaEntries : [];
   const footerEndTitleMeta = titleMetaAlign === 'footerEnd' ? titleMetaEntries : [];
-  const capabilityStatusBadge = hasUnavailableIndependentSubagentReview(source)
-    ? <WorkCaseCapabilityStatusBadge source={source} />
-    : null;
   return (
     <div className={compact ? 'min-w-0' : 'rounded-lg border border-ldvh-border bg-ldvh-panel px-4 py-3'}>
       <div className="min-w-0">
@@ -690,7 +677,7 @@ export function ObjectIdentityHeader({
                 <span>{activityCount}</span>
               </span>
             )}
-            {(capabilityStatusBadge || status || actionBadges || showCopyAction) && (
+            {(status || actionBadges || showCopyAction) && (
               <div className="ml-auto shrink-0">
                 <ObjectIdentityActions
                   status={status}
@@ -698,7 +685,6 @@ export function ObjectIdentityHeader({
                   objectType={objectType}
                   projectId={selectedProjectId}
                   target={target}
-                  statusLeadingBadges={capabilityStatusBadge}
                   actionBadges={actionBadges}
                   copyLabel={copyLabel}
                   copiedLabel={copiedLabel}
@@ -1078,8 +1064,7 @@ export function RelatedContentSection({
 export function getAuxiliaryMetaEntries(obj: Record<string, unknown>, objType: string) {
   const keys = Array.from(new Set([...(AUXILIARY_META_KEYS_BY_TYPE[objType] || []), ...COMMON_AUXILIARY_META_KEYS]));
   return keys
-    .filter((key) => key !== 'priority' || (objType !== 'spark' && objType !== 'workcase'))
-    .filter((key) => key !== 'scope' || objType !== 'workcase')
+    .filter((key) => key !== 'priority' || objType !== 'spark')
     .map((key) => [key, obj[key]] as [string, unknown])
     .filter(([, value]) => value !== null && value !== undefined && value !== '' && (!Array.isArray(value) || value.length > 0));
 }
@@ -1170,7 +1155,7 @@ export function DetailSection({
   );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components -- 3 个阅读布局消费；workcase-design-language-contract 断言本文件含该符号。
+// eslint-disable-next-line react-refresh/only-export-components -- 阅读布局消费；ntract 断言本文件含该符号。
 export function getReadingNodeNextState(state: ReadingNodeState): ReadingNodeState {
   return state === 'collapsed' ? 'expanded' : 'collapsed';
 }
@@ -1897,7 +1882,7 @@ function FieldValue({ fieldKey, value, depth, locale }: { fieldKey: string; valu
   return <span className="ldvh-body">{String(value)}</span>;
 }
 
-/** 从引用 ID 解析对象类型（如 workcase-0001 → workcase） */
+/** 从引用 ID 解析对象类型（如 adr-0001 → adr） */
 function parseRefType(refId: string): string | null {
   if (!isObjectRef(refId)) return null;
   const m = refId.match(/^([a-z]+)-\d+$/);

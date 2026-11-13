@@ -103,40 +103,8 @@ change_log:
 `;
 }
 
-function workCaseCarrier(uid: string, title: string, status: string, serves: string): string {
-  const gates = status === 'closed'
-    ? `outcome: completed
-result:
-  criteria_checks:
-    - satisfied: true
-      evidence: 夹具证据。
-  achieved_scope: 夹具范围。
-`
-    : '';
-  return `---
-title: ${title}
-status: ${status}
-gist: 夹具要点。
-summary: 要做的事。
-scope: 做什么：夹具。
-plan:
-  - step: 步骤一
-    done_criteria: 判据一
-serves: ${serves}
-${gates}object_uid: ${uid}
-fact_type_key: workcase
-created_at: 2026-10-01T00:00:00.000Z
-change_log:
-  - at: 2026-10-01T00:00:00.000Z
-    summary: 夹具
----
-
-# ${title}
-`;
-}
-
 async function writeFixture(root: string) {
-  const dirs = ['subgoals', 'sparks', 'workcases'] as const;
+  const dirs = ['subgoals', 'sparks'] as const;
   for (const dir of dirs) await mkdir(path.join(root, 'ldvh-base', dir), { recursive: true });
   await writeFile(
     path.join(root, 'ldvh-base', 'subgoals', `subgoal-${SUB_GOAL_UID}.md`),
@@ -163,11 +131,6 @@ async function writeFixture(root: string) {
     sparkCarrier('bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb', '火花二', 'implemented', SUB_GOAL_UID),
     'utf8',
   );
-  await writeFile(
-    path.join(root, 'ldvh-base', 'workcases', 'workcase-cccccccc-1111-4111-8111-cccccccccccc.md'),
-    workCaseCarrier('cccccccc-1111-4111-8111-cccccccccccc', '工单一', 'open', SUB_GOAL_UID),
-    'utf8',
-  );
   // 指向另一条子目标的火花：不得串到本条子目标名下。
   await writeFile(
     path.join(root, 'ldvh-base', 'sparks', 'spark-dddddddd-1111-4111-8111-dddddddddddd.md'),
@@ -190,19 +153,14 @@ test('子目标列表项携带名下工作，并按 object_uid 精确归组（28
     const serving = target.serving_work as Array<Record<string, unknown>>;
     assert.equal(Array.isArray(serving), true);
 
-    // 精确相等归组：只收 serves === 本 uid 的两条火花 + 一条工单。
+    // 精确相等归组：只收 serves === 本 uid 的两条火花。
     assert.deepEqual(
       serving.map((row) => row.type).sort(),
-      ['spark', 'spark', 'workcase'],
+      ['spark', 'spark'],
       '只收 serves 指向本条子目标的条目',
     );
     // 另一条子目标的对象不得串入。
     assert.equal(serving.some((row) => row.title === '火花三'), false, '不得串到其它子目标的名下');
-
-    // workcase 行携带 21 号派生分组（呈现层据此判行末状态图标，不重算）。
-    const workCaseRow = serving.find((row) => row.type === 'workcase');
-    assert.ok(workCaseRow, '应有一行工单');
-    assert.equal(workCaseRow.group, 'executing', 'open 且无结果节的工单派生为 executing');
 
     // 列表携带行但**不携带正文**：载荷纪律不因新增派生视图而破。
     assert.equal('report_body' in target, false, '列表项不得携带 report_body');
@@ -291,7 +249,7 @@ test('卡面：按类型分层、每层先展固定条数、其余可展开（Hu
 
   // 分层与预算：两个常量都必须存在且被真实消费（不是只声明）。
   assert.match(source, /export const SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT = 3;/, '每层先展 3 条须为具名常量');
-  assert.match(source, /SUB_GOAL_SERVING_TYPE_ORDER: readonly string\[\] = \['workcase', 'spark'\]/);
+  assert.match(source, /SUB_GOAL_SERVING_TYPE_ORDER: readonly string\[\] = \['spark'\]/);
   assert.match(source, /group\.rows\.slice\(0, SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT\)/, '折叠态按预算截取');
   assert.match(source, /const visible = expanded \? group\.rows :/, '展开态给全量（不是另一批）');
   assert.match(source, /Math\.max\(0, group\.rows\.length - SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT\)/, '其余条数由总数减预算得出');

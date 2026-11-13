@@ -30,7 +30,7 @@ test('every fact list card shows exact-read formal associations in a minimal sec
 
   assert.match(source, /function FactAssociationsCardContent/);
   assert.match(source, /associations=\{obj\.factAssociations\}/);
-  // Human 裁定 2026-09-16（WorkCase 18fcee2c 扩围）：卡片网格恢复关联对象
+  // Human 裁定 2026-09-16：卡片网格恢复关联对象
   // 呈现——refs 与 relations 走同一组件路径并列呈现（10 §5.2 卡片网格承载
   // 「关联计数」）。原 2026-09-13「关联对象只在详情呈现」的裁定已对 refs
   // 解除，但解除的是**呈现位置**、不是分工纪律：refs 仍不得并入 relations。
@@ -71,12 +71,11 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.match(source, /whitespace-normal break-words/);
   assert.match(source, /openPanel\(\{ type: 'object', title, objectType: legacyTarget\.factTypeKey, objectId: legacyTarget\.objectId \}\)/);
   assert.doesNotMatch(source, /StatusBadge status=\{association\.status\}/);
-  // v5：cancelled 不再映射 discarded（21 号无此组）——isDiscardedWorkCaseAssociation 已删除。
+  // v5：cancelled 不再映射 discarded——isDiscardedWorkCaseAssociation 已删除。
   assert.doesNotMatch(source, /isDiscardedWorkCaseAssociation/);
   assert.match(source, /function getFactAssociationState/);
   assert.match(source, /targetType === 'spark'/);
   assert.match(source, /association\.status === 'open'\) return 'pending'/);
-  assert.match(source, /association\.group === 'pending_gate1' \|\| association\.group === 'awaiting_gate2'/);
   assert.match(source, /<FactAssociationStateIcon state=\{associationState\} tooltip=\{associationStateTooltip\} \/>/);
   assert.doesNotMatch(source, /isHiddenTerminalAssociation/);
   assert.match(source, /FACT_ASSOCIATION_STATE_RANK/);

@@ -3,7 +3,7 @@
 // 类型来源定义了不同语义时，必须通过 OBJECT_STATUS_LOCALES 覆盖本表。
 // ============================================================
 export const STATUS_LOCALES: Record<string, { zh: string; en: string }> = {
-  // WorkCase / ADR
+  // 类型专属状态词 / ADR
   draft: { zh: '草稿', en: 'Draft' },
   proposed: { zh: '已提议', en: 'Proposed' },
   accepted: { zh: '已采纳', en: 'Accepted' },
@@ -63,25 +63,12 @@ export function getStatusLocale(status: string, locale: string): string {
 }
 
 // 状态码可在不同事实对象中复用，但展示语义不必相同。Spark 的 `open`
-// 表示「尚待判断或分流」，不是 WorkCase 式的「未关闭」。
+// 表示「尚待判断或分流」，不是「未关闭」式的终态语义。
 //
 // 本表是**类型专属展示词条的唯一来源**：徽标（StatusBadge ← getObjectStatusLocale）、
 // 列表卡、详情身份头部、联邦与热点图都经 getObjectStatusLocale 取词条。筛选器的
-// 分组标签亦由此派生（见 WORKCASE_GROUP_STATUSES / getWorkCaseGroupLabel），
 // 不得在 UI_LOCALES 里再登记一份同义词条——两处登记必然漂移。
 const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
-  workcase: {
-    discarded: { zh: '已废弃', en: 'Discarded' },
-    // 21 号三态直读的四个**派生分组**（不是来源 status，也不写回对象）。
-    // 此前本表缺这四条，回退到 STATUS_LOCALES 时只有 executing 与 closed 命中，
-    // pending_gate1 / awaiting_gate2 则原值直出——徽标显示 `pending_gate1` 这样的
-    // raw snake_case，违反 docs/01 §1.3「枚举值必须通过语义映射本地化」（缺陷 D7）。
-    pending_gate1: { zh: '待批准执行', en: 'Pending Gate 1' },
-    executing: { zh: '执行中', en: 'Executing' },
-    awaiting_gate2: { zh: '待批准关闭', en: 'Awaiting Gate 2' },
-    closed: { zh: '已关闭', en: 'Closed' },
-    unknown: { zh: '状态未知', en: 'Unknown status' },
-  },
   adr: {
     retired: { zh: '已废弃', en: 'Retired' },
   },
@@ -158,72 +145,35 @@ export function getObjectStatusLocale(type: string, status: string, locale: stri
 }
 
 /**
- * WorkCase 派生分组的筛选五档顺序（含「全部」）。
- *
- * 分组展示词条由 `getObjectStatusLocale('workcase', group, locale)` 给出——
- * 与徽标、列表卡、详情身份头部共用**同一张表**（单一来源，防口径漂移）。
- */
-export const WORKCASE_GROUP_STATUSES = [
-  'pending_gate1',
-  'executing',
-  'awaiting_gate2',
-  'closed',
-] as const;
-
-/** 派生分组（或 'unknown'）的本地化词条——筛选器、徽标与详情同源。 */
-export function getWorkCaseGroupLabel(group: string, locale: string): string {
-  return getObjectStatusLocale('workcase', group, locale);
-}
-
-/**
- * 「待批准执行」徽标的**建前审核后缀**（21 §8 `pre_reviews`，2026-10-16 建立）。
- *
- * 形态（Human 2026-10-16 定）：已审保持原词「待批准执行」不动；未审追加
- * 「· 待审核」。**不新增颜色、不新增派生组**——draft 的派生组仍是 `pending_gate1`，
- * 唯一变化是徽标文字，使 Human 一眼看出「这份审了没」。
- *
- * 判据只读 `pre_audit_passed`（由投影层按「存在一条 verdict=pass 的条目」给出），
- * 本函数不自行判定——单一来源，防口径漂移。
- */
-export function getWorkCasePendingGate1Label(locale: string, preAuditPassed: boolean | undefined): string {
-  const base = getObjectStatusLocale('workcase', 'pending_gate1', locale);
-  if (preAuditPassed === true) return base;
-  return locale === 'en' ? `${base} · Awaiting audit` : `${base} · 待审核`;
-}
-
-/**
  * **状态徽标文案的唯一入口**（含建前审核后缀）：任何呈现面要显示某个对象的状态词，
  * 都调本函数，不要直接调 `getObjectStatusLocale`。
  *
  * ## 为什么必须收敛到一处（2026-10-17）
  *
  * 后缀最初只加在**列表卡**（`ObjectList` 的 `cardStatusLabel`），聚焦页的四处徽标
- * 仍各自直调 `getObjectStatusLocale`，于是同一张工单在列表卡上显示
+ * 仍各自直调 `getObjectStatusLocale`，于是同一个对象在列表卡上显示
  * 「待批准执行 · 待审核」、在聚焦收件箱里却只显示「待批准执行」——**同一事实两处
  * 说法不同**。Human 为此直接指出「聚焦栏的 card 表现要同步」。
  *
  * 根因不是漏改某一处，而是**判据没有单一来源**：只要后缀的拼接逻辑住在某个页面的
  * 局部 const 里，任何新增的呈现面都必然再漏一次。故收敛到这里，各处只传数据。
  *
- * @param type 对象类型（只有 workcase 的 pending_gate1 有后缀）
+ * @param type 对象类型
  * @param status 派生分组或状态值
- * @param preAuditPassed 该对象的建前审核是否已取得通过结论（非 workcase 传 undefined）
+ * @param preAuditPassed 该对象的建前审核是否已取得通过结论
  */
 export function getObjectStatusDisplayLabel(
   type: string,
   status: string,
   locale: string,
-  preAuditPassed?: boolean,
+  _preAuditPassed?: boolean,
 ): string {
-  if (type === 'workcase' && status === 'pending_gate1') {
-    return getWorkCasePendingGate1Label(locale, preAuditPassed);
-  }
   return getObjectStatusLocale(type, status, locale);
 }
 
 // `TYPE_DESCRIPTION_LOCALES` / `getTypeDescription` 已删除（2026-11-02）。
 //
-// 它们是**类型定义的复述**表（「工单——需要持续保存…（21 §1）」「事实规范——一个工程
+// 它们是**类型定义的复述**表（「事实规范——一个工程
 // 方向的成体系规则体系（27 §1）」……），迁自 v4。全部 11 条里，**只有 `norm` 一条曾
 // 真正上屏**——规范卡卡体的类型说明行。那一行随方向键块一并撤除后，本表再无消费方，
 // 即「11 条里 10 条自始是死的、最后 1 条也死了」。
@@ -246,7 +196,6 @@ export function getObjectStatusDisplayLabel(
 
 /** 对象类型中英映射 */
 export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
-  workcase: { zh: '工单', en: 'WorkCase' },
   adr: { zh: '决策', en: 'ADR' },
   pitfall: { zh: '经验', en: 'Pitfall' },
   spark: { zh: '火花', en: 'Spark' },
@@ -432,8 +381,6 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   pitfall_triggers: { zh: '触发条件', en: 'Trigger Conditions' },
   pitfall_resolution: { zh: '解决', en: 'Resolution Applied' },
   pitfall_scope_section: { zh: '影响与适用范围', en: 'Impact & Applicability' },
-  workcase: { zh: '工单', en: 'WorkCase' },
-  // 21 定义的单一当前 WorkCase 字段；不存在历史形状显示分支。
   goal: { zh: '目标', en: 'Goal' },
   // 21 §8 闭集无 `phase`：v5 用派生分组 `group`（pending_gate1/awaiting_gate2/
   // executing/closed）表达生命周期位置，故 `phase` 词条已移除。
@@ -673,7 +620,6 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
   },
   reviewer: {
     'independent-result-review-subagent': { zh: '结果复核 Reviewer', en: 'Result Review Reviewer' },
-    workcase_creation_review: { zh: '方案复核 Reviewer', en: 'Plan Review Reviewer' },
   },
   category: {
     question: { zh: '问题', en: 'Question' },
@@ -828,7 +774,7 @@ const COMMIT_SCOPE_LOCALES: Record<string, { zh: string; en: string }> = {
   rules: { zh: '规则', en: 'Rules' }, runtime: { zh: '运行时', en: 'Runtime' },
   code: { zh: 'Code', en: 'Code' }, web: { zh: 'Web', en: 'Web' },
   tests: { zh: 'Tests', en: 'Tests' }, config: { zh: '配置', en: 'Config' },
-  workcase: { zh: '工单', en: 'WorkCase' }, adr: { zh: '决策', en: 'ADR' },
+  adr: { zh: '决策', en: 'ADR' },
   spark: { zh: '火花', en: 'Spark' }, research: { zh: '调研', en: 'Research' },
   pitfall: { zh: '经验', en: 'Pitfall' },
   friction: { zh: '摩擦', en: 'Friction' },
@@ -866,8 +812,6 @@ export const STATUS_HINT_LOCALES: Record<string, { zh: string; en: string }> = {
   human_closure_confirming: { zh: '等待 Human 确认关闭', en: 'Waiting for human closure confirmation' },
   termination_preparing: { zh: '正在按 Human 中止指令完成善后', en: 'Completing cleanup under the human termination instruction' },
   plan_confirmation: { zh: '等待 Human 确认方案', en: 'Waiting for human plan confirmation' },
-  progressing: { zh: '工单正在推进', en: 'Work is progressing' },
-  termination_cleanup: { zh: '工单已停止原计划，正在完成终止善后', en: 'The original plan has stopped and termination cleanup is in progress' },
   closure_confirmation: { zh: '等待 Human 确认关闭', en: 'Waiting for human closure confirmation' },
   draft: { zh: '草稿中', en: 'In draft' },
   pending: { zh: '待分流处理', en: 'Pending routing' },
@@ -886,32 +830,6 @@ export function getObjectStatusHint(type: string, status: string, locale: string
     return locale === 'en'
       ? 'Current effective decision'
       : '当前有效决策';
-  }
-  // 21 号三态直读派生分组：徽标的 title 必须说清「这是呈现派生组、不是来源
-  // status」，否则 Human 会把 pending_gate1 误当成对象上的字段值。四组语义
-  // 依 specs/10 §5.5 登记的派生判据（draft → 待批准执行；open ∧ 正文含
-  // ## 结果 节 → 待批准关闭；open → 执行中；closed → 已关闭）。
-  if (type === 'workcase') {
-    if (status === 'pending_gate1') {
-      return locale === 'en'
-        ? 'Derived group: status=draft, awaiting Gate 1 approval (not a source status)'
-        : '派生分组：status=draft、待 Gate 1 批准（不是来源 status 取值）';
-    }
-    if (status === 'executing') {
-      return locale === 'en'
-        ? 'Derived group: status=open and the body has no ## Result section yet'
-        : '派生分组：status=open 且正文尚未出现「## 结果」节';
-    }
-    if (status === 'awaiting_gate2') {
-      return locale === 'en'
-        ? 'Derived group: status=open with a ## Result section, awaiting Gate 2 closure'
-        : '派生分组：status=open 且正文已含「## 结果」节，待 Gate 2 关闭';
-    }
-    if (status === 'closed') {
-      return locale === 'en'
-        ? 'Derived group: status=closed; the outcome badge carries the four-value terminal state'
-        : '派生分组：status=closed；终态由 outcome 四值徽标承载';
-    }
   }
   // 20 §1/§9：implemented 只结束 Spark 入口职责，不代表下游完成——终态语义
   // 在提示层显式限定，防「交了就当完成」的自欺。
@@ -973,7 +891,7 @@ export function getObjectStatusHint(type: string, status: string, locale: string
     }
   }
   // 28 号 §9：子目标三态语义限定。achieved 的证据是**判据材料**，不是
-  // 「名下工单都关了」——后者是本类型最主要的误读（28 §18 红线 3），
+  // 「名下工作都关了」——后者是本类型最主要的误读（28 §18 红线 3），
   // 故提示层显式否定它。
   if (type === 'subgoal') {
     if (status === 'active') {
@@ -1014,7 +932,6 @@ export const UI_LOCALES = {
     'logo.tagline': '让 Vibe Coding 更高效、更稳定、更可控',
 
     'nav.cognition': '聚焦',    'nav.projectFiles': '目录',
-    'nav.workcases': '工单',
     'nav.adrs': '决策',
     'nav.pitfalls': '经验',
     'nav.sparks': '火花',
@@ -1247,7 +1164,6 @@ export const UI_LOCALES = {
     'federation.noProjects': '当前没有登记的管辖项目。',
     'federation.defaultProject': '默认',
     'federation.sparkOpen': '悬置',
-    'federation.activeWorkCases': '推进中',
     'federation.pendingDecisions': '待决定',
     'federation.lastActivity': '最后动态',
     'federation.projectIssues': '部分数据不可用',
@@ -1307,11 +1223,6 @@ export const UI_LOCALES = {
     // 26 §12：已接受成本单列计数（accepted 不进待决定事项，只作度量观测量）。
     'cognition.frictionLedger.accepted': '已接受（不可清偿）{count} 笔',
     'cognition.inbox.unavailable': '本模块部分数据不可用',
-    'cognition.active.title': '推进中事项',
-    'cognition.active.empty': '当前没有推进中的工单',
-    'cognition.active.truncated': '共 {total} 项推进中事项，按排序显示前 {shown} 项，{hidden} 项未显示',
-    'cognition.active.showAll': '显示全部',
-    'cognition.active.collapse': '收起',
     'cognition.active.expandSection': '展开推进中事项',
     'cognition.active.collapseSection': '收起推进中事项',
     'cognition.active.unavailable': '推进中事项部分数据不可用',
@@ -1392,11 +1303,6 @@ export const UI_LOCALES = {
     'objectList.sortCreatedDesc': '创建时间 ↓',
     'objectList.sortPriorityAsc': '处置次序 ↑',
     'objectList.priorityNotApplicable': '终态对象不适用优先级。',
-    'objectList.relatedPlans': '关联工单',
-    'objectList.planCount': '{count} 个工单',
-    'objectList.activePlanCount': '活跃工单',
-    'objectList.humanConfirmPlanCount': '待确认工单',
-    'objectList.closedPlanCount': '已闭合工单',
     'objectList.closeDecision': '关闭判断',
     'objectList.closureIssue': '收口异常',
     'objectList.planExecutionQueue': '执行队列',
@@ -1414,9 +1320,7 @@ export const UI_LOCALES = {
     'objectList.activeCount': '{count} 进行中',
     'objectList.reviewCount': '{count} 待关闭',
     'objectList.riskCount': '{count} 有风险',
-    'objectList.noPlans': '暂无关联工单',
     'objectList.noExecutionItems': '暂无执行项',
-    'objectList.morePlans': '还有 {count} 个工单',
     'objectList.moreExecutionItems': '还有 {count} 个执行项',
     'objectList.successCriteria': '成功标准',
     'objectList.planConfirmedAt': '方案确认',
@@ -1446,114 +1350,35 @@ export const UI_LOCALES = {
     'objectList.associationState.active': '活跃',
     'objectList.discarded': '已废弃',
     'objectList.reason': '原因',
-    'objectList.workcaseStateDynamic': '正在推进',
-    'objectList.workcaseStateWaiting': '等待 Human 处理',
-    'objectList.workcaseStateClosed': '工单已关闭',
-    'objectList.workcaseProgressUnavailable': '进展信息不可判定',
-    'objectList.workcaseProgressGroupUnavailable': '未能形成进展分组。',
     // 10 §5.5「呈现降级」：gist 在 closed 时缺失合法（21 §8 终态只读）。卡面
     // 如实降级，不以 summary 静默替代、也不留白。
-    'objectList.workcaseGistMissing': '（本对象未登记要点）',
-    'objectList.workcaseStageUnavailable': '当前环节不可判定',
-    'objectList.workcasePlanRevising': '方案修订中',
-    'objectList.workcaseOutsideProgressTrack': '四步轨迹之外',
-    'objectList.workcaseItemsUnavailable': '工作项进展不可判定',
-    'objectList.workcaseGoal': '目标',
-    'objectList.workcaseContributions': '后续贡献',
-    'objectList.workcaseTargetReading': '读取中',
-    'objectList.workcaseSparkSuggestions': 'Spark 建议',
-    'objectList.workcaseRestrictionReason': '受限原因',
-    'objectList.workcaseImpactSummary': '影响',
-    'objectList.workcaseResumeCondition': '恢复条件',
-    'objectList.workcaseFollowUpSummary': '后续定位',
-    'objectList.workcaseClosureDecisionInput': '关闭判断输入',
-    'objectList.workcaseClosureProposal': '关闭提案',
-    'objectList.workcaseTerminalDisposition': '终态处置',
-    'objectList.workcaseProposedOutcome': '关闭结论（提议）',
-    'objectList.workcaseDispositionSummary': '处置摘要',
-    'objectList.workcaseResidualDecisions': '遗留事项处置建议',
-    'objectList.workcaseClosureProposalMissing': '关闭提案缺失或结构不符，无法形成关闭判断输入。',
-    'objectList.workcaseItemProgress': '已完成 {done}/{total}',
-    'objectList.workcaseItemsCancelled': '另有 {count} 项取消',
-    'objectList.workcaseItems': '工作项',
-    'objectList.workcaseCurrentItems': '当前工作项',
-    'objectList.workcaseNoCurrentItems': '尚无进行中工作项',
-    'objectList.workcaseItemCompleted': '已完成',
     // 21 号三态直读 + 派生分组（WC-0002 呈现契约；派生规则：待批准关闭 = open ∧ 正文含 ## 结果 节）
-    'objectList.workcaseOutcome.completed': '已完成',
-    'objectList.workcaseOutcome.partial': '部分达成',
-    'objectList.workcaseOutcome.not-achieved': '未达成',
-    'objectList.workcaseOutcome.cancelled': '已取消',
     // 已关闭卡的**合并徽标**用词（状态词 + 中心圆点 + 结论词，Human 裁定 2026-09-30）。
-    // 与上面的 `workcaseOutcome.*` 分开：那套是**结论词单独出现**时的词（已完成／部分达成
+    // 与结论词单独出现的那套分开（已完成／部分达成
     // ／未达成／已取消，用于详情面与独立徽标），本套是**与状态词并排出现**时的短词——
     // 「已关闭 · 已完成」这类双重「已」字重复，故此处用短式。
-    'objectList.workcaseClosedOutcome.completed': '完成',
-    'objectList.workcaseClosedOutcome.partial': '部分完成',
-    'objectList.workcaseClosedOutcome.not-achieved': '未完成',
-    'objectList.workcaseClosedOutcome.cancelled': '取消',
-    'objectList.workcaseGate1': 'Gate 1 授权 · {approver} · {approvedAt}',
-    'objectList.workcaseAttemptController': '执行者',
     // 变更流水（卡片主体）：关键行动用二字标出（Human 2026-09-23）。
-    // 不呈现阶段标签——状态显示恒为 21 号状态机的真实值。见 WorkCaseExecFlow。
-    'objectList.workcaseFlowMore': '更早 {count} 条',
-    'objectList.workcaseFlowCollapse': '收起',
+    // 不呈现阶段标签——状态显示恒为来源状态的真实值。
     // 整块级收起（已关闭卡默认收起，Human 2026-10-17）。与上面的条目级
     // 「更早 N 条 / 收起」是两级不同粒度，措辞须能区分：这里是「显示/收起变更流水」。
-    'objectList.workcaseFlowShow': '显示 {count} 条变更流水',
-    'objectList.workcaseFlowHide': '收起变更流水',
-    'objectList.workcaseFlowMark.review': '复核',
-    'objectList.workcaseFlowMark.revise': '修订',
-    'objectList.workcaseFlowMark.adjustment-approved': '已批准',
-    'objectList.workcaseFlowMark.adjustment-rejected': '已拒绝',
-    'objectList.workcaseAdjustment.pending': '待批调整',
-    'objectList.workcaseAdjustment.pendingLine': '已申请追加 {count} 项',
-    'objectList.workcaseAdjustment.awaitingHuman': '（等 Human 决定）',
     // 「待批准关闭」的核对与建议（21 §8 结果节解析所得）
-    'objectList.workcaseCheck.achieved': '达成',
-    'objectList.workcaseCheck.partial': '部分达成',
-    'objectList.workcaseCheck.not-achieved': '未达成',
-    'objectList.workcaseCheck.unrecorded': '未记录',
     // 去向词（21 §8 建议段）。前两条为闭集二词；后两条是 2026-09-28 撤销的存量词，
     // 仅为既有载体继续可读而保留（§15.3 存量不溯及）——受控写入已拒绝这两词。
-    'objectList.workcaseAdvice.另立工单': '另立工单',
-    'objectList.workcaseAdvice.接受现状': '接受现状',
-    'objectList.workcaseAdvice.转入 Spark': '转入 Spark',
-    'objectList.workcaseAdvice.直接行动': '直接行动',
-    'objectList.workcaseAdvice.unclassified': '未归类',
     // 「已关闭」卡的结论行与残留块（Human 2026-09-24 方案 A）
-    'objectList.workcaseCheckTally': '核对 {achieved}/{total} 达成',
     // 「已关闭」卡的取消记录（21 §8，仅 outcome=cancelled）
-    'objectList.workcaseNotExecuted': '未执行任何计划步骤',
     // Human 裁定 2026-10-01：标记词由「理由」改为「取消理由」——它是**块首标题**（形态同去向分区），
     // 因此须自足地说明「这是取消的理由」，不能只写半个词。
-    'objectList.workcaseCancelReason': '取消理由',
-    // 残留计数（`workcaseResidualTally`/`workcaseResidualNone`）已随 2026-09-28 二次修订
+    // 残留计数已随 2026-09-28 二次修订
     // 从「已关闭」卡结论行移除（决定 A：关闭后只呈现去向）。**词条保留**：它们是
     // 「待批准关闭」期的可复用词条，且历史对象/其它呈现面仍可能引用——删词条会让
     // 引用点变成缺词，属静默破坏而非收敛。
-    'objectList.workcaseResidualTally': '残留 {count} 条',
-    'objectList.workcaseResidualTag': '残留',
-    'objectList.workcaseResidualNone': '无残留',
     // 「转入 Spark」去向的目标关联行（10 §5.5「已关闭」卡表：就地渲染为关联行）。
-    'objectList.workcaseRoutedToUnavailable': '目标不可读',
     // 21 §13 / 03 §7.2：反向 refs 只显示声明引用来源，不暗示建议已履行或已闭环。
-    'objectList.workcaseRefSourceUnavailable': '引用来源不可用',
-    'objectList.workcaseRefSourceStatus': '状态：{status}',
-    'objectList.workcaseRefSourceUid': '对象 UID：{uid}',
     // 2026-11-07 Human 裁定删除行内的方向与关系键标注（`outgoing`／`incoming`／
     // `relation`／`relationUnknown`／`routedTo`／`routedToCandidate`）：卡面关联行只留
     // 「类型图标 ＋ 标题 ＋ 状态图标」，同一行不再并排三段规范腔标签。词条一并删除而非
     // 留作死键——残留词条会让后来者以为该标注仍在某处呈现，且删键后 `LocaleKey` 会当场
     // 拒绝任何恢复该标注的引用（编译期兜底）。事实侧不受影响，详情面仍有关系键 chip。
-    'objectList.workcaseAssociation.identityConflict': '身份未能确认，暂不可打开',
-    'objectList.workcaseAssociation.pairingMismatch': '去向条目与关联目标数量不一致，未进行配对。',
-    'objectDetail.workcaseServes': '服务子目标',
-    'objectDetail.workcaseScope': '授权范围',
-    'objectDetail.workcasePlan': '计划与完成判据',
-    'objectDetail.workcaseAmendmentStep': '增量批准',
-    'objectDetail.workcaseAttempt': '执行现场',
-    'objectDetail.workcaseReviews': '复核记录',
     // 复核记录 `summary` 的七要素（21 §8 引 02 §16）。原文按此七项书写，
     // 详情面据此分块呈现（此前整段输出，546 字一段无法阅读）。
     'objectDetail.reviewElementEmpty': '（未记录）',
@@ -1564,52 +1389,12 @@ export const UI_LOCALES = {
     'objectDetail.reviewElement.未覆盖': '未覆盖',
     'objectDetail.reviewElement.发现': '发现',
     'objectDetail.reviewElement.保证边界': '保证边界',
-    'objectDetail.workcaseAttemptController': '执行者',
-    'objectDetail.workcaseAttemptId': 'attempt',
-    'objectDetail.workcaseAttemptStartedAt': '开始时间',
-    'objectDetail.workcaseAttemptHeartbeat': '心跳',
-    'objectDetail.workcaseResultDraft': '结果草稿',
     // 正文 H2 节（21 §8 闭集）：`执行` 与 `结果` 两节**无字段承载**，
     // 故详情页各设一个节点。标签用节名本身（执行 / 结果节），不用其它词条的近义表述——
     // 「执行项」是另一实体（工作项），「结果草稿」指关闭提案，均非本节点。
-    'objectDetail.workcaseBodyExecutionSection': '执行',
-    'objectDetail.workcaseBodyResultSection': '结果',
-    'objectDetail.workcaseOutcome': '终态判定',
-    'objectDetail.workcaseOutcome.completed': '已完成',
-    'objectDetail.workcaseOutcome.partial': '部分达成',
-    'objectDetail.workcaseOutcome.notAchieved': '未达成',
-    'objectDetail.workcaseOutcome.cancelled': '已取消',
-    'objectDetail.workcaseResultChecks': '判据逐条核对',
-    'objectDetail.workcaseAchievedScope': '已证实范围',
-    'objectDetail.workcaseResidual': '残留责任',
     // 去向（21 §8 残留段的去向子项）：决定 A 收窄后详情面唯一保留的一侧（10 §5.5）。
     // 中性表述——§10.2 明写批准对象只有「关闭」与 outcome，去向不因关闭而成为承诺。
-    'objectDetail.workcaseDirections': '去向',
-    'objectDetail.workcaseGate1': 'Gate 1 授权',
-    'objectDetail.workcaseGate1Approver': '批准人',
-    'objectDetail.workcaseGate1ApprovedAt': '批准时间',
-    'objectList.workcaseItemInProgress': '进行中',
-    'objectList.workcaseItemBlocked': '阻塞',
-    'objectList.workcaseItemPending': '未执行',
-    'objectList.workcaseItemCancelled': '已取消',
-    'objectList.workcaseItemStageMismatch': '工作项状态与当前环节不一致',
-    'objectList.workcaseCriteriaCount': '{count} 项',
-    'objectList.workcaseFieldMissing': '未记录',
     'objectList.frictionPhenomenonMissing': '现象缺失',
-    'objectList.workcaseGateFieldMalformed': '结构不完整或不合法',
-    'objectList.workcaseAuthorizedActionCount': '{count} 项允许动作',
-    'objectList.workcaseProhibitedActionCount': '{count} 项禁止项',
-    'objectList.workcasePrerequisiteCount': '{count} 项前置条件',
-    'objectList.workcaseIndependentSubagentUnavailable': 'Sub Agent',
-    'objectList.workcaseIndependentSubagentUnavailableHint': '独立 subagent 不可用',
-    'objectList.workcaseCoveragePartial': '工单读取范围不完整；以下卡片只来自已取得且通过机械校验、可以呈现的对象，不能据此判断项目中只有这些对象。',
-    'objectList.workcaseCoverageUnavailable': '当前技术条件不足，无法可靠确定工单列表的读取范围；页面不会把它显示成完整空列表。',
-    'objectList.workcaseObjectProblems': '工单读取范围完整，但部分候选未通过机械校验，无法作为可呈现对象使用；相应正文不会呈现。',
-    'objectList.workcaseCoverageProblemCount': '查看 {count} 项读取或覆盖诊断',
-    'objectList.workcaseCoverageCollectionScope': '工单对象集合',
-    'objectList.workcaseCoverageUnavailableEmpty': '工单列表读取不可用，不能判断当前是否存在对象。',
-    'objectList.workcaseCoveragePartialEmpty': '已观察范围内没有可呈现卡片，但读取范围不完整，不能判断当前没有工单。',
-    'objectList.workcaseObjectProblemsEmpty': '读取范围中发现了工单候选，但没有候选通过机械校验并形成可呈现对象；请查看上方诊断。',
     'objectList.objectProblems': '读取范围完整，但部分候选存在问题，无法呈现；请查看诊断。',
     'objectList.coveragePartial': '读取范围不完整；以下卡片只来自已取得且可以呈现的对象，不能据此判断项目中只有这些对象。',
     'objectList.coverageUnavailable': '当前技术条件不足，无法可靠确定列表的读取范围；页面不会把它显示成完整空列表。',
@@ -1618,11 +1403,6 @@ export const UI_LOCALES = {
     'objectList.coverageUnavailableEmpty': '列表读取不可用，不能判断当前是否存在对象。',
     'objectList.coveragePartialEmpty': '已观察范围内没有可呈现卡片，但读取范围不完整，不能判断当前没有对象。',
     'objectList.objectProblemsEmpty': '读取范围中发现了候选，但没有候选形成可呈现对象；请查看上方诊断。',
-    'objectList.workcaseDynamicStages': '推进环节',
-    'objectList.workcaseStageExecute': '工作项执行',
-    'objectList.workcaseStageSelfCheck': '主控自检',
-    'objectList.workcaseStageResultReview': '结果复核',
-    'objectList.workcaseStageSynthesis': '主控收敛',
 
     'objectDetail.back': '返回',
     'objectDetail.fieldIssues': '来源字段问题',
@@ -1658,7 +1438,6 @@ export const UI_LOCALES = {
     'objectDetail.editAcceptance': '点击编辑验收标准',
     'objectDetail.goal': '目标',
     'objectDetail.noDescription': '未记录描述',
-    'objectDetail.workPlan': '所属工单',
     'objectDetail.executionStatus': '执行状态',
     'objectDetail.currentState': '当前状态',
     'objectDetail.waitingFor': '等待对象',
@@ -1675,19 +1454,7 @@ export const UI_LOCALES = {
     'objectDetail.dependencies': '前置依赖',
     'objectDetail.otherFields': '其他字段',
     'objectDetail.emptyValue': '空',
-    'objectDetail.planGoal': '工单目标',
-    'objectDetail.planDescription': '工单描述',
-    'objectDetail.noPlanGoal': '未记录工单目标',
-    'objectDetail.noPlanDescription': '未记录工单描述',
     'objectDetail.planExecution': '执行队列',
-    'objectDetail.workcaseProgress': '工单进度',
-    'objectDetail.workcaseCloseout': '收口与未完成事项',
-    'objectDetail.noWorkcaseCloseout': '尚未形成收口记录',
-    'objectDetail.workcaseHumanOverview': '工单总览',
-    'objectDetail.workcaseHumanContext': 'Human 视图',
-    'objectDetail.workcaseAiContext': 'AI 上下文',
-    'objectDetail.workcaseAiCore': '核心上下文',
-    'objectDetail.workcaseAiReviewContext': '复核上下文',
     'objectDetail.executionReferences': '执行引用',
     'objectDetail.lifecycleStage': '推进阶段',
     'objectDetail.lifecycleDraft': '目标确认',
@@ -1700,9 +1467,7 @@ export const UI_LOCALES = {
     'objectDetail.lifecycleClosed': '已关闭',
     'objectDetail.successCriteriaProgress': '成功标准',
     'objectDetail.executionItemProgress': '执行项',
-    'objectDetail.workcaseExecution': '执行项',
     'objectDetail.executionItemsLoading': '正在读取执行项态势',
-    'objectDetail.workcaseReview': '复核、处置与批准',
     'objectDetail.planReview': '创建前计划复核',
     'objectDetail.resultReview': '独立结果复核',
     'objectDetail.reviewPolicy': '复核策略',
@@ -1732,52 +1497,6 @@ export const UI_LOCALES = {
     'objectDetail.noVerificationEvidence': '尚未记录验证证据',
     'objectDetail.planMaterials': '产出与文档',
     'objectDetail.relatedMaterials': '关联材料',
-    'objectDetail.workcaseResponsibility': '目标',
-    'objectDetail.workcaseCurrentSnapshot': '当前情况',
-    'objectDetail.workcaseCurrentSnapshotUnavailableHint': '当前读取未形成可用状态投影，暂不显示推进轨迹和下一必经动作。',
-    'objectDetail.workcaseNextRequiredControlStep': '下一必经动作',
-    'objectDetail.workcaseNextRequiredControlStepBoundary': '仅表示结构上的下一控制步骤，不代表授权、能力、优先级或完成判断。',
-    'objectDetail.workcaseNextControlStepHumanDecision': '等待 Human 决策',
-    'objectDetail.workcaseNextControlStepUnavailable': '当前不可判定',
-    'objectDetail.workcaseNextControlStep.human_gate_1': '等待 Human Gate 1',
-    'objectDetail.workcaseNextControlStep.form_current_plan': '形成当前完整方案',
-    'objectDetail.workcaseNextControlStep.advance_current_work_item': '推进当前工作项',
-    'objectDetail.workcaseNextControlStep.form_complete_result_projection': '形成完整结果投影',
-    'objectDetail.workcaseNextControlStep.complete_independent_result_review': '完成结果复核',
-    'objectDetail.workcaseNextControlStep.form_closure_proposal': '形成关闭提案',
-    'objectDetail.workcaseNextControlStep.human_gate_2': '等待 Human Gate 2',
-    'objectDetail.workcaseNextControlStep.termination_cleanup': '完成终止善后',
-    'objectDetail.workcaseNextControlStep.none': '无后续必经控制步骤',
-    'objectDetail.workcaseTerminationCleanup': '终止善后',
-    'objectDetail.workcaseTerminationCleanupBoundary': '只展示 Human 主动中止后的起始现场、实际保留/丢弃/未验证范围、关系影响与质量降级；不表示普通结果链或 Gate 2 已完成。',
-    'objectDetail.workcaseTerminationSummary': '终止说明',
-    'objectDetail.workcaseTerminationStopped': '工单已终止',
-    'objectDetail.workcaseSuccessCriteria': '成功标准',
-    'objectDetail.workcaseCriteriaCount': '{count} 项',
-    'objectDetail.workcaseCriterionResultSummary': '结果摘要',
-    'objectDetail.workcasePlanAndItems': '当前计划与工作项',
-    'objectDetail.workcaseCreationReviews': '方案复核',
-    'objectDetail.workcaseCreationReviewsBoundary': '展示当前计划复核的实际方法和保证边界；同一 AI 切换视角不是独立 subagent，复核判断也不等于 Human 的执行决定。',
-    'objectDetail.workcaseExecutionAuthorization': '执行授权边界',
-    'objectDetail.workcaseExecutionAuthorizationBoundary': '定义本次批准允许执行什么、上限与禁止项、可调整范围、验证回滚方式和越界处置；超出边界必须回到 Human。',
-    'objectDetail.workcaseAuthorizationCount': '{count} 项',
-    'objectDetail.workcaseAuthorizationConstraints': '授权约束',
-    'objectDetail.workcaseGateFieldMissingOrMalformed': '字段缺失或结构不合法，无法形成可信授权边界。',
-    'objectDetail.workcaseExecutionApproval': '执行批准',
-    'objectDetail.workcaseExecutionApprovalBoundary': '仅记录 Human 对所绑定计划版本的执行批准；不表示技术结果、验证或关闭已经成立。',
-    'objectDetail.workcaseApprovalSummary': '批准范围与条件',
-    'objectDetail.workcaseResultAndValidation': '结果与验证',
-    'objectDetail.workcaseControllerCheck': '主控自检',
-    'objectDetail.workcaseControllerCheckBoundary': '记录主控的技术自检；不等于 Reviewer 结果复核或 Human 验收。',
-    'objectDetail.workcaseResultReviews': '结果复核',
-    'objectDetail.workcaseResultReviewsBoundary': '展示当前结果复核的实际方法和保证边界；同一 AI fallback 不冒充独立 subagent，主控的反馈处置另行记录。',
-    'objectDetail.workcaseReviewScope': '复核范围',
-    'objectDetail.workcaseReviewConclusion': '复核判断',
-    'objectDetail.workcaseClosureProposal': '关闭提案',
-    'objectDetail.workcaseClosureProposalBoundary': '主控依据当前结果与验证形成技术分类和责任处置；该提案不是既成终态或关闭批准。Human 只决定是否接受该分类与责任处置，并据此停止当前工单；Human 不改写技术事实，也不为其真实性背书。',
-    'objectDetail.workcaseUrls': '外部网址',
-    'objectDetail.workcaseTerminalDisposition': '终态处置',
-    'objectDetail.workcaseTerminalDispositionBoundary': '记录工单停止后的分类与责任去向；分流关系不表示目标已经接受、开始或完成责任。',
 
     'projectFiles.title': '项目文件',
     'projectFiles.showHiddenFiles': '显示隐藏文件',
@@ -1822,7 +1541,6 @@ export const UI_LOCALES = {
     'readingPanel.noEvidence': '暂无证据信息',
     'readingPanel.changeDetail': '提交详情',
     'readingPanel.openNewTab': '新标签',
-    'objectDetail.humanGateTip': '此工单待 Human 确认关闭',
     'objectDetail.openReadingPanel': '扩展阅读',
     'objectDetail.researchBody.question': '研究问题',
     'objectDetail.researchBody.inputs': '输入与边界',
@@ -1900,7 +1618,7 @@ export const UI_LOCALES = {
     'help.start.old.title': '老项目：先把现有文档吸收掉',
     'help.start.old.body': '它还不掌握你的项目。先让它把现有文档调研成一份调研对象，产出已证实、未证实与缺口三态证据；再基于这份认识收敛目标、展开子目标。跳过这一步，子目标就会按它自己的猜测写。',
     'help.start.nextTitle': '立起来之后',
-    'help.start.next': '目标定下来，主线才开始——想法、调研、决策和工单都挂在目标下面。想看九类对象各是什么，切到「有哪些东西」；想知道事情怎么往下走，切到「事情怎么推进」；想知道它什么时候会停下来问你，切到「什么时候该你出面」。',
+    'help.start.next': '目标定下来，主线才开始——想法、调研和决策都挂在目标下面。想看九类对象各是什么，切到「有哪些东西」；想知道事情怎么往下走，切到「事情怎么推进」；想知道它什么时候会停下来问你，切到「什么时候该你出面」。',
 
     'help.overview.title': '这套系统解决什么',
     'help.overview.lead': 'AI 和人各有一半的短板：单独看都还能对付，凑在一起就互相放大。LDVH 的每一项机制都对应其中一个缺口。',
@@ -1912,7 +1630,7 @@ export const UI_LOCALES = {
     'help.overview.ai.answer': '所以规则要有源、事实要有锚、动作要有校验——规范源给边界，事实源给依据，主控自查、代理审核和机械校验三层兜底。',
     'help.overview.human.title': '人接不住也留不住',
     'help.overview.human.symptom': '长期规划越做越模糊，临时想法转头就忘，多个任务并行就接不上，做过的决定和踩过的坑随对话一起散掉。',
-    'help.overview.human.answer': '所以每样东西都有一个对象——目标、想法、调研、决策、工单、经验和摩擦各有承载，打开看得见，回来接得上。',
+    'help.overview.human.answer': '所以每样东西都有一个对象——目标、想法、调研、决策、经验和摩擦各有承载，打开看得见，回来接得上。',
     'help.overview.friction.title': '双方互相放大误差',
     'help.overview.friction.symptom': 'AI 的笃定人接不住，人含糊的意思 AI 又猜不准；它不会停在「我没懂」的地方，会先把空缺补全，再卖力执行到底。',
     'help.overview.friction.answer': '所以该你定的必须问你——你的决定权不能被 AI、规范、事实或工具替代；依据不足时它会停下来，而不是硬答。',
@@ -1928,7 +1646,7 @@ export const UI_LOCALES = {
     'help.spine.decision.title': '决定',
     'help.spine.decision.body': '把一次取舍固定成可回溯的记录：当时选了什么、依据是什么、代价是什么。',
     'help.spine.execution.title': '执行',
-    'help.spine.execution.body': '只有经你批准的工单才动；工单带目标、成功标准、授权边界和验证方式，走完复核与关闭判断才落终态。',
+    'help.spine.execution.body': '动手之前它问你要不要安排一次审查，收口之前再问一次要不要复核；你答跳过也照常往下走——它不拦你，只把「要不要多一双眼」这个决定交到你手上。',
     'help.spine.learning.title': '积累',
     'help.spine.learning.body': '踩过的坑写成经验，待修的系统性阻碍记成摩擦账，成体系的方向写成规范，收敛的过程结论写成开发日志——下次能直接复用。',
     'help.spine.recallTitle': '动手前它还会做一次双源召回：',
@@ -1961,15 +1679,12 @@ export const UI_LOCALES = {
     'help.objects.spark.what': '一切值得跨行动推进之事的出生地，也是方向主线的入口。',
     'help.objects.spark.when': '出现一个想法、一个方向，或一个还没收敛的问题时。',
     'help.objects.spark.look': '它当前的理解、还没定下来的部分，以及演进到了哪一步。',
-    'help.objects.workcase.what': '已批准工单及其结果审计的唯一载体，带状态与生命周期、授权语义和执行记录。',
-    'help.objects.workcase.when': '某个方向被拆成可执行、可验收的动作时。',
-    'help.objects.workcase.look': '当前情况、目标与成功标准、当前计划与工作项、复核与批准、结果与验证。',
     'help.objects.research.what': '外部对象的深度调研产物，调查与分析一体；每个发现单元独立可讨论，并带溯源锚点。',
     'help.objects.research.when': '缺证据，或者结论必须落到具体来源上时。',
     'help.objects.research.look': '每个发现单元的声明、观察事实、对项目的价值判断和溯源锚点。',
     'help.objects.adr.what': '已定决策的回溯记录：选了什么、依据、代价、影响范围。',
     'help.objects.adr.when': '一次取舍被定下来，而且以后会被反复引用时。',
-    'help.objects.adr.look': '决定本身、当时的备选与理由，以及它关联的目标和工单。',
+    'help.objects.adr.look': '决定本身、当时的备选与理由，以及它关联的目标。',
     'help.objects.pitfall.what': '已验证踩坑经验的回溯记录：失败机制与规避办法。',
     'help.objects.pitfall.when': '同一个坑第二次出现，或教训已经被验证可用时。',
     'help.objects.pitfall.look': '失败机制、触发条件、规避做法，以及它已被哪些工作复用。',
@@ -2041,10 +1756,10 @@ export const UI_LOCALES = {
     'help.systems.sparkRecord.usage': '讨论到一半冒出的另一种做法、反复提到却没定论的疑问，当场记下来才有地方放；换个会话再想起来时能按原样找到，而不是重新发现一遍。',
     'help.systems.sparkRecord.limit': '登记下来了，不等于这个想法值得推进，也不等于对它的理解已经充分。',
 
-    'help.systems.workOrder.title': '工单执行',
-    'help.systems.workOrder.duty': '执行已经批准的工单，并承接完整的工作包生命周期：批准 → 执行 → 复核 → 关闭 → 交还。',
-    'help.systems.workOrder.usage': '你批了它才动。执行前后各有一道关卡——开工前要你批，做完要你验收交还；中途断了能从当前状态接着跑，不必从头再来。',
-    'help.systems.workOrder.limit': '它不会自己扩大授权范围；子任务跑完不等于整件事做完，执行完成也不等于复核通过。',
+    'help.systems.workOrder.title': '把关请示',
+    'help.systems.workOrder.duty': '在行动前与收口前两处向你请示是否安排一次核对，并把请示与答复留痕；工作包生命周期中「批准」「复核」两环的业务面由它承接。',
+    'help.systems.workOrder.usage': '动手之前它问你要不要安排一次审查，收口之前再问一次要不要复核。你答跳过也照常往下走——它不拦你，只是把「要不要多一双眼」这个决定交到你手上。',
+    'help.systems.workOrder.limit': '请示的答复不构成授权凭据，请示本身也不是行动放行的前提；它不执行工作、不关闭工作、不承担交还的执行。',
 
     'help.systems.researchAbsorb.title': '调研吸收',
     'help.systems.researchAbsorb.duty': '围绕你还掌握不了的问题搜集证据，直到不再产生新的确认认识，产出已证实、未证实与缺口三态证据。',
@@ -2065,7 +1780,7 @@ export const UI_LOCALES = {
     'help.systems.friction.title': '摩擦销账',
     'help.systems.friction.duty': '把「应当修但还没修」的系统性阻碍入账，按账目状态累积它的证据与度量。',
     'help.systems.friction.usage': '它自己会发现并记账——同一个阻碍每重复出现一次，就多一笔证据；修好了要留下可回指的解药证据，实在修不了就留下可复审的接受记录。',
-    'help.systems.friction.limit': '入账不等于立项——该不该修、什么时候修由你决定；立项之后的执行归工单执行。',
+    'help.systems.friction.limit': '入账不等于立项——该不该修、什么时候修由你决定；修不修、怎么修也不因入了账就自动获得授权。',
     'help.trust.layers.title': '它的声明分三层',
     'help.trust.layers.confirmed.title': '已证实',
     'help.trust.layers.confirmed.hint': '可以当依据',
@@ -2097,7 +1812,6 @@ export const UI_LOCALES = {
     'logo.tagline': 'Making Vibe Coding more efficient, stable, and controllable',
 
     'nav.cognition': 'Focus',    'nav.projectFiles': 'Directory',
-    'nav.workcases': 'Work Cases',
     'nav.adrs': 'ADRs',
     'nav.pitfalls': 'Pitfalls',
     'nav.sparks': 'Sparks',
@@ -2304,7 +2018,6 @@ export const UI_LOCALES = {
     'federation.noProjects': 'No governed projects are registered.',
     'federation.defaultProject': 'Default',
     'federation.sparkOpen': 'Open',
-    'federation.activeWorkCases': 'Active',
     'federation.pendingDecisions': 'Pending',
     'federation.lastActivity': 'Last activity',
     'federation.projectIssues': 'Some data unavailable',
@@ -2364,7 +2077,6 @@ export const UI_LOCALES = {
     'cognition.frictionLedger.accepted': '{count} accepted as unpayable',
     'cognition.inbox.unavailable': 'Some data for this module is unavailable',
     'cognition.active.title': 'Work in Progress',
-    'cognition.active.empty': 'No WorkCase is currently in progress',
     'cognition.active.truncated': '{total} active items in total; showing the first {shown} by order, {hidden} not shown',
     'cognition.active.showAll': 'Show all',
     'cognition.active.collapse': 'Collapse',
@@ -2436,11 +2148,6 @@ export const UI_LOCALES = {
     'objectList.sortCreatedDesc': 'Created ↓',
     'objectList.sortPriorityAsc': 'Disposition order ↑',
     'objectList.priorityNotApplicable': 'Priority does not apply to terminal objects.',
-    'objectList.relatedPlans': 'Related WorkCases',
-    'objectList.planCount': '{count} WorkCases',
-    'objectList.activePlanCount': 'Active WorkCases',
-    'objectList.humanConfirmPlanCount': 'WorkCases awaiting confirmation',
-    'objectList.closedPlanCount': 'Closed WorkCases',
     'objectList.closeDecision': 'Close Decision',
     'objectList.closureIssue': 'Closure Issue',
     'objectList.planExecutionQueue': 'Execution Queue',
@@ -2458,9 +2165,7 @@ export const UI_LOCALES = {
     'objectList.activeCount': '{count} active',
     'objectList.reviewCount': '{count} pending close',
     'objectList.riskCount': '{count} at risk',
-    'objectList.noPlans': 'No related WorkCases',
     'objectList.noExecutionItems': 'No execution items',
-    'objectList.morePlans': '{count} more WorkCases',
     'objectList.moreExecutionItems': '{count} more execution items',
     'objectList.successCriteria': 'Success Criteria',
     'objectList.planConfirmedAt': 'Plan Confirmed',
@@ -2490,105 +2195,26 @@ export const UI_LOCALES = {
     'objectList.associationState.active': 'Active',
     'objectList.discarded': 'Discarded',
     'objectList.reason': 'Reason',
-    'objectList.workcaseStateDynamic': 'In progress',
-    'objectList.workcaseStateWaiting': 'Waiting for Human',
-    'objectList.workcaseStateClosed': 'WorkCase closed',
-    'objectList.workcaseProgressUnavailable': 'Progress unavailable',
-    'objectList.workcaseProgressGroupUnavailable': 'Unable to form a progress group from source status/phase.',
-    'objectList.workcaseGistMissing': '(no gist recorded)',
-    'objectList.workcaseStageUnavailable': 'Current step unavailable',
-    'objectList.workcasePlanRevising': 'Plan revision',
-    'objectList.workcaseOutsideProgressTrack': 'Outside the four-step track',
-    'objectList.workcaseItemsUnavailable': 'Work item progress unavailable',
-    'objectList.workcaseGoal': 'Goal',
-    'objectList.workcaseContributions': 'Follow-up contributions',
-    'objectList.workcaseTargetReading': 'Reading',
-    'objectList.workcaseSparkSuggestions': 'Spark suggestions',
-    'objectList.workcaseRestrictionReason': 'Constraint',
-    'objectList.workcaseImpactSummary': 'Impact',
-    'objectList.workcaseResumeCondition': 'Resume condition',
-    'objectList.workcaseFollowUpSummary': 'Follow-up',
-    'objectList.workcaseClosureDecisionInput': 'Closure decision input',
-    'objectList.workcaseClosureProposal': 'Closure proposal',
-    'objectList.workcaseTerminalDisposition': 'Terminal disposition',
-    'objectList.workcaseProposedOutcome': 'Proposed outcome',
-    'objectList.workcaseDispositionSummary': 'Disposition summary',
-    'objectList.workcaseResidualDecisions': 'Residual disposition proposals',
-    'objectList.workcaseClosureProposalMissing': 'Closure proposal is missing or malformed; closure decision input is unavailable.',
-    'objectList.workcaseItemProgress': '{done}/{total} completed',
-    'objectList.workcaseItemsCancelled': '{count} cancelled',
-    'objectList.workcaseItems': 'Work items',
-    'objectList.workcaseCurrentItems': 'Current work items',
-    'objectList.workcaseNoCurrentItems': 'No work item is in progress yet',
-    'objectList.workcaseItemCompleted': 'Completed',
     // v5 lifecycle groups (21 §9 + WC-0002 presentation contract; awaiting-gate2 = open ∧ body has ## 结果)
-    'objectList.workcaseOutcome.completed': 'Completed',
-    'objectList.workcaseOutcome.partial': 'Partial',
-    'objectList.workcaseOutcome.not-achieved': 'Not achieved',
-    'objectList.workcaseOutcome.cancelled': 'Cancelled',
-    'objectList.workcaseClosedOutcome.completed': 'Completed',
-    'objectList.workcaseClosedOutcome.partial': 'Partially completed',
-    'objectList.workcaseClosedOutcome.not-achieved': 'Not completed',
-    'objectList.workcaseClosedOutcome.cancelled': 'Cancelled',
-    'objectList.workcaseGate1': 'Gate 1 authorization \u00b7 {approver} \u00b7 {approvedAt}',
-    'objectList.workcaseAttemptController': 'Controller',
     // Change flow (card body): key actions marked with a word (Human 2026-09-23).
-    'objectList.workcaseFlowMore': '{count} earlier',
-    'objectList.workcaseFlowCollapse': 'Collapse',
-    'objectList.workcaseFlowShow': 'Show {count} changelog entries',
-    'objectList.workcaseFlowHide': 'Hide changelog',
-    'objectList.workcaseFlowMark.review': 'Review',
-    'objectList.workcaseFlowMark.revise': 'Revise',
-    'objectList.workcaseFlowMark.adjustment-approved': 'Adjustment approved',
-    'objectList.workcaseFlowMark.adjustment-rejected': 'Adjustment rejected',
-    'objectList.workcaseAdjustment.pending': 'Pending adjustment',
-    'objectList.workcaseAdjustment.pendingLine': '{count} item(s) requested',
-    'objectList.workcaseAdjustment.awaitingHuman': '(awaiting Human)',
     // Awaiting-closure checks and advice (parsed from the 21 §8 result section)
-    'objectList.workcaseCheck.achieved': 'Achieved',
-    'objectList.workcaseCheck.partial': 'Partial',
-    'objectList.workcaseCheck.not-achieved': 'Not achieved',
-    'objectList.workcaseCheck.unrecorded': 'Unrecorded',
     // Advice directions (21 §8 advice section). The first two are the current
     // closed set; the next two were retired on 2026-09-28 and are kept only so
     // existing carriers stay readable (§15.3 存量不溯及) — the write path
     // rejects them.
-    'objectList.workcaseAdvice.另立工单': 'New WorkCase',
-    'objectList.workcaseAdvice.接受现状': 'Accept',
-    'objectList.workcaseAdvice.转入 Spark': 'Spark suspension',
-    'objectList.workcaseAdvice.直接行动': 'Direct action',
-    'objectList.workcaseAdvice.unclassified': 'Unclassified',
     // Closed-card conclusion line and residual block (Human 2026-09-24, option A)
-    'objectList.workcaseCheckTally': '{achieved}/{total} achieved',
     // Closed-card cancellation record (21 §8, outcome=cancelled only)
-    'objectList.workcaseNotExecuted': 'No plan step executed',
-    'objectList.workcaseCancelReason': 'Cancellation reason',
     // The residual tally keys are kept after the 2026-09-28 revision removed the
     // residual count from the closed-card conclusion line (decision A: a closed
     // card shows directions only). Deleting them would turn any remaining
     // reference into a missing key, which is silent breakage rather than
     // convergence.
-    'objectList.workcaseResidualTally': '{count} residual',
-    'objectList.workcaseResidualTag': 'Residual',
-    'objectList.workcaseResidualNone': 'No residual',
     // Routed-to direction target row (10 §5.5 closed card: rendered in place as an
     // association row).
-    'objectList.workcaseRoutedToUnavailable': 'Target unreadable',
      // 21 §13 / 03 §7.2: reverse refs show declared sources only; they do not imply fulfilment or closure.
-     'objectList.workcaseRefSourceUnavailable': 'Reference source unavailable',
-     'objectList.workcaseRefSourceStatus': 'Status: {status}',
-     'objectList.workcaseRefSourceUid': 'Object UID: {uid}',
      // 2026-11-07: the inline direction / relation-key labels were removed from the
      // card row (Human decision). The keys are deleted rather than left dead so that
      // `LocaleKey` refuses any attempt to reintroduce them at compile time.
-     'objectList.workcaseAssociation.identityConflict': 'Identity unconfirmed; cannot open',
-     'objectList.workcaseAssociation.pairingMismatch': 'The numbers of direction entries and association targets differ; no pairing was made.',
-    'objectDetail.workcaseServes': 'Serves sub-goal',
-    'objectDetail.workcaseScope': 'Authorization scope',
-    'objectDetail.workcasePlan': 'Plan & done criteria',
-    'objectDetail.workcaseAmendmentStep': 'Amendment',
-    'objectDetail.workcaseAttempt': 'Execution',
-    'objectDetail.workcaseReviews': 'Reviews',
     'objectDetail.reviewElementEmpty': '(not recorded)',
     'objectDetail.reviewElement.对象': 'Subject',
     'objectDetail.reviewElement.基线': 'Baseline',
@@ -2597,50 +2223,10 @@ export const UI_LOCALES = {
     'objectDetail.reviewElement.未覆盖': 'Not covered',
     'objectDetail.reviewElement.发现': 'Findings',
     'objectDetail.reviewElement.保证边界': 'Assurance boundary',
-    'objectDetail.workcaseAttemptController': 'Controller',
-    'objectDetail.workcaseAttemptId': 'attempt',
-    'objectDetail.workcaseAttemptStartedAt': 'Started at',
-    'objectDetail.workcaseAttemptHeartbeat': 'Heartbeat',
-    'objectDetail.workcaseResultDraft': 'Result draft',
-    'objectDetail.workcaseBodyExecutionSection': 'Execution',
-    'objectDetail.workcaseBodyResultSection': 'Result',
-    'objectDetail.workcaseOutcome': 'Outcome',
-    'objectDetail.workcaseOutcome.completed': 'Completed',
-    'objectDetail.workcaseOutcome.partial': 'Partial',
-    'objectDetail.workcaseOutcome.notAchieved': 'Not achieved',
-    'objectDetail.workcaseOutcome.cancelled': 'Cancelled',
-    'objectDetail.workcaseResultChecks': 'Criteria checks',
-    'objectDetail.workcaseAchievedScope': 'Achieved scope',
-    'objectDetail.workcaseResidual': 'Residual',
     // Directions (21 §8 residual-section direction sub-items): the only side the
     // detail face keeps after decision A's narrowing (10 §5.5). Neutral wording —
     // §10.2 states only closure and outcome are approved.
-    'objectDetail.workcaseDirections': 'Directions',
-    'objectDetail.workcaseGate1': 'Gate 1 authorization',
-    'objectDetail.workcaseGate1Approver': 'Approver',
-    'objectDetail.workcaseGate1ApprovedAt': 'Approved at',
-    'objectList.workcaseItemInProgress': 'In progress',
-    'objectList.workcaseItemBlocked': 'Blocked',
-    'objectList.workcaseItemPending': 'Not started',
-    'objectList.workcaseItemCancelled': 'Cancelled',
-    'objectList.workcaseItemStageMismatch': 'Work item states do not match the current step',
-    'objectList.workcaseCriteriaCount': '{count} criteria',
-    'objectList.workcaseFieldMissing': 'Not recorded',
     'objectList.frictionPhenomenonMissing': 'Phenomenon missing',
-    'objectList.workcaseGateFieldMalformed': 'Incomplete or malformed structure',
-    'objectList.workcaseAuthorizedActionCount': '{count} authorized actions',
-    'objectList.workcaseProhibitedActionCount': '{count} prohibitions',
-    'objectList.workcasePrerequisiteCount': '{count} Human prerequisites',
-    'objectList.workcaseIndependentSubagentUnavailable': 'Sub Agent',
-    'objectList.workcaseIndependentSubagentUnavailableHint': 'Independent subagent unavailable',
-    'objectList.workcaseCoveragePartial': 'WorkCase read coverage is incomplete. The cards shown come only from consumable mechanical reads; this does not prove these are the only WorkCases in the project.',
-    'objectList.workcaseCoverageUnavailable': 'Technical conditions did not produce a reliable WorkCase list scope. The page will not present this as a complete empty list.',
-    'objectList.workcaseObjectProblems': 'WorkCase read coverage is complete, but some candidates did not form consumable mechanically valid objects. Their content is not presented.',
-    'objectList.workcaseCoverageProblemCount': 'View {count} read or coverage diagnostics',
-    'objectList.workcaseCoverageCollectionScope': 'WorkCase object collection',
-    'objectList.workcaseCoverageUnavailableEmpty': 'The WorkCase list is unavailable, so object presence cannot be determined.',
-    'objectList.workcaseCoveragePartialEmpty': 'No cards are displayable in the observed range, but coverage is incomplete; this does not mean there are no WorkCases.',
-    'objectList.workcaseObjectProblemsEmpty': 'WorkCase candidates were found in the completed read scope, but none formed a displayable mechanically valid object. Review the diagnostics above.',
     'objectList.objectProblems': 'Read coverage is complete, but some candidates have issues and cannot be displayed. Review the diagnostics.',
     'objectList.coveragePartial': 'Read coverage is incomplete. The cards shown come only from successfully read objects; this does not prove these are the only objects in the project.',
     'objectList.coverageUnavailable': 'Technical conditions did not produce a reliable list scope. The page will not present this as a complete empty list.',
@@ -2649,11 +2235,6 @@ export const UI_LOCALES = {
     'objectList.coverageUnavailableEmpty': 'The list is unavailable, so object presence cannot be determined.',
     'objectList.coveragePartialEmpty': 'No cards are displayable in the observed range, but coverage is incomplete; this does not mean there are no objects.',
     'objectList.objectProblemsEmpty': 'Candidates were found in the completed read scope, but none formed a displayable object. Review the diagnostics above.',
-    'objectList.workcaseDynamicStages': 'Progress step',
-    'objectList.workcaseStageExecute': 'Item execution',
-    'objectList.workcaseStageSelfCheck': 'Controller self-check',
-    'objectList.workcaseStageResultReview': 'Independent review',
-    'objectList.workcaseStageSynthesis': 'Controller synthesis',
 
     'objectDetail.back': 'Back',
     'objectDetail.fieldIssues': 'Source field issues',
@@ -2686,7 +2267,6 @@ export const UI_LOCALES = {
     'objectDetail.editAcceptance': 'Click to edit acceptance criteria',
     'objectDetail.goal': 'Goal',
     'objectDetail.noDescription': 'No description recorded',
-    'objectDetail.workPlan': 'WorkCase',
     'objectDetail.executionStatus': 'Execution Status',
     'objectDetail.currentState': 'Current State',
     'objectDetail.waitingFor': 'Waiting For',
@@ -2703,19 +2283,7 @@ export const UI_LOCALES = {
     'objectDetail.dependencies': 'Dependencies',
     'objectDetail.otherFields': 'Other Fields',
     'objectDetail.emptyValue': 'Empty',
-    'objectDetail.planGoal': 'WorkCase Goal',
-    'objectDetail.planDescription': 'WorkCase Description',
-    'objectDetail.noPlanGoal': 'No WorkCase goal recorded',
-    'objectDetail.noPlanDescription': 'No WorkCase description recorded',
     'objectDetail.planExecution': 'Execution Queue',
-    'objectDetail.workcaseProgress': 'WorkCase Progress',
-    'objectDetail.workcaseCloseout': 'Closeout and Remaining Responsibilities',
-    'objectDetail.noWorkcaseCloseout': 'No closeout record is available',
-    'objectDetail.workcaseHumanOverview': 'WorkCase Overview',
-    'objectDetail.workcaseHumanContext': 'Human View',
-    'objectDetail.workcaseAiContext': 'AI Context',
-    'objectDetail.workcaseAiCore': 'Core Context',
-    'objectDetail.workcaseAiReviewContext': 'Review Context',
     'objectDetail.executionReferences': 'Execution References',
     'objectDetail.lifecycleStage': 'Lifecycle Stage',
     'objectDetail.lifecycleDraft': 'Goal alignment',
@@ -2728,9 +2296,7 @@ export const UI_LOCALES = {
     'objectDetail.lifecycleClosed': 'Closed',
     'objectDetail.successCriteriaProgress': 'Success criteria',
     'objectDetail.executionItemProgress': 'Execution items',
-    'objectDetail.workcaseExecution': 'Execution Items',
     'objectDetail.executionItemsLoading': 'Loading execution item posture',
-    'objectDetail.workcaseReview': 'Reviews, Dispositions, and Approvals',
     'objectDetail.planReview': 'Pre-creation Plan Review',
     'objectDetail.resultReview': 'Result Review',
     'objectDetail.reviewPolicy': 'Review Policy',
@@ -2760,52 +2326,6 @@ export const UI_LOCALES = {
     'objectDetail.noVerificationEvidence': 'No verification evidence recorded',
     'objectDetail.planMaterials': 'Deliverables and Docs',
     'objectDetail.relatedMaterials': 'Related Materials',
-    'objectDetail.workcaseResponsibility': 'Goal',
-    'objectDetail.workcaseCurrentSnapshot': 'Current Snapshot',
-    'objectDetail.workcaseCurrentSnapshotUnavailableHint': 'The current read did not produce a usable state projection, so the progress track and next required control step are not shown.',
-    'objectDetail.workcaseNextRequiredControlStep': 'Next Required Control Step',
-    'objectDetail.workcaseNextRequiredControlStepBoundary': 'This is only the next structural control step; it does not establish authorization, capability, priority, or completion.',
-    'objectDetail.workcaseNextControlStepHumanDecision': 'Human decision required',
-    'objectDetail.workcaseNextControlStepUnavailable': 'Currently unavailable',
-    'objectDetail.workcaseNextControlStep.human_gate_1': 'Wait for Human Gate 1',
-    'objectDetail.workcaseNextControlStep.form_current_plan': 'Form the complete current plan',
-    'objectDetail.workcaseNextControlStep.advance_current_work_item': 'Advance the current work item',
-    'objectDetail.workcaseNextControlStep.form_complete_result_projection': 'Form the complete result projection',
-    'objectDetail.workcaseNextControlStep.complete_independent_result_review': 'Complete result review',
-    'objectDetail.workcaseNextControlStep.form_closure_proposal': 'Form the closure proposal',
-    'objectDetail.workcaseNextControlStep.human_gate_2': 'Wait for Human Gate 2',
-    'objectDetail.workcaseNextControlStep.termination_cleanup': 'Complete termination cleanup',
-    'objectDetail.workcaseNextControlStep.none': 'No further required control step',
-    'objectDetail.workcaseTerminationCleanup': 'Termination Cleanup',
-    'objectDetail.workcaseTerminationCleanupBoundary': 'Shows only the frozen starting point, actual retained/discarded/unverified scope, relationship impacts, and quality degradation after a Human-initiated termination. It does not imply the normal result chain or Gate 2 completed.',
-    'objectDetail.workcaseTerminationSummary': 'Termination Summary',
-    'objectDetail.workcaseTerminationStopped': 'Work has stopped',
-    'objectDetail.workcaseSuccessCriteria': 'Success Criteria',
-    'objectDetail.workcaseCriteriaCount': '{count} criteria',
-    'objectDetail.workcaseCriterionResultSummary': 'Result Summary',
-    'objectDetail.workcasePlanAndItems': 'Current Plan and Work Items',
-    'objectDetail.workcaseCreationReviews': 'Plan Reviews',
-    'objectDetail.workcaseCreationReviewsBoundary': 'Shows the actual method and assurance boundary for the current plan review. A same-AI switched role is not an independent subagent, and a review judgment is not the Human execution decision.',
-    'objectDetail.workcaseExecutionAuthorization': 'Execution Authorization Boundary',
-    'objectDetail.workcaseExecutionAuthorizationBoundary': 'Defines authorized actions, ceilings and prohibitions, permitted adjustments, verification and rollback, and out-of-bounds handling. Anything outside this boundary returns to Human.',
-    'objectDetail.workcaseAuthorizationCount': '{count} items',
-    'objectDetail.workcaseAuthorizationConstraints': 'Authorization Constraints',
-    'objectDetail.workcaseGateFieldMissingOrMalformed': 'The field is missing or malformed, so a trustworthy authorization boundary cannot be formed.',
-    'objectDetail.workcaseExecutionApproval': 'Execution Approval',
-    'objectDetail.workcaseExecutionApprovalBoundary': 'This records Human approval to execute the bound plan version only; it does not establish technical results, validation, or closure.',
-    'objectDetail.workcaseApprovalSummary': 'Approved Scope and Conditions',
-    'objectDetail.workcaseResultAndValidation': 'Result and Validation',
-    'objectDetail.workcaseControllerCheck': 'Controller Self-check',
-    'objectDetail.workcaseControllerCheckBoundary': 'This records the Controller technical self-check; it is neither a Reviewer result review nor Human acceptance.',
-    'objectDetail.workcaseResultReviews': 'Result Reviews',
-    'objectDetail.workcaseResultReviewsBoundary': 'Shows the actual method and assurance boundary for the current result review. A same-AI fallback is not presented as an independent subagent; the Controller response is recorded separately.',
-    'objectDetail.workcaseReviewScope': 'Review Scope',
-    'objectDetail.workcaseReviewConclusion': 'Review Judgment',
-    'objectDetail.workcaseClosureProposal': 'Closure Proposal',
-    'objectDetail.workcaseClosureProposalBoundary': 'The Controller derives the technical classification and responsibility disposition from the current result and validation. The proposal is not an established terminal state or closure approval. Human only decides whether to stop on that basis; Human neither rewrites the technical facts nor attests to their truth.',
-    'objectDetail.workcaseUrls': 'External URLs',
-    'objectDetail.workcaseTerminalDisposition': 'Terminal Disposition',
-    'objectDetail.workcaseTerminalDispositionBoundary': 'This records how the WorkCase stopped and where responsibility went; a routed relation does not mean the target accepted, started, or completed it.',
 
     'projectFiles.title': 'Project Files',
     'projectFiles.showHiddenFiles': 'Show hidden files',
@@ -2850,7 +2370,6 @@ export const UI_LOCALES = {
     'readingPanel.noEvidence': 'No evidence available',
     'readingPanel.changeDetail': 'Commit Detail',
     'readingPanel.openNewTab': 'New Tab',
-    'objectDetail.humanGateTip': 'This WorkCase is pending Human closure confirmation',
     'objectDetail.openReadingPanel': 'Open in reading panel',
     'objectDetail.researchBody.question': 'Research Question',
     'objectDetail.researchBody.inputs': 'Inputs & Boundaries',
@@ -2928,7 +2447,7 @@ export const UI_LOCALES = {
     'help.start.old.title': 'Existing project: absorb what is already there first',
     'help.start.old.body': 'It does not know your project yet. Have it absorb the existing documents into a research object first, which yields confirmed, unconfirmed and gap evidence; then tighten the goal and expand the sub-goals on top of that. Skip this and the sub-goals get written from its own guesswork.',
     'help.start.nextTitle': 'Once the goal is in place',
-    'help.start.next': 'With the goal set, the main line begins — ideas, research, decisions and work orders all hang from it. For what the nine object types are, switch to “What things exist”; for how work moves forward, “How work moves forward”; for when it stops and asks you, “When it needs you”.',
+    'help.start.next': 'With the goal set, the main line begins — ideas, research and decisions all hang from it. For what the nine object types are, switch to “What things exist”; for how work moves forward, “How work moves forward”; for when it stops and asks you, “When it needs you”.',
 
     'help.overview.title': 'What this system solves',
     'help.overview.lead': 'AI and Human each have half of the weaknesses. On their own they are manageable; together they magnify each other. Every mechanism in LDVH answers one of those gaps.',
@@ -2940,7 +2459,7 @@ export const UI_LOCALES = {
     'help.overview.ai.answer': 'So rules need a source, facts need an anchor, and actions need checking: the specification source sets the boundaries, the fact source supplies the grounds, and self-check, peer review and mechanical verification cover it three times over.',
     'help.overview.human.title': 'Human cannot absorb it, and cannot keep it',
     'help.overview.human.symptom': 'Long-term direction blurs as the project grows, ideas evaporate within minutes, parallel work cannot be picked back up, and decisions made and pitfalls hit scatter once the conversation closes.',
-    'help.overview.human.answer': 'So every kind of thing gets an object: goal, idea, research, decision, work case, lesson and friction each have a carrier you can open, read, and pick up from later.',
+    'help.overview.human.answer': 'So every kind of thing gets an object: goal, idea, research, decision, lesson and friction each have a carrier you can open, read, and pick up from later.',
     'help.overview.friction.title': 'The two sides magnify each other\u2019s errors',
     'help.overview.friction.symptom': 'Human cannot check the AI\u2019s confident tone, and the AI cannot read a vague intention. It will not stop at “I did not get that”; it fills the gap in first, then executes hard on its own reading.',
     'help.overview.friction.answer': 'So what is yours to decide must reach you. Your decision right cannot be replaced by the AI, the specifications, the facts, or any tool — and when the grounds are thin it stops instead of answering anyway.',
@@ -2956,7 +2475,7 @@ export const UI_LOCALES = {
     'help.spine.decision.title': 'Decision',
     'help.spine.decision.body': 'Fix one trade-off as a record you can look back on: what was chosen, on what grounds, and at what cost.',
     'help.spine.execution.title': 'Execution',
-    'help.spine.execution.body': 'Only a work case you approved moves; it carries goal, success criteria, authorization boundary and verification method, and reaches a terminal state only after review and closure judgment.',
+    'help.spine.execution.body': 'Before acting it asks whether to arrange a review, and again before closing out whether to arrange a re-check; answering skip moves on as usual — it does not block you, it only hands you the choice of a second pair of eyes. a terminal state only after review and closure judgment.',
     'help.spine.learning.title': 'Accumulation',
     'help.spine.learning.body': 'Pitfalls become lessons, systemic blockers become entries in the friction ledger, settled directions become norms, and converged process conclusions become dev logs — all reusable the next time round.',
     'help.spine.recallTitle': 'Before acting it also runs one dual-source recall:',
@@ -2989,15 +2508,12 @@ export const UI_LOCALES = {
     'help.objects.spark.what': 'The birthplace of anything worth carrying across actions, and the entry to the main thread of a direction.',
     'help.objects.spark.when': 'When an idea, a direction, or a question that has not converged shows up.',
     'help.objects.spark.look': 'Its current understanding, what is still open, and how far the evolution has gone.',
-    'help.objects.workcase.what': 'The single carrier of an approved work case and its result audit, with status and lifecycle, authorization semantics and execution records.',
-    'help.objects.workcase.when': 'When a direction is broken down into actions that can be executed and accepted.',
-    'help.objects.workcase.look': 'Current situation, goal and success criteria, current plan and work items, review and approval, result and verification.',
     'help.objects.research.what': 'A deep research product about an external subject, investigation and analysis in one; each finding unit stands on its own and carries a traceability anchor.',
     'help.objects.research.when': 'When evidence is missing, or a conclusion has to land on specific sources.',
     'help.objects.research.look': 'Each finding unit: its claim, the observed facts, the value judgment for the project, and the traceability anchor.',
     'help.objects.adr.what': 'A look-back record of a settled decision: what was chosen, the grounds, the cost, the reach.',
     'help.objects.adr.when': 'When a trade-off is settled and will be cited over and over afterwards.',
-    'help.objects.adr.look': 'The decision itself, the alternatives and the reasoning at the time, plus the goals and work cases it relates to.',
+    'help.objects.adr.look': 'The decision itself, the alternatives and the reasoning at the time, plus the goals it relates to.',
     'help.objects.pitfall.what': 'A look-back record of a verified lesson: the failure mechanism and the way to avoid it.',
     'help.objects.pitfall.when': 'When the same pitfall shows up a second time, or a lesson has been verified as usable.',
     'help.objects.pitfall.look': 'The failure mechanism, its trigger conditions, the workaround, and which work has already reused it.',

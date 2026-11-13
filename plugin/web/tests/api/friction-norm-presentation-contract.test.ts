@@ -27,7 +27,7 @@ test('friction and norm stay in the active backend type list and detail id patte
   const activeTypes = /ACTIVE_OBJECT_TYPES = \[([^\]]+)\]/.exec(facts);
   assert.ok(activeTypes, 'facts.ts 应导出 ACTIVE_OBJECT_TYPES');
   const activeMembers = [...activeTypes[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
-  for (const type of ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm']) {
+  for (const type of ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm']) {
     assert.ok(activeMembers.includes(type), `ACTIVE_OBJECT_TYPES 应含 ${type}（当前：${activeMembers.join(', ')}）`);
   }
   // 详情路由的 id 前缀模式须覆盖 friction 与 norm（可经 /api/objects/<type>/:id 读取）。
@@ -323,7 +323,7 @@ test('同名字段按类型分派词条：disposition 在 spark 与 friction 语
  * 契约在（`factFieldContract` 登记为 object）、词条在，**唯独没有任何一处消费它**，
  * 而测试全绿。Human 在界面上读不到那个权威值才发现了这一点。
  *
- * 教训与 WorkCase D8 同形：**断言了「存在」，没断言「被走过」**。故本组断言
+ * 教训同形：**断言了「存在」，没断言「被走过」**。故本组断言
  * 一律落在**渲染调用点**上，不停留在词条与类型声明。
  *
  * ## 为什么要断言「与修改次数分开」

@@ -5,7 +5,7 @@ import { getLocalizedObjectTitle } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { usePanel } from '@/utils/panelContext';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
-import type { FactCardAssociation, FactRefSource, ServingWorkItem, WorkCaseV5Group } from '@/utils/api';
+import type { FactCardAssociation, FactRefSource, ServingWorkItem } from '@/utils/api';
 
 /**
  * 卡片**关联行**的共享实现（2026-11-03 自 `pages/ObjectList.tsx` 抽出）。
@@ -13,7 +13,7 @@ import type { FactCardAssociation, FactRefSource, ServingWorkItem, WorkCaseV5Gro
  * ## 为什么抽出来
  *
  * 关联行（类型图标 + 标题 + 行末状态图标）被三个呈现面共用：Spark 卡的关联区、
- * WorkCase 已关闭卡的反向引用区、**子目标卡的名下工作区**。原先它住在
+ * 已关闭卡的反向引用区、**子目标卡的名下工作区**。原先它住在
  * `pages/ObjectList.tsx` 里，聚焦页目标区要复用就得从页面模块里挖——那会形成
  * 页面 → 组件 → 页面的循环依赖。故抽成本文件：它是**呈现件**，不属于任何页面。
  *
@@ -128,13 +128,6 @@ export function getFactAssociationState(association: FactCardAssociation): FactA
     if (association.status === 'draft') return 'pending';
     if (association.status === 'discarded') return 'discarded';
   }
-  if (targetType === 'workcase') {
-    // 21 号三态：closed（含 cancelled——outcome 四值是徽标层，不是组）；
-    // 派生 group 判待办（pending_gate1/awaiting_gate2 → pending；executing → progressing）。
-    if (association.status === 'closed') return 'closed';
-    if (association.group === 'pending_gate1' || association.group === 'awaiting_gate2') return 'pending';
-    if (association.group === 'executing') return 'progressing';
-  }
   // 26 §9：friction 关联目标——open 是活账（待修），resolved 已销、voided 已废弃、
   // accepted 已接受（不可清偿），后三者均属终态族。（2026-10 修订：原第四值
   // observing 已退出闭集。）
@@ -154,7 +147,7 @@ export function getFactAssociationStateRank(association: FactCardAssociation): n
 
 function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationState; tooltip: string }) {
   const presentation = {
-    // 待确认族（Pitfall draft、WorkCase 方案/关闭待确认、Spark open、Friction open）用
+    // 待确认族（Pitfall draft、Spark open、Friction open）用
     // **带圈问号 CircleHelp**：这一族的共同点是「等一个决定」，不是「进度走到一半」——
     // 此前是自绘的四分填充圆（读起来像进度环，未开始的条目被画成已完成 25%，隐喻错）。
     // 2026-11-02 曾二次定案撤掉外圈改用裸问号，2026-11-03 Human 改回带圈形态（裸问号
@@ -177,7 +170,7 @@ function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationSt
  *
  * 为什么要适配而不是另写一套行式（Human 2026-09-30：「这里的引用样式学习一下 spark 的
  * 引用方案」）：Spark 的引用行由 `FactAssociationCardRow` 单点给出（类型图标 13px +
- * 标题撑满 + 行末状态图标）；已关闭卡此前自建 `WorkCaseRefSourceRow`（无类型图标、
+ * 标题撑满 + 行末状态图标）；已关闭卡此前自建专用行（无类型图标、
  * 状态写成文字），于是**同一类信息出现两套行式**——正是本仓反复出现的"两处各写一套"
  * 病。反向引用与关联的形状本就同构（`resolvedTarget`/`title`/`available`/`status`），
  * 故此处只做**字段搬运**，行式仍由统一行给出。
@@ -221,10 +214,10 @@ export const SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT = 3;
  *
  * 为什么定序而不按条目数排：类型层是**稳定的读法**（读者知道先看工单的落实情况、
  * 再看火花），按数量排会让同一屏在不同对象间换次序，读者每次都要重新定位。剩余的
- * 类型（契约上只会出现 workcase/spark 两类，见 `facts.ts` 的 `deriveServingWork`）
+ * 类型（见 `facts.ts` 的 `deriveServingWork`）
  * 追加在登记次序之后，不因未登记而消失。
  */
-const SUB_GOAL_SERVING_TYPE_ORDER: readonly string[] = ['workcase', 'spark'];
+const SUB_GOAL_SERVING_TYPE_ORDER: readonly string[] = ['spark'];
 
 type ServingWorkGroup = { type: string; rows: FactCardAssociation[] };
 
@@ -292,9 +285,8 @@ export function servingWorkToAssociation(row: ServingWorkItem): FactCardAssociat
     },
     title: row.title,
     status: row.status,
-    // workcase 的派生分组随行搬运（21 号，服务端单点派生）——行末状态图标据此判
+    // 派生分组随行搬运（服务端单点派生）——行末状态图标据此判
     // 「推进中／待处理」，呈现层不重算。
-    ...(row.group ? { group: row.group as WorkCaseV5Group } : {}),
   };
 }
 

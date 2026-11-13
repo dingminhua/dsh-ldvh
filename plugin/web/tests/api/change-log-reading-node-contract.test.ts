@@ -10,10 +10,6 @@ test('every specialised fact layout gives the consumed change_log field a Human 
     path.join(repositoryRoot, 'web/src/pages/object-detail/FactReadingLayouts.tsx'),
     'utf8',
   );
-  const workcase = readFileSync(
-    path.join(repositoryRoot, 'web/src/pages/object-detail/WorkCaseReadingLayout.tsx'),
-    'utf8',
-  );
 
   assert.match(layouts, /export function ChangeLogReadingNode/);
   assert.match(layouts, /function parseChangeLogEntries/);
@@ -27,5 +23,4 @@ test('every specialised fact layout gives the consumed change_log field a Human 
     const next = layouts.indexOf('\nexport function ', start + 1);
     assert.match(layouts.slice(start, next === -1 ? undefined : next), /<ChangeLogReadingNode/);
   }
-  assert.match(workcase, /<ChangeLogReadingNode[\s\S]*?value=\{obj\.change_log\}/);
 });

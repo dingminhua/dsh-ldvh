@@ -2,7 +2,7 @@
  * 全部管辖联邦聚合（全部管辖计划 Step 3）。
  *
  * GET /api/federation/overview —— 跨管辖项目的只读汇总：
- * - 项目卡：每项目的 open Spark 计数、进行中 WorkCase、待决定事项计数与最后动态时间；
+ * - 项目卡：每项目的 open Spark 计数、待决定事项计数与最后动态时间；
  * - 跨项目悬置：全部项目 open Spark 按陈旧度取 Top N（v5 Spark 无 `priority` 字段，20 §8）；
  * - 逐项目降级：单个项目读取失败时该卡如实带 issues，不影响其它项目（认知中心模块级降级同型）。
  *
@@ -23,7 +23,6 @@ export interface FederationProjectCard {
   color?: string
   isDefault: boolean
   sparkOpen?: number
-  activeWorkCases?: number
   pendingDecisions?: number
   lastActivityAt?: string
   issues: string[]
@@ -39,13 +38,6 @@ export interface FederationCrossSpark {
 }
 
 const CROSS_SPARK_LIMIT = 8
-/**
- * 「待决定」的 WorkCase 派生分组（`10 §4.2.1`）：`pending_gate1`（Gate 1 待批）与
- * `awaiting_gate2`（Gate 2 待关）是本系统里仅有的两个 Human Gate 位置；`executing`
- * 与 `closed` 都不在等 Human 决定。与认知中心收件箱的 `deriveInboxKind` 同源同义。
- */
-const PENDING_WORKCASE_GROUPS = new Set(['pending_gate1', 'awaiting_gate2'])
-
 function itemsOf(result: unknown): { items: Array<Record<string, unknown>>; error?: string } {
   if (result && typeof result === 'object' && 'ok' in result && (result as { ok: boolean }).ok && 'data' in result) {
     const data = (result as { data: { items?: unknown } }).data
@@ -74,7 +66,7 @@ function latestChangeLogAt(items: Array<Record<string, unknown>>): string | unde
 
 router.get('/objects', async (req: Request, res: Response): Promise<void> => {
   const type = String(req.query.type ?? '')
-  const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const
+  const OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const
   if (!(OBJECT_TYPES as readonly string[]).includes(type)) {
     res.status(400).json({ ok: false, error: `Unsupported object type: ${type || '(missing)'}` })
     return
@@ -133,15 +125,13 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
         issues: [],
       }
       const scope = { worktreeLocator: project.path, governedProjectId: project.id }
-      const [sparkResult, workCaseResult, pitfallResult] = await Promise.all([
+      const [sparkResult, pitfallResult] = await Promise.all([
         listObjects('spark', undefined, undefined, scope),
-        listObjects('workcase', undefined, undefined, scope),
         listObjects('pitfall', undefined, undefined, scope),
       ])
       const sparks = itemsOf(sparkResult)
-      const workCases = itemsOf(workCaseResult)
       const pitfalls = itemsOf(pitfallResult)
-      for (const [kind, listing] of [['spark', sparks], ['workcase', workCases], ['pitfall', pitfalls]] as const) {
+      for (const [kind, listing] of [['spark', sparks], ['pitfall', pitfalls]] as const) {
         if (listing.error) card.issues.push(`${kind}: ${listing.error}`)
       }
       let openSparks: Array<Record<string, unknown>> = []
@@ -151,27 +141,10 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
         card.sparkOpen = openSparks.length
       }
       if (openSparks.length > 0) openSparksByProject.set(project.id, openSparks)
-      if (!workCases.error) {
-        // 21 §8 / 10 §4.2.1：v5 状态闭集只有 draft / open / closed，v5 亦无 `phase`（该值在
-        // v4 时代承载生命周期位置，v5 由派生分组取代）。故计数一律读**列表投影给出的派生
-        // 分组** `group`（`facts.ts` 经 `deriveWorkCaseV5View` 单点派生、不写回对象），不在
-        // 此处按字段名重算生命周期——重算即第二套判据（09 §5 一致性纪律）。
-        //
-        // 此前本处的判据是 v4 语义：`status === 'blocked'`（v5 中不存在该值，恒假）与
-        // `phase ∈ {human_plan_confirming, human_closure_confirming}`（v5 对象无该字段，
-        // 恒假）。实测 33 份载体中 blocked 与 phase 各 0 份，故两处计数恒为空——
-        // `pendingDecisions` 曾只剩 Pitfall draft 一项，WorkCase 的两个 Human Gate 永不入账。
-        // （2026-11-03：Pitfall 取消 `draft` 待确认态后，`pendingDecisions` 由 WorkCase 的
-        // 两个 Human Gate 独占——下方 Pitfall 计数随之删除。）
-        card.activeWorkCases = workCases.items.filter((item) => item.status === 'open').length
-        card.pendingDecisions = workCases.items
-          .filter((item) => PENDING_WORKCASE_GROUPS.has(String(item.group ?? '')))
-          .length
-      }
       // Pitfall 不再计入 `pendingDecisions`（2026-11-03）：Pitfall 取消 `draft` 待确认态
       // （23 §9），已无「在等入档的候选」可数。`pitfalls` 仍用于下面的 lastActivityAt
       // 与 issues，取数保留。
-      const lastActivityAt = latestChangeLogAt([...sparks.items, ...workCases.items, ...pitfalls.items])
+      const lastActivityAt = latestChangeLogAt([...sparks.items, ...pitfalls.items])
       if (lastActivityAt) card.lastActivityAt = lastActivityAt
       return card
     }))

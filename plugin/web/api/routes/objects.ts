@@ -7,12 +7,6 @@ import { listObjects, showObject, OBJECT_TYPES, type ObjectType } from '../servi
 import { ProjectScopeError, requestFactScope } from '../services/requestScope.js'
 import { compareTimestamps } from '../services/time.js'
 import type { LocalFactScope } from '../services/localFactReader.js'
-import {
-  WORKCASE_V5_FILTER_VALUES,
-  WORKCASE_V5_STATUSES,
-  type WorkCaseV5Filter,
-  type WorkCaseV5Group,
-} from '../../shared/workcaseLifecycle.js'
 import { getLatestChangeLogAt } from '../../shared/factChangeLog.js'
 
 const router = Router()
@@ -33,41 +27,6 @@ export interface ListedObject {
 interface StatusOption {
   status: string
   count: number
-}
-
-/** v5 WorkCase 列表筛选五档（Human 2026-09-15 定案）。 */
-interface LifecycleOption {
-  group: WorkCaseV5Filter
-  count: number
-}
-
-type WorkCaseListStatus = (typeof WORKCASE_V5_STATUSES)[number]
-
-function getWorkCaseStatus(item: ListedObject): WorkCaseListStatus | null {
-  return WORKCASE_V5_STATUSES.includes(item.status as WorkCaseListStatus)
-    ? (item.status as WorkCaseListStatus)
-    : null
-}
-
-/**
- * 读取 item 上**已由权威派生点写入**的 v5 分组。
- *
- * 不得在此重算：列表投影已按载荷纪律剥离 `report_body`（`factFieldContract.ts`
- * 的 `FACT_LIST_FIELD_NAMES` 把 workcase 整体排除），从被剥离的输入重算只会
- * 得到 `executing`。权威派生点是 `facts.ts:projectCurrentWorkCaseCardShape`，
- * 它拿完整 fact 算好后写入 `group`（并同时写入 `current_snapshot_projection`）。
- *
- * 历史缺陷（已修）：本函数原先自行调用 `deriveWorkCaseV5View(item.status,
- * item.outcome, item.report_body ?? null, …)`——`report_body` 在列表项上恒为
- * undefined，于是「open ∧ 正文含结果节」的工单被误判为 executing，
- * `?lifecycle=awaiting_gate2` 恒返回 0、tab 计数恒 0、认知中心不产生 Gate 2 待办。
- */
-function getWorkCaseV5Group(item: ListedObject): WorkCaseV5Group | null {
-  if (getWorkCaseStatus(item) === null) return null
-  const group = (item as Record<string, unknown>).group
-  return typeof group === 'string' && WORKCASE_LIST_GROUP_ORDER.includes(group as WorkCaseV5Group)
-    ? (group as WorkCaseV5Group)
-    : null
 }
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -116,15 +75,10 @@ function normalizeItem(value: unknown): ListedObject | null {
     id,
     type,
     status,
-    // v5 WorkCase 派生分组（pending_gate1/executing/awaiting_gate2/closed）**不由本层
-    // 计算**：权威派生点只有一个——`facts.ts` 的 `projectCurrentWorkCaseCardShape`，
-    // 它拿到完整 fact（含 report_body）后算出 view，并写入 `group` / `outcome` /
-    // `has_result_draft` / `current_snapshot_projection`。`...value` 已把该结果带过来。
+    // 它拿到完整 fact 后算出派生视图，`...value` 已把该结果带过来。
     //
-    // 此处**故意不再重算**（历史缺陷，见 `getWorkCaseV5Group` 的注释）：列表投影按
-    // 载荷纪律剥离了 `report_body`（列表只带最小权威字段，正文属详情阅读面），
-    // 从被剥离的输入重算只会得到 executing，并把卡片算好的 awaiting_gate2
-    // **覆盖掉**——这正是 awaiting_gate2 档位恒为 0 的成因。
+    // 此处**故意不再重算**：列表投影按载荷纪律剥离了正文类字段（列表只带最小权威
+    // 字段，正文属详情阅读面），从被剥离的输入重算只会得出与卡片不一致的结果。
     title: toStringValue(value.title),
     title_en: toStringValue(value.title_en) || undefined,
     title_zh: toStringValue(value.title_zh) || undefined,
@@ -184,7 +138,7 @@ function getStatusOptions(items: ListedObject[]): StatusOption[] {
 
 /** Spark 优先级档位（20 §8，2026-09-13 Human 裁定新增）：闭集 P0–P3，
  *  AI 出初值、Human 可调整；仅 open 时出现。列表据此提供筛选与排序。
- *  （WorkCase 侧仍无此字段——21 §160 字段闭集未含 priority。） */
+ *  （个别类型无此字段——其字段闭集未含 priority。） */
 const SPARK_PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3'] as const
 
 function getSparkPriorityOptions(items: ListedObject[]): StatusOption[] {
@@ -195,24 +149,6 @@ function getSparkPriorityOptions(items: ListedObject[]): StatusOption[] {
   }
   // 未分档的 Spark 不单列选项（20 §8 允许缺失），计数只反映已分档项。
   return SPARK_PRIORITY_ORDER.map((status) => ({ status, count: counts.get(status) ?? 0 }))
-}
-
-/**
- * WorkCase 列表筛选五档聚合（v5）：all 恒在，其余四档按派生 group 计数。
- * 21 §160 状态闭集三值 + 派生判据「open ∧ 正文 ## 结果 节 ⇒ awaiting_gate2」。
- */
-const WORKCASE_LIST_GROUP_ORDER: readonly WorkCaseV5Group[] = ['pending_gate1', 'executing', 'awaiting_gate2', 'closed']
-
-function getWorkCaseLifecycleOptions(items: ListedObject[]): LifecycleOption[] {
-  const counts = new Map<WorkCaseV5Group, number>()
-  for (const item of items) {
-    const group = getWorkCaseV5Group(item)
-    if (!group) continue
-    counts.set(group, (counts.get(group) ?? 0) + 1)
-  }
-  const options: LifecycleOption[] = WORKCASE_LIST_GROUP_ORDER.map((group) => ({ group, count: counts.get(group) ?? 0 }))
-  options.push({ group: 'all', count: items.length })
-  return options
 }
 
 async function listObjectSummaries(type: ObjectType, scope: LocalFactScope): Promise<ListedObject[]> {
@@ -244,17 +180,6 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     })
     return
   }
-  // WorkCase 列表筛选按 v5 五档（pending_gate1/executing/awaiting_gate2/closed/all）。
-  const lifecycle = type === 'workcase' && typeof req.query.lifecycle === 'string'
-    ? req.query.lifecycle
-    : undefined
-  if (lifecycle && !WORKCASE_V5_FILTER_VALUES.includes(lifecycle as WorkCaseV5Filter)) {
-    res.status(400).json({
-      ok: false,
-      error: `Invalid WorkCase lifecycle filter: ${lifecycle} (v5: pending_gate1|executing|awaiting_gate2|closed|all)`,
-    })
-    return
-  }
   let factScope
   try {
     factScope = await requestFactScope(req)
@@ -274,8 +199,8 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     return
   }
   // v5 Spark 与通用类型同路径：状态闭集（open/implemented/discarded，20 §9）
-  // 直接下推过滤；WorkCase 走 lifecycle 派生分组过滤。
-  const result = await listObjects(type, undefined, type === 'workcase' ? undefined : status, factScope)
+  // 直接下推过滤。
+  const result = await listObjects(type, undefined, status, factScope)
 
   if (!result.ok) {
     res.status(typeof result.exitCode === 'string' ? 503 : 500).json(result)
@@ -283,24 +208,12 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   }
 
   const allItems = getResultItems(result)
-  const items = type === 'workcase'
-    ? allItems.filter((item) => {
-      if (!lifecycle || lifecycle === 'all') return true
-      const group = getWorkCaseV5Group(item)
-      return group === lifecycle
-    })
-    : type === 'spark'
-      ? allItems.filter((item) => !priority || item.priority === priority)
-      : allItems
+  const items = type === 'spark'
+    ? allItems.filter((item) => !priority || item.priority === priority)
+    : allItems
   if (isRecord(result.data)) {
-    const statusItems = type === 'workcase'
-      ? allItems
-      : status ? await listObjectSummaries(type, factScope) : items
-    if (type === 'workcase') {
-      result.data.lifecycleOptions = getWorkCaseLifecycleOptions(allItems)
-    } else {
-      result.data.statusOptions = getStatusOptions(statusItems)
-    }
+    const statusItems = status ? await listObjectSummaries(type, factScope) : items
+    result.data.statusOptions = getStatusOptions(statusItems)
     if (type === 'spark') {
       // priority 计数与状态过滤同口径（反映当前池，非全量）。
       const priorityPool = status

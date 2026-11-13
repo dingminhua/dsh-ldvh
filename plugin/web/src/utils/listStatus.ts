@@ -1,5 +1,4 @@
 // 21 号三态：WorkCase 列表无默认状态过滤（默认全部；筛选走 ?lifecycle= 五档）。
-const WORKCASE_DEFAULT_LIST_STATUS: string | null = null;
 
 // 28 §9：subgoal 默认只列 active——已达成与已作废是历史，扫读当前目标结构时
 // 它们只会稀释注意力（需要看历史时显式选 achieved/retired 或「全部」）。
@@ -10,7 +9,6 @@ const DEFAULT_ACTIVE_TYPES = new Set(['adr', 'pitfall', 'research', 'norm', 'sub
 export const ALL_STATUS_PARAM = 'all';
 
 export function getDefaultListStatus(type: string): string | null {
-  if (type === 'workcase') return WORKCASE_DEFAULT_LIST_STATUS;
   if (type === 'spark') return 'open';
   // 26 §12：Friction 默认候选**只含 open**（2026-10 修订：观察态已退出闭集，
   // 账本里不再有「攒够待修的候选源」这一状态）；列表过滤是单选 tab，

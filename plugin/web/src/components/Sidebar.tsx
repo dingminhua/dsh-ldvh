@@ -27,7 +27,6 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   // 呈现并下钻子目标（2026-11-03 改版），单列入口是同一条信息的第二个入口——
   // 删的是**导航入口**，不是子目标这个事实类型（28 号载体、详情页、下钻路径都在）。
   { to: '/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
-  { to: '/objects/workcase', labelKey: 'nav.workcases', icon: OBJECT_TYPE_ICONS.workcase },
   { to: '/objects/research', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.research },
   { to: '/objects/adr', labelKey: 'nav.adrs', icon: OBJECT_TYPE_ICONS.adr },
   { to: '/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
@@ -57,7 +56,6 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
 const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [
   { to: '/federation', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
   { to: '/federation/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
-  { to: '/federation/objects/workcase', labelKey: 'nav.workcases', icon: OBJECT_TYPE_ICONS.workcase },
   { to: '/federation/objects/research', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.research },
   { to: '/federation/objects/adr', labelKey: 'nav.adrs', icon: OBJECT_TYPE_ICONS.adr },
   { to: '/federation/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },

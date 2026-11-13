@@ -269,6 +269,7 @@ async function zstdAvailable(): Promise<boolean> {
 }
 
 /** zstd 帧起始魔数（RFC 8878 §3.1.1），十进制 0xFD2FB528 的小端字节序。 */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 文档化的帧魔数，供后续解压实现使用
 const ZSTD_FRAME_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
 
 /**

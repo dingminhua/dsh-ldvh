@@ -5,7 +5,6 @@ import { getCategoryLabel } from '../i18n/locales.ts';
  * Conventional commit 分类沿用下方的独立映射，不参与事实对象配色。
  */
 export const CATEGORY_COLORS: Record<string, string> = {
-  workcase: '#3b82f6', // blue
   adr: '#a855f7',     // purple
   pitfall: '#ef4444', // red
   spark: '#eab308',   // amber

@@ -146,7 +146,7 @@ test('mobile reading panel identifies the current object and terminal cards reta
 
   assert.match(readingPanel, /ldvh-card-title w-full truncate text-center">{panelTitle}/);
   // 2026-09-30 修订：改用「status 的取值来自 presentedStatus」——见同批 nonactive 契约
-  // 的同款修订（WorkCase 已关闭卡的 status 现为三元表达式）。
+  // 的同款修订（已关闭卡的状态现为三元表达式）。
   assert.match(objectList, /<ObjectIdentityActions[\s\S]{0,400}status=\{[^}]*presentedStatus[^}]*\}/);
   assert.doesNotMatch(objectList, /showStatusBadge/);
 });
@@ -155,7 +155,6 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   const objectList = read('src/pages/ObjectList.tsx');
   const priorityIcon = read('src/components/PriorityIcon.tsx');
   const statusBadge = read('src/components/StatusBadge.tsx');
-  const capabilityBadge = read('src/components/WorkCaseCapabilityStatusBadge.tsx');
   const identityActions = read('src/components/ObjectIdentityActions.tsx');
   const cardFrame = objectList.slice(
     objectList.indexOf('export function ObjectCardFrame'),
@@ -165,8 +164,8 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   assert.match(cardFrame, /ldvh-chip-sm/);
   assert.match(cardFrame, /const activityCount = Array\.isArray\(obj\.change_log\) \? obj\.change_log\.length : 0/);
   assert.match(cardFrame, /<History size=\{12\} aria-hidden="true" \/>[\s\S]{0,80}<span>\{activityCount\}<\/span>/);
-  // 2026-09-30 修订：窗口由 460 放宽到 1200——卡框新增了 `statusBadge`（WorkCase 已关闭卡
-  // 的合并徽标）一段，原窗口量不到 `compact`。意图不变：**列表卡须用 compact 变体**。
+  // 窗口放宽到 1200 是因为卡框新增了 `statusBadge` 一段，原窗口量不到 `compact`。
+  // 意图不变：**列表卡须用 compact 变体**。
   assert.match(cardFrame, /<ObjectIdentityActions[\s\S]{0,1200}compact/);
   assert.match(cardFrame, /items-center gap-1\.5[\s\S]{0,220}<ObjectTypeIcon type=\{obj\.type\} size=\{14\} className="shrink-0"/);
   assert.match(cardFrame, /ldvh-object-title-tray ldvh-object-title-tray-compact/);
@@ -189,14 +188,13 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   // 的无衬线栈。原断言写 `font-sans font-medium`——意图是「不许用等宽」，但把 Tailwind
   // 的 `font-sans`（`ui-sans-serif`）一并钉进了期望值，于是这些 chip 与其余 chip 继承的
   // `:root`（`-apple-system`）分岔，同一行出现两种字体族（2026-10-05 在插件页面实测：
-  // 「工单 / SG-3 / 1」为 -apple-system，「待批准执行」为 ui-sans-serif）。
+  // 「标题 / SG-3 / 1」为 -apple-system，状态词为 ui-sans-serif）。
   // 这与 `structure-single-source-contract` 里「把 border-l-2 写进期望值即单方面判定争议」
   // 是同一类错误：断言把**实现细节**当成了**契约**。现只锁意图。
   assert.match(priorityIcon, /font-medium/);
   assert.doesNotMatch(priorityIcon, /font-mono|font-sans/);
   assert.match(statusBadge, /font-medium/);
   assert.doesNotMatch(statusBadge, /font-mono|font-sans/);
-  assert.match(capabilityBadge, /ldvh-chip-sm/);
   assert.match(objectList, /filteredItems\.map\(\(obj\) => renderObjectCard\(obj\)\)/);
   assert.match(identityActions, /compact\?: boolean/);
   assert.match(identityActions, /variant=\{compact \? 'compact' : undefined\}/);
@@ -395,19 +393,6 @@ test('Spark 健康度池结构区块只保留上边框：下边框与首卡上�
   );
 });
 
-test('WorkCase semantic blocks keep the compact 14/13px by 22px hierarchy', () => {
-  const styles = read('src/index.css');
-  const layout = read('src/pages/object-detail/WorkCaseReadingLayout.tsx');
-  assert.match(styles, /\.ldvh-detail-semantic-title[\s\S]*text-sm font-semibold[\s\S]*line-height: 1\.375rem/);
-  assert.match(styles, /\.ldvh-detail-semantic-body[\s\S]*font-size: 0\.8125rem[\s\S]*line-height: 1\.375rem/);
-  assert.match(styles, /\.ldvh-inline-markdown\.ldvh-detail-semantic-body[\s\S]*font-size: 0\.8125rem[\s\S]*line-height: 1\.375rem/);
-  // v5：语义块的字号层级由 styles 承载（上面三条 CSS 断言）；布局层不再
-  // 持有 v4 的图标尺寸常量与 styles.body 形态。
-  assert.doesNotMatch(layout, /WORKCASE_DETAIL_SEMANTIC_ICON_SIZE/);
-  assert.doesNotMatch(layout, /className=\{`ldvh-body \$\{styles\.body\}`\}/);
-  assert.match(layout, /ldvh-card-decision-body/);
-});
-
 test('fact reading unordered-list markers stay centered on the first text line', () => {
   const styles = read('src/index.css');
   const markerRule = styles.slice(
@@ -451,7 +436,7 @@ test('Federation pages reuse the shared layout grammar and do not invent viewpor
  *
  * ① 对比度：正文取色原为 `rgb(var(--ldvh-text-secondary) / 0.92)`。alpha 并非
  *    中性——它把文本色向底色混合，浅色壳底上实测 4.05:1，**低于本仓库既有的
- *    「正文 4.5:1 线」**（该线由 WorkCaseGistLine 对框线/正文分取值的登记确立，
+ *    「正文 4.5:1 线」**（该线由卡体正文对框线/正文分取值的登记确立，
  *    并已用于把 `${color}dd` 判为不可读）。去掉 alpha 后浅色 4.74:1、暗色 7.46:1。
  *
  *    本用例**复算对比度**，而不是只断言 CSS 字符串：断言字符串无法发现「换一个
@@ -559,7 +544,7 @@ test('阅读节点不设行宽上限 —— 撤销 40em 的反回退守卫', () 
 
   // Human 裁定 2026-09-22 撤销原 40em 行宽规则。撤销理由（实测）：
   //   ① 选择器挂在六类阅读面**共用**的壳上（ADR/Pitfall/Spark/Research/Friction/Norm
-  //      与 WorkCase 全部走它），而动机只是 WorkCase 的长摘要——等于给所有类型一并收窄；
+  //      与全部类型走它），而动机只是长摘要——等于给所有类型一并收窄；
   //   ② 壳内文本列约 792px，40em ≈ 560px，右侧留出约 29% 空白；阅读节点里大多是
   //      短字段，收窄不产生可读性收益，留白本身反成视觉缺陷。
   // 「舒适行宽」是连续长文的经验值，不能不加区分地施加到任意字段上。
@@ -586,7 +571,7 @@ test('阅读节点不设行宽上限 —— 撤销 40em 的反回退守卫', () 
  * 为什么设这条守卫：字体族的**显式覆盖**会把一处 chip 从全局栈里摘出去。实测
  * （2026-10-05，插件页面）：`StatusBadge` 与 `PriorityIcon` 带着 `font-sans`
  * （Tailwind 默认 `ui-sans-serif`），而其余 chip 继承 `:root` 的 `-apple-system`——
- * 同一张卡头里「工单 / SG-3 / 1」与「待批准执行」是两种字体，字号与盒高却完全一致，
+ * 同一张卡头里「标题 / SG-3 / 1」与状态词是两种字体，字号与盒高却完全一致，
  * 因此肉眼只能看出「说不出的不一样」。这类分歧在**度量上不可见**（fontSize / height /
  * padding / radius 全同），只能靠查 `font-family` 发现。
  *

@@ -8,11 +8,6 @@ import {
 } from './localFactReader.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
 import { resolveCurrentWebProject, WebGovernanceError } from './governanceScope.js'
-import { deriveWorkCaseV5View, type WorkCaseV5View } from '../../shared/workcaseLifecycle.js'
-import { parseWorkCaseResultDraft, parseWorkCaseCancellation, workCaseClosureNarrowsResidual } from '../../shared/workcaseResultDraft.js'
-import { hasUnavailableIndependentSubagentReview } from '../../shared/workcaseCapability.js'
-import { validateWorkcaseStructuredText } from '../../shared/workcaseTextStructure.js'
-import { toRfc3339Text } from '../../shared/timestamp.js'
 import { FACT_LIST_FIELD_NAMES } from './factFieldContract.js'
 import { getGitCommit } from './git.js'
 
@@ -24,7 +19,7 @@ import { getGitCommit } from './git.js'
 // 对象的最后」）——那属**导航次序**，由 Sidebar 的 NAV_ITEMS 承担，不靠本数组的
 // 位置表达（本数组是类型值域，不是呈现次序；靠位置表达次序会让「加一类」
 // 无意中改变既有类型的排位）。
-export const ACTIVE_OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const
+export const ACTIVE_OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const
 export const OBJECT_TYPES = ACTIVE_OBJECT_TYPES
 export type ObjectType = (typeof OBJECT_TYPES)[number]
 
@@ -103,11 +98,9 @@ function projectFactIdentity(source: Record<string, unknown>): Record<string, un
   return copyPresentFields(source, ['object_uid'])
 }
 
-function projectListItem(type: ObjectType, item: LocalFactItem, uidTargets?: FactUidTargetIndex): Record<string, unknown> {
+function projectListItem(type: ObjectType, item: LocalFactItem, _uidTargets?: FactUidTargetIndex): Record<string, unknown> {
   const source = item.fact_object ?? {}
-  const base = type === 'workcase'
-    ? projectCurrentWorkCaseCard(source, item.source_content_fingerprint, uidTargets)
-    : copyPresentFields(source, FACT_LIST_FIELD_NAMES[type])
+  const base = copyPresentFields(source, FACT_LIST_FIELD_NAMES[type])
   return {
     ...base,
     ...projectFactIdentity(source),
@@ -135,11 +128,6 @@ type FactAssociationTarget = LegacyFactAssociationTarget
   | { commit: string }
 type FactUidTargetIndex = Map<string, LegacyFactAssociationTarget | null>
 type FactRefSourceIndex = Map<string, Array<Record<string, unknown>>>
-type FactProjectionIndexes = {
-  uidTargets: FactUidTargetIndex
-  refSourceIndex: FactRefSourceIndex
-}
-
 function refObjectUid(value: unknown): string | null {
   return canonicalUid(value) ? value : null
 }
@@ -249,7 +237,7 @@ async function currentProjectUidTargets(scope: LocalFactScope): Promise<FactUidT
 }
 
 /**
- * Derive the reverse side of ordinary `refs` associations for WorkCase cards.
+ * Derive the reverse side of ordinary `refs` associations for object cards.
  *
  * This is deliberately a read-time projection, not a persisted lifecycle index:
  * each readable fact in the current governed project is scanned and its declared
@@ -306,14 +294,6 @@ async function currentProjectFactRefSources(scope: LocalFactScope): Promise<Fact
   return reverse
 }
 
-async function currentProjectProjectionIndexes(scope: LocalFactScope): Promise<FactProjectionIndexes> {
-  const [uidTargets, refSourceIndex] = await Promise.all([
-    currentProjectUidTargets(scope),
-    currentProjectFactRefSources(scope),
-  ])
-  return { uidTargets, refSourceIndex }
-}
-
 /**
  * Fact list cards show association targets as an exact-read projection.  A
  * relation never carries a copied title itself, so an unavailable target stays
@@ -361,23 +341,12 @@ async function projectFactCardAssociations(
     if (exact.status !== 'ok' || exact.item.read_status !== 'readable' || exact.item.fact_object === null) return projection
     const source = exact.item.fact_object
     if (typeof source.title !== 'string' || !source.title.trim()) return projection
-    const workCaseView = locator.factTypeKey === 'workcase'
-      ? deriveWorkCaseV5View(
-        source.status,
-        source.outcome,
-        source.report_body,
-        exact.item.source_content_fingerprint,
-      )
-      : null
     return {
       ...projection,
       available: true,
       ...('objectUid' in target ? { resolvedTarget: locator } : {}),
       title: source.title,
       ...copyPresentFields(source, ['title_en', 'title_zh', 'status']),
-      ...(locator.factTypeKey === 'workcase' && workCaseView?.group
-        ? { group: workCaseView.group }
-        : {}),
     }
   }))
 }
@@ -448,7 +417,7 @@ async function projectListItemWithAssociations(
   item: LocalFactItem,
   scope: LocalFactScope,
   uidTargets: FactUidTargetIndex,
-  refSourceIndex?: FactRefSourceIndex,
+  _refSourceIndex?: FactRefSourceIndex,
 ): Promise<Record<string, unknown>> {
   const associations = await projectFactCardAssociations(item, scope, uidTargets)
   // 03 §7.2 分工纪律：refs 与 relations 并列投影、互不并入。列表卡与详情卡
@@ -456,10 +425,7 @@ async function projectListItemWithAssociations(
   // 卡片网格承载「关联计数」）。此处只新增调用，解析规则仍由 projectFactRefs
   // 单点承载（不新写逻辑）。
   const refs = await projectFactRefs(item, scope, uidTargets)
-  const objectUid = refObjectUid(item.fact_object?.object_uid)
-  const inboundRefSources = type === 'workcase' && objectUid && refSourceIndex
-    ? refSourceIndex.get(objectUid.toLowerCase()) ?? []
-    : []
+  const inboundRefSources: never[] = []
   return {
     ...projectListItem(type, item, uidTargets),
     ...(associations.length > 0 ? { factAssociations: associations } : {}),
@@ -473,352 +439,11 @@ function copyPresentFields(source: Record<string, unknown>, fields: readonly str
 }
 
 
-
-/**
- * 21 号 v5 呈现投影：从 v5 字段闭集（summary/serves/scope/plan/gate_1/attempt/
- * result/outcome）派生列表卡与详情卡形状。不引入 v4 的 phase/work_items/
- * closure_proposal 等字段；派生分组只由 workcaseLifecycle 给出，不写回对象。
- */
-
-/** plan 数组投影为 {step, done_criteria} 摘要（21 §8）。 */
-function projectWorkCasePlan(value: unknown): Array<Record<string, unknown>> {
-  if (!Array.isArray(value)) return []
-  return value
-    .map((candidate) => {
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-      const step = candidate as Record<string, unknown>
-      if (typeof step.step !== 'string' && typeof step.done_criteria !== 'string') return null
-      return {
-        ...(typeof step.step === 'string' ? { step: step.step } : {}),
-        ...(typeof step.done_criteria === 'string' ? { done_criteria: step.done_criteria } : {}),
-      }
-    })
-    .filter((item): item is Record<string, unknown> => item !== null)
-}
-
-/**
- * result 投影：criteria_checks[{satisfied, evidence}] + achieved_scope + residual（21 §8）。
- *
- * 21 §9.3 的字段真实类型是 `satisfied: boolean`、`residual: string[]`（21 §8
- * frontmatter 闭集）。此前本函数按 `typeof === 'string'` 判定，对真实对象
- * **恒不命中**：`residual` 是数组、`satisfied` 是布尔，两者都被静默丢弃——
- * 于是 closed 详情的「逐条判据核对」全部退化为「未记录」、残留责任节点整体
- * 消失（WorkCase 呈现保真缺陷 D1/D2）。此处按字段真实类型判定，**不放宽也不
- * 收紧字段闭集**：类型不符者仍如实丢弃（由读取层的 field_issues 另行报告）。
- */
-function projectWorkCaseResult(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const result = value as Record<string, unknown>
-  const checks = Array.isArray(result.criteria_checks)
-    ? result.criteria_checks
-      .map((candidate) => {
-        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-        const check = candidate as Record<string, unknown>
-        return {
-          ...(typeof check.satisfied === 'boolean' ? { satisfied: check.satisfied } : {}),
-          ...(typeof check.evidence === 'string' ? { evidence: check.evidence } : {}),
-        }
-      })
-      .filter((item): item is Record<string, unknown> => item !== null)
-    : null
-  const residual = Array.isArray(result.residual)
-    ? result.residual.filter((item): item is string => typeof item === 'string')
-    : null
-  return {
-    // 空数组是合法值（21 §9.3：`cancelled` 等场景无逐条判据核对，故 `criteria_checks`
-    // 可为空），必须与「缺失」区分——与下方 `residual` 同一口径，不得按 `length === 0`
-    // 丢弃字段：`cancelled` 详情里「无判据核对」与「未记录判据核对」不是同一件事。
-    ...(checks !== null ? { criteria_checks: checks } : {}),
-    ...(typeof result.achieved_scope === 'string' ? { achieved_scope: result.achieved_scope } : {}),
-    // 空数组是合法值（21 §9.3：`completed` 时 residual 可为空），必须与「缺失」
-    // 区分——丢失它会让详情无法区分「无残留」与「未记录残留」。
-    ...(residual !== null ? { residual } : {}),
-  }
-}
-
-/**
- * gate_1 投影：`approved_at` / `approver` / `authorization_fingerprint` / `scope_snapshot`
- * （21 §8 声明的 gate_1 全四字段）。
- *
- * 两点必守：
- * 1. `approved_at` 经 js-yaml 解析后是 `Date`（未加引号的 ISO 时间戳），不是字符串；
- *    按 string 判定会把它丢弃，使详情取不到批准时间（缺陷 D3）。时间字段统一经
- *    `toRfc3339Text` 归一为 RFC 3339 文本。
- * 2. **必须保留 `authorization_fingerprint` 与 `scope_snapshot`**：它们是 C2 授权钉扎
- *    的两个承载（21 §10.3）——指纹是「授权是否仍覆盖当前 plan+scope」的比对基准，
- *    `scope_snapshot` 是越权拒绝的比对基准（21 §8 称其为 scope 的授权时快照）。
- *    此前的投影只留 `approved_at`/`approver`，而 `showObject` 的装配顺序是
- *    `data = {...fact_object}` 后 `Object.assign(data, currentCard)`——投影会**覆盖**
- *    来源对象，于是这两个字段在 closed 详情被静默丢弃（open 因不投影 gate_1 反而
- *    侥幸保留了原值，造成同一字段两种运行期形态）。
- */
-function projectWorkCaseGate1(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const gate = value as Record<string, unknown>
-  const approvedAt = toRfc3339Text(gate.approved_at)
-  return {
-    ...(approvedAt !== undefined ? { approved_at: approvedAt } : {}),
-    ...(typeof gate.approver === 'string' ? { approver: gate.approver } : {}),
-    ...(typeof gate.authorization_fingerprint === 'string'
-      ? { authorization_fingerprint: gate.authorization_fingerprint }
-      : {}),
-    ...(typeof gate.scope_snapshot === 'string' ? { scope_snapshot: gate.scope_snapshot } : {}),
-    // 21 §8/§14 增量授权的流水（`gate_1.amendments`）。
-    //
-    // **为什么必须投影**（2026-09-30）：呈现层要按「末项无 `decision`」判"待批"
-    // （10 §5.5）。此前白名单只列 gate_1 的四个字段——`amendments` 被**静默丢弃**，
-    // 于是 writer 侧已能机械判出的「待批」，呈现层根本收不到（画了也没有数据）。
-    // 这与本文件上方几处已登记的缺陷同形：**白名单与字段登记是两处权威**，
-    // 新增字段时后者更新而前者漏掉，后果是静默丢弃而不是报错。
-    //
-    // 两个时间字段（申请的 `requested_at`、决定的 `decision.at`）经 js-yaml 解析后
-    // 可能是 `Date`，与 `approved_at` 同处理：统一归一到 RFC 3339 文本，避免同一
-    // 字段在 open / closed 两条路径上出现两种运行期形态。
-    ...(Array.isArray(gate.amendments) ? { amendments: projectWorkCaseAmendments(gate.amendments) } : {}),
-  }
-}
-
-/** `gate_1.amendments` 逐条投影（时间字段归一到 RFC 3339 文本；缺字段即省略）。 */
-function projectWorkCaseAmendments(value: unknown[]): Record<string, unknown>[] {
-  return value
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
-    .map((entry) => {
-      const requestedAt = toRfc3339Text(entry.requested_at)
-      const items = Array.isArray(entry.items)
-        ? entry.items
-            .filter((it): it is Record<string, unknown> => Boolean(it) && typeof it === 'object' && !Array.isArray(it))
-            .map((it) => ({
-              ...(typeof it.step === 'string' ? { step: it.step } : {}),
-              ...(typeof it.done_criteria === 'string' ? { done_criteria: it.done_criteria } : {}),
-            }))
-        : []
-      const decision = entry.decision && typeof entry.decision === 'object' && !Array.isArray(entry.decision)
-        ? (entry.decision as Record<string, unknown>)
-        : null
-      const decidedAt = decision ? toRfc3339Text(decision.at) : undefined
-      return {
-        ...(requestedAt !== undefined ? { requested_at: requestedAt } : {}),
-        items,
-        ...(typeof entry.rationale === 'string' ? { rationale: entry.rationale } : {}),
-        ...(decision === null
-          ? {}
-          : {
-              decision: {
-                ...(typeof decision.kind === 'string' ? { kind: decision.kind } : {}),
-                ...(typeof decision.by === 'string' ? { by: decision.by } : {}),
-                ...(decidedAt !== undefined ? { at: decidedAt } : {}),
-                ...(typeof decision.resulting_fingerprint === 'string'
-                  ? { resulting_fingerprint: decision.resulting_fingerprint }
-                  : {}),
-                ...(typeof decision.session_id === 'string' ? { session_id: decision.session_id } : {}),
-                ...(typeof decision.session_source === 'string' ? { session_source: decision.session_source } : {}),
-              },
-            }),
-      }
-    })
-}
-
-/**
- * attempt 投影：21 §8 登记的全部字段——attempt_id / started_at / controller /
- * heartbeat_at / session_id（+ Code 一并盖戳的 provenance `session_source`）。
- *
- * `started_at` 与 `heartbeat_at` 同 gate_1 是 `Date`，且此前**根本未被复制**——
- * open 详情的执行现场因此缺两格，而 `heartbeat_at` 正是 21 §10.4 判定 attempt
- * 是否为孤立 attempt 的依据（缺陷 D4）。
- *
- * **`session_id` / `session_source` 的补齐（缺陷 D5，2026-09-20）**：二者由
- * workcase-2be11478 引入（21 §8 的 `attempt` 字段登记、§14 关闭前置条件二的身份
- * 基准），但本投影的白名单**停留在此前的 4 个字段**，于是被静默丢弃。后果不是
- * 样式问题而是**证据链断裂**：关闭侧独立性比对以 `attempt.session_id` 为基准，
- * Human 在详情面无法回读这个基准值，只能读结论而看不到比对依据。
- *
- * 根因与 gate_1 同形：**白名单与字段登记是两处权威**，新增字段时后者更新而前者
- * 未同步，且当时无守卫。现按 21 §8 的登记补齐；`web/tests/api/workcase-projection-
- * fidelity.test.ts` 的运行时保真守卫（对真实载体逐字段对照）与此后新增的登记集
- * 用例共同覆盖这条缝。
- *
- * 不做类型分流的理由同 gist：缺失与否由**来源对象**决定（`session_id` 在 identity
- * 不可得时合法缺席——见 writer 的条件展开），投影只负责忠实搬运。故除 Date 归一
- * 外不做类型判定，一律原值搬运，避免重演 D1–D4 那类「按错误类型判定 → 静默丢弃」。
- */
-function projectWorkCaseAttempt(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const attempt = value as Record<string, unknown>
-  const startedAt = toRfc3339Text(attempt.started_at)
-  const heartbeatAt = toRfc3339Text(attempt.heartbeat_at)
-  return {
-    ...(typeof attempt.attempt_id !== 'undefined' ? { attempt_id: attempt.attempt_id } : {}),
-    ...(typeof attempt.controller === 'string' ? { controller: attempt.controller } : {}),
-    ...(startedAt !== undefined ? { started_at: startedAt } : {}),
-    ...(heartbeatAt !== undefined ? { heartbeat_at: heartbeatAt } : {}),
-    // 「无身份」不得被解释为「无该字段」：仅当来源确有值时才搬运，缺席即缺席。
-    ...(typeof attempt.session_id === 'string' ? { session_id: attempt.session_id } : {}),
-    ...(typeof attempt.session_source === 'string' ? { session_source: attempt.session_source } : {}),
-  }
-}
-
-function projectCurrentWorkCaseCardShape(
-  fact: Record<string, unknown>,
-  view: WorkCaseV5View,
-): Record<string, unknown> {
-  // 恒复制：身份 + 标题 + 状态 + serves + 基础字段。
-  // `gist`（21 §8）同样恒复制：它是**卡面**渲染的字段（10 §5.5「卡面与详情的
-  // 字段分工」），三个状态都要有——此前 summary 只在 draft 分支投影，open/closed
-  // 卡面因此拿不到可渲染文本。gist 不重复该错误：缺失与否由**来源对象**决定
-  // （closed 缺失合法，21 §8），投影只负责忠实搬运，不做状态分流。
-  const projected = copyPresentFields(fact, [
-    'object_id', 'fact_type_key', 'title', 'status', 'serves', 'created_at', 'change_log', 'gist',
-  ])
-  // 21 号三态直读视图序列化（current_snapshot_projection 改为 WorkCaseV5View）。
-  projected.current_snapshot_projection = view
-  if (view.group) projected.group = view.group
-  if (view.outcome) projected.outcome = view.outcome
-  if (view.has_result_draft) projected.has_result_draft = true
-  if (hasUnavailableIndependentSubagentReview(fact)) projected.independentSubagentUnavailable = true
-
-  // gate_1 与状态无关地投影——21 §9.1 的「`gate_1` 出现 ⇔ `status ∈ {open, closed}`」
-  // 由**来源对象**保证（draft 对象本就不携带该字段，此处自然不产出）。此前它只在
-  // closed 分支投影，后果有二：①closed 走投影重建、open 走 `{...fact_object}` 原值
-  // 透传，同一字段出现两种运行期形态（open 的 `approved_at` 仍是 `Date`，closed 才是
-  // 归一文）；②重建会覆盖来源，而重建昔只含 2 个字段，于是 closed 详情的
-  // `authorization_fingerprint` 与 `scope_snapshot` 被静默丢弃——那是 C2 授权钉扎的
-  // 比对基准（21 §10.3）。统一为一处投影后，字段集与类型都不再随状态漂移。
-  if (fact.gate_1 !== undefined && fact.gate_1 !== null) {
-    const gate1 = projectWorkCaseGate1(fact.gate_1)
-    if (gate1 && Object.keys(gate1).length > 0) projected.gate_1 = gate1
-  }
-
-  if (view.status === 'draft') {
-    // draft：计划判据 + summary + scope + serves。
-    Object.assign(projected, copyPresentFields(fact, ['summary', 'scope', 'serves']))
-    const plan = projectWorkCasePlan(fact.plan)
-    if (plan.length > 0) projected.plan = plan
-    // 建前审核轴（21 §8 `pre_reviews`，2026-10-16 建立）：draft 卡的徽标须区分
-    // 「待批准执行 · 待审核」与「待批准执行」（已审）。
-    //
-    // 这里只投影「是否已存在一条 verdict=pass 的条目」这一个派生布尔，**不**在
-    // 呈现层重算指纹覆盖——`candidate_fingerprint` 由 writer 落盘、覆盖关系由 Gate 1
-    // 覆盖闸在写入侧保证；呈现层重复实现同一判据必然与门禁分歧（09 §5 一致性纪律）。
-    // 也不投影条目明细：卡面只回答「审了没」，条目内容属详情面与会话 transcript
-    // （21 §8「审核详情不入对象」）。
-    const preReviews = Array.isArray(fact.pre_reviews) ? fact.pre_reviews : []
-    if (preReviews.some((entry) => (
-      entry !== null && typeof entry === 'object'
-      && (entry as Record<string, unknown>).verdict === 'pass'
-    ))) {
-      projected.pre_audit_passed = true
-    }
-  } else if (view.status === 'open') {
-    // open：attempt 现场 + plan + reviews。不投影「## 执行 节存在性」——该标记零消费方
-    // （曾为 `has_execution_section`），属 v4 遗留的展示耦合；21 §8 未定义该字段，
-    // 21 §19 第 4 条亦明确「不为执行过程建完整日志字段」（过程在 transcript 与
-    // Git）。执行进展由 `attempt`（谁在做、做到哪里）与 change_log 承载。
-    const attempt = projectWorkCaseAttempt(fact.attempt)
-    if (attempt && Object.keys(attempt).length > 0) projected.attempt = attempt
-    const plan = projectWorkCasePlan(fact.plan)
-    if (plan.length > 0) projected.plan = plan
-    // 10 §5.5「执行期阶段」：`executing` 组内部按 reviews 与 change_log 的数组序派生
-    // 四阶段（执行中/复核中/修订中/结项中）。派生需要两个输入，`change_log` 已在恒
-    // 复制清单内，`reviews` 此前未投影——缺它则「复核中/修订中/结项中」三者恒不可判
-    // （会被一律判为「执行中」）。故此处补齐 `reviews` 的投影，与详情面同源同形。
-    const reviews = Array.isArray(fact.reviews) ? fact.reviews : []
-    if (reviews.length > 0) projected.reviews = reviews
-    // 「待批准关闭」期（open ∧ 正文含「## 结果」节）：`21 §8` 的 `result` 字段尚不存在
-    // （该字段出现 ⇔ `status = closed`），核对结论与去向**只在正文里**。故此处按
-    // 已登记的词表与结构解析正文，投影为卡片可呈现的 `result_checks` 与 `advice`。
-    // 解析不出的条目落空而不猜（见 shared/workcaseResultDraft）。
-    if (view.has_result_draft) {
-      const draft = parseWorkCaseResultDraft(fact.report_body, fact.plan)
-      if (draft.checks.length > 0) projected.result_checks = draft.checks
-      if (draft.advice.length > 0) projected.advice = draft.advice
-      if (draft.adviceNote !== null) projected.advice_note = draft.adviceNote
-      // 残留：同期的正文承载（`21 §8`，`result` 字段此时尚不存在）。卡面新增残留块
-      // （Human 裁定 2026-09-24）后，这是该期残留的**唯一数据源**；已关闭期则读
-      // `result.residual` 字段（权威），两期各自取当期权威，不互相顶替。
-      //
-      // 2026-09-28 二次修订：去向**长在残留里面**（合并式），故本期的残留块要呈现
-      // 「残留（含去向）」——主从结构（去向子项缩进在所属残留之下）只能由
-      // `result_residual_entries` 承载，`result_residual` 的平铺文本给不出该关系。
-      if (draft.residualEntries.length > 0) projected.result_residual_entries = draft.residualEntries
-      if (draft.residual.length > 0) projected.result_residual = draft.residual
-    }
-  } else if (view.status === 'closed') {
-    // closed：outcome 四值 + result 逐条核对 + plan（gate_1 已在上方统一投影）。
-    //
-    // 取消记录（`21 §8`，仅 outcome=cancelled）：取消理由与「未发生的范围」写在正文
-    // 「## 结果」节的 `- cancellation:` 段，须解析后投影为卡片可呈现的 `cancellation`。
-    // 此前这两件事被塞进 `achieved_scope`（语义为「已证实范围」），呈现层取不到，
-    // 卡面因此整段不显示。
-    //
-    // `plan` 此前不在本分支投影。后果是**列表卡拿不到步骤标题**：`21 §8` 的
-    // `result.criteria_checks[]` 只有 `{satisfied, evidence}`，不含判据文本，故
-    // 「哪一条判据达成了」只能由 `plan[i].step` 给出。详情面不受影响——`showObject`
-    // 直接展开 `fact_object`，故详情一直有 `plan`；缺口只在本投影。
-    // 不投影会让 closed 卡只能显示 evidence 长句（实测最长 258 字），撑破扫读窗口。
-    const plan = projectWorkCasePlan(fact.plan)
-    if (plan.length > 0) projected.plan = plan
-    if (typeof fact.outcome === 'string') projected.outcome = fact.outcome
-    const result = projectWorkCaseResult(fact.result)
-    if (result && Object.keys(result).length > 0) projected.result = result
-    if (fact.outcome === 'cancelled') {
-      const cancellation = parseWorkCaseCancellation(fact.report_body)
-      if (cancellation !== null) projected.cancellation = cancellation
-    }
-    // 去向（`21 §8` 残留段的**去向子项**）：**同一去向不重复承载**（`§10.2` 2026-09-28
-    // 表述）——去向词与去向正文只在正文「## 结果」节出现一处，而 `close` 不删正文，
-    // 故关闭后它仍然在原处（`result` 字段闭集
-    // `criteria_checks`／`achieved_scope`／`residual` 从来不含去向）；
-    // 「转入 Spark」的**指向**（哪个 Spark）另在 `relations.routed-to` 承载一处，
-    // 是对象标识而非散文回指。故此处**读的是与「待批准关闭」期同一处**，不另存一份。
-    //
-    // 此前本分支不解析该段，后果是**关闭后去向在卡上消失**——而 `§10.2` 把它列为
-    // Gate 2 的提请必含项（Human 判断关闭所依据的输入之一）。解析不出的条目落空而不猜。
-    //
-    // **两种形态都要读**（`§15.3`「呈现层必须读两种形态」）：新写入是**合并式**
-    // （去向长在残留里），存量是**分离式**（`- advice:` 段）。同一对象只有一种形态，
-    // 解析器按实际出现的形态读取——这是「不溯及」在消费侧的必要条件，不是双权威。
-    //
-    // 注意语义（`§10.2`，Human 裁定 2026-09-24）：去向是**提请时如实说明的打算**，
-    // **不因关闭而被批准**——批准对象只有「关闭」与 `outcome`。故呈现层用中性表述，
-    // 不得写成暗示「已批准」的词（见组件侧）。
-    const closedDraft = parseWorkCaseResultDraft(fact.report_body, fact.plan)
-    if (closedDraft.advice.length > 0) projected.advice = closedDraft.advice
-    if (closedDraft.adviceNote !== null) projected.advice_note = closedDraft.adviceNote
-    // 决定 A 的**条件豁免判据**（`10 §5.5`「条件豁免」段 / `21 §15.3`）——判据由
-    // `shared/workcaseResultDraft` 的 `workCaseClosureNarrowsResidual` **单点给出**，
-    // 卡面与详情两处消费同一个值，不得各写一套（`10 §5.5` 明文「判据与卡面同源」）。
-    //
-    // 为什么要送到投影里而不是让两个组件各自解析正文：两个呈现面（列表卡/收件箱卡
-    // 与语义详情）在客户端是两条独立路径，各解析一次正文即两处判据——而规范要的正是
-    // 单一来源。服务端算一次、投影一个布尔值，两处读同一个值。
-    //
-    // `false` 时两个呈现面**如实保留残留块**：存量分离式对象里实测 6 份的建议段条数
-    // 少于 `residual` 长度（合计 22 条残留当年就没有去向），一律按 A 隐藏会让那些残留
-    // 从卡面**静默消失**（`§15.3` 明文禁止该后果）。
-    projected.closure_narrows_residual = workCaseClosureNarrowsResidual(closedDraft.residualEntries)
-  }
-  return projected
-}
-
-export function projectCurrentWorkCaseCard(
-  fact: Record<string, unknown>,
-  sourceContentFingerprint: string | null,
-  _uidTargets?: FactUidTargetIndex,
-): Record<string, unknown> {
-  const view = deriveWorkCaseV5View(
-    fact.status,
-    fact.outcome,
-    fact.report_body,
-    sourceContentFingerprint,
-  )
-  return projectCurrentWorkCaseCardShape(fact, view)
-}
-
 /**
  * 28 §8.1：子目标名下工作的**读取时派生**（不是存储状态）。
  *
  * 子目标不存「拆解进度」字段，进度由下游 `serves` 反查得到。这里读 spark 与
- * workcase 两类全量，把 `serves === subGoalUid` 的对象收成一行一行的工作清单。
+ * 两类全量，把 `serves === subGoalUid` 的对象收成一行一行的工作清单。
  *
  * 2026-11-01：匹配键由 `SG-n` 改为 SubGoal 的 `object_uid`（28 §12.3 废止锚点
  * 形态）。两侧都是 uuid，故这是**精确相等**判断，不存在「标签写错一半」的模糊面。
@@ -840,9 +465,6 @@ type ServingWorkRow = {
   /** 目标对象所属项目：联邦视图里卡片的当前项目与对象所属项目可能不同，
    *  统一关联行要据此判「能否在本项目的面板里打开」。 */
   governed_project_id: string
-  /** 21 号派生分组（仅 workcase）：卡片关联行的行末状态图标按它判 pending/progressing。
-   *  由 `deriveWorkCaseV5View` **单点派生**后搬运，不在呈现层重算（09 §5 一致性纪律）。 */
-  group?: string
   href: string
 }
 
@@ -850,7 +472,7 @@ type ServingWorkRow = {
  * 全场反查一次，得到「子目标 uid → 名下工作行」的索引。
  *
  * 为什么要有索引形态（2026-11-02）：列表页要为**每一条**子目标卡呈现名下工作。
- * 逐条调用单子目标版本会让 spark/workcase 两类被扫描 N 次（N = 子目标数），
+ * 逐条调用单子目标版本会让 spark 等类型被扫描 N 次（N = 子目标数），
  * 而反查口径完全相同——同一份判据算 N 遍。故在此单点扫描、按 uid 归组，列表与
  * 详情共用同一份结果与同一套判据。
  *
@@ -861,7 +483,7 @@ async function deriveServingWorkIndex(scope: LocalFactScope): Promise<{
   bySubGoal: Map<string, ServingWorkRow[]>
   unreadable: string[]
 }> {
-  const types = ['workcase', 'spark'] as const
+  const types = ['spark'] as const
   const bySubGoal = new Map<string, ServingWorkRow[]>()
   const unreadable: string[] = []
   for (const type of types) {
@@ -886,14 +508,6 @@ async function deriveServingWorkIndex(scope: LocalFactScope): Promise<{
       if (targets.length === 0) continue
       const uid = typeof item.fact_object.object_uid === 'string' ? item.fact_object.object_uid : undefined
       const status = typeof item.fact_object.status === 'string' ? item.fact_object.status : ''
-      const view = type === 'workcase'
-        ? deriveWorkCaseV5View(
-          item.fact_object.status,
-          item.fact_object.outcome,
-          item.fact_object.report_body,
-          item.source_content_fingerprint,
-        )
-        : null
       for (const target of targets) {
         if (typeof target !== 'string' || target.length === 0) continue
         const rows = bySubGoal.get(target) ?? []
@@ -911,7 +525,6 @@ async function deriveServingWorkIndex(scope: LocalFactScope): Promise<{
           title: typeof item.fact_object.title === 'string' ? item.fact_object.title : item.object_ref.object_id,
           status,
           governed_project_id: item.object_ref.governed_project_id,
-          ...(view?.group ? { group: view.group } : {}),
           // href 是**路由路径**，不是 hash 片段：应用用 BrowserRouter（`App.tsx`），
           // `#/objects/...` 只会改 fragment、不触发路由，点上去看起来「没反应」。
           href: `/objects/${type}/${item.object_ref.object_id}`,
@@ -955,12 +568,12 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
     if (listed.status !== 'complete') return notIntegrated(type, listed.issues[0]?.message ?? `类型 ${type} 无法列举`)
     const uidTargets = await currentProjectUidTargets(resolvedScope)
     // Reverse ordinary refs are derived once per read and only attached to
-    // WorkCase cards. They remain separate from outgoing factRefs and formal
+    // Object cards. They remain separate from outgoing factRefs and formal
     // factAssociations; no persisted lifecycle index is introduced.
     const refSourceIndex = await currentProjectFactRefSources(resolvedScope)
     // 28 §8.1 的派生在列表层同样成立，且必须与详情同源：子目标卡的「名下工作」
     // 不是新增字段，而是同一次反查的投影。索引只建一次——逐条建索引会让 spark 与
-    // workcase 被扫描 N 次（N = 子目标数），而判据完全相同。
+    // 被扫描 N 次（N = 子目标数），而判据完全相同。
     const servingWork = type === 'subgoal' ? await deriveServingWorkIndex(resolvedScope) : null
     const projectedItems = await Promise.all(
       listed.items.map(async (item) => {
@@ -995,7 +608,7 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
   }
 }
 
-const OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal|devlog)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+const OBJECT_ID_PATTERN = /^(adr|pitfall|spark|research|friction|norm|subgoal|devlog)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function showObject(id: string, scope?: LocalFactScope): Promise<WebFactResult | WebFactError> {
   const match = OBJECT_ID_PATTERN.exec(id)
@@ -1025,34 +638,6 @@ export async function showObject(id: string, scope?: LocalFactScope): Promise<We
     // 03 §7.2 关联引用型 / 20 §8：refs 与 relations 并列投影、互不并入。
     const refs = await projectFactRefs(item, resolvedScope, uidTargets)
     if (refs.length > 0) data.factRefs = refs
-    if (type === 'workcase') {
-      // Reverse ordinary refs are a read-time projection for closed-WorkCase
-      // recall.  Keep this separate from outgoing factRefs and formal
-      // factAssociations: it records only that another readable fact declares
-      // this WorkCase as a target, never that advice was fulfilled or closed.
-      const refSourceIndex = await currentProjectFactRefSources(resolvedScope)
-      const objectUid = refObjectUid(item.fact_object.object_uid)
-      const sources = objectUid ? refSourceIndex.get(objectUid.toLowerCase()) ?? [] : []
-      if (sources.length > 0) data.factRefSources = sources
-      const projection = deriveWorkCaseV5View(
-        item.fact_object.status,
-        item.fact_object.outcome,
-        item.fact_object.report_body,
-        item.source_content_fingerprint,
-      )
-      data.current_snapshot_projection = projection
-      const currentCard = projectCurrentWorkCaseCard(item.fact_object, item.source_content_fingerprint, uidTargets)
-      Object.assign(data, currentCard)
-      if (projection.group) data.group = projection.group
-      if (projection.outcome) data.outcome = projection.outcome
-      // `scope` / `summary` 的**书写结构**问题（`21 §8`）：写入口已校验，但那结果
-      // 只留在写入路径上——`mechanical_issues` 在投影与呈现两侧此前**各 0 处命中**，
-      // 于是读者看到的是「这个字段读不了」，而不是「它不合规、原因是 X」。
-      // 此处按同一套规则在服务端复算一次并投影，使问题能就地显示（Human 2026-09-24：
-      // 「当前我看到的都要规范化，可检查，确保之后都要保持一样」）。
-      const structuredTextIssues = validateWorkcaseStructuredText(item.fact_object)
-      if (structuredTextIssues.length > 0) data.structured_text_issues = structuredTextIssues
-    }
     if (type === 'subgoal') {
       // 28 §8.1：拆解与落实情况不存字段，由 serves 反查派生。空集与读取失败
       // 分列两个键——前者是「未声明或未拆解」的歧义，后者是「读不到」，

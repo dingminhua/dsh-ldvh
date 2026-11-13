@@ -6,7 +6,6 @@ import { getObjectStatusLocale } from '@/i18n/locales';
 import type { ServingWorkItem } from '@/utils/api';
 import ServingSparkProgressBar from '@/components/ServingSparkProgressBar';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
-import { WORKCASE_SURFACE_GEOMETRY_CLASS } from '@/components/WorkCaseCriteriaList';
 import {
   FACT_ASSOCIATION_ROWS_LIST_CLASS,
   FACT_ASSOCIATION_ROWS_ZONE_CLASS,
@@ -49,7 +48,7 @@ import { LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semantic
 /**
  * 子目标的**判据面**（28 §8 `criterion` 全文）。
  *
- * 几何与 WorkCase 判据面同源（`WORKCASE_SURFACE_GEOMETRY_CLASS`：四边同宽 1px、
+ * 几何与判据面同源（四边同宽 1px、
  * `rounded-lg`、`px-3 py-2`、无左侧粗线），色相取**本类型色**（子目标 = lime）——
  * 两者必须**成对**取自 `getTypeSurfaceTint`，只贴面会让正文沿用中性近黑，色相面
  * 与正文分家（`docs/01` §1.6）。
@@ -69,8 +68,8 @@ export function SubGoalCriterionSurface({
 
   const tint = getTypeSurfaceTint(type);
   return (
-    <section className={WORKCASE_SURFACE_GEOMETRY_CLASS} style={tint.surface}>
-      {/* 12px 扫读档 + 本类型色正文。**不画圆点**：WorkCase 判据面的圆点是「并列
+    <section className="min-w-0 rounded-lg border px-3 py-2" style={tint.surface}>
+      {/* 12px 扫读档 + 本类型色正文。**不画圆点**：判据面的圆点是「并列
           条目之间的分隔记号」（它的清单恒 ≥1 条且常有多条）；本框恒为**一句**判据，
           孤零零一枚圆点会被读成「一个只写了一句的清单」。 */}
       <p className="ldvh-card-decision-body min-w-0 break-words" style={tint.body}>

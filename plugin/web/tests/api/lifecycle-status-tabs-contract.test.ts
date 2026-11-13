@@ -37,7 +37,7 @@ test('retired has an explicit lifecycle status label', () => {
   assert.match(locales, /pitfall: \{[\s\S]*active: \{ zh: '活跃', en: 'Active' \}/)
 })
 
-test('Spark list carries three filters (priority/serves/lifecycle); WorkCase has no priority', () => {
+test('Spark list carries three filters (priority/serves/lifecycle)', () => {
   const list = source('src/pages/ObjectList.tsx')
   const route = source('api/routes/objects.ts')
 
@@ -51,21 +51,17 @@ test('Spark list carries three filters (priority/serves/lifecycle); WorkCase has
   // 对话中的决定不产生复用效力」，此处只主张**实现层的呈现取舍**，不主张裁定已成立。
   assert.doesNotMatch(list, /objectList\.lifecycleFilter/)
   // 20 §8（2026-09-13 Human 裁定）：Spark 有 priority，列表提供三联过滤
-  // （priority + serves + 生命周期）。WorkCase 维持无此字段（21 §160 闭集）。
+  // （priority + serves + 生命周期）。
   assert.match(list, /ObjectPriorityFilter/)
   assert.match(list, /const supportsPriorityNavigation = currentType === 'spark'/)
   assert.match(list, /activePriority/)
   assert.match(route, /function getSparkPriorityOptions/)
   assert.match(route, /priorityOptions/)
-  // priority 参数仅对 spark 生效（workcase 走 progress）。
+  // priority 参数仅对 spark 生效。
   assert.match(route, /const priority = type === 'spark' && typeof req\.query\.priority === 'string'/)
-  // WorkCase 列表分组按 21 §160 三态收敛，且无 priority 投影。
-  // v5：三态直读 + 五档派生筛选（WORKCASE_V5_FILTER_VALUES）——progress 词汇已废弃。
-  assert.match(route, /WORKCASE_V5_FILTER_VALUES/)
-  assert.match(route, /Invalid WorkCase lifecycle filter/)
   assert.match(
     list,
-    /fetchObjects\(currentType, activeStatus \?\? undefined, activeLifecycle \?\? undefined, activePriority \?\? undefined\)/,
+    /fetchObjects\(currentType, activeStatus \?\? undefined, undefined, activePriority \?\? undefined\)/,
   )
   assert.doesNotMatch(list, /const fetchStatus = currentType === 'spark'/)
   // Spark 状态闭集（open/implemented/discarded，20 §9）与通用类型同路径过滤；

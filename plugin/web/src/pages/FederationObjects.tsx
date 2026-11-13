@@ -11,7 +11,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2, RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import ProjectIssuesNotice from '@/components/ProjectIssuesNotice';
-import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import {
   ObjectCardFrame,
   AdrCardContent,
@@ -30,7 +29,7 @@ import { getTypeLabel } from '@/i18n/locales';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
 
-const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const;
+const OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const;
 
 /** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称 + 计数），单选。
  *
@@ -145,13 +144,6 @@ export default function FederationObjects() {
     // 29 号 DevLog：联邦卡与单项目卡同体——`summary` 是本类型的结论，卡面必须给出
     // （理由见 DevLogCardContent）；不因视图不同而换一套。
     if (currentType === 'devlog') return <DevLogCardContent obj={item} />;
-    if (currentType === 'workcase') {
-      // WorkCase 联邦卡不复制单项目列表的阶段卡片投影（依赖当前项目的投影服务），
-      // 卡体首行同样渲染 gist（10 §5.5「卡面与详情的字段分工」适用于全部卡面，
-      // 不因卡片来自联邦视图而改变）——summary 是给执行者的完整快照，不进卡面。
-      // 进入项目后阅读完整阶段卡片。
-      return <WorkCaseGistLine gist={item.gist} />;
-    }
     return null;
   };
 

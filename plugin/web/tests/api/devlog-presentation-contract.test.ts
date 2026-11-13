@@ -243,9 +243,9 @@ test('devlog 有独立的图标与类型色，前后端同值，且不与既有�
 
   // 不与既有**事实类型**撞色：色相距离是「读者能否靠颜色分辨类型」的机械代理。
   // 作用域刻意只取事实类型九类——`CATEGORY_COLORS` 里还混着 conventional commit
-  // 的 scope 色与 Study 报告类型色，它们不同屏竞争同一判断（既有的 workcase 与
-  // feat 就同值 `#3b82f6`），把它们算进来会得到一条与实际阅读无关的约束。
-  const FACT_TYPE_COLORS = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'goal', 'subgoal', 'devlog'];
+  // 的 scope 色与 Study 报告类型色，它们不同屏竞争同一判断，把它们算进来
+  // 会得到一条与实际阅读无关的约束。
+  const FACT_TYPE_COLORS = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'goal', 'subgoal', 'devlog'];
   const { CATEGORY_COLORS } = await import('../../src/utils/categoryColors.ts');
   const toHue = (hex: string): number => {
     const n = parseInt(hex.slice(1), 16);

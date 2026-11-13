@@ -31,7 +31,7 @@ ProjectFiles 可以读取项目文件和 Git 信息，但不得新增、修改�
 2. Git 状态、diff 和提交历史来自 Git 命令或后端确定性解析。
 3. ProjectFiles 展示的当前文件内容和 Git 溯源信息必须保持各自来源与身份，不由 Web 翻译或改写，也不被统一提升为稳定事实。
 4. ProjectFiles 不把页面选中项、展开目录、当前 tab、搜索条件、diff 展开态或预览滚动位置写成事实源。
-5. ProjectFiles 不创建新的工作对象类别，不把文件浏览状态解释为 WorkCase、Spark、ADR、Pitfall 或 Study 生命周期。
+5. ProjectFiles 不创建新的工作对象类别，不把文件浏览状态解释为任何事实类型的生命周期。
 
 ## 4. 设计语言
 

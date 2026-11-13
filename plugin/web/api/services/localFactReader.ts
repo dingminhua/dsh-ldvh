@@ -13,7 +13,6 @@ import { FACT_FIELD_CONTRACT, type FactType, type FieldExpectation, type ObjectS
 import { canonicalUid } from '../../shared/factIdentity.js'
 
 export const FACT_TYPE_DIRS = {
-  workcase: 'workcases',
   adr: 'adrs',
   pitfall: 'pitfalls',
   spark: 'sparks',
@@ -30,9 +29,8 @@ export const FACT_TYPE_DIRS = {
 } as const
 
 export const FACT_TYPE_CARRIERS = {
-  // 21 §7：WorkCase 载体为 frontmatter（机器权威）+ markdown 正文（## 结果 /
+  // 载体为 frontmatter（机器权威）+ markdown 正文（
   // ## 执行 等节由读取层按 H2 解析；正文经 extra 通道投影为 report_body）。
-  workcase: '.md',
   // v5 ADR（22 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 spark/research 形态。
   adr: '.md',
   // v5 Pitfall（23 §7）：同上，frontmatter + markdown。
@@ -175,14 +173,14 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
 /**
  * v5 markdown 载体类型（frontmatter 机器权威 + 正文）。
  *
- * 这四处判断原先各写一遍 `type === 'workcase' || ... || type === 'norm'`，
+ * 这四处判断原先各写一遍类型枚举，
  * 新增一类就要在四处同时补——漏一处的后果不是报错，而是该类型被当成 YAML
  * 载体读取并静默读空。收敛为一个集合，使「加一类」只有一处要改。
  *
  * 20 §7 / 21 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7 / 28 §8 / 29 §8。
  */
 const MARKDOWN_CARRIER_TYPES: ReadonlySet<LocalFactType> = new Set<LocalFactType>([
-  'workcase', 'research', 'spark', 'adr', 'pitfall', 'friction', 'norm', 'subgoal', 'devlog',
+  'research', 'spark', 'adr', 'pitfall', 'friction', 'norm', 'subgoal', 'devlog',
 ])
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
@@ -203,7 +201,7 @@ function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: strin
 
 function isExpectedCarrierName(type: LocalFactType, fileName: string): boolean {
   const extension = FACT_TYPE_CARRIERS[type].replace('.', '\\.')
-  // v5 markdown 载体类型（workcase/spark/research/adr/pitfall/friction/norm）：object_uid
+  // v5 markdown 载体类型（spark/research/adr/pitfall/friction/norm）：object_uid
   // 为 UUIDv4（21 §7 / 20 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7，文件名编码 UID）；
   // 纯序号/ULID25 段保留兼容读取。其余类型维持 v4 形态（纯序号或 ULID25）。
   const idSegment = MARKDOWN_CARRIER_TYPES.has(type)
@@ -253,7 +251,7 @@ function isTimestampField(field: string): boolean {
 }
 
 /**
- * 契约对象的承载完整性判定（workcase-54d4d176 复核发现 3）。
+ * 契约对象的承载完整性判定（一次复核发现 3）。
  *
  * 只做 `isRecord` 时，`{}` 与 `{ garbage_key: 1 }` 都会被当成合法的
  * `expected: 'object'` 承载原样投影，而 CLI 侧 `normalizeAttributionRef` 对
@@ -280,12 +278,6 @@ function matchesExpectation(value: unknown, expected: FieldExpectation, shape?: 
 }
 
 const RECORD_ARRAY_FIELDS: Partial<Record<LocalFactType, ReadonlySet<string>>> = {
-  // 21 §8 v5 数组字段闭集：plan（{step, done_criteria}[]）/ change_log / relations。
-  // v4 字段（success_criterion_definitions/work_items/closure_proposal/…）已退出
-  // 契约，出现即如实判为 unconsumed_field，不再当作合规模版成员。
-  workcase: new Set([
-    'plan', 'relations', 'change_log',
-  ]),
   // v5 Spark：evolution 成员 {at, summary}（20 §8），relations 仅 merged-into/
   // split-into（03 §7.2 公共形状），不进值级展开。
   spark: new Set(['evolution', 'relations', 'change_log']),
@@ -533,7 +525,7 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
   const entries = await readdir(dir, { withFileTypes: true })
   const carriers = entries.filter((entry) => entry.isFile() && looksLikeFactCarrier(entry.name))
   const fileNames = carriers.filter((entry) => isExpectedCarrierName(type, entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right))
-  // 21 §7：v5 markdown 类型（workcase/spark/research/adr/pitfall/friction/norm）文件名编码 UID；其余类型维持 NNNN/ULID。
+  // v5 markdown 类型（spark/research/adr/pitfall/friction/norm）文件名编码 UID；其余类型维持 NNNN/ULID。
   const v5UidCarrier = MARKDOWN_CARRIER_TYPES.has(type)
   const issues = carriers.filter((entry) => !isExpectedCarrierName(type, entry.name)).map((entry) => ({
     code: 'unexpected_fact_carrier' as const,
@@ -550,7 +542,7 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
 // v5 markdown 载体类型（spark/research/adr/pitfall/friction/norm/subgoal/devlog）
 // 对象 ID 为 UUID（writer randomUUID 带 8-4-4-4-12 连字符段，22 §7 与
 // 20/24/26/27/28/29 同形态）；其余类型保留 v4 形态（纯序号或 ULID25）。
-const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal|devlog)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+const FACT_OBJECT_ID_PATTERN = /^(adr|pitfall|spark|research|friction|norm|subgoal|devlog)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {
   const metadata = metadataFor(scope, type, objectId)

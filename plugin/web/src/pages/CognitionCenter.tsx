@@ -3,15 +3,15 @@
  *
  * - 默认只读：不提供批准、关闭、分流、处置或任何写入口（02 §2.2 / §7.2）。
  * - 一切从既有字段派生：近期动态与热点均只读取事实 change_log（旧事实无流水时才回退时间字段）。
- * - 决定依据区与 WorkCase 列表 Card 同源消费（复用 ObjectList 导出的内容组件与
- *   source-bound WorkCase Card 投影，Q3），不在本页另写摘要逻辑（02 §7.5）。
+ * - 决定依据区与列表 Card 同源消费（复用 ObjectList 导出的内容组件与
+ *   source-bound Card 投影，Q3），不在本页另写摘要逻辑（02 §7.5）。
  * - 复制语义：模块级"复制模块摘要"为面向 AI 对话的多行文本；条目本身不叠加聚焦页专属操作，
  *   保持与对象列表 Card 相同的可读形态（02 §4.1 / §5.3）。
  * - 待决规模如实可见：超出首屏按服务端排序截断，底部如实提示总数与未显示数量，不分页。
  * - 模块级降级：issues 就地显示实际不可用范围与原因，其它内容正常呈现（02 §5.2）。
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { AlertCircle, ChevronDown, ChevronUp, CirclePlay, HeartPulse, History, Inbox } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, HeartPulse, History, Inbox } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
@@ -26,7 +26,6 @@ import PriorityIcon from '@/components/PriorityIcon';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import {
   fetchCognition,
-  type CognitionActiveWorkCaseItem,
   type CognitionData,
   type CognitionInboxItem,
   type CognitionInboxKind,
@@ -37,10 +36,6 @@ import {
   type CognitionSparkHealthItem,
   type ObjectItem,
 } from '@/utils/api';
-import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
-import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
-import WorkCaseGistLine from '@/components/WorkCaseGistLine';
-import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
@@ -52,7 +47,6 @@ import FieldReadNotes from '@/components/FieldReadNotes';
 
 /** 首屏截断阈值：Web 展示参数，不是事实；截断时底部如实提示总数与未显示数量。 */
 const INBOX_FIRST_SCREEN_LIMIT = 8;
-const ACTIVE_WORKCASE_FIRST_SCREEN_LIMIT = 8;
 const RECENT_ACTIVITY_FIRST_SCREEN_LIMIT = 6;
 const RECENT_ACTIVITY_MAX_VISIBLE = Number.MAX_SAFE_INTEGER;
 const SPARK_HEALTH_FIRST_SCREEN_LIMIT = 6;
@@ -63,8 +57,6 @@ const SPARK_HEALTH_AGE_FILTERS: SparkHealthAgeFilter[] = ['all', '3d', '7d'];
 
 
 const INBOX_KIND_LABEL_KEYS: Record<CognitionInboxKind, LocaleKey> = {
-  plan_confirmation: 'cognition.kind.plan_confirmation',
-  closure_confirmation: 'cognition.kind.closure_confirmation',
   // 26 §12：open 摩擦账目进待决定事项（Human 2026-10-19 决定）。标签词刻意用
   // 「待修摩擦」而非「待确认」——它不是 Human Gate、没有一步待授权动作，混用
   // 「待确认」会让 Human 去找一个不存在的批准按钮（26 §9 的流转由
@@ -95,8 +87,6 @@ function buildModuleSummary(data: CognitionData, locale: string, t: Translate): 
   const lines: string[] = [];
   lines.push(t('cognition.inbox.title'));
   const counts: Record<CognitionInboxKind, number> = {
-    plan_confirmation: 0,
-    closure_confirmation: 0,
     friction_repair: 0,
   };
   for (const item of data.inbox.items) counts[item.inboxKind] += 1;
@@ -129,13 +119,6 @@ function buildRecentActivitySummary(data: CognitionData, locale: string, t: Tran
   return lines.join('\n');
 }
 
-function buildActiveWorkCaseSummary(data: CognitionData, locale: string, t: Translate): string {
-  const lines = [t('cognition.active.title'), `total: ${data.activeWorkCases.total}`];
-  for (const item of data.activeWorkCases.items) {
-    lines.push(`- ${formatHumanObjectReference('workcase', getLocalizedObjectTitle(item, locale, item.id), locale)}`);
-  }
-  return lines.join('\n');
-}
 
 function buildSparkHealthSummary(data: CognitionData, locale: string, t: Translate): string {
   const health = data.sparkHealth;
@@ -162,7 +145,7 @@ function buildSparkHealthSummary(data: CognitionData, locale: string, t: Transla
 /* eslint-enable @typescript-eslint/no-unused-vars -- 五个 AI 对话摘要构造器到此为止 */
 
 /** 读取问题与未解析结构在消费位置就地显示（02 §5.4）。 */
-type CognitionCardItem = CognitionInboxItem | CognitionActiveWorkCaseItem;
+type CognitionCardItem = CognitionInboxItem;
 
 function InboxItemReadNotes({ item, locale }: { item: CognitionCardItem; locale: string }) {
   return <FieldReadNotes source={item} locale={locale} className="mt-2" />;
@@ -175,66 +158,6 @@ function InboxCardContent({ item }: { item: CognitionInboxItem }) {
   // 浓缩。现象全文、入账依据住详情页；故这里与列表卡同走 `FrictionCardContent`
   // （它对非 `voided` 返回 null），不另写一套聚焦专属卡体。
   if (item.type === 'friction') return <FrictionCardContent obj={toObjectCard(item)} />;
-  if (item.inboxKind === 'plan_confirmation') {
-    // 「待批准执行」的待决定卡：与列表卡的 pending_gate1 卡体**同构**（2026-10-17）。
-    //
-    // 此前本分支只有 gist + 计划清单，**缺变更流水**——而列表卡早有它。Human 于
-    // 2026-10-17 指出「显示了『待批准执行 · 待审核』但没有 changelog」：徽标恢复了，
-    // 流水仍是缺的。根因同上一条（`displayStatus` 那条）：块的选择不同，不是样式差异。
-    //
-    // 建前审核场景下这条流水尤其必要——它是 Human 判断「这份候选有没有动静、是不是
-    // 已经派过审核」的唯一时间线线索。组件与执行中卡、列表卡**同一份**。
-    return (
-      <div className="grid min-w-0 gap-2">
-        <WorkCaseGistLine gist={item.card.gist} group="pending_gate1" boxed />
-        {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
-          <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
-            <WorkCaseCriteriaList
-            density="card"
-              items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
-            />
-          </div>
-        ) : null}
-        <WorkCaseExecFlow
-          changeLog={item.card.change_log}
-          reviews={item.card.reviews}
-          selfUid={item.id}
-        />
-      </div>
-    );
-  }
-  if (item.inboxKind === 'closure_confirmation') {
-    // Human 2026-09-24：「聚焦里，待决定事项中的 wc card…保持与 wc card 一样的显示」。
-    //
-    // 此前本分支**另写一套**：outcome chip + `criteria_checks` 纯列表 + `gate_1` 行。
-    // 与列表卡的差异不只是样式——**块的选择就不同**：列表卡有核对 + 残留（含去向）两块
-    // （残留与去向在本分支**完全缺失**），且核对用的是带三态标记与分割线的
-    // `WorkCaseResultDraft`，而本分支用裸列表 + `workCaseCheckStatement`（证据长句，
-    // 实测最长 258 字，正是列表卡早已废弃的形态）。
-    //
-    // 现改用**同一个组件**：块、标记、分割线、折叠阈值全部同源；`gate_1` 行归详情面
-    // （列表卡亦不在卡体显示）。聚焦卡的外层结构（`ObjectCardFrame` 等）不变。
-    return (
-      <div className="grid min-w-0 gap-2">
-        <WorkCaseGistLine gist={item.card.gist} group="awaiting_gate2" boxed />
-        <WorkCaseResultDraft
-          plan={item.card.plan}
-          checks={item.card.result_checks}
-          advice={item.card.advice}
-          adviceNote={item.card.advice_note}
-          residual={item.card.result_residual}
-          residualEntries={item.card.result_residual_entries}
-        />
-        {/* 变更流水（Human 2026-10-17：全部 WC 卡都要显示 changelog）：与列表卡的
-            awaiting_gate2 卡体同构，默认展开。 */}
-        <WorkCaseExecFlow
-          changeLog={item.card.change_log}
-          reviews={item.card.reviews}
-          selfUid={item.id}
-        />
-      </div>
-    );
-  }
   return null;
 }
 
@@ -246,15 +169,11 @@ function toObjectCard(item: CognitionCardItem): ObjectItem {
     title: item.title,
     ...(item.title_en ? { title_en: item.title_en } : {}),
     ...(item.title_zh ? { title_zh: item.title_zh } : {}),
-    status: item.type === 'workcase' ? item.group : item.status,
-    ...(item.type === 'workcase' ? { group: item.group } : {}),
+    status: item.status,
     // 建前审核后缀的数据（21 §8 `pre_reviews`）：聚焦卡的徽标走与列表卡同一个
     // `ObjectCardFrame` + 同一个 `getObjectStatusDisplayLabel` 入口，故这里只要把
     // 判据透传进去。显式赋值而非依赖 `...item.card` 展开——展开是隐式的，
     // 字段从 card 上消失时不会有任何报错，正是「两处不同步」的温床。
-    ...(item.type === 'workcase' && item.card.pre_audit_passed !== undefined
-      ? { pre_audit_passed: item.card.pre_audit_passed }
-      : {}),
     path: item.canonical_path ?? '',
     updated: item.updatedAt ?? '',
     ...(item.priority ? { priority: item.priority } : {}),
@@ -266,42 +185,6 @@ function toObjectCard(item: CognitionCardItem): ObjectItem {
   };
 }
 
-function ActiveWorkCaseItemRow({ item }: { item: CognitionActiveWorkCaseItem }) {
-  const { locale } = useI18n();
-  const { openPanel } = usePanel();
-  const title = getLocalizedObjectTitle(item, locale, item.id);
-  const objectCard = toObjectCard(item);
-
-  return (
-    <li className="min-w-0">
-      <ObjectCardFrame
-        obj={objectCard}
-        locale={locale}
-        onOpen={() => openPanel({ type: 'object', title, objectType: 'workcase', objectId: item.id })}
-        showNonActiveReason={false}
-        displayStatus="executing"
-      >
-        <div className="grid min-w-0 gap-2">
-          {/* 10 §5.5 登记「聚焦收件箱卡体（待决定事项 / 推进中事项）」两处都渲染 gist。
-              本行是「推进中事项」。它与下方 InboxCardContent 是同一呈现契约的两个落点，
-              不得只改一处。 */}
-          <WorkCaseGistLine gist={item.card.gist} group="executing" boxed />
-          {/* Human 2026-09-24：「推进中事项的 wc card，保持与 wc card 一样的显示」。
-              此前本处用 attempt 行 + 计划清单，与列表卡的「变更流水」不同——
-              **块的选择就不同**，不是样式差异。现改用同一个组件 `WorkCaseExecFlow`
-              （复核/修订标记的口径全部来自 shared/workcaseLifecycle，本组件不自行判断）。
-              attempt 的控制者与心跳归详情面（列表卡亦不在卡体显示）。 */}
-          <WorkCaseExecFlow
-            changeLog={item.card.change_log}
-            reviews={item.card.reviews}
-            selfUid={item.id}
-          />
-        </div>
-        <InboxItemReadNotes item={item} locale={locale} />
-      </ObjectCardFrame>
-    </li>
-  );
-}
 
 function InboxItemRow({ item }: { item: CognitionInboxItem }) {
   const { locale } = useI18n();
@@ -315,7 +198,6 @@ function InboxItemRow({ item }: { item: CognitionInboxItem }) {
         obj={objectCard}
         locale={locale}
         onOpen={() => openPanel({ type: 'object', title, objectType: item.type, objectId: item.id })}
-        displayStatus={item.type === 'workcase' ? item.group : undefined}
       >
         <InboxCardContent item={item} />
         <InboxItemReadNotes item={item} locale={locale} />
@@ -361,7 +243,7 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
   const { selectedProjectId } = useProjectScope();
   const { openPanel } = usePanel();
   const title = getLocalizedObjectTitle(item, locale, item.id);
-  const status = item.type === 'workcase' ? item.group : item.status;
+  const status = item.status;
   const typeColor = CATEGORY_COLORS[item.type] || CATEGORY_COLORS.other;
   const open = () => openPanel({ type: 'object', title, objectType: item.type, objectId: item.id });
   return (
@@ -512,8 +394,6 @@ export default function CognitionCenter({ embedded = false }: { embedded?: boole
   const [error, setError] = useState<string | null>(null);
   const [inboxExpanded, setInboxExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
-  const [activeExpanded, setActiveExpanded] = useState(true);
-  const [showAllActive, setShowAllActive] = useState(false);
   const [recentWindow, setRecentWindow] = useState<CognitionRecentActivityWindow>('1d');
   const [recentExpanded, setRecentExpanded] = useState(true);
   const [showAllRecent, setShowAllRecent] = useState(false);
@@ -577,12 +457,7 @@ export default function CognitionCenter({ embedded = false }: { embedded?: boole
   const items = data.inbox.items;
   const truncated = !showAll && items.length > INBOX_FIRST_SCREEN_LIMIT;
   const visibleItems = truncated ? items.slice(0, INBOX_FIRST_SCREEN_LIMIT) : items;
-  const activeWorkCaseIssues = (data.issues ?? []).filter((issue) => issue.section === 'activeWorkCases');
-  const activeWorkCaseItems = data.activeWorkCases.items;
-  const activeWorkCasesTruncated = !showAllActive && activeWorkCaseItems.length > ACTIVE_WORKCASE_FIRST_SCREEN_LIMIT;
-  const visibleActiveWorkCases = activeWorkCasesTruncated
-    ? activeWorkCaseItems.slice(0, ACTIVE_WORKCASE_FIRST_SCREEN_LIMIT)
-    : activeWorkCaseItems;
+
   const recentIssues = (data.issues ?? []).filter((issue) => issue.section === 'recentActivity');
   const recentItems = data.recentActivity.items;
   const recentVisibleLimit = showAllRecent ? RECENT_ACTIVITY_MAX_VISIBLE : RECENT_ACTIVITY_FIRST_SCREEN_LIMIT;
@@ -687,76 +562,6 @@ export default function CognitionCenter({ embedded = false }: { embedded?: boole
                   className="ldvh-caption inline-flex h-8 shrink-0 items-center rounded-md border border-ldvh-border px-3 text-ldvh-text-secondary transition-colors hover:border-ldvh-accent/50 hover:text-ldvh-accent"
                 >
                   {truncated ? t('cognition.inbox.showAll') : t('cognition.inbox.collapse')}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* 推进中事项：只收纳派生 group=executing 的 WorkCase（v5 三态直读），并复用对象列表进行中 Card。 */}
-      <section className="mt-4 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
-        <div
-          role="button"
-          tabIndex={0}
-          aria-expanded={activeExpanded}
-          aria-controls="cognition-active-workcases-content"
-          onClick={() => setActiveExpanded((expanded) => !expanded)}
-          onKeyDown={(event) => toggleOnKeyboard(event, () => setActiveExpanded((expanded) => !expanded))}
-          className={`-mx-1 flex min-w-0 cursor-pointer flex-wrap items-center gap-2 rounded-md px-1 transition-colors hover:bg-ldvh-bg/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50 ${activeExpanded ? 'mb-4' : ''}`}
-        >
-          <CirclePlay size={16} className="shrink-0 text-sky-500 dark:text-sky-400" aria-hidden="true" />
-          <h3 className="ldvh-section-title min-w-0">{t('cognition.active.title')}</h3>
-          {data.activeWorkCases.total > 0 && (
-            <span className="ldvh-meta shrink-0 text-ldvh-text-secondary/70">{data.activeWorkCases.total}</span>
-          )}
-          <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-            <button
-              type="button"
-              aria-expanded={activeExpanded}
-              aria-controls="cognition-active-workcases-content"
-              onClick={(event) => {
-                event.stopPropagation();
-                setActiveExpanded((expanded) => !expanded);
-              }}
-              className="ldvh-icon-button"
-              title={t(activeExpanded ? 'cognition.active.collapseSection' : 'cognition.active.expandSection')}
-            >
-              {activeExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
-              <span className="sr-only">{t(activeExpanded ? 'cognition.active.collapseSection' : 'cognition.active.expandSection')}</span>
-            </button>
-          </span>
-        </div>
-
-        {activeExpanded && (
-          <div id="cognition-active-workcases-content">
-            <ModuleIssuesNotice issues={activeWorkCaseIssues} t={t} unavailableKey="cognition.active.unavailable" />
-            {activeWorkCaseItems.length === 0 ? (
-              activeWorkCaseIssues.length === 0 && <p className="ldvh-body-muted">{t('cognition.active.empty')}</p>
-            ) : (
-              <ul className="ldvh-section-grid min-w-0">
-                {visibleActiveWorkCases.map((item) => (
-                  <ActiveWorkCaseItemRow key={item.id} item={item} />
-                ))}
-              </ul>
-            )}
-            {activeWorkCaseItems.length > ACTIVE_WORKCASE_FIRST_SCREEN_LIMIT && (
-              <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-2">
-                <p className="ldvh-caption min-w-0">
-                  {activeWorkCasesTruncated
-                    ? t('cognition.active.truncated', {
-                      total: String(data.activeWorkCases.total),
-                      shown: String(visibleActiveWorkCases.length),
-                      hidden: String(activeWorkCaseItems.length - visibleActiveWorkCases.length),
-                    })
-                    : null}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowAllActive((previous) => !previous)}
-                  className="ldvh-caption inline-flex h-8 shrink-0 items-center rounded-md border border-ldvh-border px-3 text-ldvh-text-secondary transition-colors hover:border-ldvh-accent/50 hover:text-ldvh-accent"
-                >
-                  {activeWorkCasesTruncated ? t('cognition.active.showAll') : t('cognition.active.collapse')}
                 </button>
               </div>
             )}

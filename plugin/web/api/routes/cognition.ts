@@ -3,11 +3,11 @@
  *
  * 已交付模块一（待决定事项）、模块二（近期动态）与模块三（Spark 池健康）
  * + §5 全局信任标记所需的派生字段：
- * generatedAt（观察时间）、scope、inbox（WorkCase Human Gate 与 Friction 待修的派生收录与排序）、
+ * generatedAt（观察时间）、scope、inbox（Friction 待修的派生收录与排序）、
  * recentActivity（指定窗口内事实对象 change_log 的创建 / 更新事件）与 issues（模块级降级）。
  * 数据经 Web 字段级直读（localFactReader / facts.ts 的 listObjects），不复用 /api/dashboard 聚合逻辑。
  *
- * 命名纪律（02 §7 第 3 条）：WorkCase 条目只携带 group（21 号三态直读派生组）；
+ * 命名纪律（02 §7 第 3 条）：
  * 待决类型 inboxKind 表示 Human 的计划批准（Gate 1）或关闭确认（Gate 2）。
  * group 决定两个既有行动模块（待办收件 / 推进中事项）的唯一归属。
  */
@@ -15,11 +15,6 @@
 import { Router, type Request, type Response } from 'express'
 import { listObjects, deriveServingWorkIndexForScope, type ObjectType } from '../services/facts.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
-import {
-  WORKCASE_V5_STATUSES,
-  type WorkCaseV5View,
-  type WorkCaseV5Group,
-} from '../../shared/workcaseLifecycle.js'
 import {
   countChangeLogEntries,
   getLatestChangeLogAt,
@@ -38,7 +33,7 @@ import yaml from 'js-yaml'
 
 const router = Router()
 
-// 收件类型闭集（v5）：WorkCase 侧只有两个 Human Gate，
+// 收件类型闭集（v5）：
 // 加 Friction `open` 待修（Human 2026-10-19 决定，见 cognition-inbox-contract 的
 // 「待修的摩擦」用例）。
 // 曾经的 `blocked_resolution`（v4「阻塞待处置」）已移除——v5 状态闭集无 `blocked`，
@@ -46,7 +41,7 @@ const router = Router()
 // **`pitfall_confirmation` 已移除**（2026-11-03）：Pitfall 取消 `draft` 待确认态后
 // 不再有「待确认的经验」这一收件档（23 §9），机械通道产出即 `active`。
 type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'friction_repair'
-type InboxObjectType = 'workcase' | 'friction'
+type InboxObjectType = 'friction'
 type RecentActivityKind = 'created' | 'updated'
 type RecentActivityWindow = '1d' | '3d' | '7d'
 
@@ -100,28 +95,10 @@ interface InboxBuildItem {
   title: string
   title_en?: string
   title_zh?: string
-  group?: WorkCaseV5Group
   priority?: string
   updated_at?: string
   /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现 */
   refs?: Array<{ object_uid: string; title?: string; type?: string }>
-  read_status: string
-  projection: Record<string, unknown>
-  field_issues: Array<Record<string, unknown>>
-  unparsed_structures: Array<Record<string, unknown>>
-  read_issues: Array<Record<string, unknown>>
-}
-
-interface ActiveWorkCaseBuildItem {
-  type: 'workcase'
-  group: 'executing'
-  object_id: string
-  object_uid?: string
-  title: string
-  title_en?: string
-  title_zh?: string
-  priority?: string
-  updated_at?: string
   read_status: string
   projection: Record<string, unknown>
   field_issues: Array<Record<string, unknown>>
@@ -143,7 +120,6 @@ interface RecentActivityBuildItem {
   /** 只读取对应事实流水的完整署名；兼容时间标记不伪造署名。 */
   signature?: FactChangeSignature
   status?: string
-  group?: WorkCaseV5Group
   priority?: string
   /** Spark 的 serves（子目标 `object_uid`，20 §6 + 28 §12.3），条件出现。 */
   serves?: string
@@ -214,11 +190,10 @@ function priorityRank(priority: unknown): number {
 /** 与 localFactReader.metadataFor 一致：按事实类型返回当前 canonical path。 */
 function canonicalPath(type: InboxObjectType, objectId: string): string {
   // 载体都是平铺单文件且文件名就是 `<对象 id>.md`（02 §7.2 / 26 §7），故只有
-  // 目录名随类型变化。此前写作 `'workcase' ? 'workcases' : 'pitfalls'` 的二元式，
+  // 目录名随类型变化。此前写作三元式的
   // 新增类型时会静默落到 fallback 分支给出**错误的目录**——错误路径不会报错，
   // 只会让「复制对象路径」复制出不存在的位置。故改为显式查表，缺项即失败。
   const directories: Record<InboxObjectType, string> = {
-    workcase: 'workcases',
     friction: 'frictions',
   }
   const directory = directories[type]
@@ -238,13 +213,6 @@ function factKey(type: string, objectId: string, objectUid?: string): string {
  *   - group=awaiting_gate2 ⇒ 'closure_confirmation'（Gate 2 待关收件）
  *   - executing / closed ⇒ 不进待办收件（返回 null）
  */
-function deriveInboxKind(view: WorkCaseV5View): InboxKind | null {
-  if (view.resolution !== 'resolved' || view.group === null) return null
-  if (view.group === 'pending_gate1') return 'plan_confirmation'
-  if (view.group === 'awaiting_gate2') return 'closure_confirmation'
-  return null
-}
-
 /**
  * 26 §8 Friction `occurrence`（重复观察证据）在收件项上的平铺投影。
  *
@@ -252,7 +220,7 @@ function deriveInboxKind(view: WorkCaseV5View): InboxKind | null {
  * **对象根**上的 `obj.occurrence`。列表卡传入的是完整 `ObjectItem`，而收件项走
  * `toObjectCard` 平铺——`occurrence` 只落在 `card` 里时，徽标在聚焦页静默消失（近期动态
  * 投影当初正是踩了这条：`recentItems` 逐字段重建时丢掉当时唯一的摩擦 chip，界面上就是
- * 「聚焦里没有那个标签」）。故此处与 workcase 的 `pre_audit_passed` 同法：在 build →
+ * 「聚焦里没有那个标签」）。故此处同法：在 build →
  * entry 这一层显式平铺，不依赖客户端翻 `card`。
  *
  * （原同处的 `projectFrictionImpact` 已随 26 §8 撤销 impact 分级于 2026-11-02 删除。）
@@ -308,86 +276,20 @@ function timestampInWindow(value: unknown, start: number, end: number): value is
 /**
  * 21 号三态直读：读取 item 上**已由权威派生点写入**的 v5 视图。
  *
- * 权威派生点是 `facts.ts:projectCurrentWorkCaseCardShape`——它拿完整 fact（含
+ * 权威派生点——它拿完整 fact（含
  * `report_body`）算出 view，写入 `group`/`outcome`/`has_result_draft` 与
  * `current_snapshot_projection`。
  *
  * **不得在此重算**：本函数的两处调用（`buildRecentActivityItem` 与收件箱主循环）
  * 拿到的都是 `listObjects` 的列表项，而列表投影按载荷纪律剥离了 `report_body`
- * （`factFieldContract.ts` 的 `FACT_LIST_FIELD_NAMES` 把 workcase 整体排除）。
+ * （`factFieldContract.ts` 的 `FACT_LIST_FIELD_NAMES` 排除个别类型）。
  * 从被剥离的输入重算只会得到 `executing`——这正是认知中心对「open ∧ 含结果节」
  * 的工单不产生 **Gate 2 待办**（`inboxKind` 落空）的成因，与列表/筛选侧的
- * `getWorkCaseV5Group` 缺陷同源。
+ * 同类缺陷同源。
  *
  * 读法：优先取 `current_snapshot_projection`（完整 view）；若缺失，则用已派生的
  * `group` 等字段重建一个等价 view，保持返回形状不变。
  */
-function currentWorkCaseProjection(raw: Record<string, unknown>): WorkCaseV5View | null {
-  const snapshot = raw.current_snapshot_projection
-  if (snapshot !== null && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
-    const view = snapshot as WorkCaseV5View
-    if (view.resolution === 'resolved') return view
-  }
-  const group = raw.group
-  if (typeof group !== 'string') return null
-  if (!WORKCASE_V5_STATUSES.includes(raw.status as (typeof WORKCASE_V5_STATUSES)[number])) return null
-  return {
-    resolution: 'resolved',
-    reason: null,
-    fingerprint: null,
-    status: raw.status as WorkCaseV5View['status'],
-    group: group as WorkCaseV5View['group'],
-    outcome: (raw.outcome as WorkCaseV5View['outcome']) ?? null,
-    has_result_draft: raw.has_result_draft === true,
-  }
-}
-
-function compareRecentActivity(a: RecentActivityBuildItem, b: RecentActivityBuildItem): number {
-  const timeDelta = compareTimestamps(b.occurred_at, a.occurred_at)
-  if (timeDelta !== 0) return timeDelta
-  if (a.activity !== b.activity) return a.activity === 'updated' ? -1 : 1
-  if (a.type !== b.type) return a.type.localeCompare(b.type)
-  return a.object_id.localeCompare(b.object_id)
-}
-
-function buildRecentActivityItem(
-  raw: Record<string, unknown>,
-  type: ObjectType | 'goal',
-  activity: RecentActivityKind,
-  occurredAt: string,
-  signature?: FactChangeSignature,
-): RecentActivityBuildItem {
-  const object_id = String(raw.object_id ?? '')
-  const status = String(raw.status ?? 'unknown')
-  const group = type === 'workcase'
-    ? currentWorkCaseProjection(raw)?.group ?? undefined
-    : undefined
-  return {
-    type,
-    object_id,
-    ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
-    title: String(raw.title ?? object_id),
-    ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
-    ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
-    activity,
-    occurred_at: occurredAt,
-    ...(signature ? { signature } : {}),
-    ...(type === 'workcase' ? { group } : { status }),
-    ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
-    ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
-    // 26 §8 occurrence：与列表卡卡头、详情头同形（重复观察紧随优先级）。只透传事实源里
-    // 已有的形状，**不构造、不补零**——`voided` 的 §14.2 豁免形态据此原样缺席。
-    ...(type === 'friction' && typeof raw.occurrence === 'object' && raw.occurrence !== null
-      ? { occurrence: raw.occurrence as { count?: number; first_at?: string; last_at?: string } }
-      : {}),
-    read_status: String(raw.read_status ?? 'unknown'),
-    field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
-    unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
-  }
-}
-
-
-
 /**
  * 将事实对象自身的流水转为近期动态。流水只约定 `at`，没有独立动作字段；
  * 因此第一条有效记录表示受控创建，之后的记录表示受控更新。没有可读流水的
@@ -433,6 +335,47 @@ export function buildFactActivityItems(
     fallback.push(buildRecentActivityItem(raw, type, 'updated', updatedAt, undefined))
   }
   return fallback
+}
+
+function compareRecentActivity(a: RecentActivityBuildItem, b: RecentActivityBuildItem): number {
+  const timeDelta = compareTimestamps(b.occurred_at, a.occurred_at)
+  if (timeDelta !== 0) return timeDelta
+  if (a.activity !== b.activity) return a.activity === 'updated' ? -1 : 1
+  if (a.type !== b.type) return a.type.localeCompare(b.type)
+  return a.object_id.localeCompare(b.object_id)
+}
+
+function buildRecentActivityItem(
+  raw: Record<string, unknown>,
+  type: ObjectType | 'goal',
+  activity: RecentActivityKind,
+  occurredAt: string,
+  signature?: FactChangeSignature,
+): RecentActivityBuildItem {
+  const object_id = String(raw.object_id ?? '')
+  const status = String(raw.status ?? 'unknown')
+  return {
+    type,
+    object_id,
+    ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
+    title: String(raw.title ?? object_id),
+    ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
+    ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
+    activity,
+    occurred_at: occurredAt,
+    ...(signature ? { signature } : {}),
+    status,
+    ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
+    ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
+    // 26 §8 occurrence：与列表卡卡头、详情头同形（重复观察紧随优先级）。只透传事实源里
+    // 已有的形状，**不构造、不补零**——`voided` 的 §14.2 豁免形态据此原样缺席。
+    ...(type === 'friction' && typeof raw.occurrence === 'object' && raw.occurrence !== null
+      ? { occurrence: raw.occurrence as { count?: number; first_at?: string; last_at?: string } }
+      : {}),
+    read_status: String(raw.read_status ?? 'unknown'),
+    field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
+    unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
+  }
 }
 
 /**
@@ -580,8 +523,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const project = await requestProject(req)
     const factScope = { worktreeLocator: project.path, governedProjectId: project.id }
 
-    const [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult, frictionResult, normResult, subGoalResult, devLogResult] = await Promise.all([
-      listObjects('workcase', undefined, undefined, factScope),
+    const [pitfallResult, adrResult, sparkResult, studyResult, frictionResult, normResult, subGoalResult, devLogResult] = await Promise.all([
       listObjects('pitfall', undefined, undefined, factScope),
       listObjects('adr', undefined, undefined, factScope),
       listObjects('spark', undefined, undefined, factScope),
@@ -611,82 +553,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       sparkHealth = buildSparkHealth(data.items, parseTimestamp(generatedAt))
     }
     const builds: InboxBuildItem[] = []
-    const activeWorkCaseBuilds: ActiveWorkCaseBuildItem[] = []
-    if (!workCaseResult.ok || !('data' in workCaseResult)) {
-      const message = workCaseResult.ok ? 'WorkCase 列表读取失败' : (workCaseResult as { error: string }).error
-      issues.push({ section: 'inbox', code: 'workcase_list_unavailable', message })
-      issues.push({ section: 'activeWorkCases', code: 'workcase_list_unavailable', message })
-    } else {
-      const data = workCaseResult.data as { items: Array<Record<string, unknown>>; collection_issues?: Array<Record<string, unknown>> }
-      for (const issue of Array.isArray(data.collection_issues) ? data.collection_issues : []) {
-        const projected = toIssue(issue)
-        issues.push(projected, { ...projected, section: 'activeWorkCases' })
-      }
-      for (const raw of data.items) {
-        const object_id = String(raw.object_id ?? '')
-        const progress = currentWorkCaseProjection(raw)
-        if (progress === null) {
-          issues.push({ section: 'inbox', code: 'workcase_view_unresolved', message: `WorkCase ${object_id} 的三态直读视图未 resolved，未收入收件箱 / 推进中事项`, object_ref: object_id })
-          issues.push({ section: 'activeWorkCases', code: 'workcase_view_unresolved', message: `WorkCase ${object_id} 的三态直读视图未 resolved，未收入推进中事项`, object_ref: object_id })
-          continue
-        }
-        // 21 号三态直读：executing ⇒ 推进中事项；pending_gate1 / awaiting_gate2 ⇒ 待办收件。
-        if (progress.group === 'executing') {
-          activeWorkCaseBuilds.push({
-            type: 'workcase', group: 'executing',
-            object_id, title: String(raw.title ?? object_id),
-            ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
-            ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
-            ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
-            priority: typeof raw.priority === 'string' ? raw.priority : undefined,
-            updated_at: getLatestChangeLogAt(raw.change_log),
-            read_status: String(raw.read_status ?? 'unknown'), projection: raw,
-            field_issues: Array.isArray(raw.field_issues) ? (raw.field_issues as Array<Record<string, unknown>>) : [],
-            unparsed_structures: Array.isArray(raw.unparsed_structures) ? (raw.unparsed_structures as Array<Record<string, unknown>>) : [],
-            read_issues: Array.isArray(raw.read_issues) ? (raw.read_issues as Array<Record<string, unknown>>) : [],
-          })
-          continue
-        }
-        const inboxKind = deriveInboxKind(progress)
-        if (inboxKind === null) continue
-        builds.push({
-          type: 'workcase', inboxKind, group: progress.group ?? undefined,
-          object_id, title: String(raw.title ?? object_id),
-          ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
-          ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
-          ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
-          priority: typeof raw.priority === 'string' ? raw.priority : undefined,
-          updated_at: getLatestChangeLogAt(raw.change_log),
-          read_status: String(raw.read_status ?? 'unknown'), projection: raw,
-          field_issues: Array.isArray(raw.field_issues) ? (raw.field_issues as Array<Record<string, unknown>>) : [],
-          unparsed_structures: Array.isArray(raw.unparsed_structures) ? (raw.unparsed_structures as Array<Record<string, unknown>>) : [],
-          read_issues: Array.isArray(raw.read_issues) ? (raw.read_issues as Array<Record<string, unknown>>) : [],
-        })
-      }
-    }
-
-    // Pitfall 不再有收件分支（2026-11-03）：Pitfall 取消 `draft` 待确认态后，
-    // 「待确认的经验」这一档不存在（23 §9）。`pitfallResult` 仍被下面的
-    // `recentSources` 消费（近期动态要读它的 change_log 流水），其不可读性由
-    // recentSources 循环按 `recentActivity` 段报出，故此处不再重复登记 issue。
-
-    // 26 §12「Web 账本呈现」消费点：open 账目进入聚焦的待决定事项（Human 2026-10-19
-    // 决定：只收 `open`）。
-    //
-    // 为什么只收 `open`（2026-10 修订后的口径）：26 §9 的状态闭集为**四值**
-    // ——`open`（待修）/ `resolved`（已销账）/ `voided`（已废弃）/
-    // `accepted`（已接受、不可清偿）；但待决定事项**只收 `open`**——accepted 是
-    // 「记录一次、不再报告」，resolved/voided 亦属终态。原第四值
-    // `observing`（留观）**已退出闭集**：「已看见但尚未攒够」的观察不再作为
-    // 事实对象存在，改由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象、不进
-    // 事实源、不参与 F0–F4 召回）——故本分支**不再有「攒熟中的活账」可铺**，
-    // 只剩「已攒够、确实待修」的账目才是待决定事项。
-    //
-    // `resolved`/`voided` 是终态，26 §12 明写不进默认候选（`voided` 还额外
-    // 不参与查重、度量与迭代决策输入）。`accepted` 同为终态、不进待决定事项，
-    // 但**须单列计数**（26 §12 dogfood 度量：已接受成本，不进解决率分母；
-    // 26 §18 第 7 条把它列为 accepted 的必备消费方之一）。
     let acceptedFrictionCount = 0
+    // 26 §12：摩擦 open 账目进「待决定事项」。收录判定保持字面 `raw.status !== 'open'`
+    // （下方契约测试钉住该形态，防止「顺手多带一个状态」的口径漂移）。
     if (!frictionResult.ok || !('data' in frictionResult)) {
       const message = frictionResult.ok ? 'Friction 列表读取失败' : (frictionResult as { error: string }).error
       issues.push({ section: 'inbox', code: 'friction_list_unavailable', message })
@@ -694,8 +563,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       const data = frictionResult.data as { items: Array<Record<string, unknown>>; collection_issues?: Array<Record<string, unknown>> }
       for (const issue of Array.isArray(data.collection_issues) ? data.collection_issues : []) issues.push(toIssue(issue))
       // 26 §12：accepted 单列计数（已接受成本），不进待决定事项、不进解决率分母。
-      // **单独一次遍历**：待决定事项的收录判定必须保持字面 `raw.status !== 'open'`
-      // （下方契约测试钉住该形态，防止「顺手多带一个状态」的口径漂移）。
       for (const raw of data.items) {
         if (raw.status === 'accepted') acceptedFrictionCount += 1
       }
@@ -717,9 +584,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         })
       }
     }
-
     builds.sort(compareCardBuild)
-    activeWorkCaseBuilds.sort(compareCardBuild)
 
     const recentStart = new Date(generatedAt).getTime() - RECENT_ACTIVITY_WINDOWS[recentWindow] * 24 * 60 * 60 * 1000
     const recentBuilds: RecentActivityBuildItem[] = []
@@ -727,8 +592,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     // 此前本表停在早期的五类上，friction/norm 加入 OBJECT_TYPES 时未随行——遗漏
     // 会让 Human 在认知中心看不到这两类的任何改动（26 §12 的 F1 召回与本节无关：
     // 这里只读 change_log 流水，不做状态筛选）。
-    const recentSources: Array<[ObjectType, typeof workCaseResult]> = [
-      ['workcase', workCaseResult],
+    const recentSources: Array<[ObjectType, typeof pitfallResult]> = [
       ['pitfall', pitfallResult],
       ['adr', adrResult],
       ['spark', sparkResult],
@@ -794,14 +658,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         read_status: build.read_status,
         card,
       }
-      if (build.type === 'workcase') {
-        entry.group = build.group
-        // 建前审核后缀的判据（21 §8 `pre_reviews`）：与收件箱卡、列表卡同源——
-        // 取自已投影的 `card`，不在此处重算指纹覆盖（呈现层不重复实现门禁判据）。
-        // 平铺到 entry 而非让客户端翻 card：近期动态行的徽标是平铺消费的。
-        if (typeof card.pre_audit_passed === 'boolean') entry.pre_audit_passed = card.pre_audit_passed
-      }
-      else {
+      {
         // Friction（26 §8）：`status` 是来源状态的直读值（本分支只收 `open`）——
         // 平铺到 entry 否则 entry 上没有 status，客户端 `toObjectCard` 会把
         // `undefined` 当状态传给状态徽标。
@@ -818,32 +675,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       if (build.updated_at) entry.updatedAt = build.updated_at
       // 字段级直读 readable 时携带 canonical_path，供条件显示"复制对象路径"（Q4）。
       if (build.read_status === 'readable') entry.canonical_path = canonicalPath(build.type, build.object_id)
-      if (build.field_issues.length > 0) entry.field_issues = build.field_issues
-      if (build.unparsed_structures.length > 0) entry.unparsed_structures = build.unparsed_structures
-      if (build.read_issues.length > 0) entry.read_issues = build.read_issues
-      return entry
-    })
-
-    const activeWorkCaseItems = activeWorkCaseBuilds.map((build) => {
-      const card = Object.fromEntries(
-        Object.entries(build.projection).filter(([key]) => !IDENTITY_PROJECTION_KEYS.has(key)),
-      )
-      const entry: Record<string, unknown> = {
-        type: 'workcase',
-        id: build.object_id,
-        ...(build.object_uid ? { object_uid: build.object_uid } : {}),
-        title: build.title,
-        ...(build.title_en !== undefined ? { title_en: build.title_en } : {}),
-        ...(build.title_zh !== undefined ? { title_zh: build.title_zh } : {}),
-        relativeTime: getRelativeTime(build.updated_at ?? '', locale),
-        typeColor: getTypeColor('workcase'),
-        group: build.group,
-        read_status: build.read_status,
-        card,
-      }
-      if (priorityRank(build.priority) < 4 && typeof build.priority === 'string') entry.priority = build.priority
-      if (build.updated_at) entry.updatedAt = build.updated_at
-      if (build.read_status === 'readable') entry.canonical_path = canonicalPath('workcase', build.object_id)
       if (build.field_issues.length > 0) entry.field_issues = build.field_issues
       if (build.unparsed_structures.length > 0) entry.unparsed_structures = build.unparsed_structures
       if (build.read_issues.length > 0) entry.read_issues = build.read_issues
@@ -871,9 +702,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       // 收不到。与卡头同序（重复观察紧随优先级）。
       ...(build.occurrence !== undefined ? { occurrence: build.occurrence } : {}),
       ...(build.refs !== undefined ? { refs: build.refs } : {}),
-      ...(build.type === 'workcase' && build.group !== undefined
-        ? { group: build.group }
-        : build.type !== 'workcase' && build.status !== undefined ? { status: build.status } : {}),
+      ...(build.status !== undefined ? { status: build.status } : {}),
       read_status: build.read_status,
       ...(build.field_issues.length > 0 ? { field_issues: build.field_issues } : {}),
       ...(build.unparsed_structures.length > 0 ? { unparsed_structures: build.unparsed_structures } : {}),
@@ -883,11 +712,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       generatedAt,
       scope: { governedProjectId: project.id },
       inbox: { items, total: items.length },
+      // 26 §12 dogfood 度量消费点：已接受成本单列计数。
+      // 它**不进** inbox（accepted 不是待决定事项），也**不进**解决率分母。
+      frictionLedger: { acceptedCount: acceptedFrictionCount },
       // 26 §12 dogfood 度量消费点（2026-10 新增 accepted）：已接受成本单列计数。
       // 它**不进** inbox（accepted 不是待决定事项），也**不进**解决率分母
       // （26 §12：accepted 不进解决率分母、不计入 open 待修数）。
-      frictionLedger: { acceptedCount: acceptedFrictionCount },
-      activeWorkCases: { items: activeWorkCaseItems, total: activeWorkCaseItems.length },
       recentActivity: {
         window: recentWindow,
         windowStart: new Date(recentStart).toISOString(),
@@ -1258,7 +1088,7 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
         // 读取实现里解析出原文（readGoalRecord 的 frontmatterSource，:1145），此处
         // 逐字透传即可。此前缺该投影，前端 YamlDataNode 的「原文优先、重建兜底」
         // 对 goal 恒走重建分支——Human 读到的是重整过的 YAML 而非 goal.md 原文
-        //（workcase 9208ce82 补齐；旧残留见 workcase 63700bd2 的 Gate 2 记录）。
+        //（已按现行登记补齐）。
         yaml_source: record.frontmatterSource,
         carrier: 'markdown',
         read_status: 'readable',
