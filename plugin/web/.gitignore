@@ -24,3 +24,8 @@ dist-ssr
 *.sln
 *.sw?
 .vite
+# 设置页版面预览器的产物（预览用，不入库）
+preview-settings.html
+preview-settings.png
+preview-settings-before.png
+preview-settings*.png

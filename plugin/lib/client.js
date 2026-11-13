@@ -32,15 +32,15 @@ window.__ModuleLoader__.load({
     var React = require("react");
     var primitives = require("@deepseek-ai/dsh-client-ui-primitives");
     var Toast = primitives.Toast;
-    // ── 图标族适配（DSH 0.1.7 起重命名）──────────────────────────────────
-    // 旧命名以尺寸为后缀（IconChevronDownOutline14），新命名改为粗细语义后缀
-    // （IconChevronDownOutlineRegular / …Medium；包内导出 75 → 186）。按名探测
-    // 取第一个可用的，全缺失时由使用点渲染自绘字形——把 undefined 直接交给
-    // React.createElement 会在渲染期抛错（调研报告 §4.3 致命点 B）。
-    var IconChevronDown = primitives.IconChevronDownOutlineRegular
-      || primitives.IconChevronDownOutlineMedium
-      || primitives.IconChevronDownOutline14
-      || null;
+    // ── 图标族探测（DSH 0.1.7 起重命名）──────────────────────────────────
+    //
+    // 原此处探测 `IconChevronDown`（旧名 IconChevronDownOutline14 → 新名
+    // …Regular/…Medium），供设置卡的折叠箭头使用。设置卡已删除（见下方
+    // 「设置卡组件已删除」那段），箭头随之无消费点，故**探测一并移除**。
+    //
+    // **保留这条注释的理由**：图标族的重命名是宿主的既成事实，将来要加图标时
+    // 仍需按名探测 + 缺失退回自绘（把 undefined 交给 React.createElement 会在
+    // 渲染期抛错）。此处记下这个坑，避免下次重新踩一遍。
 
     // ── icon: the real 64px LDVH package icon, matching WorkBuddy's pattern ──
     var LDVH_ICON = "data:image/png;base64,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";
@@ -49,149 +49,278 @@ window.__ModuleLoader__.load({
     //    dsh-sub-cli / dsh-subagent-default-model 的对齐项）──
     var LDVH_GITHUB_URL = "https://github.com/dingminhua/dsh-ldvh";
 
-    var SETTINGS_CSS = "" +
-      /* Strictly follows the dsh-connect-workbuddy settings-card shell. */
-      ".ldv-settings-card{border:1px solid var(--dsw-alias-border-l2,#36373b);background:var(--dsw-alias-bg-layer-3,#202126);border-radius:12px;list-style:none;transition:border-color .16s,background .16s}" +
-      ".ldv-settings-card:hover{border-color:var(--dsw-alias-label-dimmed,#777)}" +
-      ".ldv-settings-card-open{background:var(--dsw-alias-bg-layer-2,#25262b);border-color:var(--dsw-alias-label-dimmed,#777)}" +
-      ".ldv-settings-card-header{appearance:none;box-sizing:border-box;width:100%;font:inherit;color:inherit;text-align:left;cursor:pointer;background:transparent;border:0;border-radius:12px;align-items:center;gap:12px;padding:14px 16px;display:flex}" +
-      ".ldv-settings-card-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#5686fe);outline-offset:-2px}" +
-      ".ldv-settings-card-head{flex-direction:column;flex:1;gap:4px;min-width:0;display:flex;text-align:left}" +
-      ".ldv-settings-card-title{color:var(--dsw-alias-label-primary,#e6e6e6);font-size:15px;font-weight:600;line-height:1.4}" +
-      ".ldv-settings-card-desc{color:var(--dsw-alias-label-tertiary,#999);font-size:13px;line-height:1.5}" +
-      ".ldv-settings-card-chevron{color:var(--dsw-alias-label-tertiary,#999);flex:none;display:inline-flex;transition:transform .16s}" +
-      ".ldv-settings-card-chevron-open{transform:rotate(180deg)}" +
-      ".ldv-settings-card-body{border-top:1px solid var(--dsw-alias-border-l2,#36373b);margin:0 16px;padding:0 0 8px}" +
-      ".ldv-settings-card-icon{width:32px;height:32px;flex:none;border-radius:7px}" +
-      ".ldv-settings{display:flex;flex-direction:column;gap:16px;margin:0;padding:16px 0 4px}" +
-      ".ldv-settings-field{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:13px;line-height:19px;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
-      ".ldv-settings-input{box-sizing:border-box;appearance:none;width:100%;height:36px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#232529);color:var(--dsw-alias-label-primary,#e6e6e6);font:inherit;font-size:13px;line-height:1.5}" +
-      ".ldv-governance-note{display:flex;flex-direction:column;gap:4px;padding:0 2px}" +
-      ".ldv-governance-note-title{font-size:13px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,#e6e6e6)}" +
-      ".ldv-governance-note-text{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}" +
-      ".ldv-governance-panel{overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:12px;background:linear-gradient(165deg,var(--dsw-alias-bg-layer-2,#232529),var(--dsw-alias-bg-layer-3,#202126));box-shadow:0 1px 2px rgba(0,0,0,.18)}" +
-      ".ldv-governance-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,#36373b)}" +
-      ".ldv-governance-panel-heading{display:flex;align-items:center;gap:8px;min-width:0}" +
-      ".ldv-governance-panel-dot{width:8px;height:8px;border-radius:50%;flex:none;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent)}" +
-      ".ldv-governance-panel-title{font-size:13px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,#e6e6e6)}" +
-      ".ldv-governance-panel-count{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-label-secondary,#b8b8b8) 16%,transparent);color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
-      ".ldv-governance-panel-body{display:flex;flex-direction:column;gap:12px;padding:14px}" +
-      ".ldv-governance-add{display:flex;flex-direction:column;gap:14px;padding:16px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary,#5686fe) 30%,var(--dsw-alias-border-l2,#36373b));border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#5686fe) 5%,var(--dsw-alias-bg-layer-1,#1b1c20))}" +
-      ".ldv-governance-add-head{display:flex;align-items:flex-start;gap:10px}" +
-      ".ldv-governance-add-icon{display:grid;place-items:center;width:28px;height:28px;flex:none;border-radius:8px;color:#fff;font-size:17px;font-weight:400;line-height:1;background:var(--dsw-alias-state-business-primary,#5686fe);box-shadow:0 2px 6px color-mix(in srgb,var(--dsw-alias-state-business-primary,#5686fe) 35%,transparent)}" +
-      ".ldv-governance-add-copy{display:flex;flex-direction:column;gap:2px;min-width:0}" +
-      ".ldv-governance-add-title{font-size:13px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,#e6e6e6)}" +
-      ".ldv-governance-add-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999);max-width:560px}" +
-      ".ldv-governance-add-fields{display:flex;flex-direction:column;gap:14px}" +
-      ".ldv-governance-add-field{display:flex;flex-direction:column;gap:6px;min-width:0}" +
-      ".ldv-governance-add-label{font-size:12px;font-weight:600;line-height:16px;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
-      ".ldv-governance-add-field-help{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}" +
-      ".ldv-governance-add-field-error{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ef4444)}" +
-      ".ldv-governance-path-control{display:flex;min-width:0}" +
-      ".ldv-governance-path-control .ldv-settings-input{flex:1;min-width:0;border-radius:10px 0 0 10px}" +
-      ".ldv-governance-path-control .ldv-btn{height:36px;flex:none;border-left:0;border-radius:0 10px 10px 0;white-space:nowrap;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#5686fe) 12%,var(--dsw-alias-bg-layer-2,#232529))}" +
-      ".ldv-settings-input.is-error{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 60%,transparent)}" +
-      ".ldv-settings-input.is-error:focus-visible{border-color:var(--dsw-alias-state-error-primary,#ef4444);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 22%,transparent)}" +
-      ".ldv-governance-add-actions{display:flex;justify-content:flex-end;gap:8px}" +
-      ".ldv-governance-add-actions .ldv-btn{min-width:76px}" +
-      ".ldv-governance-add-error{padding:8px 10px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 35%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 10%,transparent);font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ef4444);word-break:break-word}" +
-      ".ldv-governance-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 14px;text-align:center}" +
-      ".ldv-governance-empty-icon{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;border:1px dashed var(--dsw-alias-border-l2,#46474c);color:var(--dsw-alias-label-tertiary,#999);font-size:16px;font-weight:600}" +
-      ".ldv-governance-empty-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
-      ".ldv-governance-empty-text{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999);max-width:420px}" +
-      ".ldv-governance-error{padding:10px 12px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 45%,transparent);border-left:3px solid var(--dsw-alias-state-error-primary,#ef4444);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 10%,transparent);font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#e6e6e6);word-break:break-word}" +
-      ".ldv-projects{display:flex;flex-direction:column;gap:10px}" +
-      ".ldv-project-card{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:10px;background:var(--dsw-alias-bg-layer-1,#1b1c20);transition:border-color .16s}" +
-      ".ldv-project-card:hover{border-color:var(--dsw-alias-label-dimmed,#777)}" +
-      ".ldv-project-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}" +
-      ".ldv-project-idline{display:flex;flex-direction:column;gap:2px;min-width:0}" +
-      ".ldv-project-name{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#e6e6e6)}" +
-      ".ldv-project-path{font-size:12px;line-height:18px;word-break:break-all;color:var(--dsw-alias-label-tertiary,#999);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}" +
-      ".ldv-project-actions{display:flex;justify-content:flex-end;gap:8px}" +
-      ".ldv-btn{transition:opacity .16s,border-color .16s}" +
-      "@media(max-width:560px){.ldv-governance-add{padding:14px}.ldv-governance-path-control{display:grid;gap:8px}.ldv-governance-path-control .ldv-settings-input{border-radius:10px}.ldv-governance-path-control .ldv-btn{border-left:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:10px}.ldv-governance-add-actions{justify-content:stretch}.ldv-governance-add-actions .ldv-btn{flex:1;min-width:0}.ldv-project-actions{justify-content:stretch}.ldv-project-actions .ldv-btn{flex:1}}" +
-      ".ldv-web-panel{overflow:hidden;border:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:12px;background:linear-gradient(145deg,var(--dsw-alias-bg-layer-2,#232529),var(--dsw-alias-bg-layer-3,#202126))}" +
-      ".ldv-web-panel-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,#36373b)}" +
-      ".ldv-mount-toggles{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:10px}" +
-      ".ldv-check{display:inline-flex;align-items:center;gap:7px;cursor:pointer;min-height:20px}" +
-      ".ldv-check-disabled{cursor:not-allowed;opacity:.45}" +
-      ".ldv-check input{width:14px;height:14px;accent-color:var(--dsw-alias-state-business-primary,#5686fe);cursor:pointer;flex:none;margin:0}" +
-      ".ldv-check-disabled input{cursor:not-allowed}" +
-      ".ldv-check-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2);user-select:none}" +
-      ".ldv-mount-hint{display:block;margin-top:8px}" +
-      // 闲时辅助区（与 ldv-mount-toggles 同族，但子项带说明文字，故需纵向排列）
-      ".ldv-idle-tasks{display:flex;flex-direction:column;gap:10px}" +
-      ".ldv-check-copy{display:flex;flex-direction:column;gap:2px;min-width:0}" +
-      ".ldv-idle-badge{margin-left:6px;padding:0 5px;border-radius:4px;font-size:10px;line-height:15px;border:1px solid var(--dsw-alias-border-l2,#46474c);color:var(--dsw-alias-label-tertiary,#9a9a9a);vertical-align:middle}" +
-      // 「有未保存改动」的按钮态：在主题色之上叠一层**可见的形状变化**
-      // （描边加粗 + 字重），使色觉障碍或高对比主题下同样可辨。
-      ".ldv-btn-dirty{font-weight:600;box-shadow:0 0 0 2px color-mix(in srgb,currentColor 45%,transparent)}" +
-      ".ldv-idle-limits{margin-top:12px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2,#46474c)}" +
-      ".ldv-idle-limit{display:flex;flex-direction:column;gap:4px;margin:10px 0 8px}" +
-      // 标签与输入框**同一行**（Human 2026-10-14）：标签不换行、输入框紧随其后。
-      ".ldv-idle-limit-row{display:flex;align-items:center;gap:10px}" +
-      ".ldv-idle-limit-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2);flex:0 0 auto}" +
-      // 输入框宽度受控：数值型短输入，不占满整行（原 grid 在窄列下会拉伸）。
-      ".ldv-idle-limit-input{flex:0 0 auto;width:88px}" +
-      ".ldv-idle-limit-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2)}" +
-      ".ldv-idle-limit-invalid{font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
-      ".ldv-idle-pending{display:block;margin-top:6px;color:var(--dsw-alias-state-warning-primary,#e6a23c)}" +
-      ".ldv-settings-input[aria-invalid=\"true\"]{border-color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
-      ".ldv-palette{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2,#36373b)}" +
-      ".ldv-palette-label{font-size:12px;color:var(--dsw-alias-label-tertiary,#999);flex:none}" +
-      ".ldv-palette-dot{width:18px;height:18px;border-radius:50%;border:none;padding:0;cursor:pointer;flex:none;transition:transform .12s}" +
-      ".ldv-palette-dot:hover{transform:scale(1.18)}" +
-      ".ldv-palette-dot:disabled{cursor:not-allowed;opacity:.5}" +
-      ".ldv-palette-dot-active{box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-3,#202126),0 0 0 3.5px #fff}" +
-      ".ldv-palette-dot{position:relative}" +
-      ".ldv-palette-check{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none}" +
-      ".ldv-palette-dot-locked{opacity:.25}" +
-      ".ldv-palette-dot-locked:hover{transform:none}" +
-      ".ldv-palette-auto{flex:none;margin-left:4px}" +
-      ".ldv-palette-auto-on .ldv-check-label{color:var(--dsw-alias-state-business-primary,#5686fe);font-weight:600}" +
-      ".ldv-web-panel-copy{display:flex;flex-direction:column;gap:3px;min-width:0}" +
-      ".ldv-web-panel-title{font-size:13px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,#e6e6e6)}" +
-      ".ldv-web-panel-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}" +
-      ".ldv-switch{position:relative;width:38px;height:22px;flex:none;cursor:pointer}" +
-      ".ldv-switch input{position:absolute;opacity:0;pointer-events:none}" +
-      ".ldv-switch-track{position:absolute;inset:0;border-radius:999px;background:var(--dsw-alias-border-l2,#46474c);transition:background .16s}" +
-      ".ldv-switch-track:after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .16s}" +
-      ".ldv-switch input:checked+.ldv-switch-track{background:var(--dsw-alias-state-business-primary,#5686fe)}" +
-      ".ldv-switch input:checked+.ldv-switch-track:after{transform:translateX(16px)}" +
-      ".ldv-switch input:focus-visible+.ldv-switch-track{outline:2px solid var(--dsw-alias-brand-primary,#5686fe);outline-offset:2px}" +
-      ".ldv-web-panel-body{padding:13px 14px}" +
-      ".ldv-status{display:grid;gap:8px;min-width:0}" +
-      ".ldv-status-row{display:grid;grid-template-columns:minmax(84px,1fr) auto;align-items:center;gap:12px;font-size:13px;line-height:19px;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
-      ".ldv-status-value{display:inline-flex;align-items:center;gap:6px;font-weight:600;flex:none}" +
-      ".ldv-status-value:before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 15%,transparent)}" +
+    // ── 卡头图标（16×16 描边线稿）────────────────────────────────────────
+    //
+    // 每组一块卡，卡头左端一枚图标。**图标不承载信息**：形状看不懂的人
+    // 靠紧挨着的组名即可（故图标一律 aria-hidden，不进读屏播报）。
+    // 描边用 currentColor，随主题走；不写死颜色（宿主换主题即失配）。
+    var LDVH_BLOCK_ICONS = {
+      // 浏览器窗口：服务与入口。
+      services: [
+        { t: "rect", p: { x: 1.8, y: 3, width: 12.4, height: 9.4, rx: 1.6 } },
+        { t: "line", p: { x1: 1.8, y1: 6.2, x2: 14.2, y2: 6.2 } },
+        { t: "line", p: { x1: 6.2, y1: 13.4, x2: 9.8, y2: 13.4 } }
+      ],
+      // 时钟：闲时派发。
+      idle: [
+        { t: "circle", p: { cx: 8, cy: 8, r: 5.7 } },
+        { t: "path", p: { d: "M8 4.7V8l2.3 1.5" } }
+      ],
+      // 推子：召回预算（选档位）。
+      budget: [
+        { t: "line", p: { x1: 2.4, y1: 5.2, x2: 13.6, y2: 5.2 } },
+        { t: "line", p: { x1: 2.4, y1: 10.8, x2: 13.6, y2: 10.8 } },
+        { t: "circle", p: { cx: 5.6, cy: 5.2, r: 1.7 } },
+        { t: "circle", p: { cx: 10.6, cy: 10.8, r: 1.7 } }
+      ],
+      // 盾与勾：把关询问。
+      review: [
+        { t: "path", p: { d: "M8 2.2l5 2v4.1c0 3-2.1 5.4-5 6.5-2.9-1.1-5-3.5-5-6.5V4.2z" } },
+        { t: "path", p: { d: "M5.9 8.1l1.6 1.6 2.9-3.2" } }
+      ],
+      // 文件夹：管辖项目。
+      projects: [
+        { t: "path", p: { d: "M1.9 4.6a1 1 0 0 1 1-1h3.2l1.4 1.7h5.6a1 1 0 0 1 1 1v6.1a1 1 0 0 1-1 1H2.9a1 1 0 0 1-1-1z" } }
+      ]
+    };
 
+    var SETTINGS_CSS =       /* ── 页面骨架 ──────────────────────────────────────────────────────────
+         设置页的正文列很窄：宿主面板 800px − 188px 导航列 − 2×24px 内容内衬
+         ⇒ 实宽约 564px（宿主 dsh-client-ui-settings-general/SettingsRoot.module.css）。
+         宿主自己的 General 区是扁平列（Feature-contributed rows own their chrome
+         and separators），故本插件的分组卡片/分组导轨是**有意的偏离**。
+         九轮之后定下的版面原则（下面逐条落地）：
+           ① **颜色只表示状态**：蓝=生效中、绿=正常、红=出错；组图标与组名
+              一律中性墨色，不拿颜色当装饰——一页 6 枚蓝开关 + 5 枚蓝图标时，
+              蓝色就只是背景噪声，不再指向「开着」。
+           ② **机器的值用等宽字**（档位、数值、计数、路径），人写的话用宿主
+              正文字体。等宽是本页唯一新增的字体角色，用来区分「机器读的数」
+              与「人写的说明」。
+           ③ **旁注没有底色**：只有一根 1px 竖线 + 次级墨色，不再是灰底方块。
+           ④ **圆角收敛**：卡面 12px → 6px，控件 10px → 6px，按钮 8px → 6px。
+         本段（骨架段）是**版面结构规则**：换版面只改这一段，其余是共用的字阶、
+         控件与注记形制。 */
+      /* 线权重：组内一律用**发丝**（7%）并两侧各缩进 16px——缩进比粗细更能
+         说明「这是组内的一条线」，因为线不再顶到卡片边缘，就不会读成表格。 */
+      ".ldv-settings{--ldv-ink:var(--dsw-alias-label-primary,currentColor);--ldv-body:var(--dsw-alias-label-secondary,currentColor);--ldv-meta:var(--dsw-alias-label-tertiary,currentColor);--ldv-accent:var(--dsw-alias-state-business-primary,#4176e6);--ldv-silent:var(--dsw-alias-state-warning-primary,#f59e0b);--ldv-hair:color-mix(in srgb,var(--ldv-ink) 8%,transparent);display:flex;flex-direction:column;gap:16px;margin:0;padding:0 0 4px;color:var(--ldv-ink);container-type:inline-size;container-name:ldv-settings}" +
+      /* ═══ 骨架段 START（版面结构规则集中于此；换版面只改这一段）═══ */
+      /* 组 = **一块面**（2026-11-13 第三稿，Human 判导轨刻度「样式不行」后重做）。
+         上一稿用左侧导轨 + 逐行刻度把行串起来，结果是整页读成一份文档：没有
+         边界、没有归属、组与组之间只靠 34px 空白分开。这一稿把「组」交还给
+         **面**：一组一块淡面（宿主的 module-platform：浅色 #f5f6f7／暗色
+         #353638），12px 圆角、无边框、无投影——面本身就是分组，不需要再画线。
+         这是对第九轮「去卡面」的**反向修正**，理由写在这里以免下次又翻回来：
+         去卡面是为了甩掉当时那套「渐变 + 描边 + 投影 + 20px 圆角」的重样式；
+         面本身没错，错的是那套装饰。现在只留一块最淡的底 + 一档圆角。 */
+      ".ldv-block{position:relative;display:flex;flex-direction:column;min-width:0;padding:0;border:1px solid color-mix(in srgb,var(--ldv-ink) 7%,transparent);border-radius:12px;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,currentColor 4%,transparent));box-shadow:none;overflow:hidden}" +
+      /* 组名行：组的抬头。抬头与组身之间那道发丝**两侧缩进 16px**——卡片边缘
+         已经是一条边界，再让线顶到边缘就成了双层框。 */
+      ".ldv-block-head{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:9px;padding:15px 16px 13px;background:transparent}" +
+      ".ldv-block-head:after{content:'';position:absolute;left:16px;right:16px;bottom:0;height:1px;background:var(--ldv-hair)}" +
+      ".ldv-block-icon{display:grid;place-items:center;width:16px;height:16px;flex:none;color:var(--ldv-body)}" +
+      ".ldv-block-icon svg{width:16px;height:16px;display:block}" +
+      ".ldv-block-title-line{display:flex;align-items:center;gap:8px;min-width:0}" +
+      /* 组名 15px/600：有面之后，字号不必再靠 16px 才能压住行名——面已经把
+         「一组」说清楚了，字只管读。 */
+      ".ldv-block-title{font-size:15px;font-weight:600;line-height:22px;letter-spacing:.01em;color:var(--ldv-ink)}" +
+      /* 行：行与行之间一道**缩进发丝**（左 16 / 右 16），不顶边、不加粗。 */
+      ".ldv-row{position:relative;display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-top:none}" +
+      ".ldv-row:after{content:'';position:absolute;left:16px;right:16px;top:0;height:1px;background:var(--ldv-hair)}" +
+      ".ldv-row:first-child:after{display:none}" +
+      /* ═══ 骨架段 END ═══ */
+      /* 组说明：描述**整组**，与行说明（.ldv-row-desc）分属两层，两者不混。
+         它与行说明同字号（12px），靠**位置**分层：站在组名正下方、分组线之上，
+         与第一行之间隔着那道分组线。 */
+      ".ldv-block-desc{flex-basis:100%;margin-top:8px;font-size:12px;font-weight:400;line-height:20px;color:var(--ldv-body);text-wrap:pretty}" +
+      /* 卡头里的控件分**两个槽位**（2026-11-13 Human 定）：
+         状态读数（药丸）贴组名——它是这一组的状态，离开组名就没有主语；
+         总开关推回行末——按宿主的通行做法放在行末，扫视整页时所有开关
+         落在同一条竖线上。 */
+      ".ldv-block-control{flex:none;display:flex;align-items:center;gap:8px}" +
+      ".ldv-block-toggle{margin-left:auto}" +
+      ".ldv-block-action{margin-left:auto}" +
+      ".ldv-block-body{display:flex;flex-direction:column}" +
+      /* 行内：**标题与控件相邻**成一行（同一条基线上），控件**推到最右侧**，
+         说明另起一行占满整列。
+         2026-11-13 Human 指示：「所有的选择和操作都是放在最右侧对齐」——
+         全页的开关/输入框/下拉/复选框落在同一条竖线上，扫视时一眼能数出
+         有几项、各是什么状态。此前控件紧贴标题（`gap` 之后的自然位置），
+         右侧留出一片空白，与宿主其他面板的通行做法不一致。
+         **为何仍与标题同处一行**：控件若被说明段落竖直居中（旧版左文右控
+         的做法），它会落在段落中部，归属全靠猜；现在它与标题同在行头的
+         基线上、贴着标题右侧，归属仍然确定，而右缘对齐由「行头两端分布」
+         给出。说明独占一行的结构不变，故「说明与控件不同层」这条不变量
+         仍成立。 */
+      ".ldv-row-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}" +
+      ".ldv-row-title{min-width:0;font-size:14px;font-weight:500;line-height:21px;color:var(--ldv-ink)}" +
+      ".ldv-row-desc{font-size:12px;font-weight:400;line-height:20px;color:var(--ldv-body);text-wrap:pretty}" +
+      /* 说明里的 **强调**：词条按 Markdown 写的 **…**，在设置页是纯文本，
+         直接印出来会露出星号。渲染时转成真正的强调（不改动词条本身）。 */
+      ".ldv-row-desc strong{font-weight:600;color:var(--dsw-alias-label-primary,currentColor)}" +
+      ".ldv-row-control{flex:none;display:flex;align-items:center}" +
+      /* 注记（旁注）：组内的**附注**，排在最后一行之后，同样是 16px 内衬。
+         与行区分靠两处：上缘一道**虚线**（实线在组内一律表示「又一项」），
+         以及没有标题时的纯次墨小字。此前它是「灰底方块 + 竖线」，随后改成
+         一根 1px 竖线（与导轨并排成两条长度不一的线，像没对齐的缩进），再
+         改成整幅上缘虚线——现在它就在卡里，什么底都不需要，只留那道虚线。 */
+      ".ldv-note{position:relative;display:flex;flex-direction:column;gap:2px;margin:0;padding:13px 16px 15px}" +
+      ".ldv-note:before{content:'';position:absolute;left:16px;right:16px;top:0;height:1px;background-image:repeating-linear-gradient(90deg,color-mix(in srgb,var(--ldv-ink) 13%,transparent) 0 4px,transparent 4px 9px)}" +
+      ".ldv-note-title{font-size:12px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,currentColor)}" +
+      ".ldv-note-text{font-size:12px;font-weight:400;line-height:19px;color:var(--dsw-alias-label-secondary,currentColor);text-wrap:pretty}" +
+      /* 计数徽标：机器读数 → 等宽。 */
+      ".ldv-count{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;font-weight:600;line-height:16px;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-label-secondary,currentColor) 16%,transparent);color:var(--dsw-alias-label-secondary,currentColor)}" +
+      /* 状态读数：卡头上的一枚药丸（结论自带色与圆点，不必靠文字颜色硬读）。 */
+      ".ldv-status-value{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;line-height:16px;flex:none;padding:1px 9px;border-radius:999px;background:color-mix(in srgb,currentColor 12%,transparent)}" +
+      ".ldv-status-value:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}" +
       ".ldv-status-ok{color:var(--dsw-alias-state-success-primary,#34d399)}" +
       ".ldv-status-fail{color:var(--dsw-alias-state-error-primary,#ef4444)}" +
-      ".ldv-status-wait{color:var(--dsw-alias-label-tertiary,#999)}" +
+      ".ldv-status-wait{color:var(--dsw-alias-label-tertiary,currentColor)}" +
+      /* 输入框与下拉：取宿主「选择器药丸」的形制（32px 高、圆角、module-platform 底）。
+         **值用等宽字**——这是本页唯一新增的字体角色，用来把「机器读出来的数」
+         与「人写的字」分开（档位 10 K、安静时长 5、计数 1）。
+         高度 34→32（2026-11-13 第二轮）：34px 的框压在 21px 的行头上，上下各
+         多出半行，读者先看见框、后看见标题；32px 与标题同处一条基线，不再抢戏。 */
+      ".ldv-settings-input{box-sizing:border-box;appearance:none;width:100%;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2,color-mix(in srgb,currentColor 12%,transparent));border-radius:6px;background:var(--dsw-alias-bg-layer-2,transparent);color:var(--ldv-ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;font-variant-numeric:tabular-nums;line-height:1.5}" +
+      ".ldv-field-input{width:82px;flex:none}" +
+      ".ldv-field-select{width:96px;flex:none;padding-right:24px}" +
+      /* 下拉的展开箭头：宿主原生箭头在 appearance:none 下会消失，
+         档位框看上去与输入框无异（读者不知道那是一个下拉）。自绘一枚
+         折角，随主题走（用 label-secondary 的 currentColor 描边）。 */
+      ".ldv-select{position:relative;display:inline-flex;align-items:center}" +
+      ".ldv-select:after{content:'';position:absolute;right:9px;top:50%;width:6px;height:6px;margin-top:-4px;border-right:1px solid var(--dsw-alias-label-secondary,currentColor);border-bottom:1px solid var(--dsw-alias-label-secondary,currentColor);transform:rotate(45deg);pointer-events:none}" +
+      ".ldv-field-invalid{font-size:11px;font-weight:400;line-height:16px;color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
+      ".ldv-settings-input.is-error{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 60%,transparent)}" +
+      ".ldv-settings-input[aria-invalid='true']{border-color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
       ".ldv-settings-input:focus-visible{outline:none;border-color:var(--dsw-alias-brand-primary,#5686fe);box-shadow:0 0 0 3px rgba(86,134,254,.22)}" +
-      ".ldv-settings-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}" +
-      ".ldv-settings-toggle{display:flex;align-items:flex-start;gap:8px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#232529);font-size:13px;line-height:19px;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
-      ".ldv-settings-toggle input{margin-top:3px;accent-color:var(--dsw-alias-brand-primary,#5686fe)}" +
-      ".ldv-settings-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;border-top:1px solid var(--dsw-alias-border-l2,#36373b);padding-top:12px}" +
+      ".ldv-settings-input.is-error:focus-visible{border-color:var(--dsw-alias-state-error-primary,#f56c6c);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 22%,transparent)}" +
+      /* 开关：全页只用它，不再与原生复选框混用。
+         **轨道用业务蓝、钮用白**（2026-11-13 Human 定）：宿主浅色主题的
+         brand-primary 是近黑 #0f1115，于是「黑轨白钮」既重又黑白分明——
+         在一页淡色卡片上像一枚实心黑块。故改取 state-business-primary
+         （浅 #4176e6 / 暗 #7aaaff）作轨色，钮取 label-on-color（两套主题
+         都是纯白 #ffffff）。**未开启**态仍走中性灰（border-l3 轨 +
+         switch-thumb 钮），免得整页都是蓝点。
+         蓝色因此只剩一个含义：**这一项开着**。 */
+      ".ldv-switch{position:relative;display:inline-block;width:36px;height:20px;flex:none;cursor:pointer}" +
+      ".ldv-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}" +
+      ".ldv-switch-track{position:absolute;inset:0;border-radius:999px;background:var(--dsw-alias-border-l3,#ffffff29);transition:background .12s ease}" +
+      ".ldv-switch-track:after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-switch-thumb,currentColor);transition:transform .12s ease}" +
+      ".ldv-switch input:checked+.ldv-switch-track{background:var(--ldv-accent)}" +
+      ".ldv-switch input:checked+.ldv-switch-track:after{background:var(--dsw-alias-label-on-color,#ffffff);transform:translateX(16px)}" +
+      ".ldv-switch input:focus-visible+.ldv-switch-track{outline:2px solid var(--ldv-accent);outline-offset:2px}" +
+      ".ldv-switch input:disabled+.ldv-switch-track{opacity:.5;cursor:not-allowed}" +
+      /* 静默执行开关：**琥珀轨**（2026-11-13 晚 Human 要求「需要用不一样的颜色」）。
+         `--ldv-silent` 是浅色主题的琥珀；暗色主题取宿主 state-warning 一类的
+         暖色，取不到时仍落回琥珀本身——宁可两套主题同色，也不要落回蓝色
+         （那会让「静默」与「又多一处把关」不可区分，正是要避免的误读）。
+         **它不改 .ldv-switch 的默认规则**：只有挂 .ldv-switch-silent 的那一枚
+         走琥珀，其余所有开关仍是蓝＝开着。 */
+      ".ldv-silent-control{display:inline-flex;align-items:center;gap:8px;flex:none}" +
+      ".ldv-silent-badge{font-size:11px;font-weight:600;line-height:16px;padding:1px 7px;border-radius:999px;color:color-mix(in srgb,var(--ldv-silent) 55%,var(--ldv-ink));background:color-mix(in srgb,var(--ldv-silent) 16%,transparent);white-space:nowrap}" +
+      ".ldv-switch-silent input:checked+.ldv-switch-track{background:var(--ldv-silent)}" +
+      ".ldv-switch-silent input:checked+.ldv-switch-track:after{background:var(--dsw-alias-label-on-color,#ffffff)}" +
+      ".ldv-switch-silent input:focus-visible+.ldv-switch-track{outline-color:var(--ldv-silent)}" +
+      /* 管辖项目：组内的一层**凸起小面**——组身是淡面，小面回到 bg-layer-2
+         （浅色＝白、暗色＝比组身更深一档），于是「组 > 条目」两级成立。
+         此前小面取 module-platform，与现在的组身同色，会整块消失。 */
+      ".ldv-governance-add{display:flex;flex-direction:column;gap:13px;margin:14px 16px;padding:14px;border:1px solid var(--ldv-hair);border-radius:10px;background:var(--dsw-alias-bg-layer-2,transparent)}" +
+      ".ldv-governance-add-head{display:flex;align-items:flex-start;gap:9px}" +
+      /* 「＋」标记：此前是蓝底白字的实心方块（页面里第二块彩色块）。改为
+         中性描边方框——加号是动作，不需要品牌色。 */
+      ".ldv-governance-add-icon{display:grid;place-items:center;width:22px;height:22px;flex:none;border:1px solid var(--dsw-alias-border-l2,color-mix(in srgb,currentColor 12%,transparent));border-radius:5px;color:var(--dsw-alias-label-secondary,currentColor);font-size:14px;font-weight:400;line-height:1;background:transparent}" +
+      ".ldv-governance-add-copy{display:flex;flex-direction:column;gap:2px;min-width:0}" +
+      ".ldv-governance-add-title{font-size:13px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,currentColor)}" +
+      ".ldv-governance-add-hint{font-size:12px;font-weight:400;line-height:18px;color:var(--dsw-alias-label-secondary,currentColor)}" +
+      ".ldv-governance-add-fields{display:flex;flex-direction:column;gap:13px}" +
+      ".ldv-governance-add-field{display:flex;flex-direction:column;gap:6px;min-width:0}" +
+      ".ldv-governance-add-label{font-size:12px;font-weight:600;line-height:16px;color:var(--dsw-alias-label-secondary,currentColor)}" +
+      ".ldv-governance-add-field-help{font-size:12px;font-weight:400;line-height:18px;color:var(--dsw-alias-label-tertiary,currentColor)}" +
+      ".ldv-governance-add-field-error{font-size:12px;font-weight:400;line-height:18px;color:var(--dsw-alias-state-error-primary,#ef4444)}" +
+      ".ldv-governance-path-control{display:flex;min-width:0}" +
+      ".ldv-governance-path-control .ldv-settings-input{flex:1;min-width:0;border-radius:6px 0 0 6px}" +
+      ".ldv-governance-path-control .ldv-btn{height:32px;flex:none;border-left:0;border-radius:0 6px 6px 0;white-space:nowrap}" +
+      ".ldv-governance-add-actions{display:flex;justify-content:flex-end;gap:8px}" +
+      ".ldv-governance-add-actions .ldv-btn{min-width:76px}" +
+      ".ldv-governance-add-error{padding:8px 10px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 35%,transparent);border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 10%,transparent);font-size:12px;font-weight:400;line-height:18px;color:var(--dsw-alias-state-error-primary,#ef4444);word-break:break-word}" +
+      ".ldv-governance-empty{display:flex;flex-direction:column;align-items:center;gap:6px;margin:0;padding:22px 16px;text-align:center}" +
+      ".ldv-governance-empty-icon{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;border:1px dashed var(--dsw-alias-border-l2,color-mix(in srgb,currentColor 12%,transparent));color:var(--dsw-alias-label-tertiary,currentColor);font-size:16px;font-weight:600}" +
+      ".ldv-governance-empty-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary,currentColor)}" +
+      ".ldv-governance-empty-text{font-size:12px;font-weight:400;line-height:18px;color:var(--dsw-alias-label-tertiary,currentColor)}" +
+      ".ldv-governance-error{margin:0 16px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 45%,transparent);border-left:3px solid var(--dsw-alias-state-error-primary,#ef4444);border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 10%,transparent);font-size:12px;font-weight:400;line-height:18px;color:var(--dsw-alias-label-primary,currentColor);word-break:break-word}" +
+      ".ldv-projects{display:flex;flex-direction:column;gap:8px;padding:14px 16px}" +
+      /* 项目条目：组内的一层小面（bg-layer-2 + 发丝边），与组身拉开一级。 */
+      ".ldv-project-card{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--ldv-hair);border-radius:10px;background:var(--dsw-alias-bg-layer-2,transparent)}" +
+      ".ldv-project-head{display:flex;align-items:flex-start;gap:12px}" +
+      ".ldv-project-idline{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0}" +
+      ".ldv-project-name{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,currentColor)}" +
+      ".ldv-project-path{flex-basis:100%;font-size:12px;font-weight:400;line-height:18px;word-break:break-all;color:var(--dsw-alias-label-tertiary,currentColor);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}" +
+      ".ldv-project-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}" +
+      /* 项目色板：色点 + 「自动取色」。这是卡片内的一个小控件，
+         仍用原生复选框（与色点同组），故 .ldv-check 一组样式在此保留。
+         2026-11-13 第三稿：色点 18→16px、间距 10→8px、未选中降到 72% 不透明
+         ——十枚饱和色圆点是全页最响的一块，而它们只是**可选的颜色**，不是
+         状态；压到「一排安静的样本、选中那枚才亮」之后，蓝色仍只表示开着。 */
+      ".ldv-palette{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--ldv-hair)}" +
+      ".ldv-palette-label{font-size:12px;font-weight:400;color:var(--ldv-meta);flex:none;margin-right:2px}" +
+      ".ldv-palette-dot{position:relative;width:16px;height:16px;border-radius:50%;border:none;padding:0;cursor:pointer;flex:none;opacity:.72;transition:transform .12s,opacity .12s}" +
+      ".ldv-palette-dot:hover,.ldv-palette-dot:focus-visible{transform:scale(1.12);opacity:1}" +
+      ".ldv-palette-dot:disabled{cursor:not-allowed;opacity:.4}" +
+      ".ldv-palette-dot-active{opacity:1;box-shadow:0 0 0 2px var(--dsw-alias-bg-module-platform,#f5f6f7),0 0 0 3.5px color-mix(in srgb,var(--ldv-ink) 38%,transparent)}" +
+      ".ldv-palette-check{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none}" +
+      ".ldv-palette-dot-locked{opacity:.25}" +
+      ".ldv-palette-dot-locked:hover{transform:none}" +
+      ".ldv-palette-auto{flex:none;margin-left:auto}" +
+      /* 「自动取色」的复选框：此前是**原生**方框——浅色主题下与页面无异，
+         暗色主题下却是一只刺眼的白方块（accent-color 只管勾选后的颜色，
+         未勾选时由浏览器原生外观决定）。改为自绘：14px 方框、圆角 3、
+         勾选时取业务蓝 + 白色对勾、焦点有可见环。原生 input 保留在框里
+         （透明覆盖），键盘与读屏行为不变。 */
+      ".ldv-check{position:relative;display:inline-flex;align-items:center;gap:0;min-height:20px;padding-left:21px;cursor:pointer}" +
+      ".ldv-check input{position:absolute;left:0;top:50%;margin:-7px 0 0;width:14px;height:14px;opacity:0;cursor:pointer}" +
+      ".ldv-check:before{content:'';position:absolute;left:0;top:50%;margin-top:-7px;width:14px;height:14px;border:1px solid var(--dsw-alias-border-l3,color-mix(in srgb,currentColor 12%,transparent));border-radius:3px;background:transparent}" +
+      ".ldv-check:has(input:checked):before{background:var(--dsw-alias-state-business-primary,#5686fe);border-color:var(--dsw-alias-state-business-primary,#5686fe)}" +
+      ".ldv-check:has(input:checked):after{content:'';position:absolute;left:4px;top:50%;margin-top:-4px;width:4px;height:8px;border-right:1.5px solid var(--dsw-alias-label-on-color,#ffffff);border-bottom:1.5px solid var(--dsw-alias-label-on-color,#ffffff);transform:rotate(45deg)}" +
+      ".ldv-check:has(input:focus-visible):before{outline:2px solid var(--dsw-alias-state-business-primary,#5686fe);outline-offset:2px}" +
+      ".ldv-check-label{font-size:12px;font-weight:400;line-height:18px;color:var(--dsw-alias-label-secondary,currentColor);user-select:none}" +
+      ".ldv-palette-auto-on .ldv-check-label{color:var(--dsw-alias-state-business-primary,#5686fe);font-weight:600}" +
+      /* 提示行（次要说明）。组身已无内衬，直接挂在组身里的提示自己补 16px。 */
+      ".ldv-settings-hint{font-size:12px;font-weight:400;line-height:18px;color:var(--ldv-body)}" +
+      ".ldv-block-body>.ldv-settings-hint{display:block;padding:12px 16px 0}" +
+      ".ldv-settings-hint strong{font-weight:600;color:var(--dsw-alias-label-primary,currentColor)}" +
+      /* 按钮：与宿主同族的方钮（圆角 6、13px）。「有未保存改动」时另有
+         **不依赖颜色**的形状变化（字重 + 描边），色觉障碍下同样可辨。 */
+      ".ldv-btn{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:6px;padding:6px 13px;font-size:13px;font-weight:500;line-height:1.5;transition:opacity .16s,border-color .16s}" +
+      ".ldv-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#5686fe);outline-offset:1px}" +
+      ".ldv-btn-primary{background:var(--dsw-alias-label-primary,currentColor);color:var(--dsw-alias-bg-layer-3,#202126)}" +
+      ".ldv-btn-outline{border-color:var(--dsw-alias-border-l2,color-mix(in srgb,currentColor 12%,transparent));color:var(--dsw-alias-label-secondary,currentColor);background:transparent}" +
+      ".ldv-btn-primary:hover:not(:disabled){opacity:.9}" +
+      ".ldv-btn-outline:hover:not(:disabled){color:var(--dsw-alias-label-primary,currentColor);border-color:var(--dsw-alias-label-dimmed,#777);background:rgba(255,255,255,.04)}" +
+      ".ldv-btn:disabled{opacity:.4;cursor:default}" +
+      ".ldv-btn-dirty{font-weight:600;box-shadow:0 0 0 2px color-mix(in srgb,currentColor 45%,transparent)}" +
+      /* 页脚：左「鼓励一下 ★」+ 保存状态，右「放弃修改 / 保存」。
+         页脚上方加一道发丝线：它与上面的设置项是两类东西（一个是事实，
+         一个是动作），不该连成一片。 */
+      ".ldv-settings-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:8px;padding:16px 0 4px;border-top:1px solid var(--ldv-hair)}" +
       ".ldv-settings-footer-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}" +
-      ".ldv-settings-footer-status{flex:1;min-width:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#999)}" +
-      ".ldv-settings-footer-error{flex:1;min-width:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-state-error-primary,#ef4444)}" +
-      ".ldv-settings-cheer{display:inline-flex;align-items:center;gap:4px;flex:none;text-decoration:underline;text-underline-offset:2px;color:var(--dsw-alias-label-tertiary,#999);font-size:13px;line-height:1.5;transition:color .16s}" +
+      ".ldv-settings-footer-status{flex:1;min-width:0;font-size:12px;font-weight:400;line-height:1.5;color:var(--dsw-alias-label-tertiary,currentColor)}" +
+      ".ldv-settings-footer-error{flex:1;min-width:0;font-size:12px;font-weight:400;line-height:1.5;color:var(--dsw-alias-state-error-primary,#ef4444)}" +
+      ".ldv-settings-cheer{display:inline-flex;align-items:center;gap:4px;flex:none;text-decoration:underline;text-underline-offset:2px;color:var(--dsw-alias-label-tertiary,currentColor);font-size:13px;line-height:1.5;transition:color .16s}" +
       ".ldv-settings-cheer-star{font-size:12px;line-height:1;display:inline-flex}" +
-      ".ldv-settings-cheer:hover{color:var(--dsw-alias-label-primary,#e6e6e6)}" +
+      ".ldv-settings-cheer:hover{color:var(--dsw-alias-label-primary,currentColor)}" +
       ".ldv-settings-cheer:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#5686fe);outline-offset:2px}" +
+      /* 窄列：**按内容列宽**降级（宿主在 macOS/Windows 原生标题栏下窄视口
+         仍保留 188px 导航列，视口宽与内容列宽会脱钩，故用容器查询）。
+         <420px：导轨内衬与行距收窄；<300px：控件可换行到标题下方，
+         数值框宽度放开到 160px。 */
+      "@container ldv-settings (max-width:420px){.ldv-block{border-radius:10px}.ldv-block-head{padding:14px 14px 12px}.ldv-block-head:after{left:14px;right:14px}.ldv-row{padding:13px 14px}.ldv-row:after{left:14px;right:14px}.ldv-note{padding:12px 14px 14px}.ldv-note:before{left:14px;right:14px}.ldv-projects{padding:12px 14px}.ldv-governance-add{margin:12px 14px}.ldv-block-head,.ldv-row{gap:8px}.ldv-governance-path-control{display:grid;gap:8px}.ldv-governance-path-control .ldv-settings-input{border-radius:6px}.ldv-governance-path-control .ldv-btn{border-left:1px solid var(--dsw-alias-border-l2,color-mix(in srgb,currentColor 12%,transparent));border-radius:6px}.ldv-governance-add-actions,.ldv-project-actions{justify-content:stretch}.ldv-governance-add-actions .ldv-btn,.ldv-project-actions .ldv-btn{flex:1;min-width:0}}" +
+      "@container ldv-settings (max-width:300px){.ldv-row-head{flex-wrap:wrap}.ldv-field-input,.ldv-field-select{width:160px}}" +
+      /* 侧栏 / 对话 Tab 里的 iframe 面（与设置页无关，但同属本插件的样式卡）。 */
       ".ldv-view{position:relative;width:100%;height:100%;min-height:0}" +
       ".ldv-view-frame{position:absolute;inset:0;width:100%;height:100%;border:0}" +
       ".ldv-view-state{position:absolute;inset:0;display:grid;place-items:center;gap:10px;align-content:center;text-align:center;padding:24px}" +
-      ".ldv-view-state p{font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary,#b8b8b8);margin:0;max-width:520px}" +
-      ".ldv-btn{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}" +
-      ".ldv-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#5686fe);outline-offset:1px}" +
-      ".ldv-btn-primary{background:var(--dsw-alias-label-primary,#e6e6e6);color:var(--dsw-alias-bg-layer-3,#202126)}" +
-      ".ldv-btn-outline{border-color:var(--dsw-alias-border-l2,#36373b);color:var(--dsw-alias-label-secondary,#b8b8b8);background:transparent;font-weight:500}" +
-      ".ldv-btn-primary:hover:not(:disabled){opacity:.9}" +
-      ".ldv-btn-outline:hover:not(:disabled){color:var(--dsw-alias-label-primary,#e6e6e6);border-color:var(--dsw-alias-label-dimmed,#777);background:rgba(255,255,255,.04)}" +
-      ".ldv-btn:disabled{opacity:.4;cursor:default}" +
+      ".ldv-view-state p{font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary,currentColor);margin:0;max-width:520px}" +
       "";
+;
 
     // ── 宿主提问卡（Human Gate 落点）观感覆写 ────────────────────────────
     // 本插件的受控写入一律经 `ctx.userQuestions.ask` 提请 Human 决定，答复面
@@ -308,11 +437,35 @@ window.__ModuleLoader__.load({
     // 硬编码短名会让设置卡绑定到无人服务的命名空间，status: unavailable 静默
     // 失效、不报错）。真实 id 由 ldvhEntryIdOf() 从 mirror 服务目录探测。
     var LDVH_ENTRY_ID = "dsh-ldvh";
-    // npm 包名（plugins.bundle.config 的键；与 dsh-connect-workbuddy 同款）。
-    var LDVH_PACKAGE_NAME = "dsh-ldvh";
-    // Plugins 页 plugins.row.config 的键：`<包名>#<行 id>`，两者在本包里都是
-    // dsh-ldvh（cordis.patch.yml 的 bundle 名与 insert id）。
-    var LDVH_ROW_CONFIG_KEY = "dsh-ldvh#dsh-ldvh";
+    /**
+     * 设置页（Settings 面板左侧导航）里本节目的 id —— **本插件自己拥有的**，
+     * 不是宿主的 Loader 条目 id。
+     *
+     * ## 为什么另开一节（Human 2026-11-13）
+     *
+     * 此前 LDVH 的设置只挂在 **Plugins 页**的两个 keyed 槽位
+     * （`plugins.bundle.config` / `plugins.row.config`）。那是「按包名精确匹配
+     * 宿主清单」的寻址方式：同一个插件若被以不同 Loader 条目 id 挂载，两种拼写
+     * 都得注册，漏一种就**整页不渲染且不报错**（dsh-connect-workbuddy 的 issue #55
+     * 就是这个坑）。Human 的诉求很直接：「把 ldvh 的设置也放到设置里，参考
+     * workbuddy 的做法」——即跟其它所有偏好放在一处，而不是埋在插件详情里。
+     *
+     * `settings.section` 是**列表槽位**，key 是本插件自有的 id：没有清单名要匹配，
+     * 那一整类寻址失配从此不存在。id 同时也是图标的地址（宿主按
+     * `{ only: row.id }` 渲染 `settings.section.icon`），故两个注册共用同一个常量。
+     */
+    var LDVH_SETTINGS_SECTION_ID = "dsh-ldvh";
+    /**
+     * 设置页导航位置。已发布的节位次：账号 -10、通用 0、模型 10、插件 15、
+     * Agent 预设 20；实测第三方页面占 20（opencode-go）、30
+     * （subagent-default-model）、35（workbuddy）、40（插件市场）、45
+     * （archive-manager）、100（better-sidebar）。
+     *
+     * 取 **50**：排在插件市场之后、侧边卡片之前——LDVH 是治理层，不像连接器
+     * 那样与账号/模型同层，也不抢占别人的 35。**不与任何内置或已装插件位置冲突**
+     * 是本值唯一的硬约束（冲突时宿主渲染次序不稳定，两节都还在但顺序会跳）。
+     */
+    var LDVH_SETTINGS_SECTION_ORDER = 50;
 
     // 探测宿主实际服务的命名空间（dsh-connect-workbuddy 2.0.16 同款范式）：
     // configForms.get() 与 mirror 的 served-namespace 目录按**精确匹配**对表，
@@ -331,13 +484,21 @@ window.__ModuleLoader__.load({
       return LDVH_ENTRY_ID;
     }
     var LDVH_ZH = {
-      "row.title": "LD Vibe Harness（dsh-ldvh）",
-      "row.desc": "在 DSH 中管理 LDVH 管辖项目、Git Gate 与 Web 呈现。",
-      "row.expand": "展开",
-      "row.collapse": "收起",
+      // 导航标签：设置页左侧那一行只显示这个。**必须短**——宿主的导航列宽度有限，
+      // 长名字会被截成「LD Vibe Harness...」（Human 2026-11-13 实测截图）。
+      // 取品牌缩写 LDVH：它已是本仓自己的用语（引导、文档、类型名都在用），
+      // 不必再拼全称；全称留给需要完整标识的地方（`row.desc`、README）。
+      "row.title": "LDVH",
       "row.governanceLocation": "管辖项目配置",
       "row.governanceLocationHint": "由 LDVH 自动保存在 DSH 用户配置目录下的 ldvh/governed-projects.yaml。",
       "row.projectsPanelTitle": "管辖项目",
+      // ── 组名（卡片头）──────────────────────────────────────────────────
+      // 2026-11-13 起本页按分组卡片组织，卡头要有一个**组名**——它回答的是
+      // 「这一组管什么」，与组内各行的标题（「这一项是什么」）不同层，故另立
+      // group.* 词条，不复用 row.*。
+      "group.services": "服务与入口",
+      "group.idle": "闲时派发",
+      "group.budget": "召回预算",
       "row.addProject": "新增管辖项目",
       "row.addProjectTitle": "新增管辖项目",
       "row.addProjectHint": "选择或手动输入一个 Git 仓库根目录（绝对路径），安装会同时完成登记、初始化 ldvh-base/ 并安装 Git Hook。",
@@ -345,7 +506,6 @@ window.__ModuleLoader__.load({
       "row.projectsEmptyTitle": "还没有管辖项目",
       "row.projectsEmptyText": "新增后，LDVH 才会在该项目中启用事实源与 Git Gate。",
       "row.projectsLoading": "正在读取管辖项目…",
-      "row.projectsEmpty": "尚未安装管辖项目。",
       "row.projectPath": "Git 根目录",
       "row.projectId": "项目 ID",
       "row.projectIdHelp": "用于登记与 CLI 调用的唯一标识（小写字母、数字、连字符；1–64 字符），创建后不可修改。",
@@ -366,24 +526,27 @@ window.__ModuleLoader__.load({
       "row.projectReady": "已就绪",
       "row.projectIncomplete": "未就绪",
       "row.operationFailed": "操作失败",
-      "row.apiUnavailable": "LDVH 服务暂不可用，请稍后重试或检查 Web 呈现开关",
+      "row.apiUnavailable": "LDVH 服务暂不可用，请稍后刷新页面重试；持续失败请检查插件是否已加载",
       "row.projectsUnavailable": "管辖项目列表暂不可用，请先查看上方 Web 呈现状态。",
-      "row.webEnabled": "启用 LDVH Web 呈现",
       "row.projectColor": "项目颜色",
       "row.colorAuto": "自动取色",
       "row.mountConversationTab": "加入到对话 Tab",
       "row.mountSidebarTab": "加入到侧边栏",
-      "row.mountHint": "保存后刷新页面生效；关闭 Web 呈现总开关时，两项投放均不生效。",
-      "row.idleAssist": "闲时辅助",
-      "row.idleAssistHint": "会话空闲时由宜主派发辅助任务。关闭后不再派发任何辅助任务。",
+      "row.mountHint": "保存后刷新页面生效；两项可分别关闭，关掉哪一项，对应位置就不再出现 LDVH 入口。",
+      "row.idleAssistHint": "会话空闲时由宜主派发辅助任务；两项开关分别管发现层与审核层，关掉哪个就少跑哪一层。",
+      "row.reviewAsk": "把关请示",
+      "row.reviewAskPre": "行动前：询问是否安排代理审查",
+      "row.reviewAskPreHint": "打开后，AI 判定当次任务属「复杂任务」时，会在动手前问你要不要先让一个独立子代理挑错。判错了或没判，机械层不会拦——这是按开关执行的自律，不是机械保障。",
+      "row.reviewAskPost": "行动后：询问是否安排代理复核",
+      "row.reviewAskPostHint": "打开后，一件复杂任务做完、准备收口时，AI 会问你要不要让独立子代理逐条核对已发生的工作。与上面那个开关相互独立：只开这个就只在收口前问。",
+      "row.reviewAskSilent": "静默执行：不问，直接安排",
+      "row.reviewAskSilentBadge": "静默",
+      "row.reviewAskSilentHint": "打开后，AI 判定当次属「复杂任务」时不再问你，直接派一个独立子代理做那次审查／复核，做完在结论里留一行「静默执行」的痕迹。**它只免掉询问，不免掉核对**，也只作用于上面两项；ADR、火花、管辖项目这些真正要你点头的事照旧请示。上面两项都没开时，这项不起作用。",
       "row.idleCapture": "闲置捕获",
       "row.idleCaptureHint": "会话静置时派发一次发现：把反复出现的阻碍与已解决的失败机制**只写进观察缓冲**，不直接改账本（已实现）。摩擦与经验同属这一层，一起跑——只开一半会产生半套材料，所以合并为一个开关。",
       "row.auxReview": "闲置审核",
       "row.auxReviewHint": "静置时派发一次审核：把缓冲里的材料**升级为事实对象**——摩擦观察攒够 3 次就建成摩擦账目，经验观察够格的写成经验草稿（草稿是否入档仍需你确认）。同一项目同一时间至多一个审核在跑。与「闲置捕获」相互独立：关掉它只是不再自动升级，材料仍留在缓冲里。",
-      "row.notImplemented": "尚未实现",
-      "row.notImplementedHint": "后端能力尚未实现：开启后宜主仍会如实回报 not-implemented，不会假装已跑。",
-      "row.idleLimits": "调度参数",
-      "row.injectionBudgetTier": "召回预算档位（K 字节）",
+"row.injectionBudgetTier": "召回预算档位（K 字节）",
       "row.injectionBudgetTierHint": "行动前召回的体量上限，可选 10/20/30/40/50（K 字节）。档位值本身是受控常量（改档位集合须走受控提交），此处只做选择；提高上限属 Human 决定事项。引导面（管辖判定与最小规则引导）是固定内容，不参与本档位。",
       "row.idleSilenceMs": "安静时长（分钟）",
       // **一句话解释**（Human 2026-10-14 明确要求）：说清「什么是安静时长」——
@@ -391,7 +554,13 @@ window.__ModuleLoader__.load({
       // Human 不必回读 36 号规范即可判断该填多少。
       "row.idleSilenceMsHint": "指对话停下来后、连续安静多久才允许做一次闲时回顾：只要还有新的对话活动，计时就重新开始；真正停下来满这个时长，才回顾一次。",
       "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
-      "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
+      // 第十三轮：总开关撤除，故本句不再描述「关闭/开启」——没有那个控件了。
+      // 改成说这一组管什么、以及结论去哪儿看（读数就在组名右侧）。
+      "row.webHint": "插件自带的页面与 API；是否可用见标题旁的读数，两项投放决定入口出现在哪里。",
+      // 存量配置的出口说明：`webEnabled: false` 仍作数（服务端确实不挂路由），
+      // 但设置面已不提供这个开关——不写清去处，用户就只剩一个关不回来的死角。
+      "row.webDisabledNote": "配置文件里关掉了 Web 呈现（webEnabled: false），故两项投放不可用。设置面已不再提供这个开关；需要时请在插件配置文件中改回 true。",
+      "row.idleDisabledNote": "配置文件里关掉了闲时派发（idleAssistEnabled: false），故这两个子项不可用。设置面已不再提供这个开关；需要时请在插件配置文件中改回 true。",
       "row.status": "Web 呈现状态",
       "row.statusChecking": "检测中…",
       "row.statusOk": "运行正常",
@@ -409,17 +578,20 @@ window.__ModuleLoader__.load({
       "row.toastSaved": "LDVH 设置已保存。",
       "view.label": "LDVH",
       "view.loading": "正在加载 LDVH Web…",
-      "view.error": "LDVH Web 当前不可用，请检查插件设置中的路由开关，或稍后重试。",
+      "view.error": "LDVH Web 当前不可用，请确认插件已加载，或稍后重试。",
       "view.retry": "重试",
     };
     var LDVH_EN = {
-      "row.title": "LD Vibe Harness (dsh-ldvh)",
-      "row.desc": "Manage LDVH governed projects, Git Gate, and Web presentation inside DSH.",
-      "row.expand": "Expand",
-      "row.collapse": "Collapse",
+      // Nav label only — the Settings sidebar clips long names ("LD Vibe Harness…").
+      // LDVH is the project's own short name, used throughout the guidance and docs.
+      "row.title": "LDVH",
       "row.governanceLocation": "Governed projects configuration",
       "row.governanceLocationHint": "LDVH stores it automatically at ldvh/governed-projects.yaml under the DSH user-config directory.",
       "row.projectsPanelTitle": "Governed projects",
+      // Group names (card headers) — see the Chinese table for the rationale.
+      "group.services": "Service and entries",
+      "group.idle": "Idle dispatch",
+      "group.budget": "Recall budget",
       "row.addProject": "Add governed project",
       "row.addProjectTitle": "Add governed project",
       "row.addProjectHint": "Pick a Git repository root, or type its absolute path manually. Installing registers the project, initializes ldvh-base/, and installs the Git Hook in one step.",
@@ -427,7 +599,6 @@ window.__ModuleLoader__.load({
       "row.projectsEmptyTitle": "No governed project yet",
       "row.projectsEmptyText": "Add one to enable the fact source and Git Gate for that project.",
       "row.projectsLoading": "Loading governed projects…",
-      "row.projectsEmpty": "No governed project is installed yet.",
       "row.projectPath": "Git root",
       "row.projectId": "Project ID",
       "row.projectIdHelp": "Unique identifier for registration and CLI calls (lowercase letters, digits, and hyphens; 1–64 chars). Cannot be changed after creation.",
@@ -448,31 +619,36 @@ window.__ModuleLoader__.load({
       "row.projectReady": "Ready",
       "row.projectIncomplete": "Not ready",
       "row.operationFailed": "Operation failed",
-      "row.apiUnavailable": "The LDVH service is unavailable. Retry later or check the Web presentation switch.",
+      "row.apiUnavailable": "The LDVH service is unavailable. Refresh the page and retry; if it keeps failing, check that the plugin is loaded.",
       "row.projectsUnavailable": "The governed-project list is unavailable. Check the Web presentation status above first.",
-      "row.webEnabled": "Enable LDVH Web presentation",
       "row.projectColor": "Project color",
       "row.colorAuto": "Auto color",
       "row.mountConversationTab": "Add to conversation tab",
       "row.mountSidebarTab": "Add to sidebar",
-      "row.mountHint": "Takes effect after saving and reloading the page; when the Web presentation switch is off, neither placement is active.",
-      "row.idleAssist": "Idle assistance",
-      "row.idleAssistHint": "Dispatches auxiliary tasks while the session is idle (friction review, capacity maintenance, memory health). Turning this off stops every auxiliary task.",
+      "row.mountHint": "Takes effect after saving and reloading the page; either mount can be turned off independently — the matching LDVH entry then stops appearing.",
+      "row.idleAssistHint": "The assistant dispatches auxiliary tasks while the session is idle; the two switches cover the discovery layer and the review layer respectively.",
+      "row.reviewAsk": "Review checkpoints",
+      "row.reviewAskPre": "Before acting: ask whether to arrange an agent review",
+      "row.reviewAskPreHint": "When on, and the AI judges the task to be a complex task, it will ask you whether an independent subagent should look for problems first. If it judges wrongly or not at all, nothing blocks it — this is self-discipline driven by a switch, not a mechanical guarantee.",
+      "row.reviewAskPost": "After the work: ask whether to arrange an agent re-check",
+      "row.reviewAskPostHint": "When on, and a complex task is done and about to be closed out, the AI will ask whether an independent subagent should check the work item by item. Independent of the switch above: enabling only this one asks only before closing out.",
+      "row.reviewAskSilent": "Silent run: skip the question, arrange it directly",
+      "row.reviewAskSilentBadge": "silent",
+      "row.reviewAskSilentHint": "When on, and the AI judges the task to be a complex task, it no longer asks you: it dispatches an independent subagent for that review directly and leaves a one-line “silent run” trace in the result. **It removes the question, not the check**, and applies only to the two items above — ADRs, Sparks and project registration, which genuinely need your yes, are still asked. With both items above off, this switch has nothing to act on.",
       "row.frictionDiscovery": "Friction discovery",
       "row.frictionDiscoveryHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
       "row.idleCapture": "Idle capture",
       "row.idleCaptureHint": "When the conversation goes quiet, runs one discovery pass that writes recurring obstacles and resolved failure mechanisms into the observation buffers only, never into the ledger (implemented). Friction and experience belong to this same layer and run together — enabling only half would produce half the material, so they share one switch.",
       "row.auxReview": "Idle review",
       "row.auxReviewHint": "When the conversation goes quiet, runs one review pass that promotes buffered material into fact objects: friction observations reaching 3 sightings become ledger entries, qualifying experience observations become experience drafts (filing a draft still needs your confirmation). At most one review runs per project at a time. Independent of capture: turning it off stops auto-promotion only, and material stays buffered.",
-      "row.notImplemented": "Not implemented",
-      "row.notImplementedHint": "The backend capability does not exist yet: enabling it still reports not-implemented rather than pretending to run.",
-      "row.idleLimits": "Dispatch limits",
-      "row.injectionBudgetTier": "Recall budget tier (KiB)",
+"row.injectionBudgetTier": "Recall budget tier (KiB)",
       "row.injectionBudgetTierHint": "Size cap for pre-action recall: choose 10/20/30/40/50 (KiB). The tier set itself is a controlled constant (changing it requires a controlled commit); this field only selects. Raising the cap is a Human decision. The guidance surface (jurisdiction verdict + minimal guidance) is fixed and does not share this tier.",
       "row.idleSilenceMs": "Silence duration (minutes)",
       "row.idleSilenceMsHint": "How long the conversation must stay quiet before a single idle review may run: any new activity restarts the count, and one review happens once the silence reaches this duration.",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
-      "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
+      "row.webHint": "The plugin's own page and API; availability shows in the readout beside the title, and the two placements decide where the entry appears.",
+      "row.webDisabledNote": "Web presentation is switched off in the config file (webEnabled: false), so both placements are unavailable. This switch is no longer offered in Settings; set it back to true in the plugin config file if you need it.",
+      "row.idleDisabledNote": "Idle dispatch is switched off in the config file (idleAssistEnabled: false), so these two items are unavailable. This switch is no longer offered in Settings; set it back to true in the plugin config file if you need it.",
       "row.status": "Web presentation status",
       "row.statusChecking": "Checking…",
       "row.statusOk": "Running normally",
@@ -489,7 +665,7 @@ window.__ModuleLoader__.load({
       "row.toastSaved": "LDVH settings saved.",
       "view.label": "LDVH",
       "view.loading": "Loading LDVH Web…",
-      "view.error": "LDVH Web is unavailable. Check the route switch in plugin settings, or try again later.",
+      "view.error": "LDVH Web is unavailable. Check that the plugin is loaded, or try again later.",
       "view.retry": "Retry",
     };
 
@@ -818,14 +994,30 @@ window.__ModuleLoader__.load({
     function LdvhSettingsRow(props) {
       var t = props.t;
       var scope = props.settingsScope;
+      // `surface === "settings"` 表示本节由**设置页**承载（宿主提供面板骨架：
+      // 标题、关闭按钮都在宿主那边），与 Plugins 页的折叠卡片不同。当前内容
+      // 两种承载下完全相同，故不据此分支——保留读取只为将来需要差异化时
+      // 有明确入口，而不是届时去猜「这个组件被谁挂载」。
       var snap = useSettingsScopeSnapshot(scope);
       var value = (snap && snap.status === "ready" && snap.value) || {};
-      var enabledState = React.useState(value.webEnabled !== false);
+      // **两个总开关已撤除（Human 2026-11-13 晚，看真机截图直接指示）**：
+      // 「启用 LDVH Web 呈现」与「闲时派发」这两枚 master 开关不再出现在设置面，
+      // 也不再持有本地态——它们所管的东西改为**无条件生效**（web 恒挂载、
+      // 闲时辅助恒可派发）；这两组里真正需要关的东西，仍由各自的子项开关表达
+      // （投放面：对话 Tab / 侧边栏；闲时：闲置捕获 / 闲置审核）。
+      // 撤除的是「再套一层总闸」，不是任何一项能力：把两个投放面都关掉，界面上
+      // 就不再出现 LDVH 入口（`/ldvh` 路由仍由插件服务承担，故这不等于关服务）；
+      // 把两个闲时子项都关掉，就没有活儿会派发——比总闸还细一档。
+      //
+      // **但这两个值仍会被读**（只是不再由本页写）：配置文件里若显式写了
+      // `webEnabled: false` / `idleAssistEnabled: false`，服务端照旧按它行事
+      // ——此时子项**显示为禁用**、状态读数显示「未挂载」，而不是照常可点却
+      // 什么也不发生（本仓纪律：不得让读数不可判读）。改这一层要动
+      // profile 配置，不在设置面上。
+      var webOn = value.webEnabled !== false;
+      var idleOn = value.idleAssistEnabled !== false;
       var convTabState = React.useState(value.showInConversationTab !== false);
       var sidebarTabState = React.useState(value.showInSidebarTab !== false);
-      // 闲时辅助（形态参照 dsh-mnemon 的 idleReview 设置面：总开关 + 启用后才展开子项）。
-      // 数值参数在客户端用**字符串**存放，使空串与非法输入可被辨认（数字类型无法表达「用户把它删空了」）。
-      var idleAssistState = React.useState(value.idleAssistEnabled !== false);
       // **2026-10-30 配置面合并为两项**（Human 决定）：闲置捕获（发现层）与闲置审核
       // （审核层）。原先是六个开关（摩擦发现/经验捕获/经验审核/容量维护/记忆健康），
       // 合并理由见 index.js 的 schema 注释：同层任务在同一次派发里一起跑，拆开只会
@@ -833,20 +1025,45 @@ window.__ModuleLoader__.load({
       //
       // 读侧仍兼容旧键：旧键任一被显式设置过即生效（与服务端 resolveIdleSettings
       // 同一判据），使升级后 Human 此前的选择不会静默丢失。
-      var idleCaptureState = React.useState(
-        (value.frictionDiscoveryEnabled !== undefined || value.experienceCaptureEnabled !== undefined)
-          ? (value.frictionDiscoveryEnabled !== false && value.experienceCaptureEnabled !== false)
-          : value.idleCaptureEnabled !== false
-      );
-      var idleReviewState = React.useState(
-        (value.experienceReviewEnabled !== undefined || value.idleReviewEnabled !== undefined)
-          ? (value.experienceReviewEnabled === true || value.idleReviewEnabled === true)
-          : value.auxReviewEnabled === true
-      );
+      var idleCaptureState = React.useState(idleCaptureValueOf(value));
+      var idleReviewState = React.useState(idleReviewValueOf(value));
+      // 数值参数在客户端用**字符串**存放，使空串与非法输入可被辨认
+      //（数字类型无法表达「用户把它删空了」）。
+      // **两处把关询问**（2026-11-13 Human 决定：取消工单 → 改为「要不要安排代理
+      // 审查／复核」两问，各由开关控制，打开才有）。
+      //
+      // 缺省按 `false`（关）：与 schema 的 `.default(false)` 同一口径。注意这里
+      // 用 `=== true` 而不是 `!== false`——后者会把「未设置」当成开，与默认相反。
+      var preActionReviewState = React.useState(value.preActionReviewAskEnabled === true);
+      var postWorkReviewState = React.useState(value.postWorkReviewAskEnabled === true);
+      // **静默执行**（2026-11-13 晚 Human 确认 A1）：两枚询问开关的**执行档位**，
+      // 不是第三处把关。缺省关（与 schema 一致），用 `=== true` 判读——理由同上面两行。
+      var reviewSilentState = React.useState(value.reviewAskSilentRunEnabled === true);
       // **审核模型设置已整体移除**（2026-10-27 Human 要求）：该设置从未真正生效
       // ——设置面能填能存，审核执行体却一直按默认路由跑（诊断长期显示
       // `model: (default route)`）。一个「设了不生效」的选项比没有更糟。
       // 审核固定跟随宿主默认路由。
+      // 闲置捕获 / 闲置审核的读值口径（读侧与「放弃修改」回退侧共用一处）。
+      // 旧键兼容：旧键任一被显式设置过即生效（与服务端 resolveIdleSettings 同一判据）。
+      function idleCaptureValueOf(value) {
+        return (value.frictionDiscoveryEnabled !== undefined || value.experienceCaptureEnabled !== undefined)
+          ? (value.frictionDiscoveryEnabled !== false && value.experienceCaptureEnabled !== false)
+          : value.idleCaptureEnabled !== false;
+      }
+      function idleReviewValueOf(value) {
+        return (value.experienceReviewEnabled !== undefined || value.idleReviewEnabled !== undefined)
+          ? (value.experienceReviewEnabled === true || value.idleReviewEnabled === true)
+          : value.auxReviewEnabled === true;
+      }
+      // 数值参数的界面态（分钟文本）——读侧与回退侧共用。
+      function idleLimitsTextOf(value) {
+        var out = {};
+        IDLE_LIMITS.forEach(function (limit) {
+          var stored = value[limit.key] !== undefined ? value[limit.key] : IDLE_DEFAULT_STORED[limit.key];
+          out[limit.key] = idleLimitToText(stored, limit.scale);
+        });
+        return out;
+      }
       // 界面上的各值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
       // 缺省值用**存储单位**给出，再过同一条换算——而不在这里另写一份「分钟数」，
       // 否则改默认值时会漏改一处。
@@ -854,14 +1071,7 @@ window.__ModuleLoader__.load({
       var injectionBudgetState = React.useState(
         injectionBudgetTierOk(value.injectionBudgetTier) ? Number(value.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT
       );
-      var idleLimitsState = React.useState((function () {
-        var out = {};
-        IDLE_LIMITS.forEach(function (limit) {
-          var stored = value[limit.key] !== undefined ? value[limit.key] : IDLE_DEFAULT_STORED[limit.key];
-          out[limit.key] = idleLimitToText(stored, limit.scale);
-        });
-        return out;
-      })());
+      var idleLimitsState = React.useState(idleLimitsTextOf(value));
       // 各参数的合法判定——判的是**存储值**（毫秒），不是界面文本。
       //
       // 为什么必须判存储值：界面以分钟读写，而分钟×60000 可能得到非整数
@@ -888,6 +1098,15 @@ window.__ModuleLoader__.load({
       var busyState = React.useState(false);
       var savedState = React.useState(false);
       var saveErrorState = React.useState(false);
+      // **保存失败的真实原因**（2026-11-13 修）。
+      //
+      // 此前 `.catch(function () { saveErrorState[1](true); })` 把错误**整个吞掉**，
+      // 界面上只剩「保存失败，请重试。」——而宿主拒绝写入的原因（字段非 volatile、
+      // revision 冲突、条目不可配置……）恰恰是唯一能定位问题的信息。实测代价：
+      // 保存失败后无从判断原因，只能去翻源码与宿主实现反推。
+      //
+      // 本仓纪律「不得让读数不可判读」在这里的落点：错误可以失败，但**原因必须可见**。
+      var saveErrorDetailState = React.useState("");
       var toastState = React.useState(null);
       var toastSeq = React.useRef(0);
       var webStatusState = React.useState({ checking: true, api: false, page: false });
@@ -922,44 +1141,27 @@ window.__ModuleLoader__.load({
       React.useEffect(function () {
         if (dirtyState[0] || busyState[0]) return;
         var next = (snap && snap.status === "ready" && snap.value) || {};
-        enabledState[1](next.webEnabled !== false);
         convTabState[1](next.showInConversationTab !== false);
         sidebarTabState[1](next.showInSidebarTab !== false);
-        idleAssistState[1](next.idleAssistEnabled !== false);
-        idleCaptureState[1](
-          (next.frictionDiscoveryEnabled !== undefined || next.experienceCaptureEnabled !== undefined)
-            ? (next.frictionDiscoveryEnabled !== false && next.experienceCaptureEnabled !== false)
-            : next.idleCaptureEnabled !== false
-        );
-        idleReviewState[1](
-          (next.experienceReviewEnabled !== undefined || next.idleReviewEnabled !== undefined)
-            ? (next.experienceReviewEnabled === true || next.idleReviewEnabled === true)
-            : next.auxReviewEnabled === true
-        );
+        idleCaptureState[1](idleCaptureValueOf(next));
+        idleReviewState[1](idleReviewValueOf(next));
         injectionBudgetState[1](
           injectionBudgetTierOk(next.injectionBudgetTier) ? Number(next.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT
         );
-        idleLimitsState[1]((function () {
-          var out = {};
-          IDLE_LIMITS.forEach(function (limit) {
-            var stored = next[limit.key] !== undefined ? next[limit.key] : IDLE_DEFAULT_STORED[limit.key];
-            out[limit.key] = idleLimitToText(stored, limit.scale);
-          });
-          return out;
-        })());
+        // 两处把关询问开关的**外部变更回填**：漏掉这两行，配置被别处改动后
+        // 界面仍显示旧勾选态（重开设置页才更新）——勾选态与生效值不一致。
+        preActionReviewState[1](next.preActionReviewAskEnabled === true);
+        postWorkReviewState[1](next.postWorkReviewAskEnabled === true);
+        reviewSilentState[1](next.reviewAskSilentRunEnabled === true);
+        idleLimitsState[1](idleLimitsTextOf(next));
         savedState[1](false);
         saveErrorState[1](false);
       }, [snap ? snap.revision : -1, dirtyState[0], busyState[0]]);
 
-      // Probe automatically whenever the persisted enable setting changes.
-      // Disabled means "not mounted" and deliberately performs no request.
+      // 探活：随配置 revision 变化重跑一次。**不再判「总开关是否开着」**
+      //（2026-11-13 撤除总开关后，web 恒挂载，没有「没挂载所以不必探」这条分支）。
       React.useEffect(function () {
         var cancelled = false;
-        var persisted = (snap && snap.status === "ready" && snap.value) || {};
-        if (persisted.webEnabled === false) {
-          webStatusState[1]({ checking: false, api: false, page: false });
-          return function () { cancelled = true; };
-        }
         webStatusState[1]({ checking: true, api: false, page: false });
         probeWeb(function (out) {
           if (cancelled) return;
@@ -1102,6 +1304,7 @@ window.__ModuleLoader__.load({
       function markDirty() {
         savedState[1](false);
         saveErrorState[1](false);
+        saveErrorDetailState[1]("");
         dirtyState[1](true);
       }
       function save() {
@@ -1120,10 +1323,8 @@ window.__ModuleLoader__.load({
           // revision fence 的原子 mutate（旧实现是三次独立写入，见调研 §3.2/§3.3）。
           .then(function () {
             var operations = [
-              { op: "set", path: ["webEnabled"], value: !!enabledState[0] },
               { op: "set", path: ["showInConversationTab"], value: !!convTabState[0] },
               { op: "set", path: ["showInSidebarTab"], value: !!sidebarTabState[0] },
-              { op: "set", path: ["idleAssistEnabled"], value: !!idleAssistState[0] },
               // 2026-10-30：六个开关合并为两个，保存时只写新键。
               // 旧键不再写入——它们保留在 schema 里仅为读取存量配置；继续写会使
               // 「旧键是否被显式设置过」这个迁移判据永远为真，新键反而被架空。
@@ -1131,7 +1332,15 @@ window.__ModuleLoader__.load({
               // 审核开关独立提交：漏掉这一行，界面上勾了也存不进去，且看不出来
               // （勾选态来自本地 state，保存后仍显示已勾选，重开才归零）。
               { op: "set", path: ["auxReviewEnabled"], value: !!idleReviewState[0] },
-              { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) }
+              { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) },
+              // 两处把关询问开关：**逐个独立提交**。漏写任一行则界面上勾了也存不进去，
+              // 且看不出来（勾选态来自本地 state，保存后仍显示已勾选，重开才归零）——
+              // 同一失效形态在 `auxReviewEnabled` 那行已经踩过一次（见其上注释）。
+              { op: "set", path: ["preActionReviewAskEnabled"], value: !!preActionReviewState[0] },
+              { op: "set", path: ["postWorkReviewAskEnabled"], value: !!postWorkReviewState[0] },
+              // 静默执行开关：**同一失效形态的第三处**（漏写＝界面上勾了也存不进去，
+              // 且看不出来——勾选态来自本地 state，保存后仍显示已勾选，重开才归零）。
+              { op: "set", path: ["reviewAskSilentRunEnabled"], value: !!reviewSilentState[0] }
             ];
             // 参数各自按 scale 换算回**存储单位**（分钟 × 60000 = 毫秒）。
             // save() 已在前面拦过非法值，故此处不再回落。
@@ -1147,20 +1356,42 @@ window.__ModuleLoader__.load({
             busyState[1](false);
             dirtyState[1](false);
             savedState[1](true);
+            saveErrorDetailState[1]("");
             toastSeq.current = toastSeq.current + 1;
             toastState[1]({ seq: toastSeq.current, text: t("row.toastSaved") });
           })
-          .catch(function () {
+          .catch(function (error) {
             busyState[1](false);
             saveErrorState[1](true);
+            // 原因逐字带出（不是「未知错误」）：宿主的 RemoteError 消息往往就是
+            // 那句「Config field "x" is not volatile」或 revision 冲突说明。
+            saveErrorDetailState[1](String((error && error.message) || error || ""));
           });
       }
+      /**
+       * 「放弃修改」：把**全部**本地改动退回当前快照。
+       *
+       * 此前只回退 Web 总开关——改了别的开关后点它，界面仍显示
+       * 改动后的值，而 dirty=false 让保存按钮禁用：既存不下去，也看不出没存。
+       * 这正是本仓在意的「界面显示与生效值不一致」那一类失效。
+       *
+       * 回退的字段集合与「外部变更回填」那条 effect **同一组**（少一处即漏一项）。
+       */
       function discard() {
         var next = (snap && snap.status === "ready" && snap.value) || {};
-        enabledState[1](next.webEnabled !== false);
+        convTabState[1](next.showInConversationTab !== false);
+        sidebarTabState[1](next.showInSidebarTab !== false);
+        idleCaptureState[1](idleCaptureValueOf(next));
+        idleReviewState[1](idleReviewValueOf(next));
+        preActionReviewState[1](next.preActionReviewAskEnabled === true);
+        postWorkReviewState[1](next.postWorkReviewAskEnabled === true);
+        reviewSilentState[1](next.reviewAskSilentRunEnabled === true);
+        injectionBudgetState[1](injectionBudgetTierOk(next.injectionBudgetTier) ? Number(next.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT);
+        idleLimitsState[1](idleLimitsTextOf(next));
         dirtyState[1](false);
         savedState[1](false);
         saveErrorState[1](false);
+        saveErrorDetailState[1]("");
       }
       var saveDisabled = !snap || snap.status !== "ready" || snap.writable === false || busyState[0] || !dirtyState[0];
       var ws = webStatusState[0];
@@ -1169,18 +1400,21 @@ window.__ModuleLoader__.load({
       var serviceOk = ws.api && ws.page;
       var serviceValueText = ws.checking
         ? t("row.statusChecking")
-        : (!enabledState[0] ? t("row.statusUnmounted") : (serviceOk ? t("row.statusOk") : t("row.statusFail")));
+        : (!webOn ? t("row.statusUnmounted") : (serviceOk ? t("row.statusOk") : t("row.statusFail")));
       var serviceValueClass = "ldv-status-value" + (ws.checking
         ? " ldv-status-wait"
-        : (!enabledState[0] ? " ldv-status-wait" : (serviceOk ? " ldv-status-ok" : " ldv-status-fail")));
-      var serviceStatus = React.createElement("div", { className: "ldv-status-row" },
-        React.createElement("span", null, t("row.status")),
-        React.createElement("span", { className: serviceValueClass }, serviceValueText)
-      );
+        : (!webOn ? " ldv-status-wait" : (serviceOk ? " ldv-status-ok" : " ldv-status-fail")));
+      // 状态读数：**组的读数**，故与组名同行（2026-11-13 Human 指正：
+      // 「总开关该在组名那一行」；总开关本身已于同日晚撤除，读数留下）。
+      // 可见文字是结论本身，完整说法留给 aria-label。
+      var serviceStatus = React.createElement("span", {
+        className: serviceValueClass,
+        "aria-label": t("row.status") + "：" + serviceValueText
+      }, serviceValueText);
       // The single place a transport-level failure is explained (moved up
-      // from the projects panel, Human-confirmed): shown only when the switch
-      // is on and the probes actually failed.
-      var serviceIssue = ws.checking || !enabledState[0] || serviceOk ? null : t("row.apiUnavailable");
+      // from the projects panel, Human-confirmed): shown only when the probes
+      // actually failed.
+      var serviceIssue = ws.checking || !webOn || serviceOk ? null : t("row.apiUnavailable");
       var idError = computeIdError(candidateState[0].id, projectsState[0].value && projectsState[0].value.projects);
       var idErrorText = idErrorMessage(idError, t);
       var idInputClass = "ldv-settings-input" + (idError && idError !== "required" ? " is-error" : "");
@@ -1221,9 +1455,9 @@ window.__ModuleLoader__.load({
                 React.createElement("div", { className: "ldv-project-head" },
                   React.createElement("span", { className: "ldv-project-idline" },
                     React.createElement("span", { className: "ldv-project-name" }, project.name || project.id),
+                    React.createElement("span", { className: ready ? "ldv-status-value ldv-status-ok" : "ldv-status-value ldv-status-fail" }, ready ? t("row.projectReady") : t("row.projectIncomplete")),
                     React.createElement("span", { className: "ldv-project-path" }, project.path)
-                  ),
-                  React.createElement("span", { className: ready ? "ldv-status-value ldv-status-ok" : "ldv-status-value ldv-status-fail" }, ready ? t("row.projectReady") : t("row.projectIncomplete"))
+                  )
                 ),
                 notReadyDetail ? React.createElement("span", { className: "ldv-settings-hint" }, notReadyDetail) : null,
                 React.createElement("div", { className: "ldv-palette", role: "group", "aria-label": t("row.projectColor") },
@@ -1261,123 +1495,182 @@ window.__ModuleLoader__.load({
                 )
               );
             })))));
-      return React.createElement("section", { className: "ldv-settings" },
-        React.createElement("section", { className: "ldv-web-panel" },
-          React.createElement("div", { className: "ldv-web-panel-head" },
-            React.createElement("span", { className: "ldv-web-panel-copy" },
-              React.createElement("span", { className: "ldv-web-panel-title" }, t("row.webEnabled")),
-              React.createElement("span", { className: "ldv-web-panel-desc" }, t("row.webHint"))
-            ),
-            React.createElement("label", { className: "ldv-switch" },
-              React.createElement("input", {
-                type: "checkbox",
-                checked: enabledState[0],
-                "aria-label": t("row.webEnabled"),
-                onChange: function (e) { enabledState[1](e.target.checked); markDirty(); }
-              }),
-              React.createElement("span", { className: "ldv-switch-track", "aria-hidden": "true" })
-            )
+      // ── 行的两个小构件 ────────────────────────────────────────────────
+      // 说明文字里的 **强调**：词条按 Markdown 写的 **…**，在纯文本的设置页
+      // 会露出星号。这里渲染成真正的强调——**不改动词条本身**（词条仍是
+      // 同一句话，只是显示时把标记吃掉）。
+      function emphasis(text) {
+        if (typeof text !== "string" || text.indexOf("**") === -1) return text;
+        return text.split("**").map(function (part, index) {
+          if (part === "") return null;
+          return index % 2 === 1 ? React.createElement("strong", { key: "emphasis-" + index }, part) : part;
+        });
+      }
+      // 一个设置行：**标题与控件相邻**成一行，说明另起一行、占满整列。
+      //
+      // 为什么控件不再摆在行的另一端：说明动辄三五行，控件若与标题分居两端，
+      // 垂直居中后落在段落中部——它属于哪一条设置全靠猜。相邻之后二者是
+      // 一个不可分割的视觉单元，且说明不必为右侧控件让出横向空间。
+      //
+      // **卡内不分级**（2026-11-13 Human 定）：此前从属项靠缩进 + 左侧导轨 +
+      // 更小的字号（13px/400）表达层级，但同一张卡里三行内容被拆成三级，
+      // 版面读起来像三件不同的事。实际上它们是**同一类东西**——都是这一组
+      // 的选项，只是「要不要它们生效」取决于总开关。故一律同构：同样的
+      // 14px/500 标题、同样的行距、同样的分隔线。
+      // 「父开关不开、子项不生效」仍要看得出来，但**靠禁用态**表达
+      // （总闸关着时这几项变灰不可点），不靠版式分级。
+      function settingRow(titleKey, descKey, control) {
+        return React.createElement("div", { className: "ldv-row" },
+          React.createElement("div", { className: "ldv-row-head" },
+            React.createElement("span", { className: "ldv-row-title" }, t(titleKey)),
+            React.createElement("span", { className: "ldv-row-control" }, control)
           ),
-          React.createElement("div", { className: "ldv-web-panel-body" },
-            React.createElement("div", { className: "ldv-status" },
-              serviceStatus,
-              serviceIssue ? React.createElement("span", { className: "ldv-settings-hint" }, serviceIssue) : null
-            ),
-            React.createElement("div", { className: "ldv-mount-toggles" },
-              React.createElement("label", { className: "ldv-check" + (enabledState[0] ? "" : " ldv-check-disabled") },
-                React.createElement("input", {
-                  type: "checkbox",
-                  checked: enabledState[0] && convTabState[0],
-                  disabled: !enabledState[0],
-                  "aria-label": t("row.mountConversationTab"),
-                  onChange: function (e) { convTabState[1](e.target.checked); markDirty(); }
-                }),
-                React.createElement("span", { className: "ldv-check-label" }, t("row.mountConversationTab"))
-              ),
-              React.createElement("label", { className: "ldv-check" + (enabledState[0] ? "" : " ldv-check-disabled") },
-                React.createElement("input", {
-                  type: "checkbox",
-                  checked: enabledState[0] && sidebarTabState[0],
-                  disabled: !enabledState[0],
-                  "aria-label": t("row.mountSidebarTab"),
-                  onChange: function (e) { sidebarTabState[1](e.target.checked); markDirty(); }
-                }),
-                React.createElement("span", { className: "ldv-check-label" }, t("row.mountSidebarTab"))
-              )
-            ),
-            React.createElement("span", { className: "ldv-settings-hint ldv-mount-hint" }, t("row.mountHint"))
+          descKey ? React.createElement("span", { className: "ldv-row-desc" }, emphasis(t(descKey))) : null
+        );
+      }
+      // 卡头图标：16px 描边线稿，随主题走（stroke=currentColor）。
+      function blockIcon(name) {
+        var shapes = LDVH_BLOCK_ICONS[name] || [];
+        return React.createElement("svg", {
+          viewBox: "0 0 16 16", width: 15, height: 15,
+          fill: "none", stroke: "currentColor", strokeWidth: 1.6,
+          strokeLinecap: "round", strokeLinejoin: "round",
+          focusable: "false", "aria-hidden": "true"
+        }, shapes.map(function (shape, index) {
+          return React.createElement(shape.t, Object.assign({ key: "shape-" + index }, shape.p));
+        }));
+      }
+      // 卡片头：图标 + 组名（+ 可选块级说明 + 右侧动作位）。
+      //
+      // 说明的归属：**描述整组**的说明放卡头（.ldv-block-desc），**描述某一项**
+      // 的说明留在该行下方（.ldv-row-desc）。两者不混——混了就读不出这行说明
+      // 是在讲这一项，还是在讲整组。
+      //
+      // 卡头里的控件分**两个槽位**（2026-11-13 Human 定）：
+      //   · readout —— 状态读数（药丸）。它是这一组的**状态**，属于标题那一列，
+      //     紧贴组名，读者一眼知道「运行正常」说的是哪一组。
+      //   · toggles —— 总开关。它是这一组的**开关**，按宿主的通行做法放在行末
+      //     （与全局开关、筛选器同位），扫视整页时开关都落在同一条竖线上，
+      //     找起来不必逐行对位。
+      //   两者曾合成一个控件组（status 药丸 + 开关并排，且整体推到最右），
+      //   那时药丸也被推远，与组名之间隔着一段空白，读起来像另属一块——
+      //   故拆开：药丸贴组名，开关回行末。
+      function cardHead(iconKey, titleKey, descKey, readout, toggles) {
+        var readouts = Array.isArray(readout) ? readout : (readout ? [readout] : []);
+        var switches = Array.isArray(toggles) ? toggles : (toggles ? [toggles] : []);
+        return React.createElement("div", { className: "ldv-block-head" },
+          React.createElement("span", { className: "ldv-block-icon", "aria-hidden": "true" }, blockIcon(iconKey)),
+          React.createElement("span", { className: "ldv-block-title-line" },
+            React.createElement("span", { className: "ldv-block-title" }, t(titleKey))
+          ),
+          readouts.length ? React.createElement("span", { className: "ldv-block-control" }, readouts) : null,
+          switches.length ? React.createElement("span", { className: "ldv-block-control ldv-block-toggle" }, switches) : null,
+          descKey ? React.createElement("span", { className: "ldv-block-desc" }, emphasis(t(descKey))) : null
+        );
+      }
+      // 开关：全页统一用它（此前混用原生复选框与自绘开关，观感两套）。
+      //
+      // `tone` 只在需要**与「蓝色＝这一项开着」区分**时给出（目前只有静默执行
+      // 一处）：默认 undefined 即蓝色，不改变其它所有开关。
+      function switchControl(checked, onChange, ariaLabel, disabled, tone) {
+        return React.createElement("label", { className: tone === "silent" ? "ldv-switch ldv-switch-silent" : "ldv-switch" },
+          React.createElement("input", {
+            type: "checkbox",
+            checked: !!checked,
+            disabled: !!disabled,
+            "aria-label": ariaLabel,
+            onChange: onChange
+          }),
+          React.createElement("span", { className: "ldv-switch-track", "aria-hidden": "true" })
+        );
+      }
+      return React.createElement("section", { className: "ldv-settings" },
+        // ── 服务与入口（Web 呈现）──────────────────────────────────────────
+        // 卡头 = 图标 + 组名 + 状态读数。**总开关已撤除**（Human 2026-11-13 晚）：
+        // 「启用 LDVH Web 呈现」这枚 master 与它下面两项投放说的是同一件事，
+        // 多一层总闸只会多一种「关着但看不出来为什么」的状态。
+        React.createElement("section", { className: "ldv-block" },
+          cardHead("services", "group.services", "row.webHint",
+            serviceStatus,
+            null
+          ),
+          React.createElement("div", { className: "ldv-block-body" },
+            // 故障说明：只在探测失败时出现一次（同一张卡里不另开一个红框），
+            // 位置在卡内第一行、各项之上。
+            //
+            // 存量关闭值优先：`webEnabled: false` 时服务端根本不挂路由，此时
+            // 探测失败是**后果**不是故障，说明也只该有一条——故两种情形互斥。
+            !webOn
+              ? React.createElement("span", { className: "ldv-settings-hint" }, t("row.webDisabledNote"))
+              : (serviceIssue ? React.createElement("span", { className: "ldv-settings-hint" }, serviceIssue) : null),
+            // 两项投放各自独立（总闸已撤除）。若 profile 里仍写着
+            // `webEnabled: false`，这两项**显示为禁用**——服务端确实不挂路由，
+            // 让它们照常可点就是让读数说谎。
+            settingRow("row.mountConversationTab", null, switchControl(
+              webOn && convTabState[0],
+              function (e) { convTabState[1](e.target.checked); markDirty(); },
+              t("row.mountConversationTab"),
+              !webOn
+            )),
+            settingRow("row.mountSidebarTab", null, switchControl(
+              webOn && sidebarTabState[0],
+              function (e) { sidebarTabState[1](e.target.checked); markDirty(); },
+              t("row.mountSidebarTab"),
+              !webOn
+            )),
+            React.createElement("span", { className: "ldv-note" }, React.createElement("span", { className: "ldv-note-text" }, emphasis(t("row.mountHint"))))
           )
         ),
-        // ── 闲时辅助（04 §8.1 空闲维护与反思；32 §10）────────────────────────
+        // ── 闲时派发（04 §8.1 空闲维护与反思；32 §10）──────────────────
         //
-        // 形态参照 dsh-mnemon 的 idleReview 设置面：总开关在外、子项在**启用后才展开**、
-        // 数值参数收进折叠区。与 Web 呈现那一块同种样式（ldv-web-panel + ldv-switch）。
-        React.createElement("section", { className: "ldv-web-panel" },
-          React.createElement("div", { className: "ldv-web-panel-head" },
-            React.createElement("span", { className: "ldv-web-panel-copy" },
-              React.createElement("span", { className: "ldv-web-panel-title" }, t("row.idleAssist")),
-              React.createElement("span", { className: "ldv-web-panel-desc" }, t("row.idleAssistHint"))
-            ),
-            React.createElement("label", { className: "ldv-switch" },
-              React.createElement("input", {
-                type: "checkbox",
-                checked: idleAssistState[0],
-                "aria-label": t("row.idleAssist"),
-                onChange: function (e) { idleAssistState[1](e.target.checked); markDirty(); }
-              }),
-              React.createElement("span", { className: "ldv-switch-track", "aria-hidden": "true" })
-            )
-          ),
-          // 总开关关闭时**不渲染**子项（同 dsh-mnemon：未启用时不给出无意义的
-          // 选项）。
-          idleAssistState[0] ? React.createElement("div", { className: "ldv-web-panel-body" },
-            React.createElement("div", { className: "ldv-idle-tasks" },
-              // **2026-10-30 合并为两项**（Human 决定）：闲置捕获（发现层：摩擦发现 +
-              // 经验捕获，只写缓冲）与闲置审核（审核层：经验审核 + 摩擦缓冲升级，
-              // 把缓冲升级为事实对象）。同层任务合并的理由见 index.js 的 schema 注释。
-              //
-              // 容量维护与记忆健康体检不再出现在设置面：它们在 §8 里仍是登记在册但
-              // **未实现**的职责，没有执行体可开关。§8.5「已启用但未实现须如实登记」
-              // 由登记表的 `UNIMPLEMENTED_AUX_TASKS` 承载，不由设置面承载。
-              [
-                { key: "idleCaptureEnabled", state: idleCaptureState, label: "row.idleCapture", hint: "row.idleCaptureHint", implemented: true },
-                { key: "auxReviewEnabled", state: idleReviewState, label: "row.auxReview", hint: "row.auxReviewHint", implemented: true }
-              ].map(function (task) {
-                return React.createElement("label", { key: task.key, className: "ldv-check" },
-                  React.createElement("input", {
-                    type: "checkbox",
-                    checked: task.state[0],
-                    "aria-label": t(task.label),
-                    onChange: function (e) { task.state[1](e.target.checked); markDirty(); }
-                  }),
-                  React.createElement("span", { className: "ldv-check-copy" },
-                    React.createElement("span", { className: "ldv-check-label" },
-                      t(task.label),
-                      // 未实现的子项**必须当场标出**：开关打开后服务端仍会如实报
-                      // not-implemented，不假装可跑。不标出就是在设置面上说假话。
-                      task.implemented ? null : React.createElement("span", { className: "ldv-idle-badge" }, t("row.notImplemented"))
-                    ),
-                    React.createElement("span", { className: "ldv-settings-hint" }, t(task.hint))
-                  )
-                );
-              })
-            ),
+        // **总开关已撤除**（Human 2026-11-13 晚）：子项（闲置捕获 / 闲置审核）
+        // 本来就能各自关掉，再套一层总闸等于同一件事有三种关法；总闸关着时
+        // 子项整块消失，读者还会以为「这些设置根本不存在」。现在子项恒在，
+        // 关哪个就只看哪个。
+        React.createElement("section", { className: "ldv-block" },
+          cardHead("idle", "group.idle", "row.idleAssistHint", null, null),
+          React.createElement("div", { className: "ldv-block-body" },
+            // 存量关闭值（`idleAssistEnabled: false`）时给出出口：开关已不在设置面，
+            // 不说清去哪儿改，用户就只剩一个关不回来的死角。
+            !idleOn ? React.createElement("span", { className: "ldv-settings-hint" }, t("row.idleDisabledNote")) : null,
+            // **2026-10-30 合并为两项**（Human 决定）：闲置捕获（发现层：摩擦发现 +
+            // 经验捕获，只写缓冲）与闲置审核（审核层：经验审核 + 摩擦缓冲升级，
+            // 把缓冲升级为事实对象）。同层任务合并的理由见 index.js 的 schema 注释。
+            //
+            // 容量维护与记忆健康体检不再出现在设置面：它们在 §8 里仍是登记在册但
+            // **未实现**的职责，没有执行体可开关。§8.5「已启用但未实现须如实登记」
+            // 由登记表的 `UNIMPLEMENTED_AUX_TASKS` 承载，不由设置面承载。
+            [
+              { key: "idleCaptureEnabled", state: idleCaptureState, label: "row.idleCapture", hint: "row.idleCaptureHint" },
+              { key: "auxReviewEnabled", state: idleReviewState, label: "row.auxReview", hint: "row.auxReviewHint" }
+            ].map(function (task) {
+              // 这两项**恒渲染**（总闸已撤除）；若 profile 里仍写着
+              // `idleAssistEnabled: false`，它们显示为禁用——服务端确实不派发，
+              // 让它们照常可点就是让读数说谎。
+              // 版面上与组内其他项同构——**不分级**（2026-11-13 Human 定）。
+              return settingRow(task.label, task.hint, switchControl(
+                idleOn && task.state[0],
+                function (e) { task.state[1](e.target.checked); markDirty(); },
+                t(task.label),
+                !idleOn
+              ));
+            }),
             // 数值参数：**直接展示、不折叠**（Human 2026-10-14：这是唯一一个参数，
             // 收进 <details> 只会多一次点击，且「藏起来」与「只有一个」相矛盾）。
-            // 标签与输入框**同一行**，行下紧跟一句解释——解释须自足，
-            // 使 Human 不必回读规范就知道这个数在控制什么。
-            React.createElement("div", { className: "ldv-idle-limits" },
-              IDLE_LIMITS.map(function (limit) {
-                var invalid = !idleLimitOkFor(limit.key, idleLimitsState[0][limit.key]);
-                return React.createElement("div", { key: limit.key, className: "ldv-idle-limit" },
-                  React.createElement("label", { className: "ldv-idle-limit-row" },
-                    React.createElement("span", { className: "ldv-idle-limit-label" }, t("row." + limit.key)),
+            // 标签与输入框**同一行**（标签在左、输入框在右），行下紧跟一句解释——
+            // 解释须自足，使 Human 不必回读规范就知道这个数在控制什么。
+            IDLE_LIMITS.map(function (limit) {
+              var invalid = !idleLimitOkFor(limit.key, idleLimitsState[0][limit.key]);
+              return React.createElement("div", { key: limit.key, className: "ldv-row" },
+                React.createElement("div", { className: "ldv-row-head" },
+                  React.createElement("span", { className: "ldv-row-title" }, t("row." + limit.key)),
+                  React.createElement("span", { className: "ldv-row-control" },
                     React.createElement("input", {
                       type: "number",
                       step: "1",
                       min: "1",
                       inputMode: "numeric",
-                      className: "ldv-settings-input ldv-idle-limit-input",
+                      className: "ldv-settings-input ldv-field-input",
                       value: idleLimitsState[0][limit.key],
                       "aria-invalid": invalid,
                       "aria-label": t("row." + limit.key),
@@ -1389,45 +1682,55 @@ window.__ModuleLoader__.load({
                         markDirty();
                       }
                     })
-                  ),
-                  // 一句话解释该参数限制什么——**每个参数各有一句**（用语在 IDLE_LIMITS
-                  // 的 `hintKey` 上登记，不在此处硬编码，避免与词条表两处各写一套）。
-                  limit.hintKey ? React.createElement("span", { className: "ldv-idle-limit-hint" }, t(limit.hintKey)) : null,
-                  invalid ? React.createElement("span", { className: "ldv-idle-limit-invalid" }, t("row.idleLimitInvalid")) : null
-                );
-              }),
-              // ── 审核执行体的模型（2026-10-26 Human 要求）──────────────────────
-              //
-              // **形态照 `dsh-subagent-default-model` 的路由行**（Human 指定参考，
-                            // **审核模型设置已整体移除**（2026-10-27 Human 要求）。
-              //
-              // 该设置从未真正生效：设置面能填、能存，审核执行体却一直按默认路由跑
-              // （诊断长期显示 `model: (default route)`）。**一个「设了不生效」的选项
-              // 比没有更糟**——它让人以为审核用的是自己挑的模型。故整块去掉，审核
-              // 固定跟随宿主默认路由。
-              //
-              // 原块含：一行三列的 Provider/Model/推理强度下拉、模型目录的异步有界
-              // 重试、以及「目录为空」的如实提示。全部随该设置一并移除。
-              // **2026-10-14（Human 指示）：本节原另有两句提示词条——
-              //   ① 「编辑后需点保存生效。填大于 0 的整数」
-              //   ② 「安静时长的数值属实现侧承接（11 §6.1）……不得据此主张规范已规定该时长」
-              // 两句均已删除。**理由**：① 属可由界面自明的操作提示——改动后由「保存」
-              // 按钮自身的状态（见下方 footer）表达，不必另占一行文字；② 是对 AI/读者
-              // 的**规范地位声明**，不是给设置的人的提示，放在设置界面上属错置——它
-              // 该留在代码注释与规范正文里（11 §6.1 与 idle-settings.js 均已写明）。
-              // 删除不减少任何保障：**非法值仍在保存时被拒**（`idleSilenceOk` 的
-              // 行内错误提示保留），规范地位的声明仍在规范与代码注释中。
-            ),
-            // **召回预算档位**（Human 决定 2026-10-25）：下拉选择而非自由输入
-            // ——档位集合是受控常量（`10 §5.3`「预算的承载形态」），任意数值会让
-            // 审计无法确定当时生效的是哪一版。选择本身属 Human 决定，落在
-            // profile 配置；提高上限（改档位集合）须走受控提交。
-            React.createElement("div", { className: "ldv-idle-limits" },
-              React.createElement("div", { className: "ldv-idle-limit" },
-                React.createElement("label", { className: "ldv-idle-limit-row" },
-                  React.createElement("span", { className: "ldv-idle-limit-label" }, t("row.injectionBudgetTier")),
+                  )
+                ),
+                limit.hintKey ? React.createElement("span", { className: "ldv-row-desc" }, emphasis(t(limit.hintKey))) : null,
+                invalid ? React.createElement("span", { className: "ldv-field-invalid" }, t("row.idleLimitInvalid")) : null
+              );
+            }),
+            // ── 审核执行体的模型（2026-10-26 Human 要求）──────────────────────
+            //
+            // **审核模型设置已整体移除**（2026-10-27 Human 要求）。该设置从未真正生效：
+            // 设置面能填能存，审核执行体却一直按默认路由跑（诊断长期显示
+            // `model: (default route)`）。一个「设了不生效」的选项比没有更糟——
+            // 它让人以为审核用的是自己挑的模型。故整块去掉，审核固定跟随宿主默认路由。
+            //
+            // 原块含：一行三列的 Provider/Model/推理强度下拉、模型目录的异步有界
+            // 重试、以及「目录为空」的如实提示。全部随该设置一并移除。
+            //
+            // **2026-10-14（Human 指示）：本节原另有两句提示词条——
+            //   ① 「编辑后需点保存生效。填大于 0 的整数」
+            //   ② 「安静时长的数值属实现侧承接（11 §6.1）……不得据此主张规范已规定该时长」
+            // 两句均已删除。**理由**：① 属可由界面自明的操作提示——改动后由「保存」
+            // 按钮自身的状态（见下方 footer）表达，不必另占一行文字；② 是对 AI/读者
+            // 的**规范地位声明**，不是给设置的人的提示，放在设置界面上属错置——它
+            // 该留在代码注释与规范正文里（11 §6.1 与 idle-settings.js 均已写明）。
+            // 删除不减少任何保障：**非法值仍在保存时被拒**（`idleSilenceOk` 的
+            // 行内错误提示保留），规范地位的声明仍在规范与代码注释中。
+            //
+            // **召回预算档位**已独立成卡（见下方「召回预算」一节）：它约束的是
+            // 任何行动前的注入量，与闲时派发无关，挂在闲时那张卡里既名不副实，
+            // 又让「关掉闲时辅助就看不到预算档位」。**2026-11-13 晚起恒可见**
+            //（总闸撤除后没有「关掉闲时辅助」这回事了）。
+          )
+        ),
+        // ── 召回预算 ────────────────────────────────────────────────────
+        //
+        // **召回预算档位**（Human 决定 2026-10-25）：下拉选择而非自由输入
+        // ——档位集合是受控常量（`10 §5.3`「预算的承载形态」），任意数值会让
+        // 审计无法确定当时生效的是哪一版。选择本身属 Human 决定，落在
+        // profile 配置；提高上限（改档位集合）须走受控提交。
+        React.createElement("section", { className: "ldv-block" },
+          cardHead("budget", "group.budget", null, null, null),
+          React.createElement("div", { className: "ldv-block-body" },
+            React.createElement("div", { className: "ldv-row" },
+              React.createElement("div", { className: "ldv-row-head" },
+                React.createElement("span", { className: "ldv-row-title" }, t("row.injectionBudgetTier")),
+                // 下拉自带一枚自绘的折角箭头（.ldv-select）：宿主原生箭头在
+                // appearance:none 下会消失，档位框看上去与输入框无异。
+                React.createElement("span", { className: "ldv-row-control ldv-select" },
                   React.createElement("select", {
-                    className: "ldv-settings-input ldv-idle-limit-input",
+                    className: "ldv-settings-input ldv-field-select",
                     value: String(injectionBudgetState[0]),
                     "aria-label": t("row.injectionBudgetTier"),
                     onChange: function (e) {
@@ -1439,33 +1742,87 @@ window.__ModuleLoader__.load({
                       return React.createElement("option", { key: String(tier), value: String(tier) }, String(tier) + " K");
                     })
                   )
-                ),
-                React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.injectionBudgetTierHint")),
-                injectionBudgetTierOk(injectionBudgetState[0])
-                  ? null
-                  : React.createElement("span", { className: "ldv-idle-limit-invalid" }, t("row.idleLimitInvalid"))
+                )
+              ),
+              React.createElement("span", { className: "ldv-row-desc" }, emphasis(t("row.injectionBudgetTierHint"))),
+              injectionBudgetTierOk(injectionBudgetState[0])
+                ? null
+                : React.createElement("span", { className: "ldv-field-invalid" }, t("row.idleLimitInvalid"))
+            )
+          )
+        ),
+        // ── 把关请示（2026-11-13 Human 决定；同日晚改标题与删说明）────────
+        //
+        // 取消工单载体，保留两项把关，落到两处询问上：动手前问「要不要安排代理
+        // 审查」、收口前问「要不要安排代理复核」。**两个独立开关、缺省都关**
+        // ——Human 原话「打开才有，否则就是不安排审核与复核」。
+        //
+        // 为什么不做成「总开关 + 子项」：两处询问在时点与语义上都独立（一个管
+        // 动手前、一个管收口前），只想要事前把关的人不该被迫连事后复核一起开。
+        // 这与闲时辅助那一块**不同**——那块管同一次派发，拆开会产生半套材料。
+        //
+        // **2026-11-13 晚（Human 指示）**：组名由「两处把关询问」改为
+        // **「把关请示」**（与规范里的系统名一致），并删去组说明与判据旁注
+        // ——两段都以「取消工单」「specs/04 §6.1 / specs/21 §6.3」为主语，
+        // 讲的是**机制的来历**而不是**这两项怎么用**；来历在规范与代码注释里，
+        // 设置面只需要两项各自的那句话（`row.reviewAskPre/PostHint` 一字未动）。
+        // 随之删除两个词条 `row.reviewAskHint` / `row.reviewAskCriteria`（中英各一份），
+        // 不留死词条。
+        React.createElement("section", { className: "ldv-block" },
+          cardHead("review", "row.reviewAsk", null, null, null),
+          React.createElement("div", { className: "ldv-block-body" },
+            [
+              { key: "preActionReviewAskEnabled", state: preActionReviewState, label: "row.reviewAskPre", hint: "row.reviewAskPreHint" },
+              { key: "postWorkReviewAskEnabled", state: postWorkReviewState, label: "row.reviewAskPost", hint: "row.reviewAskPostHint" }
+            ].map(function (item) {
+              return settingRow(item.label, item.hint, switchControl(
+                item.state[0],
+                function (e) { item.state[1](e.target.checked); markDirty(); },
+                t(item.label)
+              ));
+            }),
+            // ── 静默执行（2026-11-13 晚 Human 确认 A1）─────────────────────
+            //
+            // **不是第三处把关，是上面两项的执行档位**：它回答的是「到点要问
+            // 还是直接做」，所以排在两处请示**之下**，而不是与之并列。
+            //
+            // **为什么轨道用琥珀色**：本页的蓝是**有语义的**——`--ldv-accent`
+            // 蓝只表示「这一项开着」（见 CSS 开关段）。这枚开关开着意味着
+            // 「不再问你」，若同色，扫视一页蓝点会读成「又多了一处把关」，
+            // 与它实际做的事正好相反。琥珀是本页唯一新增的颜色角色。
+            //
+            // **为什么颜色不是唯一载体**（07 §12 第 8 条）：色觉差异下琥珀与
+            // 蓝未必可分，故行标题旁另挂一枚「静默」药丸（文字），说明段也
+            // 写明了后果。颜色只加速识别，不单独承载语义。
+            settingRow("row.reviewAskSilent", "row.reviewAskSilentHint",
+              React.createElement("span", { className: "ldv-silent-control" },
+                React.createElement("span", { className: "ldv-silent-badge" }, t("row.reviewAskSilentBadge")),
+                switchControl(
+                  reviewSilentState[0],
+                  function (e) { reviewSilentState[1](e.target.checked); markDirty(); },
+                  t("row.reviewAskSilent"),
+                  false,
+                  "silent"
+                )
               )
             )
-          ) : null
+          )
         ),
-        React.createElement("section", { className: "ldv-governance-note" },
-          React.createElement("span", { className: "ldv-governance-note-title" }, t("row.governanceLocation")),
-          React.createElement("span", { className: "ldv-governance-note-text" }, t("row.governanceLocationHint"))
-        ),
-        React.createElement("section", { className: "ldv-governance-panel" },
-          React.createElement("div", { className: "ldv-governance-panel-head" },
-            React.createElement("span", { className: "ldv-governance-panel-heading" },
-              React.createElement("span", { className: "ldv-governance-panel-dot ldv-status-ok", "aria-hidden": "true" }),
-              React.createElement("span", { className: "ldv-governance-panel-title" }, t("row.projectsPanelTitle")),
+        // ── 管辖项目 ──────────────────────────────────────────────────────
+        React.createElement("section", { className: "ldv-block" },
+          React.createElement("div", { className: "ldv-block-head" },
+            React.createElement("span", { className: "ldv-block-icon", "aria-hidden": "true" }, blockIcon("projects")),
+            React.createElement("span", { className: "ldv-block-title-line" },
+              React.createElement("span", { className: "ldv-block-title" }, t("row.projectsPanelTitle")),
               !projectsState[0].loading && projectsState[0].value
-                ? React.createElement("span", { className: "ldv-governance-panel-count" }, String((projectsState[0].value.projects || []).length))
+                ? React.createElement("span", { className: "ldv-count" }, String((projectsState[0].value.projects || []).length))
                 : null
             ),
-            React.createElement("div", { className: "ldv-project-actions" },
+            React.createElement("span", { className: "ldv-block-control ldv-block-action" },
               React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: projectBusyState[0] || addingState[0], onClick: openAddForm }, t("row.addProject"))
             )
           ),
-          React.createElement("div", { className: "ldv-governance-panel-body" },
+          React.createElement("div", { className: "ldv-block-body" },
             addingState[0]
               ? React.createElement("div", { className: "ldv-governance-add" },
                   React.createElement("div", { className: "ldv-governance-add-head" },
@@ -1485,7 +1842,7 @@ window.__ModuleLoader__.load({
                     ),
                     React.createElement("div", { className: "ldv-governance-add-field" },
                       React.createElement("span", { className: "ldv-governance-add-label" }, t("row.projectId")),
-                      React.createElement("input", { className: idInputClass, value: candidateState[0].id, disabled: projectBusyState[0], "aria-label": t("row.projectId"), "aria-invalid": idError && idError !== "required" ? "true" : "false", placeholder: t("row.projectId"), onChange: function (event) { candidateState[1]({ path: candidateState[0].path, id: event.target.value }); } }),
+                      React.createElement("input", { className: idInputClass, value: candidateState[0].id, disabled: projectBusyState[0], "aria-invalid": idError && idError !== "required" ? "true" : "false", placeholder: t("row.projectId"), onChange: function (event) { candidateState[1]({ path: candidateState[0].path, id: event.target.value }); } }),
                       React.createElement("span", { className: "ldv-governance-add-field-help" }, t("row.projectIdHelp")),
                       idErrorText
                         ? React.createElement("span", { className: "ldv-governance-add-field-error", role: "alert" }, idErrorText)
@@ -1502,6 +1859,12 @@ window.__ModuleLoader__.load({
                 )
               : null,
             projectRows
+          ),
+          // 登记位置说明：放在这一块的末尾（而不是块首），读的人先看到「有哪些
+          // 项目」，再看到「存在哪儿」——与读序一致。
+          React.createElement("span", { className: "ldv-note" },
+            React.createElement("span", { className: "ldv-note-title" }, t("row.governanceLocation")),
+            React.createElement("span", { className: "ldv-note-text" }, t("row.governanceLocationHint"))
           )
         ),
         React.createElement("div", { className: "ldv-settings-footer" },
@@ -1519,7 +1882,7 @@ window.__ModuleLoader__.load({
             ),
             savedState[0]
               ? React.createElement("span", { className: "ldv-settings-footer-status" }, t("row.saved"))
-              : (saveErrorState[0] ? React.createElement("span", { className: "ldv-settings-footer-error", role: "alert" }, t("row.saveFailed")) : null)
+              : (saveErrorState[0] ? React.createElement("span", { className: "ldv-settings-footer-error", role: "alert" }, t("row.saveFailed") + (saveErrorDetailState[0] ? " " + saveErrorDetailState[0] : "")) : null)
           ),
           React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: !dirtyState[0] || busyState[0], onClick: discard }, t("row.discard")),
           // **保存按钮自身承载「有未保存改动」这一状态**（2026-10-14，Human 指示：
@@ -1544,45 +1907,22 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // ── settings card (collapsible, default collapsed) ───────────────────
-    /**
-     * Plugins 页 row.config 的设置卡。
-     *
-     * 页面按 `view` 请求两种形态（官方 ui-plugin-manager 契约）：
-     *   - `'page'`    → 带自己保存控件的完整表单（本插件的折叠卡片）；
-     *   - `'summary'` → 一行的说明文本，仅在**缺少包描述**时用作该行详情页的
-     *                  兜底说明，因此这里只回一行文案，不渲染表单。
-     * 两种形态都从注册时声明的 `locale` + 自己的 `inject` face 取文案与作用域。
-     */
-    function LdvhSettingsCard(props) {
-      var t = props.t;
-      if (props.view === "summary") return t("row.desc");
-      // 与 dsh-connect-workbuddy 同款：`page` 形态（bundle.config / row.config 的
-      // 详情页）默认展开，用户一进来就看到内容，不必再点开（层级更浅）。
-      var openState = React.useState(true);
-      var title = t("row.title");
-      return React.createElement("li", { className: "ldv-settings-card" + (openState[0] ? " ldv-settings-card-open" : "") },
-        React.createElement("button", {
-          type: "button",
-          className: "ldv-settings-card-header",
-          "aria-expanded": openState[0],
-          "aria-label": t(openState[0] ? "row.collapse" : "row.expand") + ": " + title,
-          onClick: function () { openState[1](!openState[0]); }
-        },
-          React.createElement("img", { className: "ldv-settings-card-icon", src: LDVH_ICON, alt: "" }),
-          React.createElement("span", { className: "ldv-settings-card-head" },
-            React.createElement("span", { className: "ldv-settings-card-title" }, title),
-            React.createElement("span", { className: "ldv-settings-card-desc" }, t("row.desc"))
-          ),
-          React.createElement("span", { className: "ldv-settings-card-chevron" + (openState[0] ? " ldv-settings-card-chevron-open" : ""), "aria-hidden": "true" },
-            IconChevronDown ? React.createElement(IconChevronDown, { size: 14 }) : React.createElement("span", { className: "ldv-settings-card-caret" }, "\u25be")
-          )
-        ),
-        React.createElement("div", { className: "ldv-settings-card-body", hidden: !openState[0] },
-          React.createElement(LdvhSettingsRow, props)
-        )
-      );
-    }
+    // ── 设置卡组件已删除（Human 2026-11-13）────────────────────────────
+    //
+    // 原 `LdvhSettingsCard` 是 Plugins 页 keyed 槽位（plugins.bundle.config /
+    // plugins.row.config）的折叠卡片：自带图标 + 标题 + 展开箭头。
+    //
+    // 那两个槽位撤除后（同一份配置不得有两个编辑入口，见 apply 里的说明），
+    // 它再无任何引用。**按「不留未引用代码」的纪律当场删除**，而不是留着等
+    // 「以后可能用得上」——本仓已多次因残留代码被误读（注释说还在用、实际
+    // 早已无调用方）。若宿主日后恢复 keyed 配置槽位，重建它比维护一份没人
+    // 验证的死代码便宜。
+    //
+    // 相关样式（.ldv-settings-card* 一组）**一并删除**：它们只为那张卡存在，
+    // 没有卡片就没有元素带这些类名。留着不是「几行无害的文本」，而是让后续
+    // 读者以为还有卡片在用它们（本仓已多次因这种残影误判）。
+    // 唯一被保留断言的是 `.ldv-settings-card*` 里的**外观契约**记录——那条
+    // 现在改为断言「这些类名不应再出现在源码里」。
 
     /**
      * betterSidebar「LDVH」tab：iframe 加载 /ldvh（与 LdvhConversationView
@@ -1877,37 +2217,119 @@ window.__ModuleLoader__.load({
         // `include:dsh-ldvh`——硬编码短名会绑定到无人服务的命名空间）。
         ctx.inject(["configForms"], function (formsCtx) {
           var ldvhScope = formsCtx.configForms.get(ldvhEntryIdOf(formsCtx.configForms));
-          var rowInjected = function () {
-            // **`sessionRemote` 已随之移除**（2026-10-27）：它唯一的用途是取模型目录，
-            // 供审核模型的两级下拉；该设置整体移除后，这里不再需要软取
-            // `remote.session`。`directoryPicker` 仍需要——日志清理的目录选择在用。
-            return {
-              t: t,
-              settingsScope: ldvhScope,
-              directoryPicker: ctx.get("remote.directoryPicker"),
-            };
-          };
-          // 设置卡：与 dsh-connect-workbuddy 同款双注册——plugins.bundle.config
-          //（key = 包名）在 bundle 详情页「描述与行之间」**直接展开**配置卡，
-          // 不再需要点行上的「配置」控件（用户反馈层级太深的直接原因）；同时保留
-          // plugins.row.config（key = `<包名>#<行 id>`）作为行级配置入口。两个槽位
-          // 各自 try/catch：任一注册失败不影响另一个，宿主其余部分照常工作。
-          var registerCard = function (slotName, key) {
+          // ── Plugins 页的两个 keyed 槽位**已撤除**（Human 2026-11-13）──────
+          //
+          // 原先在此注册 `plugins.bundle.config`（key = 包名）与
+          // `plugins.row.config`（key = `<包名>#<行 id>`），与 dsh-connect-workbuddy
+          // 旧版同款。现整体撤除，对照 workbuddy 5.19.0 的做法——它的注释写得
+          // 明确：**「同一份配置不得有两个编辑入口」**（the same configuration
+          // must not have two editing entries）。
+          //
+          // 撤除的三条依据（不是审美偏好）：
+          //   1. **双入口必然漂移**：两个入口读同一份 Config，但各自的本地 state、
+          //      脏标记与 revision fence 互不可见。在 A 处改、B 处仍显旧值，用户
+          //      不知道该信哪个——本仓已因「设置面显示与实际生效不一致」踩过坑。
+          //   2. **keyed 槽位的寻址脆弱**：按包名/行 id 精确匹配宿主清单，插件被以
+          //      不同 Loader 条目 id 挂载时得注册两种拼写，漏一种就**整块不渲染且
+          //      不报错**（workbuddy issue #55）。设置页的 `settings.section` 用本
+          //      插件自有的 id，没有这个问题。
+          //   3. **Human 的诉求就是一处**：「把 ldvh 的设置也放到设置里」——所有
+          //      偏好集中在一处，而不是插件详情里还留一份。
+          //
+          // 卡片组件 `LdvhSettingsCard` 与其 12 条样式**已一并删除**——撤除槽位后
+          // 它再无任何引用。不留「以后可能用得上」的死代码：本仓已多次因残影被
+          // 误判（注释说还在用、实际无调用方）。宿主日后若恢复 keyed 配置槽位，
+          // 重写一张卡比维护一份没被验证的代码便宜。
+
+          /**
+           * 设置页的一节（Human 2026-11-13：「把 ldvh 的设置也放到设置里，
+           * 参考 workbuddy 的做法」）。
+           *
+           * ## 为什么这是**唯一**入口（Plugins 页那两个槽位已撤）
+           *
+           * 同一份配置不得有两个编辑入口——这是 workbuddy 5.19.0 的原话
+           * （the same configuration must not have two editing entries），也是
+           * Human 2026-11-13 的要求。双入口的失效形态不是「多一个地方能改」，
+           * 而是**两处读写同一份 Config 却各有独立本地 state**：在 A 处改、B 处
+           * 仍显示旧值，用户无从判断哪个是真的。撤除细节与依据见上文
+           * 「Plugins 页的两个 keyed 槽位已撤除」那段。
+           *
+           * ## 为什么注册的是 LdvhSettingsRow
+           *
+           * 设置页由宿主提供面板骨架（标题、关闭按钮都是宿主的）。原卡片
+           * `LdvhSettingsCard` 自带折叠头（图标 + 标题 + 展开箭头），那是插件
+           * 清单里折叠条目用的外壳；在设置页里再套一层会出现「标题套标题、
+           * 箭头套箭头」。故这里注册的是**内容**：`LdvhSettingsRow`。
+           *
+           * ## 为什么没有能力探测
+           *
+           * `slots.inject(name, ...)` 本身就是探测——槽位不存在时它什么都不做
+           * （不抛、不排队），宿主有了才执行回调。用版本号或服务访问器去预判，
+           * 会把「这台宿主不支持」变成「哪儿都不注册」，而后者不报任何错
+           * （workbuddy 的注释里记着这个教训）。让宿主回答。
+           */
+          var registerSettingsSection = function () {
             try {
-              formsCtx.slots.inject(slotName, function () {
-                return formsCtx.slots.register({
-                  name: slotName,
-                  key: key,
+              return formsCtx.slots.inject("settings.section", function () {
+                var disposers = [];
+                var sectionInjected = function () {
+                  return {
+                    t: t,
+                    settingsScope: ldvhScope,
+                    directoryPicker: ctx.get("remote.directoryPicker"),
+                    // 通知卡片「你正处在设置页里」：设置页自己不需要折叠头，
+                    // 也不该再画一遍标题（宿主已给）。
+                    surface: "settings",
+                  };
+                };
+                disposers.push(formsCtx.slots.register({
+                  name: "settings.section",
+                  id: LDVH_SETTINGS_SECTION_ID,
+                  order: LDVH_SETTINGS_SECTION_ORDER,
+                  label: function () { return t("row.title"); },
                   locale: LDVH_NS,
-                  inject: rowInjected
-                }, LdvhSettingsCard);
+                  inject: sectionInjected,
+                }, LdvhSettingsRow));
+
+                // 图标：同一个 id 是唯一的配对凭据。**单独 try/catch**——
+                // 页面是功能、图标是装饰；宿主声明了节但没有图标座时，
+                // 仍须给出页面（与 workbuddy 同一处置）。
+                try {
+                  var iconInject = formsCtx.slots.inject("settings.section.icon", function () {
+                    var iconDisposer = formsCtx.slots.register({
+                      name: "settings.section.icon",
+                      id: LDVH_SETTINGS_SECTION_ID,
+                      locale: LDVH_NS,
+                    }, function (iconProps) {
+                      var edge = iconProps && typeof iconProps.size === "number" ? iconProps.size : 16;
+                      return React.createElement("img", {
+                        src: LDVH_ICON,
+                        width: edge,
+                        height: edge,
+                        alt: "",
+                        style: { borderRadius: "4px", display: "block", opacity: iconProps && iconProps.active === false ? 0.75 : 1 }
+                      });
+                    });
+                    disposers.push(iconDisposer);
+                    return iconDisposer;
+                  });
+                  if (typeof iconInject === "function") disposers.push(iconInject);
+                } catch (iconError) {
+                  console.error('[dsh-ldvh] settings nav icon failed to register (page unaffected):', iconError);
+                }
+
+                return function () {
+                  for (var i = 0; i < disposers.length; i += 1) {
+                    try { disposers[i](); } catch (alreadyGone) { /* 槽位服务已处置 */ }
+                  }
+                };
               });
             } catch (error) {
-              console.error('[dsh-ldvh] settings card slot "' + slotName + '" failed to register (host provider unaffected):', error);
+              console.error('[dsh-ldvh] settings section failed to register (host provider unaffected):', error);
+              return undefined;
             }
           };
-          registerCard("plugins.bundle.config", LDVH_PACKAGE_NAME);
-          registerCard("plugins.row.config", LDVH_ROW_CONFIG_KEY);
+          registerSettingsSection();
         });
 
         // 投放面设置：订阅驱动（apply 时设置服务可能尚未 ready——一次性快照会

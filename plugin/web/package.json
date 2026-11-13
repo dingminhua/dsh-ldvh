@@ -13,7 +13,8 @@
     "test:web:api": "tsx --test tests/api/*.test.ts",
     "server:dev": "nodemon",
     "dev": "npm run server:dev & npm run client:dev --",
-    "build:dsh": "tsc -b && vite build --base=/ldvh/ && node scripts/gzip-dist.mjs"
+    "build:dsh": "tsc -b && vite build --base=/ldvh/ && node scripts/gzip-dist.mjs",
+    "preview:settings": "node scripts/preview-settings.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
