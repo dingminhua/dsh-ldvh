@@ -36,6 +36,7 @@ import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web
 import { createLifecycleRegistry } from "./lifecycle.js";
 import { createProviderRoster } from "./subagent-providers.js";
 import { resolveIdleSettings } from "./idle-settings.js";
+import { resolveReviewAskSettings } from "./review-ask.js";
 import { resolveInjectionBudget } from "./source-recall.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { createHostSeams } from "./host-seams.js";
@@ -228,6 +229,52 @@ export const Config = z.object({
   // 这里用 schemastery 受限子集能表达的最强约束（min/max 圈定合法区间），
   // 精确的档位成员校验由 `resolveInjectionBudget` 在消费点完成并**如实报错**。
   injectionBudgetTier: volatileField(z.number().min(10).max(50).step(10).default(10)),
+
+  // ── 两处把关询问（2026-11-13 Human 决定：取消工单→改问要不要安排代理）──────
+  //
+  // **规范依据**：`specs/04 §6.1` 的方案收敛自查明文写着「当工作指向『怎么做』
+  // 层面的方案——建立或修改结构性事物、存在多个可选路径的选型、或方向可能与
+  // 既定决策冲突——主控在把方案提交 Human 确认或落档处置前自查……（隔离视角
+  // 可用宿主子代理，**按需不强制**）」。这两个开关改的正是那个括号：
+  //
+  //   - 关（默认）：维持「按需不强制」——主控自己按 §6.1 的判据判断要不要
+  //     隔离视角，与现行行为一致；
+  //   - 开：把「按需不强制」改成「复杂任务一律先问 Human 要不要安排」。
+  //
+  // 它**不新增检查机制**（仍是 04 §6.2 的代理审核，只是把发起权从 AI 判断
+  // 换成一次 Human 询问），也**不新增第四种形态**（00 §2.5 的三形态不变）。
+  //
+  // **为什么这两个键不叫 workcase***：21 号 WorkCase 载体按 Human 2026-11-13
+  // 决定正在撤除，开关的语义是「这次行动要不要安排代理看一遍」，与工单无关。
+  // 键名若带 workcase，撤掉工单后就成了名不副实的历史包袱（本仓已踩过
+  // `experienceCaptureEnabled` 一类改名遗留）。
+  //
+  // **为什么默认关**：与 `auxReviewEnabled` 同一纪律——会向 Human 发起询问、
+  // 会派生子代理，属于新增行为；默认打开会在 Human 尚未知情时改变每一轮对话的
+  // 节奏。缺省关更诚实，也符合 Human 本次「打开才有」的原话。
+  //
+  // **读取方式**：消费点**每次现读**（volatile 字段没有逐字段变更通知），
+  // 故 Human 在设置页改动后，下一次判断即生效，无需重载插件。
+  /**
+   * 行动前审查的询问开关：开启后，主控判定当次任务属「复杂任务」时，
+   * 在动手前询问 Human「是否安排代理审查」。
+   *
+   * 「复杂任务」的判据**不新造**：直接取 `specs/04 §6.1` 的三个条件
+   * （建立或修改结构性事物／存在多个可选路径的选型／方向可能与既定决策冲突），
+   * 与 `specs/21 §6.3` 的四条「明确不属于工单」（取反即「该建工单」）合并使用。
+   * 判据留在规范里，本开关只决定「判为复杂后是否询问」。
+   */
+  preActionReviewAskEnabled: volatileField(z.boolean().default(false)),
+  /**
+   * 行动后复核的询问开关：开启后，主控在完成一件复杂任务、准备收口时，
+   * 询问 Human「是否安排代理复核」。
+   *
+   * 与上一个是**两个独立开关**（Human 明示「这2个提请做成开关」）：只想要
+   * 事前审查的人可以只开第一个。两者语义不同、时点不同，合并不产生任何
+   * 「只开一半就废掉另一半」的问题——不像 `idleCaptureEnabled` 那次合并
+   * （两个开关管同一次派发，拆开会产生半套材料）。
+   */
+  postWorkReviewAskEnabled: volatileField(z.boolean().default(false)),
 
   // ── 经验审核的开关已并入 `auxReviewEnabled`（2026-10-30 配置面合并）────
   // 该键本身作为 deprecated 保留在 schema 前部（仅为兼容存量配置），此处不再重复
@@ -493,6 +540,9 @@ export function apply(ctx, config) {
     // ——见上文 readSwitch 的说明）。故传一个取值函数而非快照：Human 在设置页
     // 改动后，下一次检查点即看到新值，无需重载插件。
     getIdleSettings: () => resolveIdleSettings(config),
+    // 两处把关询问的开关**每次现读**（volatile 字段无变更通知，只在同一引用里
+    // 换值）。Human 在设置页改动后，下一回合的注入行即看到新值，无需重载插件。
+    getReviewAskSettings: () => resolveReviewAskSettings(config),
     // 注入上下文总预算：同样是**每次现读**（volatile 字段无变更通知）。
     // 返回解析结果而非字节数——未登记档位要能被如实拒绝，不能悄悄回落。
     getInjectionBudget: () => {

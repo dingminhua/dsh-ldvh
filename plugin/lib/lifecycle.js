@@ -54,6 +54,79 @@ import { recordRun, readRuns } from "./idle-runlog.js";
 // stage 的唯一派生点：三处调用同一实现，避免「修一处漏两处」（见 run-stage.js 注释）。
 import { deriveStage } from "./run-stage.js";
 import { verifyRun as verifyMechanically, NOT_CHECKABLE_ROWS, MECHANICAL_ROWS, DEFERRED_ROWS } from "./verification-run.js";
+import { COMPLEXITY_CRITERIA, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
+
+
+
+/**
+ * 渲染「两处把关询问」的行为提示行。
+ *
+ * ## 它说什么、不说什么
+ *
+ * **说**：当前哪个开关开着、这一刻该判什么、判为复杂后要做什么、用哪个入口提请。
+ *
+ * **不说**：「本次任务就是复杂任务」——那是 AI 的语义判断，注入行不得代判
+ * （02 §9.2：注入只给候选，定性由 AI 后续判断；06 §6：弱约束不代为判定）。
+ *
+ * ## 为什么把判据原文抄进注入行
+ *
+ * 判据来自 04 §6.1 与 21 §6.3，**不是新造**。但两者性质不同：**04 §6.1 三条是
+ * 条文原文**；**21 §6.3 的取反是据此推导的判据，不是条文原文**（§6.3 只列排除项，
+ * 规范里没有正面规定「什么情况该建工单」——2026-11-13 逐条核对原文后的更正）。
+ * 此处抄的是**判据清单**而非规则正文
+ * ——10 §5.3 的「不复制第二份规则源」针对的是把规范条文整体搬进引导面形成第二
+ * 权威；一份标明出处的判据清单是让 AI 能据此判断的**必要输入**，与召回行列出
+ * 「有哪些 Pitfall 候选」同性质。每条都带规范指针，便于回指原文核对。
+ */
+/**
+ * 把关询问提示行的正文。
+ *
+ * **导出**（2026-11-13 独立审核 MINOR #7 之后）：此前它是模块私有的，于是
+ * 「两个开关都关」这一支的显示**没有任何测试覆盖**——而那一支原本是错的
+ * （会显示「行动后复核：**已开启**」）。导出后才有一条测试能直接驱动它。
+ */
+export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown = true }) {
+  const criteria = COMPLEXITY_CRITERIA
+    .map((item, index) => `  ${index + 1}. ${item.label}（${item.source}）`)
+    .join("\n");
+  const lines = [
+    // 正文首行也**不写插件名**：这一行展开后仍挂在「上下文注入 · dsh-ldvh」之下，
+    // 再写一遍就是同一行里第三次重复（折叠标签已去掉，此处同步）。
+    "两处提请的开关状态（Human 2026-11-13 决定：取消工单，改为「要不要安排代理」两问）",
+  ];
+  // 开关状态四态：**已开启 / 关闭（Human 关掉）/ 未设置（取不到，按关处理）**。
+  //
+  // 「关闭」与「未设置」必须可区分：前者是 Human 的决定，后者是配置面取不到
+  // 时的回落——后者不该被陈述成「Human 关掉了」（review-ask.js 的
+  // preActionKnown/postWorkKnown 就是为此存在的，此前无消费方）。
+  //
+  // 2026-11-13 修：**两个开关都关时的分支原本不存在**，原 else 只覆盖
+  // 「pre 关、post 开」，于是 both-off 时会显示「行动后复核：**已开启**」——
+  // 与事实相反。生产路径因 both-off 直接不注入而侥幸避开，但函数本身是错的，
+  // 且被单测直接调用时随时会暴露。
+  const stateOf = (on, known) => (on ? "**已开启**" : (known ? "关闭" : "关闭（未设置，按关处理）"));
+  lines.push(`- 行动前审查：${stateOf(preOn, preKnown)} ｜ 行动后复核：${stateOf(postOn, postKnown)}`);
+  lines.push("", "判据（不新造；04 §6.1 三条是条文原文，21 §6.3 取反是据此推导的判据而非条文）：");
+  lines.push(criteria);
+  lines.push("");
+  if (preOn) {
+    lines.push("① 动手前：按上面判据判定本次是否「复杂任务」。判为复杂时，须先询问 Human「是否安排代理审查」，取得明确答复后才动手。");
+  }
+  if (postOn) {
+    lines.push("② 收口前：一件复杂任务做完时，须询问 Human「是否安排代理复核」，取得明确答复后再收口。");
+  }
+  lines.push("");
+  // **不再推荐裸调 ask_user_question**（2026-11-13 独立审核 MINOR #5）。
+  //
+  // 宿主 `ask_user_question` 不读这两个开关、也不写答复载体：走它等于绕开
+  // 「关着就完全不问」，且同一件事会反复问（无留痕）。原句把两条路径并列成
+  // 等价入口，而这条路是**本行主动推荐**的——「开关关闭就完全不问」的声明
+  // 在那条路径上不成立。
+  lines.push("提请入口：`ldvh_review_ask`（读开关、记录答复、同一内容不重复提问）。");
+  lines.push("**不要改用宿主 ask_user_question**：它不读这两个开关、也不记录答复——关着也会问、问过还会再问。");
+  lines.push("**如实边界**：开关只决定「问不问」；「算不算复杂」由你判断，机械层不判定——判错或没判，本机制不会拦。故这不构成机械保障，只是按开关执行的自律 + 答复留痕。");
+  return lines.join("\n");
+}
 
 /**
  * 把一次审核运行的结局整理成 §18 逐行核对结论（11 §18「运行完成」）。
@@ -521,7 +594,7 @@ function describeStopForRunlog(error) {
   return head.length > 0 ? `${base} — ${head}${more}` : `${base}${more}`;
 }
 
-export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget, providerRoster = null }) {
+export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget, getReviewAskSettings, providerRoster = null }) {
   // 零上下文 provider 的发现名册（宿主 0.2.2-rc.2 删除 ctx.subagents.list() 后的
   // 唯一枚举通道）。由装载方订阅 subagent/provider-added|removed 建立；缺省时
   // 各派发点仍会经 getProvider 现查内置名，故不会因缺名册而完全失效。
@@ -587,6 +660,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 审核设置的取值函数（供 ldvh_probe_host_automation 的 reconcile 诊断读
           // 「当前实际生效的开关/间隔」——那是判断「改了设置有没有生效」的唯一依据）。
           getIdleSettings,
+          // 两处把关询问的开关（2026-11-13 Human 决定）：`ldvh_review_ask` 与此处
+          // 注入行共用同一个取值函数，故设置页改动对「工具询问」与「行为提示行」
+          // 同时生效——两处读同一份配置，不存在一处生效一处不生效的形态。
+          getReviewAskSettings,
           sessionPersistence: () => ctx.get("sessionPersistence"),
           // Host goal service (specs/10 §5.8, specs/21 §14 「宿主推进目标」): the
           // getter is passed rather than a resolved value, so a composition
@@ -945,6 +1022,15 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // install-time judgement already stored the full scope. Build the
         // complete card from it so the very first turn gets its visible row.
         noticeText: () => lifecycle.noticeText ?? (lifecycle.lastScope !== undefined && lifecycle.lastScope !== null ? noticeTextFor(lifecycle.lastScope) : null),
+        // **不受辖时不向对话流注入可见行**（Human 2026-11-13，方案 A）。
+        //
+        // 只关「可见行」；系统提示侧的 `【LDVH 管辖判定】` 照旧注入——那是给
+        // 模型的行为约束（不会去调没注册的 ldvh_* 工具），不是给人看的东西。
+        // 详见 guidance.js 里 `suppressUngovernedRow` 的说明。
+        //
+        // 判据取 `scopeState === "governed"`：只有受辖才在对话流里出现判定卡。
+        // `unavailable` 一并静默——它在文案上本来就「按不受辖处理」，两处口径一致。
+        suppressUngovernedRow: () => lifecycle.scopeState !== "governed",
         // Inline row title (Human 2026-09-04): "上下文注入 · dsh-ldvh · 本会话受 LDVH 管辖"
         noticeSummary: () => noticeSummaryFor(lifecycle.scopeState),
         // 行动前双源召回（10 §5.3「行动前引导入口」）。只在受管辖且项目路径可用时召回；
@@ -1036,7 +1122,75 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             ...(recallLimit === undefined ? {} : { limit: recallLimit }),
           });
         },
-        recallSummary: () => RECALL_SUMMARY
+        recallSummary: () => RECALL_SUMMARY,
+        // 两处把关询问的行为提示行（2026-11-13 Human 决定：取消工单→改问是否
+        // 安排代理审查／复核，各由设置开关控制，打开才有）。
+        //
+        // **它只提示、不代问**：询问本身必须由主控经 `ldvh_review_ask` 发起
+        // （或模型面直接调宿主 ask_user_question），因为「这次任务算不算复杂」
+        // 是 AI 语义判断，机械层判不了（本行注释与 review-ask.js 头注同一口径）。
+        // 本行做的是让主控**在动手前看得见**「开关开着、该判一次复杂度」这件事
+        // ——这正是 21 §14 那次「闸只拒绝、不推动」教训的推广：没有提示行，
+        // 开关即使打开也会被静默跳过。
+        //
+        // 开关未开、或取不到项目时返回 inject:false；不产生必停。
+        reviewAskRow: async () => {
+          try {
+            // **管辖判定在前**（2026-11-13 修，Human 指出）。
+            //
+            // 上一版漏了这一条，于是「本会话不受 LDVH 管辖」与「把关询问」
+            // 两行同时出现在同一批上下文注入里——自相矛盾：不受辖就不该有任何
+            // LDVH 的其它信息（不是「少给一点」，是不该出现）。
+            //
+            // 判据与召回行**同一口径**：只认 `governed`。`unavailable` 按不受辖
+            // 处理（与 judgmentLineFor 的文案一致：登记不可读按不受辖对待），
+            // 不因为「可能受辖」就把开关提示塞给对方。
+            //
+            // 注意**不等于**跳过管辖判定行：那一行是必须始终告知的（含
+            // not_governed 的明示），由 noticeText 独立承载，与此行互不影响。
+            // **时序兜底与召回行同源**（2026-11-13）：`scopeState` 由安装时的
+            // 异步 resolve 在 .then 里写入，而 pre-step（prepend）在**首次
+            // assemble 之前**运行，故第一回合到这里时它可能还是初始值。不做
+            // late resolve 的后果是「首回合永远不注入」——召回行当年正是这个
+            // 缺陷（第 20 轮只兜了 project.path，漏了 scopeState 本身）。
+            //
+            // 只在判定不是 governed 时才多这一次调用，正常路径零额外开销。
+            if (lifecycle.scopeState !== "governed") {
+              try {
+                const cwd = agent?.session?.header?.cwd;
+                if (typeof cwd === "string" && cwd.length > 0) {
+                  const late = await resolve(cwd);
+                  if (late !== undefined && late !== null && lifecycle.scopeState !== late.state) {
+                    lifecycle.setScope?.(late);
+                  }
+                }
+              } catch (error) {
+                agent?.ctx?.logger?.warn?.(`[dsh-ldvh] review-ask: late scope resolve failed: ${String(error?.message ?? error)}`);
+              }
+            }
+            // 兜底之后仍不是 governed → 如实返回（此时是真不受辖，不是时序未就绪）。
+            if (lifecycle.scopeState !== "governed") {
+              return { inject: false, reason: "not-governed" };
+            }
+            const settings = typeof getReviewAskSettings === "function" ? getReviewAskSettings() : null;
+            if (settings === null) return { inject: false, reason: "settings-unavailable" };
+            const preOn = settings.preAction === true;
+            const postOn = settings.postWork === true;
+            if (!preOn && !postOn) return { inject: false, reason: "both-switches-off" };
+            // `settings` 的 known 标记一并传入，用于区分「Human 关掉」与「配置未设置」。
+            const text = buildReviewAskNotice({
+              preOn,
+              postOn,
+              preKnown: settings.preActionKnown !== false,
+              postKnown: settings.postWorkKnown !== false,
+            });
+            return { inject: true, text, digest: text };
+          } catch (error) {
+            agent?.ctx?.logger?.warn?.(`[dsh-ldvh] review-ask row failed: ${String(error?.message ?? error)}`);
+            return { inject: false, reason: "error" };
+          }
+        },
+        reviewAskSummary: () => REVIEW_ASK_ROW_SUMMARY
       });
       // 把「会话视图被重置 → 清空注入台账」挂到 lifecycle 记录上，供
       // agent/created（clear / compact / resume）调用。见下方 disposeCreated。

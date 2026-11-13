@@ -20,6 +20,20 @@
 // (08 §6 + cordis effect discipline): nothing here leaks past plugin stop.
 
 import { findRouteDecision, recordRouteDecision } from "./workcase-route-ledger.js";
+import { REVIEW_ASK_ANSWERS,
+  REVIEW_ASK_PLACEHOLDER_TASK,
+  REVIEW_ASK_POINTS,
+  composeReviewAsk,
+  findReviewAskDecision,
+  recordReviewAskDecision,
+  reviewAskFingerprint,
+} from "./review-ask.js";
+
+/** 两处把关询问的 question id 与选项标签——问什么与认什么共用同一常量，
+ * 使解析永不因一个从未提供过的标签而判定成立（与 CONSENT 同一纪律）。 */
+const REVIEW_ASK_QUESTION_ID = "ldvh-review-ask";
+const REVIEW_ASK_REVIEW_LABEL = "安排代理";
+const REVIEW_ASK_SKIP_LABEL = "跳过，直接推进";
 
 /** 07 §5.6 consent question identity — the id and the affirmative label are
  * shared between what is ASKED and what is ACCEPTED, so the parse can never
@@ -846,6 +860,186 @@ export function createHostSeams() {
     }
   }
 
+    /**
+     * 两处把关询问（2026-11-13 Human 决定：取消工单→改问「要不要安排代理」）。
+     *
+     * 与上面三处 consent 的**根本差别**：那三处是 Human Gate（不取得答复就不许
+     * 继续，fail-closed）。本处**不是 Gate**——Human 选「跳过」是**合法答复**，
+     * 不是拒绝。所以本函数的返回值不叫 `granted`，叫 `decision`：
+     *
+     *   - `"review"` —— 安排代理；
+     *   - `"skip"`   —— 不安排（明确答复，不是未决策）；
+     *   - `null`     —— 未取得答复（无答题器／询问失败／人跳过未选）。
+     *
+     * 空答复（`selected: []`）**不落载体**：它是「未决策」，落盘会让下一次误以为
+     * 问过了而直接复用一个不存在的决定（与 `requestWorkcaseRouting` 同纪律）。
+     *
+     * 开关关闭时**直接返回 null 且不问**——这是 Human 的原话「打开才有」。调用方
+     * 传入 `enabled: false` 即走这条路径；本函数不自己读配置，因为配置读取属
+     * 装配侧（host-seams 不认识 Cordis Config）。
+     */
+  /**
+   * 把关询问的身份范围：会话 id + 会话工作目录。
+   *
+   * 只用**宿主提供的**身份（`agent.session.header`），不让调用方自报——自报键
+   * 会被填成固定值，等于退回全局键。取不到时返回 `undefined`，指纹退回旧形态
+   * （偏重复提问而非跨项目复用）。
+   */
+  /**
+   * 把关询问的身份范围：会话 id + 会话工作目录。
+   *
+   * **只从宿主提供的身份取**（`agent.session.header`），不让调用方自报——自报键
+   * 会被填成固定值，等于退回全局键。
+   *
+   * @returns {{scope: string|undefined, sessionIdentified: boolean}}
+   *   `sessionIdentified: false` 表示**会话 id 取不到**。此时 scope **不得**被
+   *   用来复用答复：只带 cwd 的 scope 会让**同项目下另一个会话**的询问命中上一
+   *   会话的记录，静默复用别的上下文的决定（2026-11-13 独立审核 MAJOR-3）。
+   *   故这种情况走「每次都问」，宁可多问一次。
+   */
+  function reviewAskScopeKey(agent) {
+    const header = agent?.session?.header;
+    if (header === undefined || header === null) return { scope: undefined, sessionIdentified: false };
+    const parts = [];
+    const id = header.sessionId ?? header.id ?? agent?.session?.id;
+    const sessionIdentified = typeof id === "string" && id.length > 0;
+    if (sessionIdentified) parts.push(`session:${id}`);
+    const cwd = header.cwd;
+    if (typeof cwd === "string" && cwd.length > 0) parts.push(`cwd:${cwd}`);
+    return { scope: parts.length === 0 ? undefined : parts.join("|"), sessionIdentified };
+  }
+
+  async function requestReviewAsk({ point, task, enabled, agent, signal }) {
+    if (enabled !== true) {
+      return { decision: null, asked: false, reason: "the review-ask switch is off for this point — no prompt is issued (2026-11-13 Human decision: 打开才有)" };
+    }
+    const ask = seams.ask;
+    if (typeof ask !== "function") {
+      return { decision: null, asked: false, reason: "no human-answerer entry is available; the review-ask cannot be issued, so no decision is assumed" };
+    }
+    // 先读后问：同一内容指纹问过一次就不再问（消灭「同一件事问两次」）。
+    //
+    // **指纹必须带会话与项目范围**（2026-11-13 独立审核 MAJOR #2）。
+    //
+    // 原实现只喂 { point, task }，而 `task` 在工具面是**可省的**——于是所有不带
+    // task 的 pre-action 询问共用一个指纹（实测同为 298fbda3…）。载体落在
+    // `~/.dsh/ldvh/review-ask-decisions.json`，是**全局**的（不分项目、不分会话）。
+    //
+    // 后果实测：
+    //   * 第一次答 `skip` → 之后所有同类任务**静默不再问**（Human 以为机制在跑，
+    //     其实早已失效）；
+    //   * 第一次答 `review` → 另一件事也被当成「Human 已同意安排复核」，
+    //     把一个**别的上下文里**的决定搬过来用。
+    //
+    // 取身份只从 `agent` 读，**不接受调用方自报**：能自报的键迟早会被填成固定值，
+    // 那等于又退回全局键。两者都取不到时**退回不带 scope 的旧键**——宁可偶尔重复
+    // 提问（代价：多问一次），也不要跨项目静默复用（代价：机制失效且无人察觉）。
+    const scopeInfo = reviewAskScopeKey(agent);
+    const scopeKey = scopeInfo.scope;
+    const fingerprint = reviewAskFingerprint({ point, task, scope: scopeKey });
+    // **会话 id 取不到 ⇒ 禁止复用**（2026-11-13 独立审核 MAJOR-3，fail-closed）。
+    //
+    // scope 降级成「只带 cwd」时，同项目下**另一个会话**的询问会命中本会话的记录
+    // ——那正是本机制要消灭的「把别的上下文的决定搬过来用」。宁可多问一次。
+    const reuseAllowed = scopeInfo.sessionIdentified;
+    const prior = await findReviewAskDecision(seams.dshHomePath, fingerprint);
+    if (!prior.ok) {
+      // 载体不可读时**不问也不猜**：既不能当「问过」（会跳过 Human），也不能
+      // 当「没问过」（会重复提问）。如实返回，由调用方报告并决定怎么处置。
+      return { decision: null, asked: false, reason: `${prior.error.code}: ${prior.error.message}`, fingerprint };
+    }
+    if (prior.value !== null) {
+      // **task 为空的历史记录不可复用**（2026-11-13 独立审核 MAJOR-2）。
+      //
+      // 问题：`task` 是可省参数，省略时指纹 = point + scope，同一会话里**所有**
+      // 该位置的询问指纹相同。第一次答 skip 后，另一件复杂任务的询问会静默复用
+      // 那次 skip——Human 根本收不到第二次提问。这正是本机制要消灭的失效，
+      // 只是从「全局」缩小到了「会话内」。
+      //
+      // 为什么不用「task 设为必填」：那会让模型忘填时直接调用失败，违背
+      // 「缺任务描述时不虚构，退化成中性占位」的设计。也不用「拿会话消息参与
+      // 指纹」：那会破坏「同一件事重试不重问」这个核心语义。
+      //
+      // 本解法的判据是**记录本身能否标识「是哪件事」**：task 为空的记录标识不了，
+      // 故不复用——宁可多问一次（代价：一次弹窗），也不静默套用无关答复（代价：
+      // 机制失效且无人察觉）。新问出来的答复会覆盖旧记录（latest-wins）。
+      const priorTask = prior.value.task;
+      // 占位词与 null 同义（2026-11-13 独立审核 MAJOR-2）：占位词记录标识不了
+      // 「是哪件事」，若判为「可复用」，模型传恒定字符串时静默复用复发。
+      const priorIsPlaceholder = typeof priorTask === "string" && priorTask.trim() === REVIEW_ASK_PLACEHOLDER_TASK;
+      const reusable =
+        reuseAllowed
+        && typeof priorTask === "string"
+        && priorTask.trim().length > 0
+        && !priorIsPlaceholder;
+      if (!reusable) {
+        // 不可复用 → 继续往下问，不返回。
+      } else {
+        return {
+          decision: prior.value.answer,
+          asked: false,
+          reused: true,
+          fingerprint,
+          reason: `reused the recorded answer from ${prior.value.at} (same content fingerprint — not asked again)`,
+        };
+      }
+    }
+    const composed = composeReviewAsk({ point, task });
+    try {
+      const answer = await ask({
+        questions: [{
+          id: REVIEW_ASK_QUESTION_ID,
+          // header 与 question 不重复（Human 2026-11-13：对话框太啰嗦）。
+          // question 已写明「<做什么>——要不要安排审查？」，header 只留一个短标签；
+          // options 的 description 也压成一句话，不再重述 detail 里已有的后果。
+          header: point === REVIEW_ASK_POINTS.PRE_ACTION ? "审查" : "复核",
+          question: composed.question,
+          // **不带 detail**（Human 2026-11-13 截图指认）：detail 与两个选项说的是
+          // 同一件事，卡片上于是三处重复。宿主契约里 detail 是 optional，缺省即
+          // 不渲染该块。
+          //
+          // 后果信息改由**选项的 description** 承担——选项就贴在答案输入框上方，
+          // 是 Human 实际会读的地方；原先第二个选项的 description「直接推进」与
+          // 它自己的标签「跳过，直接推进」逐字重复，等于没写。
+          options: [
+            {
+              label: REVIEW_ASK_REVIEW_LABEL,
+              description: point === REVIEW_ASK_POINTS.PRE_ACTION
+                ? "派独立子代理先对这个方案挑错，结论回来后再动手"
+                : "派独立子代理逐条核对这次已做的工作，结论回来后再收口",
+            },
+            { label: REVIEW_ASK_SKIP_LABEL, description: "本次不做独立把关，主控自查仍在" }
+          ]
+        }],
+        ...(signal === undefined ? {} : { signal })
+      }, agent);
+      const answers = Array.isArray(answer?.answers) ? answer.answers : [];
+      const entry = answers.find((a) => a?.id === REVIEW_ASK_QUESTION_ID) ?? null;
+      const selected = selectedLabelOf(entry);
+      if (selected !== REVIEW_ASK_REVIEW_LABEL && selected !== REVIEW_ASK_SKIP_LABEL) {
+        return { decision: null, asked: true, fingerprint, reason: `human did not choose an option (answer: ${JSON.stringify(selected ?? null)}) — 未决策不是答复，下次仍会问` };
+      }
+      const decision = selected === REVIEW_ASK_REVIEW_LABEL ? REVIEW_ASK_ANSWERS.REVIEW : REVIEW_ASK_ANSWERS.SKIP;
+      // **写入载体时把占位词归一为 null**（MAJOR-2）：载体里的 task 是「这件事
+      // 是什么」的标识，占位词不承载该语义；留着它会让复用门误判。
+      const recorded = await recordReviewAskDecision(seams.dshHomePath, {
+        fingerprint,
+        point,
+        answer: decision,
+        task: typeof task === "string" && task.trim() === REVIEW_ASK_PLACEHOLDER_TASK ? null : (task ?? null),
+      });
+      if (!recorded.ok) {
+        // 答复已取得但留不下痕迹：仍如实返回 Human 的选择，同时把留痕失败说
+        // 清楚——否则重试时会再问一次，而这正是本载体要消灭的形态。
+        return { decision, asked: true, fingerprint, recordError: `${recorded.error.code}: ${recorded.error.message}` };
+      }
+      return { decision, asked: true, fingerprint, at: recorded.value.at };
+    } catch (error) {
+      return { decision: null, asked: true, fingerprint, reason: `review-ask request failed: ${String(error?.message ?? error)}` };
+    }
+  }
+
+
   const seams = {
     observations: 0,
     consumed,
@@ -886,6 +1080,8 @@ export function createHostSeams() {
     requestSparkConsent,
     /** 22 §16 ADR create/retire confirmation routed through ctx.userQuestions.ask. */
     requestAdrConsent,
+    /** 两处把关询问（2026-11-13 Human 决定）：非 Gate——`skip` 是合法答复。 */
+    requestReviewAsk,
     /**
      * Read a target and RECORD the authoritative observation.
      *

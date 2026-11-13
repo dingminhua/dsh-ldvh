@@ -34,6 +34,7 @@ import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_F
 // friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
 import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
+import { REVIEW_ASK_OPERATION, reviewAskParameterSchema, executeReviewAsk } from "./review-ask-tool.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
 import { registerAdrTools } from "./adr-tools.js";
@@ -1972,6 +1973,43 @@ export function registerLdvhTools(ctx, deps) {
   // (29 §9.3 细化/替换 分档), serve-or-empty topic, and three terminal states
   // whose `absorbed` form is COMPRESSED.
   disposers.push(registerDevLogTools(ctx, deps));
+  // 两处把关询问（2026-11-13 Human 决定：取消工单后改为「要不要安排代理」两问）。
+  //
+  // **不写事实源、不参与受控写入**：它只读开关、发询问、记答复，与 21 §6.3 的
+  // 路由询问同层（辅助机制的运行状态）。故**不注册为 writeShaped**——那会把
+  // 「询问」错当成「写」，并使治理状态不可用时连问都问不了。
+  disposers.push(ctx.tools.register(defineTool({
+    name: REVIEW_ASK_OPERATION.toolName,
+    description: REVIEW_ASK_OPERATION.summary,
+    parameters: toParameterSpec(reviewAskParameterSchema()),
+    // **不设墙钟期限**（与 toolDescriptor 的同一套语义，`awaitHumanDecision`
+    // 那条）：本工具会阻塞在 Human 的答复上，声明一个期限会让每一次调用都
+    // 付「等 Human」的时间代价——而 Human 可能几分钟才看到。
+    //
+    // 此前 REVIEW_ASK_OPERATION.awaitsHumanDecision 是**死字段**：本工具走
+    // defineTool 直注册、不经 toolDescriptor，消费点在那里。改为在这里按同一
+    // 语义接线，让那个声明真的生效（2026-11-13 独立审核 MINOR #7）。
+    ...(REVIEW_ASK_OPERATION.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 }),
+    async execute(args, exec) {
+      try {
+        return { envelope: JSON.parse(JSON.stringify(await executeReviewAsk(args, exec, { hostSeams: deps.hostSeams, getReviewAskSettings: deps.getReviewAskSettings }))) };
+      } catch (error) {
+        return {
+          envelope: {
+            operation_key: "review-ask",
+            outcome: "execution_error",
+            result: null,
+            scope: { requested: args?.point ?? null, completed: [], not_completed: [args?.point ?? "review-ask"] },
+            sources: [],
+            gaps: [String(error?.message ?? error)],
+            verification: { checks: [], passed: false },
+            follow_up: []
+          }
+        };
+      }
+    },
+    output: { schema: OUTPUT_SCHEMA, render: (args, value) => renderEnvelope("review-ask", value) }
+  })));
   return () => {
     for (const dispose of disposers) {
       try { dispose(); } catch { /* already removed */ }
@@ -2145,6 +2183,58 @@ export function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   if (env.result?.mechanical_outcome !== undefined) lines.push(`mechanical_outcome: ${env.result.mechanical_outcome}`);
+  // ── 把关询问（review-ask）──────────────────────────────────────────────
+  //
+  // **这是模型唯一能看到本工具结果的地方**（03 §9.5：render 输出是模型的唯一
+  // 窗口）。2026-11-13 独立审核抓出：本工具注册了 `renderEnvelope("review-ask", …)`
+  // 却没有任何分支，实测 render 结果恒为 `LDVH review-ask: completed`——
+  // **Human 的答复、派发模板、开关状态全部丢失**，且 `review` 与 `skip` 两种情况
+  // 渲染结果**逐字相同**，模型无从区分。
+  //
+  // 那意味着整套「询问」在真实宿主上等于一把没有输出的开关：我做了四轮工具、
+  // 模板、设置页，Human 点完之后我一个字都读不到。
+  //
+  // 渲染纪律：答复必须**逐字可辨**（不能只回「已处理」），模板必须**整段给出**
+  // （模板就是派发给子代理的正文，截断即不可用），未取得答复时须明说未决策。
+  if (operationKey === "review-ask" || env.operation_key === "review-ask") {
+    const r = env.result ?? {};
+    if (r.point !== undefined) lines.push(`point: ${r.point}`);
+    // 开关与复用状态：让模型能判断「这次为什么没问」。
+    if (r.switch_enabled !== undefined) lines.push(`switch_enabled: ${r.switch_enabled}`);
+    if (r.asked !== undefined) lines.push(`asked: ${r.asked}`);
+    if (r.reused === true) lines.push(`reused: true (同一候选内容已答复过，未重复提问)`);
+    if (r.fingerprint !== undefined) lines.push(`fingerprint: ${r.fingerprint}`);
+    // **答复本身**——三种状态必须可区分，不得合并成一句「completed」。
+    if (r.decision === "review") {
+      lines.push(`decision: review — Human 已同意安排${r.point === "post-work" ? "复核" : "审查"}`);
+    } else if (r.decision === "skip") {
+      lines.push(`decision: skip — Human 选择不安排独立把关，直接推进（主控自查仍在）`);
+    } else {
+      // 文案须分三种（2026-11-13 独立审核 MINOR-6）：此前无论什么情况都说
+      // 「下次仍会问」，但开关关闭或配置不可用时**根本没问**，下次也不会问
+      // （除非改开关）——那句话与同屏的 `switch_enabled: false` 自相矛盾。
+      if (r.asked === false && r.switch_enabled === false) {
+        lines.push("decision: null — 开关关闭，本次未发起询问（这是配置的结果，不是未决策）");
+      } else if (r.asked === false) {
+        lines.push("decision: null — 未发起询问（原因见下方 gap；不得当成 skip）");
+      } else {
+        lines.push("decision: null — 未取得明确答复（未决策不是答复，下次仍会问；不得当成 skip）");
+      }
+    }
+    // 模板：整段给出，不截断。它是派发时交给子代理的正文。
+    const template = r.review_template;
+    if (template !== undefined && template !== null && typeof template === "object") {
+      if (typeof template.kind === "string") lines.push(`review_template.kind: ${template.kind}`);
+      if (typeof template.prompt === "string" && template.prompt.length > 0) {
+        lines.push("review_template.prompt: |");
+        for (const line of template.prompt.split("\n")) lines.push(`  ${line}`);
+      }
+    }
+    for (const item of env.scope?.not_completed ?? []) lines.push(`not_completed: ${item}`);
+    for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
+    for (const gap of env.gaps ?? []) lines.push(`gap: ${gap}`);
+    return [{ type: "text", text: lines.join("\n") }];
+  }
   if (operationKey === "precheck-git-commit") {
     if (env.result?.mechanical_outcome === "passed") {
       if (typeof env.result.snapshot_identity === "string") lines.push(`snapshot_identity: ${env.result.snapshot_identity}`);

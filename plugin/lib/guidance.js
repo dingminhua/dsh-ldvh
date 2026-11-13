@@ -35,6 +35,7 @@
 import { buildGuidance, guidanceSizeAlerts, reportGuidanceSize } from "./guidance-budget.js";
 import { currentUserText } from "./recall-injection.js";
 import { GUIDANCE_SECTION_NAME, migrationLineFor, noticeTextFor } from "./guidance-text.js";
+import { REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
 
 /**
  * Build the assemble-waterfall handler for ONE agent. `resolve(cwd)` must be
@@ -179,8 +180,7 @@ const LDVH_PLUGIN_SOURCE = "dsh-ldvh";
  *   · 召回行：`RECALL_SUMMARY` → "双源召回 · dsh-ldvh · 行动前候选"。
  * 它是**已存在的字段**，故判别不需要改生产端、不改变消息形状。
  */
-function isRecallMessage(message, recallSummary) {
-  if (!isOwnMessage(message)) return false;
+function isRecallMessage(message, recallSummary) {  if (!isOwnMessage(message)) return false;
   const summary = message?.source?.summary;
   if (typeof summary !== "string" || typeof recallSummary !== "string") return false;
   return summary === recallSummary;
@@ -263,7 +263,7 @@ function createPluginMessage(text, summary) {
   };
 }
 
-export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, onTurnStart, recallRow, recallSummary } = {}) {
+export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, suppressUngovernedRow, onTurnStart, recallRow, recallSummary, reviewAskRow, reviewAskSummary } = {}) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
   // Channel state lives on the AgentLifecycle object (single per-agent
   // home); fall back to a local state for direct/test usage without one.
@@ -272,6 +272,27 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
   // assemble handler's recordScope). Injected as a visible row when it
   // differs from the last injected digest.
   const getNoticeText = typeof noticeText === "function" ? noticeText : () => null;
+  // suppressUngovernedRow(): 是否**不向对话流注入**「不受辖」的可见行（Human 2026-11-13，方案 A）。
+  //
+  // ## 为什么需要这个开关
+  //
+  // 不受辖时对话流里会出现 `上下文注入 · dsh-ldvh · 本会话不受 LDVH 管辖` 一行。
+  // Human 的诉求是「不受管辖就不该有任何 LDVH 的其他信息」——在一个根本没用
+  // LDVH 的项目里，每开一个会话都看到 LDVH 的痕迹，属噪声。
+  //
+  // ## 为什么不是「彻底不注入」（那不是本开关）
+  //
+  // 系统提示侧的判定（`system-prompt/assemble` 注入的 `【LDVH 管辖判定】`
+  // 那一行）**照旧**——它是给模型的行为约束，不是给人看的信息。删了会让模型
+  // 在不受辖项目里仍可能尝试调 LDVH 工具（工具确实没注册，但会浪费一轮）。
+  // 本开关只关掉**对话流里的可见行**。
+  //
+  // ## 与 2026-09-04 决定的区别（不得混读）
+  //
+  // 那次 Human 否决的是「完全返回空字符串」——连系统提示侧也不给，导致模型
+  // 无从判断、Human 也看不出判定结果。方案 A 保留系统侧，只撤可见行，
+  // **不推翻那次决定**。
+  const shouldSuppressRow = typeof suppressUngovernedRow === "function" ? suppressUngovernedRow : () => false;
   // onTurnStart(): **环境性**检查，每回合第一次 step 跑一次、受管辖时（21 §14
   // 「以及该会话续接本对象」）。它不产出任何上下文行，也不得影响本回合的进行：
   // 抛错只记日志——「会话继续干活」不该被环境检查拦住。
@@ -281,6 +302,18 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
   // 召回是输入侧，失败只记日志，不拦回合（与 runOnTurnStart 同一纪律）。
   const getRecallRow = typeof recallRow === "function" ? recallRow : null;
   const recallLabel = typeof recallSummary === "function" ? recallSummary : () => recallSummary;
+  // reviewAskRow(): 两处把关询问的**行为提示行**（2026-11-13 Human 决定）。
+  //
+  // 它做的事与召回行同类但方向相反：召回行给出「有哪些事实可参考」，本行给出
+  // 「此刻是否该向 Human 提请一次」。返回 `{inject:false, reason}` 或
+  // `{inject:true, text, digest}`——与召回行同一形态，不新增机制。
+  //
+  // **为什么走这一面而不写进引导文本**：`plugin/lib/guidance-text.js` 是
+  // 00 §3.3 的受保护文本（specs/10 §7.6 逐字登记为「插件 AI 面向语义文本」），
+  // 改它须先展示候选、经独立审核并取得 Human 逐段同意。开关是行为面的可配置项，
+  // 不属规则语义，走 pre-step 注入面既不触碰受保护文本，也能随开关热改。
+  const getReviewAskRow = typeof reviewAskRow === "function" ? reviewAskRow : null;
+  const reviewAskLabel = typeof reviewAskSummary === "function" ? reviewAskSummary : () => reviewAskSummary;
   return {
     /** session-start hook: prime the channel (mnemon primePending shape). */
     prime() { state.primePending = true; },
@@ -300,6 +333,9 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       state.injectedIds = new Set();
       state.lastDigest = null;
       state.lastRecallDigest = null;
+      // 把关询问行同属「会随会话视图重置而消失」的注入行，其 digest 台账须一并
+      // 清空——否则 rewind 后旧 digest 仍匹配，行政行永久静默（与召回行同一失效）。
+      state.lastReviewAskDigest = null;
     },
     /**
      * Judgment notice injection (2026-09-04): at the first step of every
@@ -342,7 +378,15 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       // 正确形状：管辖判定行与召回行是**两个独立注入面**（下文注释亦如此声明），
       // 前者未就绪不应连坐后者。故这里不再提前返回，而是用一个「空判定」继续
       // 走流程，仅跳过判定行的注入。
-      const noticeReady = currentNotice !== null && currentNotice !== "";
+      // 不受辖（not_governed / unavailable）且配置要求静默时，**不注入可见行**：
+      // 把 noticeReady 直接判否，后续两个分支都不触发，但召回/把关行的独立
+      // 判定不受影响（它们各自另有 governed 门）。
+      //
+      // 用 `null` 清掉 lastDigest：状态从 governed 切到 ungoverned 时，
+      // 残留的旧 digest 会让下次切回 governed 被判为「没变化」而不重发。
+      const suppressRow = shouldSuppressRow() === true;
+      const noticeReady = currentNotice !== null && currentNotice !== "" && !suppressRow;
+      if (suppressRow) state.lastDigest = null;
       // Loss detection (re-review finding, 2026-09-04; **rewritten 2026-10-19**
       // for friction-41a43496). The digest gate alone meant a rewind to before
       // our row, or a cleared conversation, silently lost the visible notice
@@ -363,7 +407,13 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       //
       // 判据与 `isRecallMessage` 同源：判定行 = 我方消息中**不是**召回行的那些。
       const currentRecallLabel = recallLabel() ?? "双源召回 · 行动前候选";
-      const isNoticeMessage = (message) => isOwnMessage(message) && !isRecallMessage(message, currentRecallLabel);
+      // **把关询问行也必须被排除在「判定行」之外**（2026-11-13）：判定行的判据是
+      // 「我方消息中不是召回行的那些」，若把关行也算进来，下面的原地刷新分支会把
+      // 把关行的正文改写成管辖判定文本——与 2026-10-27 召回行那次串位同一形态。
+      const currentReviewAskLabel = reviewAskLabel() ?? REVIEW_ASK_ROW_SUMMARY;
+      const isNoticeMessage = (message) => isOwnMessage(message)
+        && !isRecallMessage(message, currentRecallLabel)
+        && (message?.source?.summary ?? null) !== currentReviewAskLabel;
       const inBatch = batch.find(isNoticeMessage);
       noteOwnMessages(state, batch);
       const everInjected = state.injectedIds !== undefined && state.injectedIds.size > 0;
@@ -448,6 +498,71 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
             const priorRecall = batch.find((m) => isRecallMessage(m, label));
             if (priorRecall !== undefined) {
               priorRecall.content = [{ type: "text", text: recall.text }];
+            }
+          }
+        }
+      }
+      // 两处把关询问的行为提示行（2026-11-13 Human 决定）。
+      //
+      // **形态与召回行完全同类**（独立注入面 + 自带 digest 去重 + 同批次去重），
+      // 因为它解决的是同一类问题：**让「此刻该做什么」对模型可见**。区别只在
+      // 内容方向——召回行给事实候选，本行给一次待发的提请。
+      //
+      // 它**不产生必停**：开关未开、主控判为不复杂、或读不到开关时都返回
+      // inject:false，回合照常进行（与召回行同一纪律——注入是输入侧，失败不拦）。
+      if (getReviewAskRow !== null) {
+        let askRow = null;
+        try {
+          askRow = await getReviewAskRow({ userText: currentUserText(batch, isOwnMessage) });
+        } catch (error) {
+          agent?.ctx?.logger?.warn?.(`ldvh: review-ask injection failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (askRow !== null && askRow?.inject === true && typeof askRow.text === "string" && askRow.text !== "") {
+          const label = reviewAskLabel() ?? REVIEW_ASK_ROW_SUMMARY;
+          const askAlreadyInBatch = batch.some((message) => {
+            if (!isOwnMessage(message)) return false;
+            if ((message?.source?.summary ?? null) !== label) return false;
+            const existing = Array.isArray(message.content)
+              ? message.content.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("")
+              : "";
+            return existing === askRow.text;
+          });
+          // **只用 digest 去重，不做「行丢失」检测**（2026-11-13 独立审核 MAJOR-1）。
+          //
+          // 上一版我加了 `askRowLost`（digest 未变但本回合批次里没有该行 ⇒ 判定
+          // 行丢失 ⇒ 重发）。**那是错的**：`resetVisibility` 上方那段注释已经把这个
+          // 坑记下来了——「**不用**『本回合批次里没看见行』推断 rewind：批次永远
+          // 看不到历史行，那样推断会把每一次正常轮次都当成 rewind，就是本摩擦的
+          // 成因」（friction-41a43496）。
+          //
+          // 本机探针实测（修复前）：把关行 每回合行数 [1,1,1]（每回合都重复注入）；
+          // 修复后 [1,0,0]（每个内容版本一次）。**正确的先例是上方那条判定行**
+          // ——内容稳定 → 每个内容版本注一次；不是召回行（召回行在生产里内容随
+          // 当次提问变化，几乎每回合都注入一次，[1,0,0] 只是恒定内容探针的产物）。
+          //
+          // **据实声明（00 §4.6）——本条不兜住的情形**：
+          // ① `resetVisibility()` 的权威信号是 `agent/created` 的
+          //    `payload.source ∈ startup|resume|clear|compact`，**rewind 不在这个
+          //    集合里**，故「会话被 rewind 到该行之前」**没有权威信号可依据**——
+          //    本仓规范与宿主能力里都查不到 rewind 这个概念。原 MINOR #6 想防的
+          //    「行为指令静默消失」在当前证据下**无信号可判**，不是已解决。
+          // ② **插件重载会再注一行**：注入台账是进程内状态，重载即清空 → 重载后
+          //    首回合再注一条。真机证据：会话 `session-72aa14f9-f7c1-4a6a-9f79-bb59e4f81d56`
+          //    （25 回合）里判定行出现 7 次、内容逐字相同，且该会话 `agent/created`
+          //    事件数 = 0 ⇒ 重复不是 resetVisibility 造成的，而是重载/状态丢失。
+          //    修复后同一现象仍会发生（只是不再每回合都发生）。
+          // 代价：重载后的重复注入是可见噪声，不是失效——内容相同，Human 多看
+          // 一眼。**故接受，不假装已解决。**
+          if (askRow.digest !== state.lastReviewAskDigest) {
+            state.lastReviewAskDigest = askRow.digest;
+            if (!askAlreadyInBatch) {
+              extras.push(createPluginMessage(askRow.text, label));
+            }
+          } else {
+            // 旧行仍在时刷新内容（与召回行同一形态、同一理由：语料可能已变）。
+            const prior = batch.find((m) => isOwnMessage(m) && (m?.source?.summary ?? null) === label);
+            if (prior !== undefined) {
+              prior.content = [{ type: "text", text: askRow.text }];
             }
           }
         }
