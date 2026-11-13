@@ -12,15 +12,17 @@
 //   - devlog-precheck-create  (effect: read)             — read-only mechanical
 //     precheck of a create candidate; same validator the write path runs.
 //   - devlog-write-object     (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal incl. dedup result) and CAS update with
+//     (AI self-build — no prior Human confirmation, 29 §16 第 1 项; the dedup
+//     conclusion must be recorded in the body 背景 section) and CAS update with
 //     change_log: active→active is 补充级更新 (29 §9.3 细化档 included),
 //     active→absorbed/superseded/dropped are the three terminal transitions.
 //
 // Authorities: specs/05 §6 (operation declaration + common envelope), §9.3
 // (may_change_state), specs/02 §10 (controlled read/create/update, write-back
 // read-back), specs/29 §13/§14.1 (type-specific mechanical checks), specs/29
-// §15/§16 (Human Gate: creation, replacement-grade revision and ALL three
-// terminal transitions are Human decisions — this tool is the mechanical
+// §15/§16 (Human Gate: replacement-grade revision and ALL three terminal
+// transitions are Human decisions — **creation is not** (29 §16 第 1 项, Human
+// 决定 2026-11-13: 创建免事前 Human 确认); this tool is the mechanical
 // carrier, not the decision).
 //
 // WHAT THIS LAYER DOES NOT DO (29 §14.1 semantic rows, specs/00 §4.6): it does
@@ -64,13 +66,13 @@ const OPERATIONS = {
   },
   "devlog-precheck-create": {
     toolName: "ldvh_devlog_precheck_create",
-    summary: "只读机械预检一份 DevLog 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/29 §13 提请前机械预检；与 workcase-precheck-create 同形——同一 validator 的两个入口）",
+    summary: "只读机械预检一份 DevLog 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/29 §13 写入前机械预检；与 workcase-precheck-create 同形——同一 validator 的两个入口）",
     effect: "read"
   },
   "devlog-write-object": {
     toolName: "ldvh_devlog_write",
     writeShaped: true,
-    summary: "Controlled write of DevLog fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; active→active is 补充级更新 (summary 细化档 included, §9.3), active→absorbed/superseded/dropped are terminal and read-only afterwards (specs/02 §10, specs/29 §13)",
+    summary: "Controlled write of DevLog fact objects: create (AI self-build — no prior Human confirmation, 29 §16 第 1 项; the dedup conclusion must be recorded by the caller in the body 背景 section (29 §6.2; not machine-checked)) and CAS update with change_log; active→active is 补充级更新 (summary 细化档 included, §9.3), active→absorbed/superseded/dropped are terminal and read-only afterwards (specs/02 §10, specs/29 §13)",
     effect: "may_change_state"
   }
 };
@@ -189,6 +191,9 @@ async function executeReadObject(args, exec, deps) {
       relations: fm.relations ?? undefined,
       body_valid: value.body_valid,
       mechanical_issues: value.mechanical_issues,
+      // 正文与字段的**差异**单列（29 §8 字段间不变量 1：只报告、不阻断）。
+      // 此前读分支丢掉 writer 已算出的 warnings，使「差异会被报告」在模型侧落空。
+      ...(Array.isArray(value.warnings) && value.warnings.length > 0 ? { diff_warnings: value.warnings } : {}),
       frontmatter: fm,
       body: value.body,
     },
@@ -382,6 +387,10 @@ async function executeWriteObject(args, exec, deps) {
         fingerprint: created.value.fingerprint,
         precheck_fingerprint_bound: expectedFingerprint !== null,
         read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
+        // 正文与字段的差异单列（29 §8 字段间不变量 1：只报告、不阻断）。
+        ...(Array.isArray(created.value.warnings) && created.value.warnings.length > 0
+          ? { diff_warnings: created.value.warnings }
+          : {})
       },
       scope: {
         requested: "create",
@@ -468,9 +477,11 @@ async function executeWriteObject(args, exec, deps) {
 /**
  * Map a writer failure onto the 05 §8 envelope.
  *
- * 29 §16 makes creation, replacement-grade revision and all three terminal
- * transitions Human decisions. A writer refusal is therefore a REJECTION of the
- * request shape, not a judgement that the Human would have said no — the two
+ * 29 §16 keeps replacement-grade revision and all three terminal transitions
+ * as Human decisions; **creation is not one of them** (Human 决定 2026-11-13:
+ * 创建免事前 Human 确认). A writer refusal is therefore a REJECTION of the
+ * request shape — not a judgement that the Human would have said no, and not
+ * (for creation) a judgement on an answer that was never asked for. The two
  * must not be conflated in the envelope.
  */
 export function writeRejected(operationKey, result, factSourceRoot, action) {
@@ -583,7 +594,7 @@ function parameterSchemaFor(operationKey) {
       title: { type: "string", description: "≤ 40 characters; entry short title for locating and Human scanning — does NOT carry the conclusion (29 §8)" },
       status: { type: "string", enum: ["active", "absorbed", "superseded", "dropped"], description: "create must be active (29 §9.2 — the only legal initial state); update may transition active→absorbed/superseded/dropped, all terminal and read-only afterwards" },
       occurred_at: { type: "string", description: "RFC3339 — WHEN THE WORK HAPPENED, not when the entry was written (29 §10.4). Required; must not be later than created_at. Using the recording time here is a defect the mechanical layer cannot detect (29 §15)" },
-      summary: { type: "string", description: "当前语义快照 (29 §8/§9.3): the conclusion itself + its current applicability boundary + confirmed non-holds. Must appear VERBATIM in the 结论与边界 body section (carrier coherence, 29 §8 字段间不变量 1; frontmatter is the single authoritative text — the body only expands it). A 细化档 update (boundary/number refinement, conclusion unchanged) is a supplement-level write; a 替换档 one (loosening/tightening/replacing the conclusion) additionally needs Human confirmation — Code does NOT judge which one it is (29 §15)" },
+      summary: { type: "string", description: "当前语义快照 (29 §8/§9.3): the conclusion itself + its current applicability boundary + confirmed non-holds. Does NOT need to appear verbatim in the 结论与边界 body section — a divergence is reported, not rejected (29 §8 字段间不变量 1; the frontmatter is the index/summary layer and the body expands it). A 细化档 update (boundary/number refinement, conclusion unchanged) is a supplement-level write; a 替换档 one (loosening/tightening/replacing the conclusion) additionally needs Human confirmation — Code does NOT judge which one it is (29 §15)" },
       serves: { type: "string", description: "optional SubGoal object_uid (canonical UUIDv4); must resolve to an active|achieved SubGoal (28 §12.3). Omit when not applicable — an entry without serves has an empty topic and the presentation layer must say so (29 §8.1)" },
       refs: { type: "array", items: { type: "object" }, description: "关联的事实对象引用（29 §8 / §12.3bis；采用面扩展经 Human 决定，02 §8.2）: array of {object_uid} — 目标须为同项目存在且可读的事实对象（**不校验目标状态**——关联是历史事实），上限 10 项，禁重复、禁携带目标标题或关系解释；**只载内容关联**，生命周期关系走 relations、外部资料走 urls、载体内部锚点走 serves；解析失败零写入拒绝，不得降级为空数组；不存在时省略（空数组会伪造一个条件字段）" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=dropped, forbidden otherwise (29 §8)" },
@@ -630,9 +641,9 @@ function parameterSchemaFor(operationKey) {
   return {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["create", "update"], description: "create: new DevLog in status=active (Human decision required, 29 §16); update: CAS write against an existing object" },
+      action: { type: "string", enum: ["create", "update"], description: "create: new DevLog in status=active (no prior Human confirmation — 29 §16 第 1 项; the dedup conclusion must be recorded by the caller in the body 背景 section (29 §6.2; not machine-checked)); update: CAS write against an existing object" },
       frontmatter_draft: devlogFrontmatter,
-      body_markdown: { type: "string", description: "create: the body markdown starting with '## 背景' (H2 sections 背景/做法/实测/结论与边界/去向, all five required, in order, non-empty, and summary must appear VERBATIM in 结论与边界; the H1 is generated from title)" },
+      body_markdown: { type: "string", description: "create: the body markdown starting with '## 背景' (H2 sections 背景/做法/实测/结论与边界/去向, all five required, in order, non-empty; the summary need NOT appear verbatim in 结论与边界 — a divergence is reported, not rejected (29 §8 字段间不变量 1); the 背景 section must record the dedup conclusion (29 §6.2); the H1 is generated from title)" },
       object_uid: { type: "string", description: "update: target object" },
       expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
       frontmatter_after: devlogFrontmatterAfter,

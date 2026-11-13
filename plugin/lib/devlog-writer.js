@@ -459,6 +459,8 @@ export function validateCarrierCoherence(frontmatter, body) {
     warnings.push(carrierCoherenceMessage({
       section: "结论与边界", field: "summary", declared: summary, actual: content,
       clause: "29 §8 字段间不变量 1（只报告不阻断）",
+      // devlog 已取消逐字义务：这条是**差异报告**，不是未满足的要求（复审 N1）。
+      mode: "divergence",
     }));
   }
   return { ok: true, issues: [], warnings };
@@ -845,9 +847,17 @@ async function evaluateCreateCandidate({
     if (!targets.ok) return targets;
   }
 
+  // 29 §8 字段间不变量 1：`summary` 与「结论与边界」段的差异**只报告、不阻断**。
+  // 读路径早已计算（readDevLogObject），但创建与更新路径此前不计算，于是工具
+  // 描述里那句「a divergence is reported」在模型侧从未兑现（复审 N1，2026-11-13）。
+  // 这里补算，使写入路径与读路径对同一条规范给出同一事实。
+  const assembled = assembleBody(frontmatter.title, bodyMarkdown);
+  const coherence = validateCarrierCoherence(frontmatter, assembled);
+
   return success({
     frontmatter,
-    body: assembleBody(frontmatter.title, bodyMarkdown),
+    body: assembled,
+    ...(coherence.warnings.length > 0 ? { warnings: coherence.warnings } : {}),
   });
 }
 
@@ -885,14 +895,22 @@ export async function createDevLogObject(args) {
     }
   }
 
-  const { frontmatter, body } = evaluated.value;
+  const { frontmatter, body, warnings } = evaluated.value;
   const typeDir = join(factSourceRoot, DEVLOG_DIRECTORY);
   await mkdir(typeDir, { recursive: true });
   const filePath = objectFilePath(factSourceRoot, uid);
   const content = buildFileContent(frontmatter, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ object_uid: uid, file: filePath, fingerprint: fileFingerprint(content) });
+  // 29 §8 字段间不变量 1：计算在 evaluateCreateCandidate 里做（预检与写入共用同一
+  // 校验器），此处在写成功载荷时把它带出去，使「差异会被报告」在模型侧成立
+  // （复审 N1，2026-11-13）。
+  return success({
+    object_uid: uid,
+    file: filePath,
+    fingerprint: fileFingerprint(content),
+    ...(Array.isArray(warnings) && warnings.length > 0 ? { warnings } : {}),
+  });
 }
 
 /** Deterministic fingerprint of a create candidate (29 §13 双入口一致性). */
@@ -909,7 +927,7 @@ function stableStringify(value) {
 }
 
 /**
- * Read-only mechanical precheck for a DevLog create candidate (29 §13 提请前
+ * Read-only mechanical precheck for a DevLog create candidate (29 §13 写入前
  * 机械预检). Touches nothing; mints no identity; runs the SAME validator the
  * write path runs.
  */
@@ -1173,12 +1191,21 @@ export async function updateDevLogObject(args) {
   if (!bodyCheck.ok) {
     return failure("devlog/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
+  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：**只报告、不阻断**——
+  // 差异须真的被报告，故此处计算并随成功载荷回传（复审 N1，2026-11-13；此前
+  // 「不计算」使工具描述与规范 §8 不变量 1 的承诺落空）。
+  const coherence = validateCarrierCoherence(next, body);
 
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition });
+  return success({
+    object_uid: objectUid,
+    file: filePath,
+    fingerprint: fileFingerprint(content),
+    transition,
+    ...(coherence.warnings.length > 0 ? { warnings: coherence.warnings } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------

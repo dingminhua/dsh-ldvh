@@ -850,3 +850,95 @@ test("the index projection carries refs so the list card can render associations
 		assert.deepEqual(holder.refs, [{ object_uid: target.object_uid }]);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// 复审 N1（2026-11-13）：29 §8 字段间不变量 1 说「差异由读回与诊断层如实报告」。
+// 此前只有读路径算这条差异，创建与更新都不算，且工具层还把读到的 warnings 丢掉
+// ——于是模型侧读到的工具描述（"a divergence is reported"）从未兑现。
+// 这三条断言钉住「三条路径都报告，且不阻断」。
+// ---------------------------------------------------------------------------
+
+const DIVERGENT_SUMMARY = "摘要句与正文结论不同（用于验证差异报告）";
+const bodyDivergent = () => [
+	"## 背景", "", "背景，含查重结论：已比对既有条目，结论为不重复。",
+	"## 做法", "", "做法。",
+	"## 实测", "", "实测。",
+	"## 结论与边界", "", "正文这里写的是另一句话，故意与 summary 不一致。",
+	"## 去向", "", "去向。",
+].join("\n");
+
+test("create reports a summary/正文 divergence without blocking the write (29 §8 不变量 1; 复审 N1)", async () => {
+	await withTemp("ldvh-devlog-", async (base) => {
+		const root = await freshRoot(base);
+		const created = await createDevLogObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "差异报告：创建", status: "active", occurred_at: "2026-01-01T00:00:00.000Z", summary: DIVERGENT_SUMMARY },
+			bodyMarkdown: bodyDivergent(),
+			sessionSignature: SIG,
+		});
+		assert.equal(created.ok, true, created.ok ? "" : `${created.error.code}: ${created.error.message}`);
+		assert.equal(Array.isArray(created.value.warnings), true, "create must surface the divergence");
+		assert.equal(created.value.warnings.length, 1);
+		// **不阻断**：文件确实落盘了。
+		const readBack = await readDevLogObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+		assert.equal(readBack.ok, true);
+	});
+});
+
+test("read reports the same divergence the write reported (29 §8 不变量 1; 复审 N1)", async () => {
+	await withTemp("ldvh-devlog-", async (base) => {
+		const root = await freshRoot(base);
+		const created = await createDevLogObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "差异报告：读回", status: "active", occurred_at: "2026-01-01T00:00:00.000Z", summary: DIVERGENT_SUMMARY },
+			bodyMarkdown: bodyDivergent(),
+			sessionSignature: SIG,
+		});
+		assert.equal(created.ok, true);
+		const readBack = await readDevLogObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+		assert.equal(Array.isArray(readBack.value.warnings), true, "read must surface the divergence");
+		assert.deepEqual(readBack.value.warnings, created.value.warnings, "write and read must agree on the same fact");
+	});
+});
+
+test("update reports the divergence too (29 §8 不变量 1; 复审 N1)", async () => {
+	await withTemp("ldvh-devlog-", async (base) => {
+		const root = await freshRoot(base);
+		const created = await createDevLogObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "差异报告：更新", status: "active", occurred_at: "2026-01-01T00:00:00.000Z", summary: DIVERGENT_SUMMARY },
+			bodyMarkdown: bodyDivergent(),
+			sessionSignature: SIG,
+		});
+		assert.equal(created.ok, true);
+		const updated = await updateDevLogObject({
+			factSourceRoot: root,
+			objectUid: created.value.object_uid,
+			expectedFingerprint: created.value.fingerprint,
+			sessionSignature: SIG,
+			changeSummary: "补充实测",
+			frontmatterAfter: { summary: DIVERGENT_SUMMARY },
+			bodyMarkdownAfter: `# 差异报告：更新\n\n${bodyDivergent().replace("实测。", "实测，补充一句。")}`,
+		});
+		assert.equal(updated.ok, true, updated.ok ? "" : `${updated.error.code}: ${updated.error.message}`);
+		assert.equal(Array.isArray(updated.value.warnings), true, "update must surface the divergence");
+	});
+});
+
+test("the divergence message does not read as a blocking requirement (复审 N1 的同一类缺陷)", async () => {
+	await withTemp("ldvh-devlog-", async (base) => {
+		const root = await freshRoot(base);
+		const created = await createDevLogObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "差异报告：措辞", status: "active", occurred_at: "2026-01-01T00:00:00.000Z", summary: DIVERGENT_SUMMARY },
+			bodyMarkdown: bodyDivergent(),
+			sessionSignature: SIG,
+		});
+		assert.equal(created.ok, true);
+		const message = created.value.warnings[0];
+		// 29 §8 不变量 1 已取消逐字义务：消息不得再断言 must/verbatim，
+		// 否则读者会去改一篇本来合法的正文。
+		assert.doesNotMatch(message, /must contain|verbatim/);
+		assert.match(message, /NOT blocking|reported/i);
+	});
+});
