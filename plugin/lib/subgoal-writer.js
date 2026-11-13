@@ -43,7 +43,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter } from "./after-integrity.js";
+import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
 import { readGoalObject } from "./goal-writer.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -201,6 +201,14 @@ export function validateSubGoalFrontmatter(frontmatter) {
   }
   if (!Array.isArray(frontmatter.change_log) || frontmatter.change_log.length === 0) {
     issues.push("change_log: exactly one entry is appended per actual modification; at least one required");
+  } else {
+    // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
+    for (const [i, entry] of frontmatter.change_log.entries()) {
+      if (typeof entry !== "object" || entry === null) continue;
+      if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
+        issues.push(`change_log[${i}].summary: required non-empty (02 §10.5: 摘要缺失或为空时，写入不成立)`);
+      }
+    }
   }
 
   return { ok: issues.length === 0, issues };
@@ -714,7 +722,8 @@ export async function updateSubGoalObject(args) {
     return failure("invalid_request", "factSourceRoot is required");
   }
   if (!assertValidUid(objectUid)) {
-    return failure("subgoal/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}`);
+    const hint = uidRejectionHint(objectUid);
+    return failure("subgoal/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}${hint.messageSuffix}`, hint.details);
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("subgoal/change_summary_required", "changeSummary is required for update (02 §10.5: exactly one change_log entry per actual modification)");

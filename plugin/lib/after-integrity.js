@@ -27,7 +27,14 @@
  *
  * specs/02 :333 禁止的是**未定义的**差量 merge；本形态的声明集由 Object.hasOwn
  * 精确定义，其产物即「完整目标 after」，不在禁令之列。
+ *
+ * 本模块另提供**一处** uid 拒绝诊断助手（`uidRejectionHint`）：九个 writer 的
+ * 写路径 uid 门口径相同（只接受 canonical UUIDv4），拒绝信息若只说「不是
+ * UUID」，调用方拿不到「照抄什么就能过」。诊断文案与形态判定由本模块统一
+ * 计算，schema 与 writer 不可能漂移。
  */
+
+import { parseObjectIdentifier } from "./object-identifier.js";
 
 /**
  * Code 托管字段：永远由 writer 重设，既不得经 after 覆盖、也不得经 removals 删除。
@@ -138,11 +145,15 @@ export function buildUpdateFrontmatter({
 }
 
 /**
- * 更新路径的 schema 描述口径（三向声明），供各 per-type tools 复用，
+ * 更新路径的 schema 描述口径（继承基线 / 显式删除通道），供各 per-type tools 复用，
  * 避免 7 处文案各自漂移。
+ *
+ * **口径说明**：本模块实现的形态是「磁盘基线 + 显式声明变更 + 显式删除通道」三路
+ * ——未在通道内重述的字段**继承基线**，需要删除的字段**只经 `frontmatter_removals`
+ * 显式声明**。「省略即删除」不是本模块的语义。
  */
 export const FRONTMATTER_AFTER_DESCRIPTION =
-  "update: the fields to CHANGE (三向声明 / specs/02 §10.5 实现对齐). "
+  "update: the fields to CHANGE (specs/02 §10.5 实现对齐). "
   + "Declare ONLY the fields you are changing — every field you omit is INHERITED from the on-disk baseline, "
   + "not deleted (省略即保留). To delete a field, list it in `frontmatter_removals` instead — "
   + "「after 不带该键」不再表示删除（省略即删除的旧语义已反转）. "
@@ -155,3 +166,48 @@ export const FRONTMATTER_REMOVALS_DESCRIPTION =
   + "A field may not appear in both `frontmatter_after` and `frontmatter_removals`.";
 
 export { CODE_MANAGED_FIELDS };
+
+// ---------------------------------------------------------------------------
+// 写路径 uid 严格门的拒绝诊断（只增诊断，不改判定）
+// ---------------------------------------------------------------------------
+
+/**
+ * 写路径 uid 严格门拒绝时，给出「照抄什么就能过」的可操作诊断。
+ *
+ * **门禁判定不变**：本函数不参与放行/拒绝判定，只产出 details 与 message 后缀。
+ * 写路径只接受 canonical UUIDv4（既定边界，不放宽）；但调用方常传
+ * `<type>-<uuid>` 这类形态，被拒时只得到一句「不是 UUID」——不知道该传什么，
+ * 于是反复试（实测受控写入 47% 硬失败，最大一类即此）。
+ *
+ * **只做纯形态解析**（`parseObjectIdentifier`）：不读文件、不做载体反查。
+ * 因此短标识形态（`<type>-<8hex>` 等）无法给出 canonical uid——反查要触事实源，
+ * 属额外 IO，故**不回带**，只在 message 里提示改用完整 canonical UUIDv4。
+ *
+ * @param {string} rawInput 调用方原始输入（未经归一）。
+ * @returns {{details: {canonical_object_uid?: string, identifier_form?: string},
+ *            messageSuffix: string}}
+ */
+export function uidRejectionHint(rawInput) {
+  const parsed = parseObjectIdentifier(rawInput);
+  if (!parsed.ok) {
+    // 形态都认不出 → 无据可依，维持原 message 不变（不猜）。
+    return { details: {}, messageSuffix: "" };
+  }
+  const { objectUid, shortId, declaredType, projectId } = parsed.value;
+  if (objectUid !== undefined) {
+    // 形态 1（裸 UUID）/ 形态 2（`<type>-<uuid>`）/ 形态 4（`<projectId>@…`）：
+    // uuid 部分本身就是 canonical，可直接照抄。
+    const identifier_form = projectId !== undefined
+      ? (declaredType !== undefined ? "project_scoped_type_prefixed_uuid" : "project_scoped_uuid")
+      : (declaredType !== undefined ? "type_prefixed_uuid" : "bare_uuid");
+    return {
+      details: { canonical_object_uid: objectUid, identifier_form },
+      messageSuffix: ` — the canonical object_uid for this identifier is "${objectUid}"; pass that value verbatim as object_uid`,
+    };
+  }
+  // 短标识形态：canonical uid 需载体反查才能确定（额外 IO），故不回带。
+  return {
+    details: {},
+    messageSuffix: ` — "${shortId}" is a short identifier; the write path requires the FULL canonical UUIDv4 — read the object first and pass its object_uid`,
+  };
+}

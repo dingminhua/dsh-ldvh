@@ -38,7 +38,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter } from "./after-integrity.js";
+import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -176,6 +176,17 @@ export function validatePitfallFrontmatter(frontmatter) {
     }
   } else if (frontmatter.disposition !== undefined) {
     issues.push(`disposition: must not be present when status=${frontmatter.status} (23 §8: disposition ⇔ discarded)`);
+  }
+
+  // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
+  // 只核已存在的条目，不要求 change_log 本身存在（存量载体的该字段由写入方保证）。
+  if (Array.isArray(frontmatter.change_log)) {
+    for (const [i, entry] of frontmatter.change_log.entries()) {
+      if (typeof entry !== "object" || entry === null) continue;
+      if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
+        issues.push(`change_log[${i}].summary: required non-empty (02 §10.5: 摘要缺失或为空时，写入不成立)`);
+      }
+    }
   }
 
   return { ok: issues.length === 0, issues };
@@ -535,7 +546,8 @@ export async function updatePitfallObject(args) {
     return failure("pitfall/change_summary_required", "changeSummary is required for update");
   }
   if (!assertValidUid(objectUid)) {
-    return failure("pitfall/invalid_uid", "objectUid must be a valid UUID");
+    const hint = uidRejectionHint(objectUid);
+    return failure("pitfall/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
   }
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter is required (the complete target body starting with '## 症状')");

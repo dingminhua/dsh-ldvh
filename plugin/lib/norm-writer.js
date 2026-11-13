@@ -44,7 +44,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter } from "./after-integrity.js";
+import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
 import { ID_PATTERN } from "./spec-registry.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -173,6 +173,17 @@ export function validateNormFrontmatter(frontmatter) {
   // by the closed set above; this is the explicit statement of the red line.
   if (frontmatter.relations !== undefined) {
     issues.push("relations: Norm does not use the relations field (27 §9)");
+  }
+
+  // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
+  // 只核已存在的条目，不要求 change_log 本身存在（存量载体的该字段由写入方保证）。
+  if (Array.isArray(frontmatter.change_log)) {
+    for (const [i, entry] of frontmatter.change_log.entries()) {
+      if (typeof entry !== "object" || entry === null) continue;
+      if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
+        issues.push(`change_log[${i}].summary: required non-empty (02 §10.5: 摘要缺失或为空时，写入不成立)`);
+      }
+    }
   }
 
   return { ok: issues.length === 0, issues };
@@ -502,7 +513,8 @@ export async function updateNormObject(args) {
     return failure("invalid_request", "factSourceRoot is required");
   }
   if (!assertValidUid(objectUid)) {
-    return failure("norm/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}`);
+    const hint = uidRejectionHint(objectUid);
+    return failure("norm/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}${hint.messageSuffix}`, hint.details);
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("norm/change_summary_required", "changeSummary is required for update (specs/02 :331: exactly one change_log entry per actual modification)");

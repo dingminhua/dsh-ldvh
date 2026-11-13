@@ -45,7 +45,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter } from "./after-integrity.js";
+import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { listResolvableSubGoals, resolveSubGoal } from "./subgoal-writer.js";
@@ -346,6 +346,17 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
       // 20 §9.1: the terminal reason is a scannable locator, not the full
       // disposal record. Reject rather than truncate.
       issues.push(`disposition: must be ≤ ${MAX_DISPOSITION_LENGTH} characters (20 §9.1), got ${frontmatter.disposition.length}`);
+    }
+  }
+
+  // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
+  // 只核已存在的条目，不要求 change_log 本身存在（存量载体的该字段由写入方保证）。
+  if (Array.isArray(frontmatter.change_log)) {
+    for (const [i, entry] of frontmatter.change_log.entries()) {
+      if (typeof entry !== "object" || entry === null) continue;
+      if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
+        issues.push(`change_log[${i}].summary: required non-empty (02 §10.5: 摘要缺失或为空时，写入不成立)`);
+      }
     }
   }
 
@@ -1198,7 +1209,8 @@ export async function updateSparkObject(args) {
     return failure("spark/change_summary_required", "changeSummary is required for update");
   }
   if (!assertValidUid(objectUid)) {
-    return failure("spark/invalid_uid", "objectUid must be a valid UUID");
+    const hint = uidRejectionHint(objectUid);
+    return failure("spark/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
   }
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter is required (the complete target body starting with '## 当前理解')");

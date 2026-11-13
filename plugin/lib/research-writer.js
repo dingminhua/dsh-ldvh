@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter } from "./after-integrity.js";
+import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, h3TitlesInSection, sectionContent } from "./markdown-structure.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -245,6 +245,17 @@ export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing
     const hasUpdates = (frontmatter.relations ?? []).some((r) => r?.relation_key === "updates");
     if (!hasUpdates) {
       issues.push("lifecycle: retirement_reason=superseded requires at least one updates relation in relations[] pointing to the replacement Research");
+    }
+  }
+
+  // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
+  // 只核已存在的条目，不要求 change_log 本身存在（存量载体的该字段由写入方保证）。
+  if (Array.isArray(frontmatter.change_log)) {
+    for (const [i, entry] of frontmatter.change_log.entries()) {
+      if (typeof entry !== "object" || entry === null) continue;
+      if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
+        issues.push(`change_log[${i}].summary: required non-empty (02 §10.5: 摘要缺失或为空时，写入不成立)`);
+      }
     }
   }
 
@@ -568,7 +579,8 @@ export async function correctResearchObject(args) {
   if (!sig.ok) return failure(sig.code, sig.message);
 
   if (!assertValidUid(objectUid)) {
-    return failure("research/invalid_uid", "objectUid must be a valid UUID");
+    const hint = uidRejectionHint(objectUid);
+    return failure("research/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
   }
   if (typeof changeSummary !== "string" || changeSummary.trim().length === 0) {
     return failure("research/change_summary_required", "changeSummary is required for correct");
@@ -882,11 +894,12 @@ export async function createResearchObject(args) {
   frontmatter.object_uid = uid;
   frontmatter.fact_type_key = RESEARCH_TYPE_KEY;
   frontmatter.created_at = now;
-  // 24 §9 invariant 9: when creating with status=retired, Code still must NOT
-  // (24 §9: "初态只能是 active"; create must be active). Reject explicitly to
-  // make the contract visible at the create boundary.
-  if (frontmatter.status === "retired") {
-    return failure("research/initial_state_violation", "create must initialise as status=active; retired is a transition, not an initial state (24 §9)");
+  // 24 §9 invariant 9: 初态只能是 active — retired 是**转换**，不是初态；
+  // 其余任何显式取值（draft 等）同样不是合法初态。此前只拒 retired，其余取值
+  // 被静默覆盖为 active——那会把「调用方写错了状态」读成「系统纠正了状态」，
+  // 与其余九个类型一律拒绝非法初态的口径不一致（各自报 <type>/initial_state_violation）。
+  if (frontmatter.status !== undefined && frontmatter.status !== "active") {
+    return failure("research/initial_state_violation", `create must initialise as status=active; got ${JSON.stringify(frontmatter.status)} (24 §9: 初态只能是 active；retired 是转换，不是初态)`);
   }
   frontmatter.status = "active";
   frontmatter.change_log = [{
@@ -1054,7 +1067,8 @@ export async function updateResearchObject(args) {
     return failure("research/change_summary_required", "changeSummary is required for update");
   }
   if (!assertValidUid(args.objectUid)) {
-    return failure("research/invalid_uid", "objectUid must be a valid UUID");
+    const hint = uidRejectionHint(args.objectUid);
+    return failure("research/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
   }
 
   const current = await readResearchObject({ factSourceRoot, objectUid });

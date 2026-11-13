@@ -37,7 +37,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter } from "./after-integrity.js";
+import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
 import { readNormObject } from "./norm-writer.js";
@@ -215,6 +215,17 @@ export function validateAdrFrontmatter(frontmatter) {
     }
     if (typeof frontmatter.retired_at !== "string" || frontmatter.retired_at.length === 0) {
       issues.push("retired_at: required non-empty when status=retired (Code-assigned — AI must not supply, 22 §8)");
+    }
+  }
+
+  // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
+  // 只核已存在的条目，不要求 change_log 本身存在（存量载体的该字段由写入方保证）。
+  if (Array.isArray(frontmatter.change_log)) {
+    for (const [i, entry] of frontmatter.change_log.entries()) {
+      if (typeof entry !== "object" || entry === null) continue;
+      if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
+        issues.push(`change_log[${i}].summary: required non-empty (02 §10.5: 摘要缺失或为空时，写入不成立)`);
+      }
     }
   }
 
@@ -688,7 +699,8 @@ export async function updateAdrObject(args) {
     return failure("adr/change_summary_required", "changeSummary is required for update");
   }
   if (!assertValidUid(objectUid)) {
-    return failure("adr/invalid_uid", "objectUid must be a valid UUID");
+    const hint = uidRejectionHint(objectUid);
+    return failure("adr/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
   }
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter is required (the complete target body starting with '## 决策背景')");
@@ -835,7 +847,8 @@ export async function correctAdrObject(args) {
   if (!sig.ok) return failure(sig.code, sig.message);
 
   if (!assertValidUid(objectUid)) {
-    return failure("adr/invalid_uid", "objectUid must be a valid UUID");
+    const hint = uidRejectionHint(objectUid);
+    return failure("adr/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
   }
   if (typeof changeSummary !== "string" || changeSummary.trim().length === 0) {
     return failure("adr/change_summary_required", "changeSummary is required for correct (the change_log summary)");
