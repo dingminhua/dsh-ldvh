@@ -88,17 +88,17 @@ export function requireAuthoritativeSignature(carrier, { context = "change_log e
 }
 
 // ---------------------------------------------------------------------------
-// Authoritative SESSION IDENTITY channel (WorkCase 关闭侧身份比对)
+// Authoritative SESSION IDENTITY channel（独立复核侧身份比对）
 // ---------------------------------------------------------------------------
 //
-// 需求来源：`workcase-2be11478`（Human 2026-09-19 裁定）——WorkCase 关闭前必须存在
-// 至少一条由**独立于实施者的会话**产出的复核记录，低风险工单不豁免。
+// 需求来源（Human 2026-09-19 裁定）：收口前必须存在至少一条由**独立于实施者的
+// 会话**产出的复核记录，低风险亦不豁免。
 //
 // 为什么不能复用 provider/model 署名：`resolveAuthoritativeSignature` 的值取自会话
 // **路由**记录（session-signature.js 尾读 `model/selection`/`request/context`），它是
 // 「这次跑在哪个 provider/model 上」，不是「这是哪个会话」。同一路由下的两个不同
-// 会话会盖出**完全相同**的署名——实测为证：`workcase-4005b67b`（2026-09-17 另一会话
-// 写入）与 `workcase-2be11478`（2026-09-19 本会话）的署名同为
+// 会话会盖出**完全相同**的署名——实测为证：两个不同会话（2026-09-17 与 2026-09-19）
+// 的署名同为
 // `provider: workbuddy, model: deepseek-v4.1-flash`。故署名**不能**支撑「复核者 ≠
 // 实施者」的比对，必须另立身份通道。
 //
@@ -124,7 +124,7 @@ export function requireAuthoritativeSignature(carrier, { context = "change_log e
  * 调用）是**可设置的**。实测：`DSH_SESSION_JSONL=/tmp/forged.jsonl`（内容仅一行
  * `{"type":"session","id":"session-ANYTHING"}`）即铸出**真品牌**身份，无需 import 本
  * 工厂。故 `"shell"` 来源的身份**可被实施者伪造**，不能作为关闭侧独立性的证据；
- * WorkCase 写入器对复核身份只接受 `"host"` 来源（见 workcase-writer 的关闭门禁）。
+ * 写入器对复核身份只接受 `"host"` 来源（见关闭门禁）。
  *
  * 本字段不改「品牌」纪律（普通对象/字符串仍解析为 null），只是把 shell 通道的
  * **可信度上限**如实标出——原注释「刻意伪造者需要 import 本工厂本身」是**过度声明**，
@@ -142,7 +142,7 @@ function identityRecord({ sessionId, source = null, origin = null, parentSession
 
 /**
  * Tools-layer factory: wrap a session-identity record into the branded carrier
- * the WorkCase writer accepts for `attempt.session_id` / `reviews[].session_id`.
+ * writers accept for `attempt.session_id` / `reviews[].session_id`.
  * Returns null for anything that is not a usable identity — the caller then
  * omits it (and the close gate fails closed rather than guessing).
  */

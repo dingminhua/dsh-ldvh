@@ -38,7 +38,7 @@ test('UID relation targets remain visible as stable references', () => {
 
 test('a uniquely resolved UID relation keeps UID authority and a separate detail locator', () => {
   const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
-  const resolvedTarget = { governedProjectId: 'sample', factTypeKey: 'workcase', objectId: 'workcase-0002' };
+  const resolvedTarget = { governedProjectId: 'sample', factTypeKey: 'adr', objectId: 'adr-0002' };
   const projected = projectFactReadingAssociations({
     relations: [{ relation_key: 'related-to', target: { object_uid: objectUid } }],
     factAssociations: [{ target: { objectUid }, resolvedTarget, available: true }],
@@ -47,7 +47,7 @@ test('a uniquely resolved UID relation keeps UID authority and a separate detail
     originPath: 'relations[0]', relationKey: 'related-to', target: { objectUid }, resolvedTarget,
   }]);
   assert.deepEqual(groupRelationsByTargetType(projected.relations), [{
-    factTypeKey: 'workcase', relations: projected.relations,
+    factTypeKey: 'adr', relations: projected.relations,
   }]);
 });
 
@@ -89,7 +89,7 @@ test('commit-form targets project as relations, not unresolved (02 §8.1 commit 
 
 test('commit-form targets pick up the projected commit subject (08 §5: 定位符不当内容)', () => {
   const commit = 'e4e178fd7e3293f47003ed0150ab1128cc6ae0ef';
-  const subject = 'fix(workcase): 修正正文结构校验——open 工单可携带结果节（Friction bf73fad4）';
+  const subject = 'fix(parser): 修正正文结构校验——open 对象可携带结果节（Friction bf73fad4）';
   const projected = projectFactReadingAssociations({
     relations: [{ relation_key: 'informs', target: { commit } }],
     factAssociations: [{

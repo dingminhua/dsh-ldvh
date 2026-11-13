@@ -9,7 +9,7 @@
  *
  * 只有净检出（clone / worktree / CI）才会暴露：
  *     import('plugin/lib/adr-tools.js') → ERR_MODULE_NOT_FOUND
- * 而且断的不止一个模块：spark-tools / pitfall-tools / workcase-tools 都 import 它，
+ * 而且断的不止一个模块：spark-tools / pitfall-tools 都 import 它，
  * 四个模块一起起不来。
  *
  * 现有测试全绿也报不出来：它们跑在**同一个工作树**里，同样能读到那个未跟踪

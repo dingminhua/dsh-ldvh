@@ -70,7 +70,7 @@ import { COMPLEXITY_CRITERIA, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
  *
  * 判据来自 04 §6.1，**不是新造**。但其中两部分性质不同：**三条正面是
  * 条文原文**；**五条排除的取反是据此推导的判据，不是条文原文**（该节只列排除清单，
- * 规范里没有正面规定「什么情况该建工单」——2026-11-13 逐条核对原文后的更正）。
+ * 规范里没有正面规定「什么情况算复杂任务」——2026-11-13 逐条核对原文后的更正）。
  * 此处抄的是**判据清单**而非规则正文
  * ——10 §5.3 的「不复制第二份规则源」针对的是把规范条文整体搬进引导面形成第二
  * 权威；一份标明出处的判据清单是让 AI 能据此判断的**必要输入**，与召回行列出
@@ -90,7 +90,7 @@ export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown
   const lines = [
     // 正文首行也**不写插件名**：这一行展开后仍挂在「上下文注入 · dsh-ldvh」之下，
     // 再写一遍就是同一行里第三次重复（折叠标签已去掉，此处同步）。
-    "两处提请的开关状态（Human 2026-11-13 决定：取消工单，改为「要不要安排代理」两问）",
+    "两处提请的开关状态（Human 2026-11-13 决定：改为「要不要安排代理」两问）",
   ];
   // 开关状态四态：**已开启 / 关闭（Human 关掉）/ 未设置（取不到，按关处理）**。
   //
@@ -681,7 +681,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // Host goal service (specs/10 §5.8, specs/21 §14 「宿主推进目标」): the
           // getter is passed rather than a resolved value, so a composition
           // without the service yields `undefined` at call time and the
-          // WorkCase write points fail closed instead of skipping the goal.
+          // Write points fail closed instead of skipping the goal.
           goals: () => ctx.get("goals"),
           // Delegation chain: the children Map is the data source for
           // ldvh_collect_subagent_results. Without it that tool is skipped by
@@ -699,7 +699,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 设置**的可信事实——工具层据此代其落盘复核条目，使「开启代理做独立
           // 审核」在机械上真正可行。
           lookupChild,
-          // 建前审核的自动派生（21 §14 Gate 1 前置，2026-11-04）：create 成功后由
+          // 建前审核的自动派生（行动前请示前置，2026-11-04）：create 成功后由
           // 插件直接派生零上下文子代理做审核，而不是等主控自觉。「闸只拒绝、不推动」
           // 是实测到的失效面——主控建完 draft 直接跳到处置，整个审核环节被跳过。
           // 取不到该服务时自动派生的结果为 unavailable，如实报告而非静默降级。
@@ -1100,7 +1100,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           });
         },
         recallSummary: () => RECALL_SUMMARY,
-        // 两处把关询问的行为提示行（2026-11-13 Human 决定：取消工单→改问是否
+        // 两处把关询问的行为提示行（2026-11-13 Human 决定：改问是否
         // 安排代理审查／复核，各由设置开关控制，打开才有）。
         //
         // **它只提示、不代问**：询问本身必须由主控经 `ldvh_review_ask` 发起

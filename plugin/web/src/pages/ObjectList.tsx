@@ -63,7 +63,7 @@ function sparkPrioritySortRank(priority: unknown): number {
 }
 
 /** Shared vertical rhythm between a semantic card title and its first body block. */
-const WORKCASE_CARD_TITLE_BODY_GAP_CLASS = 'mt-1.5';
+const CARD_TITLE_BODY_GAP_CLASS = 'mt-1.5';
 
 function statusRequiresDisposition(obj: ObjectItem): boolean {
   return obj.status === 'retired'
@@ -170,7 +170,7 @@ export function ObjectCardFrame({
   const activityCount = Array.isArray(obj.change_log) ? obj.change_log.length : 0;
   // 状态徽标文案（含「待批准执行 · 待审核」后缀）。判据收敛在
   // `getObjectStatusDisplayLabel` 单一入口——列表卡与聚焦卡、详情头必须同源，
-  // 否则同一工单在不同呈现面说法不同（2026-10-17 实测发生）。
+  // 否则同一对象在不同呈现面说法不同（2026-10-17 实测发生）。
   const cardStatusLabel = getObjectStatusDisplayLabel(obj.type, presentedStatus, locale, obj.pre_audit_passed);
   const nonActiveReason = getNonActiveReason(obj, t);
   return (
@@ -197,7 +197,7 @@ export function ObjectCardFrame({
               序，关联对象由卡体 FactAssociationsCardContent 承载。
 
               **2026-11-01（Human 定案）：`serves` 子目标 chip 已从卡头撤除**
-              （原位置就在 PriorityIcon 之后）。子目标是承载体，spark 与工单挂
+              （原位置就在 PriorityIcon 之后）。子目标是承载体，spark 挂
               到它上面只是归属引用——「这条属于哪个子目标」由子目标详情页正向
               回答，卡头不再承担。`serves` 字段本身保留（25 §9 / 21 §10.3 /
               子目标反查 / 召回四处消费）。 */}
@@ -228,7 +228,7 @@ export function ObjectCardFrame({
           </span>
           {/* 10 §5.5（Human 裁定 2026-09-30，二次修订）：`outcome` **不再**在此处单列一枚
               徽标——它与状态词**合并**成一枚放在右侧（见 `ObjectIdentityActions` 的
-              `statusBadge`）。此前本处挂过 `WorkCaseOutcomeBadge`（已删除）。 */}
+              `statusBadge`）。 */}
           {obj.sourceBranch && (
             <span className={`ldvh-chip-sm gap-1 ${LDVH_WARN_CHIP_HUE_CLASS}`}>
               {t('objectList.sourceBranch', { branch: obj.sourceBranch })}
@@ -336,12 +336,12 @@ function SparkTerminalCardContent({ obj }: { obj: ObjectItem }) {
  * 行与行之间 `divide-y`——**没有标题、没有块边框、没有底色**。
  *
  * 为什么无标题（反向引用块沿用同款区域）：行本身**自描述**——类型图标（13px、类型色）
- * 说出这是什么类型的对象，行末状态图标说出它的状态；标题（旧「声明引用此工单的对象」）
+ * 说出这是什么类型的对象，行末状态图标说出它的状态；标题（旧「声明引用此对象的对象」）
  * 是一句规范腔长句，不增加行所没有的信息，反而制造命名难题（任何概括词都要么太长、
  * 要么冒领方向语义——如误写成「转入 Spark」会宣称承接关系）。无标题即无冒领面。
  *
  * 为什么导出为常量（单一来源纪律，`10 §5.5`）：Spark 卡（本文件的
- * `FactAssociationsCardContent`）与 WorkCase 已关闭卡（`WorkCaseClosedSummary` 的
+ * `FactAssociationsCardContent`）与已关闭卡（关闭汇总的
  * 反向引用行）呈现的是**同一类信息**（指向别的对象的行）。两处各写一份类名时，改
  * 一处另一处必然漂移——与行式收敛到 `FactAssociationCardRow` 是同一条纪律，故区域
  * 类名同样单点给出。
@@ -440,7 +440,7 @@ export function PitfallCardContent({ obj }: { obj: ObjectItem }) {
           <h3 className={`ldvh-card-decision-title ${DECISION_TITLE_HUE_CLASS.amber}`}>
             {getFieldLabel(field, locale)}
           </h3>
-          <div className={`${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} min-w-0 break-words`}>
+          <div className={`${CARD_TITLE_BODY_GAP_CLASS} min-w-0 break-words`}>
             <SummaryText
               value={value}
               collapseThreshold={420}
@@ -599,8 +599,8 @@ export function NormCardContent({ obj }: { obj: ObjectItem }) {
  *
  * ## 承载面染本类型的色（Human 定案 2026-11-02：「要和类型的颜色对上」）
  *
- * 这个块起初复用 `WORKCASE_CRITERIA_SURFACE_CLASS` 的**整面**（含蓝）——那是 2026-11-02
- * 早先「对齐 workcase」时照抄的结果，但蓝是 WorkCase 自己的类型色。DevLog 当时的类型色是
+ * 这个块起初复用另一类型判据面的**整面**样式（含蓝）——那是 2026-11-02
+ * 早先「对齐判据面」时照抄的结果，但蓝是某个类型自己的类型色。DevLog 当时的类型色是
  * magenta `#ca21a0`，卡头那枚「开发日志」chip 是品红、块却是蓝的，同一张卡上两个色相
  * 各说各话（该类型色已于 2026-11-03 改为青绿 `#2c9e43`，本段的色相名字仍是历史记录）。
  * 现在几何仍取 `"min-w-0 rounded-lg border px-3 py-2"`（四边同宽 1px、8px 圆角、
@@ -690,7 +690,7 @@ function SubGoalTerminalCardContent({ obj }: { obj: ObjectItem }) {
 
 /**
  * 子目标卡的**关联区**（Human 决定 2026-11-02：「当前的子目标的 card，需要学习
- * spark 的 card 可以挂载关联对象，关联的对象按 spark 和 workcase 分层，每个类型
+ * spark 的 card 可以挂载关联对象，关联的对象按类型分层，每个类型
  * 最多展现 3 个，其他的要可以收起展开」）。
  *
  * 数据是 28 §8.1 的**读取时派生**（`serves` 反查），不是本对象存储的字段——故这
@@ -706,8 +706,8 @@ function SubGoalTerminalCardContent({ obj }: { obj: ObjectItem }) {
  *
  * **与 `docs/03` §3.2「不设类型分组标题」的关系（如实登记）**：那条约束的是
  * **正式 `relations` 关联区**——那里的行由类型图标自描述，分组标题不增加信息。
- * 本区是**两个不同类型簇并列**（工单与火花），且每簇各有自己的展示预算（先 3 条），
- * 没有层名读者就分不清「这 3 条是工单的 3 条」还是「两类一共 3 条」。故本区设层名，
+ * 本区是**多个不同类型簇并列**，且每簇各有自己的展示预算（先 3 条），没有层名读者
+ * 就分不清「这 3 条是某一类的 3 条」还是「几类一共 3 条」。故本区设层名，
  * 并只写**类型名 + 计数**（不写「关联」「工作」一类概括词，避免冒领方向语义）。
  */
 function SubGoalServingWorkCardZone({ obj }: { obj: ObjectItem }) {
@@ -716,7 +716,7 @@ function SubGoalServingWorkCardZone({ obj }: { obj: ObjectItem }) {
   // 归属。
   //
   // 规格要点（随实现下沉，理由留在组件处）：
-  // - **不设层名**（Human 定案 2026-11-02：圈出的「火花 2」「工单 25」两行去掉）：
+  // - **不设层名**（Human 定案 2026-11-02：圈出的两行计数去掉）：
   //   行本身**自描述**——行首的类型图标已经说出这是什么类型的对象，再写一遍类型名
   //   是同一信息的第二次呈现；计数由「其余 N 条」与可见行数共同给出。此前我曾在此
   //   加过「类型图标 + 类型名 + 计数」的层名并为它写了理由，那是**给违规找理由**——
@@ -753,16 +753,16 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
 
 /** 活跃子目标的判据面（只说一件事：这一条怎么算达成）。
  *
- * **几何对齐 WorkCase 判据面**（Human 定案 2026-11-02：「这里的样式对齐 workcase 的，
+ * **几何对齐判据面**（Human 定案 2026-11-02：「这里的样式对齐判据面的，
  * 左侧的线条不要加粗」）：复用 `"min-w-0 rounded-lg border px-3 py-2"` —— 四边同宽 1px、
  * `rounded-lg`、`px-3 py-2`，**没有左侧 2px 粗线**。故本框 2026-11-02 起退出
  * `DECISION_CARD_SHELL_CLASS` 家族（该家族的定义特征正是左色条）。
  *
- * **色相取本类型色，不取 WorkCase 的蓝**（Human 定案 2026-11-02：「圈出来的要和类型的
- * 颜色对上，也就是同一个色系的」）。本框曾整面复用 `WORKCASE_CRITERIA_SURFACE_CLASS`，
- * 那是把「对齐 workcase 的样式」读成了「用 workcase 的颜色」——蓝是 WorkCase 自己的
+ * **色相取本类型色，不取别的类型的蓝**（Human 定案 2026-11-02：「圈出来的要和类型的
+ * 颜色对上，也就是同一个色系的」）。本框曾整面复用另一类型的判据面样式，
+ * 那是把「对齐样式」读成了「用对方的颜色」——蓝是那个类型自己的
  * 类型色，子目标的类型色是 lime `#84cc16`。卡头 chip 说 lime、块说蓝，同一张卡上两个
- * 色相各说各话。现在几何仍与 WorkCase 同源，色相改由 `getTypeSurfaceTint(obj.type)`
+ * 色相各说各话。现在几何取统一形态，色相改由 `getTypeSurfaceTint(obj.type)`
  * 从类型色算得（同一个函数也服务 DevLog 卡与后续同形块）。
  *
  * **框内只剩一句话**（Human 定案 2026-11-02「次序 闭环记录都不用显示」）：
@@ -885,7 +885,7 @@ export default function ObjectList() {
   //
   // 原先这里有两块：一处客户端的 serves 二次筛选 + 一处按 serves 聚合的计数
   // （配一行筛选 tab）。撤除的理由不是「不好用」，而是**方向错
-  // 了**：子目标才是承载体，spark 与工单挂到子目标上只是归属引用；「这个子目
+  // 了**：子目标才是承载体，spark 挂到子目标上只是归属引用；「这个子目
   // 标下面有哪些工作」由子目标详情页的「名下的工作」正向回答（`deriveServingWork`
   // 反查），不需要让 Human 在每个列表页先选一个子目标再看被过滤的池子。
   //

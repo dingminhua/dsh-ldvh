@@ -381,7 +381,7 @@ async function runWithTwoTasks(byTaskKey) {
     // roster），可用性由 getProvider 现查，与真宿主同一条通道。
     getProvider: () => ({ inheritsParentContext: false, capabilities: { outputSchema: true } }),
     startActivation: async (spec) => {
-      captured = spec.request;
+      captured = spec;
       return { childId: "session-executor", result: Promise.resolve({ stopReason: "completed", structured }), dispose: async () => {} };
     },
   };

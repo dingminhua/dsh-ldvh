@@ -26,7 +26,7 @@
  * Red lines honoured (25 §15): no directory/uid/filename encoding for the
  * singleton; no downstream state stored on Goal (cascade is a mark, reverse
  * projection comes from `serves`); no cache/index/projection copy; no
- * invented status enum for "goal missing" (Gate 1 fail-closed is the whole
+ * invented status enum for "goal missing" (fail-closed authorisation is the whole
  * enforcement); no separate Gate shape for the init conversation.
  */
 
@@ -60,7 +60,7 @@ const MAX_TITLE_LENGTH = 40;
  *
  * 判定单位与 21 §8 的 `gist` 一致——UTF-16 码元，实现按 `.length`。上限是
  * **意图上限**而非排版上限：它把「怎么做」「做到哪算成」挤出本载体，因为那
- * 两件事各有下游对象承载（21 WorkCase / 28 SubGoal）。超限一律拒绝写入，
+ * 两件事各有下游对象承载（28 SubGoal 等）。超限一律拒绝写入，
  * **不得截断后写入**（截断会静默丢掉作者写下的判断，而读者无从知道丢了）。
  *
  * 计数对象是去除首尾空白后的正文段：段内换行与空白照常计入，否则「用换行
@@ -324,7 +324,7 @@ export function validateGoalBodyStructure(body) {
     issues.push(
       `body: 目标陈述 must be ≤ ${MAX_STATEMENT_LENGTH} characters (25 §7), got ${target.text.length} — `
       + "move implementation detail / acceptance criteria to the downstream object that owns it "
-      + "(WorkCase plan, SubGoal criterion) instead of truncating",
+      + "(SubGoal criterion, plan) instead of truncating",
     );
   }
   return { ok: issues.length === 0, issues };
@@ -381,9 +381,9 @@ export async function readGoalObject({ factSourceRoot }) {
     content = await readFile(filePath, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") {
-      // 25 §10: a missing goal.md is a legitimate state — Gate 1 is
+      // 25 §10: a missing goal.md is a legitimate state — authorisation is
       // architecturally fail-closed and reads are not blocked.
-      return failure("goal/not_initialised", "goal.md does not exist (25 §10: 项目未初始化 — Gate 1 cannot be accepted, reads are not blocked)");
+      return failure("goal/not_initialised", "goal.md does not exist (25 §10: 项目未初始化 — authorisation cannot be accepted, reads are not blocked)");
     }
     throw error;
   }

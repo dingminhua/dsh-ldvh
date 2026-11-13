@@ -34,7 +34,6 @@ import {
   Route,
   Ruler,
   ShieldCheck,
-  Shovel,
   Snail,
   Sparkles,
   Sprout,
@@ -103,7 +102,7 @@ export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   devlog: NotebookPen,
   change: GitCommit,
   // commit 形态关系的目标图标（02 §8.1）：解药是一次受控提交。狐狸＝侧栏那只，
-  // 实心填充，与 change 的线框 GitCommit 区分开——读者一眼知道这是提交而非工单。
+  // 实心填充，与 change 的线框 GitCommit 区分开——读者一眼知道这是提交而非对象。
   // commit 形态关系的目标图标（02 §8.1）：解药是一次受控提交。复用 changelog
   // 的图标——侧栏「提交」那一项用的就是它（Human 指定 2026-10-10：用现成的，
   // 不要另造）。实心剪影，与线框的 change 区分开。
@@ -153,7 +152,7 @@ export const NAV_ICONS: Record<string, SemanticIconComponent> = {
  * 帮助页要讲这七个系统的职能与用法，就得有一份系统自己的图形映射；散在页面里等于再散一份。
  *
  * **选形纪律**：与对象类型图标全部错开形（读者一眼分得清「这是对象」还是「这是系统」），
- * 且七个彼此不撞：路标排（目标规划）、嫩芽（火花记录）、齿轮（工单执行）、望远镜
+ * 且七个彼此不撞：路标排（目标规划）、嫩芽（火花记录）、齿轮（把关请示）、望远镜
  * （调研吸收）、合并（双源召回）、书架（经验积累）、票据（摩擦销账）。
  */
 // eslint-disable-next-line react-refresh/only-export-components -- 与 OBJECT_TYPE_ICONS / NAV_ICONS 同理：帮助页消费，拆文件即打断共置断言。
@@ -164,7 +163,7 @@ export const SYSTEM_ICONS: Record<string, SemanticIconComponent> = {
   // 火花记录=嫩芽（Sprout＝刚冒出来、还没定型的念头；与 spark 对象的 Sparkles 星芒
   // 区分开：那是被登记之后的形态，这里是它出生前的样）。
   sparkRecord: Sprout,
-  // 工单执行=齿轮（ Cog＝已经批准之后才转起来的机制；与 workcase 对象的 Shovel
+  // 把关请示=齿轮（ Cog＝已经批准之后才转起来的机制；与对象载体的图标
   // 铲子区分开：铲子是那件工作的载体，齿轮是它运转的机制）。
   workOrder: Cog,
   // 调研吸收=望远镜（Telescope＝朝还没掌握的方向看；与 research 对象的

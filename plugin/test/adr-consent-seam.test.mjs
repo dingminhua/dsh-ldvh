@@ -2,14 +2,15 @@
 //
 // Why this file exists: adr-tools.test.mjs injects a FAKE seam, so it proves the
 // call sites are wired but never exercises the seam's own parse. An independent
-// review of workcase-3e0ad5ca measured that gap concretely — changing the parse
+// review measured that gap concretely — changing the parse
 // to fall back to `answers[0]` and dropping the `agent` forwarding left ALL 27
 // adr-tools cases green. The 22 §16 Gate fails closed only if this function
 // itself refuses every answer shape other than an exact affirmative AND carries
 // the live agent (without it the host forwarder declines → NO_PROVIDER).
 //
-// This file also owns the 200-char `question` bound (ADR 7ceaf7fc) for ADR asks:
-// the host imposes no length check, so nothing but these assertions holds it.
+// This file also owns the 200-char `question` bound and the "no detail block"
+// rule for ADR asks (Human 2026-11-13): the host imposes no length check, so
+// nothing but these assertions holds it.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -159,10 +160,17 @@ test("adr consent: the cancellation signal is forwarded (sole release for an aba
 });
 
 // ---------------------------------------------------------------------------
-// Bounded assembly (ADR 7ceaf7fc) and the 呈报 carrier
+// The dialog carries ONE line (Human 2026-11-13)
+//
+// 决定原文：「所有经过 ldvh 业务的提请，都要求内容简洁，title 字数在 200 字内，
+// 没有其它细节信息」。故弹窗只放一行动作标题、**不带 `detail`**；22 §16.2 的
+// 呈报内容由主控在调用之前写进对话正文。
+//
+// 如实边界（写在这里，因为这里正是承载点）：机械层**不再证明 Human 看到过
+// 完整呈报**，只证明取得过一次明确肯定答复。该缺口登记于 22 §16.2。
 // ---------------------------------------------------------------------------
 
-test("adr consent: a very long 呈报内容 keeps question ≤ 200 chars and moves the full report into detail", async () => {
+test("adr consent: a very long 呈报内容 still yields a bounded, detail-free dialog", async () => {
   const longReport = Array.from({ length: 80 }, (_, i) => `第${i}行为退休据实说明的一部分，内容用于撑长呈报。`).join("\n\n");
   let seen = null;
   const { seams, install } = installWith(async (request) => {
@@ -172,9 +180,9 @@ test("adr consent: a very long 呈报内容 keeps question ≤ 200 chars and mov
   await seams.requestAdrConsent({ ...CALL, action: "retire", summary: longReport });
   // 断言用**字面值 200**，刻意不引用 ASK_QUESTION_MAX_CHARS：与实现共用同一常量
   // 等于拿实现验实现——把常量改成 5000 时用例仍全绿（实测，friction-661831ae 同型）。
-  // ADR 7ceaf7fc 定的是 200 这个数，就该由断言独立持有它。
   assert.ok(seen.question.length <= 200, `question must stay within the 200-char bound, got ${seen.question.length}`);
-  assert.equal(seen.detail, longReport, "the full 呈报内容 must reach the Human verbatim in the scrollable area");
+  assert.equal(seen.detail, undefined, "呈报不随弹窗下发（Human 2026-11-13）");
+  assert.ok(!seen.question.includes("第0行为"), "the report must not be pushed into the title");
   assert.ok(seen.question.includes("ADR"), "the shell still names the Gate so the Human knows what is being asked");
   install.dispose();
 });

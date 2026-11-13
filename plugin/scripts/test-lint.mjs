@@ -170,7 +170,7 @@ async function scan() {
  *
  * 2026-10-30 复审 I2 指出：原实现只认**列 0** 的 `test(`，而本仓实测有 9 处
  * 缩进 `test(`（governed-projects.test.mjs 5 处、retired-params.test.mjs:72、
- * schema-writer-agreement.test.mjs:202、workcase-plan-gate.test.mjs:49/76），
+ * schema-writer-agreement.test.mjs:202），
  * 它们从不成为块边界、被并进前一个列 0 块的窗口，自身有无断言**不被检查**；
  * 覆盖计数也只数列 0，无法暴露这处漏扫。已改为允许缩进。
  *

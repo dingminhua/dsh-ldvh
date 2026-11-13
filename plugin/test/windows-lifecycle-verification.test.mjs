@@ -93,7 +93,7 @@ test("② 首次安装创建 ldvh-base 各类型目录（原文档写「五类�
 		const repo = await initRepo(base);
 		const result = await initializeFactSource(repo);
 		assert.equal(result.state, "ready", `事实源未就绪：${JSON.stringify(result)}`);
-		for (const dir of ["sparks", "workcases", "adrs", "pitfalls", "researches", "frictions", "norms"]) {
+		for (const dir of ["sparks", "adrs", "pitfalls", "researches", "frictions", "norms"]) {
 			const s = await stat(join(repo, "ldvh-base", dir));
 			assert.equal(s.isDirectory(), true, `${dir} 未创建`);
 		}

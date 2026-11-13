@@ -890,7 +890,7 @@ test("tool schema: frontmatter_after update schema omits required, carries type 
 // ---------------------------------------------------------------------------
 // attribution_ref 可解析性（26 §8/§11 锚点型）：新失败码必须进 mechanicalCodes，
 // 否则会被 enevelope 层的 availability 判定吞掉、报成 unavailable——
-// workcase/refs_target_unresolvable 漏登记曾造成同类缺陷。
+// 漏登记关系键曾造成同类缺陷。
 // ---------------------------------------------------------------------------
 test("friction-write-object create: unresolvable attribution_ref is a mechanical rejection carrying the code (26 §8/§11)", async () => {
   await withTemp("friction-tools-attr.", async (base) => {

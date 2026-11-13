@@ -1968,7 +1968,7 @@ export function registerLdvhTools(ctx, deps) {
   // (29 §9.3 细化/替换 分档), serve-or-empty topic, and three terminal states
   // whose `absorbed` form is COMPRESSED.
   disposers.push(registerDevLogTools(ctx, deps));
-  // 两处把关询问（2026-11-13 Human 决定：取消工单后改为「要不要安排代理」两问）。
+  // 两处把关询问（2026-11-13 Human 决定：改为「要不要安排代理」两问）。
   //
   // **不写事实源、不参与受控写入**：它只读开关、发询问、记答复，与 21 §6.3 的
   // 路由询问同层（辅助机制的运行状态）。故**不注册为 writeShaped**——那会把

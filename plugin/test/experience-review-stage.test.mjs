@@ -177,7 +177,7 @@ test("派发条数受上限约束（防提示词无界增长），且批内每�
     dshHomePath: homeJoiner(base),
   });
   assert.equal(subagents.calls.length, 1, `须派发一次；实际结果 ${JSON.stringify(result.ok ? result.value : result.error)}`);
-  const promptText = subagents.calls[0].request.prompt[0].text;
+  const promptText = subagents.calls[0].prompt[0].text;
   const delivered = promptText.match(/### 条目 /g) ?? [];
   assert.equal(delivered.length, MAX_ENTRIES_PER_REVIEW_DISPATCH, "交付条数须受上限约束");
   // 批内全部结算完，未交付的 5 条留到下一次派发（不静默移除）。
@@ -367,7 +367,31 @@ test("未指定模型 → 不传 agentOptions（沿用宿主默认路由）", as
     model: null,
   });
 
-  assert.equal(subagents.calls[0].request.agentOptions, undefined, "不指定时**不得**传空 agentOptions");
+  assert.equal(subagents.calls[0].agentOptions, undefined, "不指定时**不得**传空 agentOptions");
+});
+
+test("派发 spec 用宿主 0.2.2-rc.2 的平铺形状（实现退回内层 request 即判红）", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base);
+  const subagents = fakeSubagents({ proposals: [{ entry_id: "entry-0", conclusion: "discarded", reason: "不够成文" }] });
+
+  await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: homeJoiner(base),
+  });
+
+  assert.equal(subagents.calls.length, 1);
+  const spec = subagents.calls[0];
+  // 形状守卫（specs/06 §5「断言须以被测面的真实形状为准」）：宿主 0.2.2-rc.2 把
+  // 激活任务选项拆平，prompt/parent/outputSchema 与 provider/label/signal/delivery
+  // 同处顶层，rc.1 的 `request` 内层已不存在。实现若退回内层 request，本用例判红
+  // ——宿主届时读 `spec.parent` 得 undefined 即抛 TypeError。
+  assert.equal(spec.request, undefined, "spec 不得再带 request 内层——宿主 0.2.2-rc.2 已拆平激活任务选项");
+  assert.ok(Array.isArray(spec.prompt), "prompt 必须在 spec 顶层");
+  assert.ok(spec.outputSchema, "outputSchema 必须在 spec 顶层");
 });
 
 // ── ⑥ 查重对照集的根 ────────────────────────────────────────────────────
@@ -431,7 +455,7 @@ test("查重对照集必须从**事实源根**（project.path/ldvh-base）读，
   // （`[{type:"text", text}]`）而非字符串。两个坑都踩过：读 `call.prompt` 得到
   // undefined，对数组直接 `.includes` 也恒为 false——两者都会让本用例在「代码其实
   // 是对的」时变红，从而看起来像又一个缺陷。
-  const promptText = (subagents.calls[0].request?.prompt ?? [])
+  const promptText = (subagents.calls[0].prompt ?? [])
     .map((part) => (typeof part === "string" ? part : part?.text ?? ""))
     .join("\n");
   assert.match(
@@ -790,7 +814,7 @@ test("摩擦侧投影交付**全部** pending 组，含未达阈值的 1~2 条�
   });
   assert.ok(result.ok, JSON.stringify(result.error));
 
-  const promptText = (subagents.calls[0].request?.prompt ?? [])
+  const promptText = (subagents.calls[0].prompt ?? [])
     .map((part) => part?.text ?? "")
     .join("\n");
   // **未达阈值组必须出现**——这是本用例的全部意义。
@@ -845,7 +869,7 @@ test("摩擦侧投影区分**待补充组**与**聚合组**——待补充组不
   });
   assert.ok(result.ok, JSON.stringify(result.error));
 
-  const promptText = (subagents.calls[0].request?.prompt ?? [])
+  const promptText = (subagents.calls[0].prompt ?? [])
     .map((part) => part?.text ?? "")
     .join("\n");
 
@@ -910,7 +934,7 @@ test("账本侧投影真的带出 phenomenon——从 `listFrictionObjects` 到�
   });
   assert.ok(result.ok, JSON.stringify(result.error));
 
-  const promptText = (subagents.calls[0].request?.prompt ?? [])
+  const promptText = (subagents.calls[0].prompt ?? [])
     .map((part) => part?.text ?? "")
     .join("\n");
   const ledgerLine = promptText
@@ -954,7 +978,7 @@ test("投影不可得时**在提示词里如实声明缺口**——否则「缺�
   });
   assert.ok(result.ok, JSON.stringify(result.error));
 
-  const promptText = (subagents.calls[0].request?.prompt ?? [])
+  const promptText = (subagents.calls[0].prompt ?? [])
     .map((part) => part?.text ?? "")
     .join("\n");
   // 缺口声明必须出现在提示词里，并指出去向（仍要给 transfer，但把不确定写进理由）。

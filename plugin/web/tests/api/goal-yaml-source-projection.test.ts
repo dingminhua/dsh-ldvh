@@ -8,13 +8,13 @@ import { execFileSync } from 'node:child_process'
 import { after, before, test } from 'node:test'
 
 /**
- * goal 详情直读路由的 yaml_source 投影（specs/25 §10 消费点直读；workcase 9208ce82）。
+ * goal 详情直读路由的 yaml_source 投影（specs/25 §10 消费点直读）。
  *
  * Goal 是单例冻结锚，不走事实对象读取层，其详情阅读面由 GET /api/cognition/goal
  * 承载。单例读取实现 readGoalRecord 早已解析出 frontmatter 逐字原文
  * （frontmatterSource），但该路由此前未把原文投影成 yaml_source，于是前端
  * YamlDataNode 的「原文优先、重建兜底」对 goal 恒走重建分支——Human 在 goal
- * 详情页读到的是重整过的 YAML，而非 goal.md 原文（残留见 workcase 63700bd2）。
+ * 详情页读到的是重整过的 YAML，而非 goal.md 原文。
  *
  * 两段互补守护：
  *   1) 行为契约：在真实临时工作区起真实 app、请求真实路由，断言响应

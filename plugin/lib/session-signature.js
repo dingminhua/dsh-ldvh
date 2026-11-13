@@ -387,14 +387,14 @@ export async function shellAuthoritativeSignature() {
 /**
  * The sanctioned SESSION-IDENTITY source for direct writer calls made by
  * scripts: resolves THIS shell's authoritative session identity via the
- * DSH-injected environment and wraps it into the branded carrier the WorkCase
+ * DSH-injected environment and wraps it into the branded carrier the writer
  * writer accepts. Returns null when the identity is unavailable (plain/CI
  * shells, missing log, no leading session record) — the caller then passes
- * null and the WorkCase close gate fails closed rather than guessing.
+ * null and the close gate fails closed rather than guessing.
  *
  * 值全程 Code→Code：env → session log → leading session record → brand，
  * 代理不经手。这是受管辖子代理（不注册 ldvh_* 工具）回传其会话身份的正规
- * 通道（workcase-2be11478 计划步骤 4）。
+ * 通道。
  */
 export async function shellAuthoritativeSessionIdentity() {
   const located = await shellSessionLogPath();

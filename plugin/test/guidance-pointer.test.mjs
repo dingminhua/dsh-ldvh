@@ -19,7 +19,7 @@
 //
 // 只校验**指针可解析性**，不校验语义恰当性，不证明被引条文有效力。
 // 故本文件能发现「specs/21 §6.3 被删了」，不能发现「specs/21 §6.3 讲的不是
-// WorkCase 路由询问」。
+// 路由询问」。
 
 import assert from "node:assert/strict";
 import test from "node:test";

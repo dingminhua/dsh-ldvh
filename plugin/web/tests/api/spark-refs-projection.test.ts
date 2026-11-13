@@ -118,7 +118,7 @@ test('a Spark without refs exposes no factRefs field', async () => {
 });
 
 /**
- * WorkCase 18fcee2c 根因回归：列表路径此前只投影 relations、从不投影 refs，
+ * 根因回归：列表路径此前只投影 relations、从不投影 refs，
  * 因此**所有**列表卡（含 open spark）的 factRefs 恒为 ABSENT，同一对象的关联
  * 在列表与详情两层阅读器里不一致。本测试钉住两层契约一致。
  */

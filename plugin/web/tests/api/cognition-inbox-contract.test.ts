@@ -2,8 +2,8 @@
  * 项目认知中心：GET /api/cognition 收件箱与近期动态契约测试。
  *
  * 以当前治理范围解析出的受管辖工作树（事实源）运行，断言 02 §8 当前已交付字段
- * （generatedAt / scope / inbox / activeWorkCases / recentActivity / sparkHealth / issues）、待决与推进中收录及排序、命名纪律
- * （WorkCase 的两个 Human Gate 派生分组 pending_gate1 / awaiting_gate2，加上 Pitfall 的 draft 待确认）、
+ * （generatedAt / scope / inbox / recentActivity / sparkHealth / issues）、待决收录及排序、命名纪律
+ * （Pitfall 的 draft 待确认）、
  * 内联对象卡片依据、条件 canonical_path，以及近期动态的窗口与时间标记。
  *
  * 断言以“不依赖具体对象身份的不变式”为主：无论事实源是本仓库还是预览工作树，
@@ -110,8 +110,8 @@ function compareSort(a: Record<string, unknown>, b: Record<string, unknown>): nu
  *
  * 此前本辅助器读 `progress_group` 与 `isBlocked`——两者都是 v4 词汇：v5 对象没有
  * `progress_group` 字段（派生分组叫 `group`），也不存在 `isBlocked` 的产出方。于是
- * 该辅助器对每条 WorkCase 都返回 null，`item.inboxKind` 与它比对上必然不相等——
- * 只是恰好当日事实源里没有 WorkCase-in-inbox 样本，断言空转而未暴露。
+ * 该辅助器对不匹配的条目返回 null，`item.inboxKind` 与它比对上必然不相等——
+ * 只是恰好当日事实源里没有相应样本，断言空转而未暴露。
  */
 test('recent activity rows display localized type labels while preserving full ids for actions', () => {
   const source = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
@@ -238,7 +238,7 @@ test('recent activity accepts only explicit windows and groups fact change-log e
     assert.ok(Number(recent.eventTotal) >= items.length)
     for (const item of items) {
       // 25 号 Goal：单例冻结锚的 change_log 修订史同样进近期动态（type='goal'）。
-      assert.ok(['workcase', 'adr', 'pitfall', 'spark', 'research', 'goal'].includes(String(item.type)))
+      assert.ok(['adr', 'pitfall', 'spark', 'research', 'goal'].includes(String(item.type)))
       assert.ok(['created', 'updated'].includes(String(item.activity)))
       assert.match(String(item.occurredAt), RFC3339)
       if (item.signature !== undefined) {
@@ -252,12 +252,8 @@ test('recent activity accepts only explicit windows and groups fact change-log e
       assert.ok(Number(item.activityCount) >= 1)
       assert.equal(typeof item.relativeTime, 'string')
       assert.equal(typeof item.typeColor, 'string')
-      if (item.type === 'workcase') {
-        assert.equal('status' in item, false)
-      } else {
-        assert.equal(typeof item.status, 'string')
-        assert.equal('progress_group' in item, false)
-      }
+      assert.equal(typeof item.status, 'string')
+      assert.equal('progress_group' in item, false)
     }
   }
 
@@ -323,7 +319,7 @@ test('recent activity environment usage merges Codex Desktop and Codex into one 
     status: 'open', read_status: 'readable', field_issues: [], unparsed_structures: [],
   }
   // `agentRuntimeName` 是已退役字段（shared/signature.ts：agent_runtime_name retired
-  // per workcase-01M08D6XAKF3FSTMETTGKEK7T7）。此处**故意**保留它，正是要证明读取层
+  // ）。此处**故意**保留它，正是要证明读取层
   // 对它视而不见——归一只认 provider/productName，故下面两条合起来仍只算 Codex 一次。
   // 声明为 `Record<string, unknown>` 而非内联字面量：要喂的是「存量载体可能带的旧键」，
   // 不是「本类型的合法字段」。内联字面量会触发 excess-property 检查；若只留退役键又会
@@ -581,21 +577,11 @@ test('decision basis is inlined via each source object card projection (Q3)', as
   for (const item of items) {
     assert.ok('card' in item)
     const card = item.card as Record<string, unknown>
-    if (item.type === 'workcase') {
-      assert.equal(typeof card.goal, 'string')
-      if (item.inboxKind === 'plan_confirmation') {
-        assert.ok(Array.isArray(card.successCriteria), 'plan item carries successCriteria array')
-        for (const field of ['scope', 'success_criterion_definitions', 'work_items', 'creation_reviews', 'execution_authorization']) {
-          if (field in card) assert.notEqual(card[field], undefined, `${field} preserves its source value`)
-        }
-      }
-    } else {
-      // 26 §12：inbox 的非 WorkCase 条目现只剩 Friction（Pitfall 收件档已随
-      // 2026-11-03 取消 `draft` 一并移除，23 §9）。
-      assert.equal(item.type, 'friction')
-      for (const field of ['phenomenon', 'attribution', 'disposition', 'occurrence', 'status']) {
-        if (field in card) assert.notEqual(card[field], undefined, `${field} preserves its source value`)
-      }
+    // 26 §12：inbox 条目现只剩 Friction（Pitfall 收件档已随 2026-11-03 取消
+    // `draft` 一并移除，23 §9）。
+    assert.equal(item.type, 'friction')
+    for (const field of ['phenomenon', 'attribution', 'disposition', 'occurrence', 'status']) {
+      if (field in card) assert.notEqual(card[field], undefined, `${field} preserves its source value`)
     }
     // 身份字段不重复收入 card。
     assert.equal('object_id' in card, false)
@@ -611,7 +597,7 @@ test('readable items carry canonical_path for conditional copy (Q4); time omissi
   if (items.length === 0) return
   for (const item of items) {
     // 字段级直读 readable 时携带 canonical_path，供条件显示“复制对象路径”。
-    const collection = item.type === 'workcase' ? 'workcases' : 'frictions'
+    const collection = 'frictions'
     assert.equal(item.canonical_path, `ldvh-base/${collection}/${String(item.id)}.yaml`)
     // updated_at 缺失排最后并省略时间显示（Q8）：有则带 updatedAt 字符串。
     if (item.read_status === 'readable' && typeof item.updatedAt !== 'string') {
@@ -762,11 +748,11 @@ test('摩擦收件项把 occurrence 平铺到条目根（卡头徽标读对象�
 test('摩擦条目的 canonical_path 指向 frictions 目录而非 pitfalls 回落', () => {
   const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
   const fn = route.slice(route.indexOf('function canonicalPath'), route.indexOf('function factKey'))
-  // 曾经的二元式 `type === 'workcase' ? 'workcases' : 'pitfalls'` 会让新类型静默
+  // 曾经的二元式回落会让新类型静默
   // 复制出一个**不存在的路径**（不报错，只是复制错位置）。故要求显式查表。
   assert.match(fn, /friction: 'frictions'/, '① friction 有显式目录');
   assert.match(fn, /throw new Error/, '② 未知类型失败而非回落');
-  assert.doesNotMatch(fn, /type === 'workcase' \? 'workcases' : 'pitfalls'/, '③ 不得保留二元回落');
+  assert.doesNotMatch(fn, /type === '\w+' \? '\w+' : 'pitfalls'/, '③ 不得保留二元回落');
 })
 
 // ── 26 §12 / §18 第 7 条：accepted 的「度量单列」消费点（2026-10 新增）──────────

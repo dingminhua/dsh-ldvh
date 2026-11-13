@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { ApiRequestError, fetchObjects } from '../../src/utils/api.ts';
 
-test('WorkCase list transport failure preserves the safe error reason and code', async () => {
+test('fact list transport failure preserves the safe error reason and code', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({
     ok: false,
@@ -15,7 +15,7 @@ test('WorkCase list transport failure preserves the safe error reason and code',
     headers: { 'content-type': 'application/json' },
   });
   try {
-    await assert.rejects(fetchObjects('workcase'), (error: unknown) => {
+    await assert.rejects(fetchObjects('adr'), (error: unknown) => {
       assert.ok(error instanceof ApiRequestError);
       assert.equal(error.status, 503);
       assert.equal(error.code, 'fact_service_unavailable');

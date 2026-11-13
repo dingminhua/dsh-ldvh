@@ -85,7 +85,7 @@ function fingerprintText(text) {
  * `# <title>`，而 `updateFrictionObject({bodyMarkdownAfter})` 要的是不含 H1 的正文
  * （写入侧 `assembleBody` 会再前置一次）。把前者直接喂给后者即每次写入叠加一个 H1。
  *
- * 与 `workcase-writer.js` 的同名处置取同一形态（`body.replace(/^#\s+.*\n+/, "")`），
+ * 与其它写入器的同名处置取同一形态（`body.replace(/^#\s+.*\n+/, "")`），
  * 但放宽两点以适应既有载体的实际形态：① H1 前允许任意空白行与前导空白；
  * ② 只剥**第一个** H1，其后正文逐字保留（`/m` 不加 `g`，故不误伤正文里作为
  * 字面内容出现的 `# ` 行）。
@@ -304,7 +304,7 @@ export async function supplementOccurrence({
   //   各段非空，**不数 H1 的个数**，故结构校验对重复 H1 完全无感；§8.4 第 5 项的精确
   //   回读也只比对 `count`/`last_at`。真实账本已有 3 条中招（3048937d H1=3、
   //   545cca82 H1=2、bf73fad4 H1=2，其余 21 条为 1——只有被本路径写过的才中招）。
-  // 修法取 `workcase-writer.js` 的既有范式（同一读-写不对称，该类型早已按此处置）。
+  // 修法取既有写入器的同一范式（同一读-写不对称）。
   const evidenceText = isNonEmptyString(evidence) ? evidence.trim() : null;
   // `accepted` 只增计数、**不扩展现象段**（26 §9.3 计数豁免第 4 项）：账不再供
   // 判断用，只供度量用，故只增数字不增叙述，避免账本无限膨胀。正文按原样回写

@@ -23,7 +23,7 @@ test('non-active Spark, ADR, Pitfall, and Study cards share the terminal card gr
   assert.match(source, /function PitfallTerminalCardContent/);
   assert.match(source, /function ResearchTerminalCardContent/);
   assert.doesNotMatch(source, /<TerminalFactPanel[^>]*title=/);
-  // 2026-09-30 修订：WorkCase 已关闭卡改用合并徽标后，status 表达式变成三元
+  // 2026-09-30 修订：已关闭卡改用合并徽标后，status 表达式变成三元
   // （命中合并徽标时传空），故断言改为「status 的取值仍**来自 presentedStatus**」——
   // 意图不变（呈现状态须由卡框供给，不得硬编码别的来源），且不绑死其表达式形状。
   assert.match(source, /<ObjectIdentityActions[\s\S]{0,400}status=\{[^}]*presentedStatus[^}]*\}/);

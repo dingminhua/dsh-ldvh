@@ -107,24 +107,6 @@ export const REAL_CASES = [
     basis: "问注入预算的层级归属：预算归属在 10 §5.3，召回侧分配口径在 34 §11。",
     jaccard: 0.10,
   },
-  {
-    q: "复核和gate1一样也是最多3次啊，难道没有规范吗？gate1现在做的不错，学着做",
-    // **2026-11-11 更正**：初标只写 `WorkCase 工单`（21），但实测命中的是
-    // `工单执行系统规范`（32）——而 32 才是 Gate 流程与轮次上限的业务面载体
-    // （21 承接对象字段，32 承接执行过程）。标注漏了同族规范，会把这题误记为
-    // 未命中。同类更正见下一条。
-    want: ["WorkCase 工单", "工单执行系统规范"],
-    kind: "topic",
-    basis: "问 Gate 1 的轮次上限规范来源；21 §9.2 正是该上限的承载条。",
-    jaccard: 0.22,
-  },
-  {
-    q: "你审核通过进入的是Gate，不是直接关闭，这个为什么你上一次直接关闭了？是不是也缺少机械判断",
-    want: ["WorkCase 工单", "工单执行系统规范"],
-    kind: "topic",
-    basis: "问 Gate 2 关闭侧是否缺机械门禁；21 §14 的关闭前置条件即该门禁。",
-    jaccard: 0.15,
-  },
 
   // ══ ellipsis：连续追问，题干本身无主题 ═════════════════════════════════
   //
@@ -191,13 +173,6 @@ export const REAL_CASES = [
     kind: "ellipsis",
     basis: "上文在讨论「哪些文档该进 docs、哪些该进事实源」，本句是选项表态。"
       + "应得答案是事实源边界的承载条（02／03）。",
-  },
-  {
-    q: "批准执行",
-    context: "dsh-ldvh@workcase-0260c75e-f62a-4156-94e2-be3b79fdf111 是这个吗",
-    want: ["WorkCase 工单", "工单执行系统规范"],
-    kind: "ellipsis",
-    basis: "上文是核对某个 WorkCase 身份，本句是批准。应得答案是工单授权相关载体。",
   },
   {
     q: "清理一些无效的断言吧",
@@ -301,14 +276,6 @@ export const REAL_CASES = [
       + "注入面正确期望为空。该对象须由 AI 用 ldvh_spark_read 主动取。",
   },
   {
-    q: "dsh-ldvh@workcase-e487cdf4-161e-495c-9fa7-8270b67037a7 是这个吗",
-    want: [],
-    kind: "ref",
-    basis: "引用式且目标是 workcase，但该对象实测 status=closed，而 21 §13 的默认候选"
-      + "只含 draft+open——故默认召回**本就不该**给出它（「不进默认候选」不等于"
-      + "「不可交付」，精确引用另有 F3 通路）。此处标注为空是在守这条边界。",
-  },
-  {
     q: "dsh-ldvh@spark-5b0b380e-c56f-40f8-bdb7-9645d8a54730 这个是什么问题",
     want: [],
     kind: "ref",
@@ -348,7 +315,7 @@ export const REAL_CASES = [
  * **这里不猜**：类型名只用于「该类型只要有对象被召回即可」这一宽松判定，
  * 并在注释里如实声明它弱于对象级判定。
  */
-const TYPE_PREFIXES = ["ADR", "Pitfall", "Friction", "Research", "Norm", "WorkCase", "Spark", "Goal", "SubGoal"];
+const TYPE_PREFIXES = ["ADR", "Pitfall", "Friction", "Research", "Norm", "Spark", "Goal", "SubGoal"];
 
 /** 判断某个 want 条目是不是「类型名」而非「对象/规范名」。 */
 export function isTypeWant(w) {

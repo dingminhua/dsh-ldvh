@@ -110,7 +110,15 @@ function volatileField(schema) {
 }
 
 export const Config = z.object({
-  /** 是否挂载 /ldvh + /ldvh/api 前缀路由（宿主 webServer 本身始终运行）。 */
+  /**
+   * 是否挂载 /ldvh + /ldvh/api 前缀路由（宿主 webServer 本身始终运行）。
+   *
+   * **2026-11-13 起设置面不再提供这个开关**（Human：「这2个开关去掉」）：它与
+   * 下面两个投放项叠成三层，同一件事有三种关法。字段本身**保留**——存量配置里
+   * 写着 `webEnabled: false` 的机器仍须据此不挂路由（`gated()` 的 404 契约不变），
+   * 故这不是死字段，只是编辑入口从设置面挪到了配置文件。客户端在值为 false 时
+   * 把两个投放项显示为禁用，并在卡体里给出「去哪儿改回来」的说明。
+   */
   webEnabled: volatileField(z.boolean().default(true)),
   /** 对话 Tab 投放面（conversation.view 插槽）；仅在 webEnabled 开启时生效。 */
   showInConversationTab: volatileField(z.boolean().default(true)),
@@ -119,8 +127,9 @@ export const Config = z.object({
 
   // ── 闲时辅助（04 §8.1 空闲维护与反思；32 §10 空闲维护与记忆健康）──────
   //
-  // 形态参照 dsh-mnemon 的 idleReview 设置面：一个总开关 + 启用后才展开的子项
-  // + 数值参数（在客户端收进折叠区，与 dsh-mnemon 的 `<details>` 同规格）。
+  // 形态参照 dsh-mnemon 的 idleReview 设置面，但**不照抄其总开关**：2026-11-13
+  // 起设置面只留两个子项 + 数值参数，子项恒展开（原「一个总开关 + 启用后才展开」
+  // 的形态已撤除，理由见下方 `idleAssistEnabled` 的字段注释）。
   //
   // **规范地位分层**（不得混同，见 lib/idle-settings.js 的模块注释）：
   //   · 三个 `*Enabled` 是「让 32 §10.2 已定义的三任务可被选择性停用」——
@@ -134,7 +143,14 @@ export const Config = z.object({
   //     `idleMinContentChars` / `idleMinContentTurns` / `idleMinIntervalMs` 三键
   //     （当轮），以及本轮删除的 `idleQuotaMax` / `idleQuotaWindowMs` 两键
   //     ——**§6.2 现为空集，故本 schema 亦无任何节流配置键**。
-  /** 闲时辅助总开关：关闭后不再派发任何辅助任务（含摩擦发现）。 */
+  /**
+   * 闲时辅助总开关：关闭后不再派发任何辅助任务（含摩擦发现）。
+   *
+   * **2026-11-13 起设置面不再提供这个开关**：下面两个子项本来就能各自关掉，
+   * 再套一层总闸等于同一件事有三种关法，而总闸关着时子项整块消失、读者会以为
+   * 这些设置根本不存在。字段本身**保留**，理由同上（`idleAssistEnabled: false`
+   * 的存量配置仍须不派发）；两个子项此时显示为禁用，并附出处说明。
+   */
   idleAssistEnabled: volatileField(z.boolean().default(true)),
   /**
    * 闲置捕获（11 §9 摩擦发现 + §10.1 经验捕获）：**两层重构后合并为一个开关**
@@ -230,7 +246,7 @@ export const Config = z.object({
   // 精确的档位成员校验由 `resolveInjectionBudget` 在消费点完成并**如实报错**。
   injectionBudgetTier: volatileField(z.number().min(10).max(50).step(10).default(10)),
 
-  // ── 两处把关询问（2026-11-13 Human 决定：取消工单→改问要不要安排代理）──────
+  // ── 两处把关询问（2026-11-13 Human 决定：改问要不要安排代理）──────
   //
   // **规范依据**：`specs/04 §6.1` 的方案收敛自查明文写着「当工作指向『怎么做』
   // 层面的方案——建立或修改结构性事物、存在多个可选路径的选型、或方向可能与
@@ -244,9 +260,8 @@ export const Config = z.object({
   // 它**不新增检查机制**（仍是 04 §6.2 的代理审核，只是把发起权从 AI 判断
   // 换成一次 Human 询问），也**不新增第四种形态**（00 §2.5 的三形态不变）。
   //
-  // **为什么这两个键不叫 workcase***：21 号 WorkCase 载体按 Human 2026-11-13
-  // 决定正在撤除，开关的语义是「这次行动要不要安排代理看一遍」，与工单无关。
-  // 键名若带 workcase，撤掉工单后就成了名不副实的历史包袱（本仓已踩过
+  // **为什么这两个键不带类型前缀**：开关的语义是「这次行动要不要安排代理看
+  // 一遍」，与任何事实类型无关；键名若带类型前缀就成了名不副实的历史包袱（本仓已踩过
   // `experienceCaptureEnabled` 一类改名遗留）。
   //
   // **为什么默认关**：与 `auxReviewEnabled` 同一纪律——会向 Human 发起询问、
@@ -261,7 +276,7 @@ export const Config = z.object({
    *
    * 「复杂任务」的判据**不新造**：直接取 `specs/04 §6.1` 的三个条件
    * （建立或修改结构性事物／存在多个可选路径的选型／方向可能与既定决策冲突），
-   * 与 `specs/21 §6.3` 的四条「明确不属于工单」（取反即「该建工单」）合并使用。
+   * 与 `specs/04 §6.1` 的排除五条（取反）合并使用。
    * 判据留在规范里，本开关只决定「判为复杂后是否询问」。
    */
   preActionReviewAskEnabled: volatileField(z.boolean().default(false)),

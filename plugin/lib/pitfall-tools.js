@@ -11,7 +11,7 @@
 //     active-only by default (23 §12: discarded stays out of ordinary
 //     candidates).
 //   - pitfall-write-object (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal incl. dedup result) and CAS update
+//     (after Human-confirmed proposal) and CAS update
 //     with change_log: same-status updates (active→active,
 //     and the terminal discarded→discarded errata) are errata/supplement-
 //     only (scope field-identical, 23 §9.3), active→discarded is terminal.
@@ -52,7 +52,7 @@ const OPERATIONS = {
   "pitfall-write-object": {
     toolName: "ldvh_pitfall_write",
     writeShaped: true,
-    summary: "Controlled write of Pitfall fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
+    summary: "Controlled write of Pitfall fact objects: create (after Human-confirmed proposal) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
     effect: "may_change_state"
   }
 };
@@ -298,7 +298,7 @@ async function executeWriteObject(args, exec, deps) {
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
-  // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+  // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;

@@ -1,5 +1,5 @@
 /**
- * Fact-object identifier parsing (workcase-410750b0-d0f5-40b3-a7ca-74d03c313f06).
+ * Fact-object identifier parsing.
  *
  * ## 为什么需要它
  *

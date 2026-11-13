@@ -79,7 +79,6 @@ import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
  * `active` 这个状态——结果它们**默认一条都召回不到**：
  *
  *   · Spark（20）默认候选是 `open` → 34 条 open 不可见；
- *   · WorkCase（21 §13）是 `draft`+`open` → 36 条全部不可见（它连 active 都没有）；
  *   · Friction（26）是 `open`（+ 当时的 `observing`，2026-10-26 已退出闭集）→ 当时 92 条不可见；
  *   · ADR（22）／Norm（27）是 `active` → 恰好正确；
  *   · Pitfall（23 §12）是 `active` → 恰好正确（2026-11-03 取消 `draft` 后本类型无待确认档）。
@@ -257,7 +256,7 @@ export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
  *
  * ── 为什么不是 `types` 白名单（重要，别合并成一条路径）───────────────
  *
- * 直觉做法是注入时传 `types: ["adr","pitfall","workcase", …]`（正面枚举「要哪些」）。
+ * 直觉做法是注入时传 `types: ["adr","pitfall", …]`（正面枚举「要哪些」）。
  * 不采用，有两条据实的理由：
  *
  * 1. **正面枚举会在新增事实类型时静默漏掉它。** 本文件 `REGISTERED_FACT_TYPES`
@@ -330,7 +329,7 @@ const SCOPE_EXCLUDED_ENTRY_BY_TYPE = Object.freeze({
  * 这个是有实义的**高频实词**，只是不足以单独支撑「相关」这个判断。
  */
 const GENERIC_TOKENS = new Set([
-  "任何", "规范", "写作", "执行", "测试", "验证", "校验", "检查", "工单", "复核", "审核",
+  "任何", "规范", "写作", "执行", "测试", "验证", "校验", "检查", "复核", "审核",
   "独立", "写", "改", "回", "做", "用", "说", "看", "有", "无", "时停", "停止",
   "事实", "系统", "机制", "业务", "流程", "结果", "问题", "情况", "内容", "部分",
 ]);
@@ -719,7 +718,7 @@ async function isReadableDir(dir) {
  *
  * 1. **块标量被读成字面量**：`summary: |` 之下多行正文被压成字符串 `"|"` 或 `"|-"`。
  *    全库 46 条对象的 summary 因此对召回**完全不可见**（真实内容平均 1099 字），
- *    候选卡上的「有界确定性摘录」也一度显示成 `↳ |-`。同理 24 条 WorkCase 的
+ *    候选卡上的「有界确定性摘录」也一度显示成 `↳ |-`。同理其它类型的
  *    `scope` 变成 `"|-"`，使其**整个 tier 1（适用范围层）不可命中**。
  * 2. **嵌套结构被压平**：`relations: [{relation_key, target:{object_uid}}]` 读成
  *    `"relation_key: informs"`（target 整段丢失）；`occurrence` 读成空串；
@@ -826,11 +825,11 @@ function textField(value) {
  * `statuses`（如复核草稿时传 `["active","draft"]`），新写的 draft 会凭时间
  * 新鲜排到 active 之前——实测「校验验证」查询变成清一色草稿，权威的 active
  * 全部被挤出。**新 ≠ 更权威**，故状态等级须先于时间比较。（2026-11-03 起
- * Pitfall 已无 `draft`；`draft` 仍是 WorkCase 的初始态，本分级照旧适用。）
+ * Pitfall 已无 `draft`；本分级照旧适用。）
  *
  * 分级依据：`active`／`open` 是各类型规范定义的「当前生效」态（见
  * `DEFAULT_STATUSES_BY_TYPE`）；`draft`／`pending` 是**尚未准入**（2026-11-03 起
- * Pitfall 不再产生 `draft`，该档现只由 WorkCase 等类型使用）；其余
+ * Pitfall 不再产生 `draft`）；其余
  * （retired／resolved／voided／discarded／implemented）是终态或已退出。
  */
 export function statusRank(status) {
@@ -1454,7 +1453,6 @@ function excerptOf(text) {
  *   · `directionKey`——27 §209：「F1 枚举 active Norm（direction_key + title + status）」；
  *   · `occurrenceCount`——26 §8：重复观察的证据量，回答「这笔账攒了几次」；
  *   · `relationKeys`——03 §7.2：该对象声明了哪些边（不展开目标，展开属 F3/F4）；
- *   · `gate1`——21 §8：工单是否已过 Gate 1（`open` 与「待批准」的区别就在这）。
  *
  * **不带的**：`attribution`（长自由文本，判读属 F3）、`attributionRef`（已有
  * `structural` 命中理由覆盖）、`relationTargets`/`refTargets`（关系导航是独立
@@ -1472,10 +1470,6 @@ function structuralCardOf(candidate) {
   if (Number.isInteger(s.occurrenceCount)) out.occurrenceCount = s.occurrenceCount;
   if (Array.isArray(s.relationKeys) && s.relationKeys.length > 0) {
     out.relationKeys = [...new Set(s.relationKeys)];
-  }
-  // 工单侧：`gate_1` 是否存在决定「是否已过 Gate 1」，是 21 §14 的关键状态。
-  if (candidate.type === "workcase") {
-    out.gate1 = typeof candidate.gate1ApprovedAt === "string" && candidate.gate1ApprovedAt !== "";
   }
   return Object.keys(out).length === 0 ? null : out;
 }
@@ -1662,7 +1656,7 @@ export async function loadSpecs(specsDir) {
 /**
  * 载入事实源 `ldvh-base/`。
  *
- * 每个子目录是一个事实类型（adrs/frictions/norms/pitfalls/researches/sparks/workcases）。
+ * 每个子目录是一个事实类型（adrs/frictions/norms/pitfalls/researches/sparks）。
  * 取 `title` / `status` 与类型相关的可匹配字段（scope、decision、phenomenon、question、
  * research_question、gist、trigger_signal 等），外加正文前若干行做补充匹配。
  *
@@ -1776,11 +1770,6 @@ export async function loadFacts(baseDir, options = {}) {
         .filter((r) => r !== "");
       const occurrence = fm.occurrence !== null && typeof fm.occurrence === "object"
         ? fm.occurrence : null;
-      // `gate_1`（21 §8/§14）：Gate 1 批准后由 Code 盖戳，`approved_at` 存在
-      // 即「已过 Gate 1 授权」。这是工单「open 且在办」与「open 但待批」的
-      // 分界，卡上必须能看见（此前完全未读，读者无法从候选卡区分）。
-      const gate1ApprovedAt = fm.gate_1 !== null && typeof fm.gate_1 === "object"
-        ? textField(fm.gate_1.approved_at) : "";
       // **结构化摘录源**：块标量残留一律视为无内容（`textField` 的判据），
       // 否则候选卡会显示 `↳ |-`（2026-10-29 前实测 46 条如此）。
       // **回退链按类型各自的语义字段取值**（Human 2026-11-11）：
@@ -1880,15 +1869,12 @@ export async function loadFacts(baseDir, options = {}) {
         },
         // 载体自身可读性：YAML 解析失败时如实带出，由调用方披露（不静默）。
         yamlError,
-        // Gate 1 批准时刻（空串=未过 Gate 1），见 `structuralCardOf`。
-        gate1ApprovedAt,
         // **最后更新时间**（`created_at` 与 `change_log[].at` 取最大）：
         // 供排序作次级键、并让读者在候选卡上就看见「这条有多旧」。
         // 取不到时为空串——**不伪造当前时间**（那会让旧对象冒充新对象）。
         updatedAt: updatedAtOf(fm),
         // **F2「有界确定性摘录」的来源**（`02 §9.1`）：按类型取最能代表内容的短字段。
         //   · spark → summary（20：完整的当前语义快照）
-        //   · workcase → gist（21：给 Human 扫读的一句话要点）
         //   · adr → decision（22：单句决策）
         //   · friction → phenomenon（26：单句现象陈述）
         //   · research → research_question
@@ -2006,7 +1992,7 @@ export const STRUCTURAL_MATCH_FIELDS = Object.freeze([
  *
  * 取 `object_uid` 的前 8 位。**为什么要补这一档（实测）**：本仓语料里
  * 「类型短名 + 前 8 位」这一形态出现 **726 次、去重 186 个对象**
- * （friction 236、workcase 165、spark 124、research 101、pitfall 86、
+ * （friction 236、spark 124、research 101、pitfall 86、
  * adr 7、norm 6、goal 1）——这是人和 AI 实际写出来的指称形态。
  * 而改造前的结构层**只认完整 36 位 uid**，于是最常用的那种写法恰好查不到：
  * `adr-62d3e2d8` 与裸 `62d3e2d8` 均 0 命中，只有
@@ -2256,7 +2242,7 @@ function isTooCommon(token, docFreq, total) {
   // 两口径判据（2026-10-27）：`docFreq` 现为 `{narrow, wide, total}`。
   // 判「噪声」的条件是**窄面也普遍**——窄面（scope/detail/title）是「这条讲什么」
   // 的自述，一个词若在人写的自述里就普遍出现，它必然泛。
-  // 若只有全匹配面普遍（如 `workcase`：窄面低、正文 74%），它是**主题词**，
+  // 若只有全匹配面普遍（窄面低、正文比例高），它是**主题词**，
   // 只是正文反复提及——必须保留，否则类型点名层失效（实测反例）。
   const narrow = docFreq?.narrow;
   if (narrow instanceof Map) {
@@ -2451,21 +2437,20 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
     }
   }
 
-  // **类型点名层（tier 0.5）**：用户说「写一个 WorkCase」「记一条 Spark」时，
+  // **类型点名层（tier 0.5）**：用户说「记一条 Spark」时，
   // 点名的是某个**事实类型**，最该命中该类型自己的规范。
   //
-  // 实测缺陷（2026-10-24）：「写一个 WorkCase」的首位是 `Spark-火花` 而不是
-  // `WorkCase 工单`——因为类型名会出现在多份规范的 scope 里（实测 workcase 命中
-  // 6 份、adr/pitfall/spark 各 4 份），同层同分后只能按路径字典序，而 `20-Spark`
-  // 排在 `21-WorkCase` 前面。
+  // 实测缺陷（2026-10-24）：类型点名时首位可能不是目标规范——因为类型名会出现在
+  // 多份规范的 scope 里（实测某类型名命中 6 份、adr/pitfall/spark 各 4 份），同层
+  // 同分后只能按路径字典序，序号小的规范被排到前面。
   //
   // 判据：查询的某 token **整词等于**本规范标题里出现的类型短名。标题形如
-  // `WorkCase 工单`、`Spark-火花`、`ADR-决策`——取标题中 ASCII 词作为类型名，
+  // `Spark-火花`、`ADR-决策`——取标题中 ASCII 词作为类型名，
   // 与查询 token 做**大小写无关的整词比较**（不认子串，避免 `adr` 命中 `adrenal`）。
   // 这是确定性事实（标题里有没有这个词），无权重、无 AI 判断。
   //
   // **事实侧另走闭集**（2026-10-31 修，见上）：本段仍只对规范生效，因为规范
-  // 的类型名来自标题（`WorkCase 工单`），而事实的类型名只能来自判据表登记的
+  // 的类型名来自标题，而事实的类型名只能来自判据表登记的
   // 闭集。历史回归的教训必须留在原处：2026-10-24 曾把标题词匹配直接套到事实，
   // 查询「install() 分发器在 agent/created 回调里…」的 token `agent` 让 4 条
   // Agent 调研文档以 `类型点名命中：agent` 冲顶，把真正相关的 Pitfall 挤出
@@ -2525,7 +2510,7 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
     // **单字只作辅助，不单独构成命中依据。**
     //
     // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
-    // 5 条是纯单字命中——`WorkCase 工单` 靠「批」、`火花记录` 与 `双源召回` 靠「合」；
+    // 5 条是纯单字命中——`火花记录` 与 `双源召回` 靠「合」；
     // 「经验也要召回啊」有 4 条靠单字「回」命中。单个汉字在本语料里覆盖 50–70%
     // 的候选。
     //
@@ -3238,16 +3223,16 @@ export async function recallForAction(input = {}) {
   // 改用与匹配完全相同的口径（scope/detail/title/body 并集），
   // 两套口径此后不可能再脱节——它与 `corpusStatsOf`（BM25 用）同源。
   // **为什么不能一律用全口径**（实测反例，2026-10-27）：全口径过滤会把
-  // 「workcase」判为 74% 普遍而滤掉——但它是**类型点名词**（「写一个 WorkCase」），
+  // 某个类型词判为普遍而滤掉——但它是**类型点名词**，
   // 滤掉后该查询首位变成 `Code 实践与测试规范`，类型点名层彻底失效。
   // 同类还有「写」（规范源 100%）。
   //
   // 故取**两口径的较小值的反面**：一个词只有在「窄面（scope/detail/title）」与
   // 「全匹配面」**都**普遍时才算噪声。「实际」两口径都高（16%/64%）→ 滤；
-  // 「workcase」窄面低、全面高 → 保留（它是有区分度的主题词，只是正文提得多）。
+  // 该词窄面低、全面高 → 保留（它是有区分度的主题词，只是正文提得多）。
   //
   // 实现上取 df 的**较大值**（= 更保守地判普通 ⇒ 更难过滤）？不——那会让
-  // 「实际」因全面 64% 被滤、同时 workcase 因全面 74% 也被滤，两者都死。
+  // 「实际」与它同因全面比例高被滤，两者都死。
   // 正确的是按**窄面**判、但把正文的命中算进「是否过度」的对照：故取**较大值**
   // 之外还需例外——见下 `isTooCommon` 的两口径判定。
   const collect = (list, mapper) => {
@@ -3312,7 +3297,7 @@ export async function recallForAction(input = {}) {
         b.hits - a.hits ||
         // **状态准入等级先于时间**：已准入（active/open）一律在未准入
         // （draft/pending）之前，避免新草稿凭新鲜度压掉权威对象（2026-11-03 起
-        // Pitfall 无 draft，该档只剩 WorkCase 等类型）。
+        // Pitfall 无 draft）。
         statusRank(a.status) - statusRank(b.status) ||
         // **最后更新时间：次级键，只在前几项全等时生效**（2026-10-27）。
         // 依据 Human 的判断：「优先按匹配程度，其次按最后更新时间」。
@@ -3986,7 +3971,7 @@ export async function recallForAction(input = {}) {
     // 缺它的直接后果：状态计数这种事**不该靠词法匹配**——实测用「有多少候选在等」
     // 查只能命中 0 条，「待确认的候选」命中 2 条，而全库当时的实际条数远多于此。
     // 2026-11-03 起 Pitfall 取消 `draft` 待确认态（该类型的「在等」档消失），
-    // 但 WorkCase 等类型的 `draft` 仍需按状态计数可见——故 F0 的全量类型×状态
+    // 但仍有类型的 `draft` 需按状态计数可见——故 F0 的全量类型×状态
     // 计数照旧必须存在，且不依赖查询措辞。
     //
     // 故这里给出全量（不受 types/statuses 过滤影响）的类型×状态计数，
@@ -4284,7 +4269,7 @@ export async function recallForAction(input = {}) {
       //     其「可复用行动结构」内容「在相应业务系统规范按本文 §9 承接之前，
       //     **不取得规范效力**」；
       //   · `ldvh-base/` 下也无 action/template 类事实载体（实测只有
-      //     adrs/frictions/norms/pitfalls/researches/sparks/goal/workcases）。
+      //     adrs/frictions/norms/pitfalls/researches/sparks/goal）。
       //
       // 故这不是「本函数忘了做」，而是**上游承载尚未建立**。如实登记为未兑现，
       // 不伪造一个空的路由字段冒充已实现。

@@ -59,7 +59,7 @@ function renderEnvelope(operationKey, value) {
       lines.push(`- ${child.agentId}: scope=${child.scopeState}, installed=${child.installedAt}`
         + (child.recordSource === "session-record" ? ", record=session-record" : ""));
       // The review/audit channel requires a VERBATIM excerpt of the child's own
-      // conclusion (workcase-tools record_review), so the text the parent has to
+      // conclusion, so the text the parent has to
       // quote must be readable here: the delegation notification is the only
       // other copy, and a compaction can take it away. A targeted query (the same
       // one that inlines the activity trail) prints it in full — truncating would

@@ -84,8 +84,8 @@ function pathOnly(cell: string): string {
 }
 
 /**
- * 标识符匹配须带**词边界**——裸子串会让「改名」逃逸：把 `workCaseDirectionTextVisible`
- * 改成 `workCaseDirectionTextVisibleRENAMED` 后，`includes` 仍成立（实测踩到，2026-10-15
+ * 标识符匹配须带**词边界**——裸子串会让「改名」逃逸：把某个 `xxxDirectionTextVisible`
+ * 改成 `xxxDirectionTextVisibleRENAMED` 后，`includes` 仍成立（实测踩到，2026-10-15
  * 变异三连第 1 项）。判据入口与守卫测试名走的都是这条。
  */
 function hasIdentifier(source: string, identifier: string): boolean {

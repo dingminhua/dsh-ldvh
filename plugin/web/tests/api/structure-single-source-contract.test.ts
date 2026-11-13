@@ -20,8 +20,8 @@ import test from 'node:test';
  *   正是本仓「先以作用域为由各自留存、再逐处漂移」的典型路径。现按 `docs/01` §1.10
  *   第 7 条的新裁决移除左色条、改为四边同宽（决策块左色条与项目识别色条经 Human
  *   裁决保留）。本文件末尾新增守卫防其复发。
- * - Spark 紫块（WorkCaseCriteriaList awaiting_gate2 面，violet-400/25 档）
- *   与 WorkCaseExecFlow gate2 chip（violet-500/45 档）值域不同，不在禁令内；
+ * - Spark 紫块（判据列表 violet-400/25 档）与执行流 gate chip
+ *   （violet-500/45 档）值域不同，不在禁令内；
  * - FieldReadNotes 的未解析注记 amber-600 档弱于 WARN_TITLE 700 档，保留既有值。
  *
  * 运行器纪律（踩过坑，勿改）：本仓库 API 契约用 `npm run test:web:api` =
@@ -49,7 +49,7 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
  *
  *  左色条与 `specs/10-Web呈现与交互规范.md §5.5`（行 298）「语义块四边同为
  *  1px 细线」定案的关系是**未决争议**：该定案的操作句只点名判据面板
- *  （`WORKCASE_CRITERIA_SURFACE_CLASS`），但同段自述「本条是同类定案的
+ *  （判据面样式常量），但同段自述「本条是同类定案的
  *  **补齐**，不是新偏好」，其通用论理「块的身份由**背景色**与**标记**表达，
  *  不由边框粗细表达」不限于判据面板；决策块左色条（2026-09-12 引入）早于
  *  两次 Human 定案（09-13 终态说明框、09-24 判据面板），属**遗留未审**。

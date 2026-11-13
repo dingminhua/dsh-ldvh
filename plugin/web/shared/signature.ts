@@ -36,7 +36,7 @@ function normalizeProductName(value: unknown): string {
 
 /**
  * One presentation dispatcher for the two LDVH signature fields.
- * agent_runtime_name retired per workcase-01M08D6XAKF3FSTMETTGKEK7T7.
+ * agent_runtime_name retired.
  *
  * v5 provider（specs/09 权威会话路由值）优先且逐字呈现——与「签名值零清理
  * 原则」对齐，供应商 id 不套首字母大写等产品名美化；v4 product_name 保持

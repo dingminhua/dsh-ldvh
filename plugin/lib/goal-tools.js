@@ -96,7 +96,7 @@ export function makeExecute(deps) {
     }
     const read = await readGoalObject({ factSourceRoot: `${governed.path}/ldvh-base` });
     if (!read.ok) {
-      // 25 §10: a missing goal.md is a legitimate state — Gate 1 is then
+      // 25 §10: a missing goal.md is a legitimate state — authorisation is then
       // architecturally fail-closed, and exploration is not blocked.
       const outcome = read.error.code === "goal/not_initialised" ? "unavailable" : "rejected";
       return envelope("goal-read-object", outcome, {
@@ -229,7 +229,7 @@ export function makeExecute(deps) {
       return invalidRequest("goal-write-object", "expected_fingerprint is required for action=update (CAS baseline)", "update");
     }
     const frontmatterAfter = args?.frontmatter_after;
-    // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+    // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
     const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
     const bodyMarkdownAfter = args?.body_markdown_after;
     const changeSummary = args?.change_summary;

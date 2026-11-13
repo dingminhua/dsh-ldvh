@@ -176,7 +176,7 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   if (typeof req.query.progress === 'string') {
     res.status(400).json({
       ok: false,
-      error: '?progress= 已随 v4 状态机废弃，改用 ?lifecycle=pending_gate1|executing|awaiting_gate2|closed|all',
+      error: '?progress= 已随 v4 状态机废弃，改用 ?lifecycle=closed|all',
     })
     return
   }

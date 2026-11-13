@@ -1,6 +1,6 @@
 /**
  * LocalFactReader 的字段契约判定：`expected: 'object'` 必须真的核对象形态
- * （workcase-54d4d176 独立复核发现 3）。
+ * （独立复核发现 3）。
  *
  * 缺陷形态：`matchesExpectation` 对 `'object'` 只做 `isRecord(value)`——任何
  * 非数组的普通对象都算通过，于是 `{ garbage_key: 1 }` 与 `{}` 都能被当作

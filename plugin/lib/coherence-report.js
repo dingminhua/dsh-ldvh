@@ -1,4 +1,4 @@
-// 载体内聚拒绝的取证辅助（workcase-5c0b8c2e）。
+// 载体内聚拒绝的取证辅助。
 //
 // ## 为什么需要它
 //
@@ -10,7 +10,7 @@
 //   * adr／friction／spark／research 只给字段值的前 40 字——而实测的失败形态
 //     恰恰是「高度相似但差一点」（scope 以 `。` 收尾而正文用 `；` 续写、正文开头
 //     多写了 `适用范围：`、术语补了反引号），前缀无从区分；
-//   * devlog／subgoal／workcase 根本不打印字段值，报错只有 85–91 字符。
+//   * devlog／subgoal 根本不打印字段值，报错只有 85–91 字符。
 //
 // 本模块把那套取证能力抽成一处，让十一个调用点（八个有逐字判据的类型 + 各自
 // 的段落定位）共用同一实现。**判据一字未动**：仍要求逐字包含，这里只负责把
@@ -57,7 +57,7 @@ export function clipped(text, max = COHERENCE_CLIP) {
  *   2. **条款号是参数**，由各 writer 传入自己的实际依据，不在这里写死：各类型
  *      的内聚条款登记在不同章节（22 §8／20 §14.1／23 §8／24 §8／26 §8／27 §7／
  *      28 §8／29 §8／21 §8），写死一处必然对某几类是错的；
- *   3. **只印失败字段对应的那一段**，不印整篇正文（workcase-5c0b8c2e 的 scope
+ *   3. **只印失败字段对应的那一段**，不印整篇正文（本条 scope
  *      第五条）——`section` 由调用方传入它已经切出的那一段。
  *
  * @param {object} input
@@ -66,12 +66,27 @@ export function clipped(text, max = COHERENCE_CLIP) {
  * @param {string} input.declared frontmatter 侧的值（权威文本）。
  * @param {string} input.actual 正文该段的实际内容。
  * @param {string} [input.clause] 该类型内聚条款的准确出处，如 `"22 §8, §14.1"`。
+ * @param {"rejection"|"divergence"} [input.mode] 这条消息是**拒绝**还是**只报告**。
+ *   缺省 `rejection`——与既有八个调用点逐字一致，行为不变。
+ *
+ *   `divergence` 供**已取消逐字义务**的类型使用（当前只有 devlog，29 §8 字段间
+ *   不变量 1：Human 2026-11-10 取消逐字，差异只报告不阻断）。此时沿用
+ *   「must contain … verbatim」会把一条**不阻断的差异**说成一条**未满足的要求**——
+ *   读者据此会去改一篇本来合法的正文（复审 N1 的同一类缺陷：消息文本与真实
+ *   判据不符）。故该模式下措辞改为「differs from」，且不再断言
+ *   「frontmatter is the single authoritative text」之外的强制含义。
  * @returns {string}
  */
-export function carrierCoherenceMessage({ section, field, declared, actual, clause }) {
+export function carrierCoherenceMessage({ section, field, declared, actual, clause, mode = "rejection" }) {
   const where = clause === undefined || clause.length === 0 ? "" : `, ${clause}`;
+  const body = ` ${field}=${JSON.stringify(clipped(declared))}`
+    + `; section=${JSON.stringify(clipped(actual))}`;
+  if (mode === "divergence") {
+    return `carrier coherence (reported, NOT blocking): ${section} section differs from ${field}`
+      + ` (frontmatter is the index/summary layer and the body expands it${where}):`
+      + body;
+  }
   return `carrier coherence: ${section} section must contain ${field} verbatim`
     + ` (frontmatter is the single authoritative text${where}):`
-    + ` ${field}=${JSON.stringify(clipped(declared))}`
-    + `; section=${JSON.stringify(clipped(actual))}`;
+    + body;
 }

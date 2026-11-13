@@ -62,24 +62,25 @@ function selectedLabelOf(entry) {
 }
 
 /**
- * `question` 文本的字符上界（ADR 7ceaf7fc 的实现侧落地）。
+ * `question` 文本的字符上界（Human 2026-11-13 决定：「所有经过 ldvh 业务的
+ * 提请，内容简洁，title 字数在 200 内，没有其它细节信息」）。
  *
  * 宿主把 `question` 渲染为标题区（`flex-shrink:0`，无截断、无行数上限、无
- * 滚动），而 `detail` 与选项同处可滚动 body。超长 `question` 顶高卡片后把
- * 选项挤出可视范围，Human 无从作答——实测三次 Spark 创建提请因此 fail-closed。
- * 宿主侧对长度零校验零截断，故本上界只能由本消费侧自查。
+ * 滚动），而 body 才可滚动。超长 `question` 顶高卡片后把选项挤出可视范围，
+ * Human 无从作答——实测三次 Spark 创建提请因此 fail-closed。宿主侧对长度
+ * 零校验零截断，故本上界只能由本消费侧自查。
+ *
+ * 该上界与「不带 detail」是同一条决定的两半：卡片上只留一行标题。
  */
 export const ASK_QUESTION_MAX_CHARS = 200;
 
 /**
- * 按字符预算裁剪外壳文本，不拆散代理对。
+ * 按字符预算裁剪标题文本，不拆散代理对。
  *
  * 预算以 **UTF-16 码元**（`String.prototype.length`）计量，与仓内既有 200 字符
  * 上界同一口径——否则含代理对的文本
  * （emoji 等）会以「码点数 ≤ 200 而 .length 达 366」的形式越过上界。裁剪时按
  * 码元回退，不把一个代理对劈成两半（半个码元会渲染成替换字符）。
- *
- * 仅用于**短外壳**的兜底：呈报正文永不经过这里（它整体走 detail）。
  */
 function clampHead(text, budget) {
   if (text.length <= budget) return text;
@@ -91,38 +92,36 @@ function clampHead(text, budget) {
 }
 
 /**
- * 有界组装（ADR 7ceaf7fc）：短外壳进 `question`，完整呈报进 `question.detail`。
+ * 组装提请的标题行（Human 2026-11-13 决定：所有经 LDVH 业务的提请都简洁，
+ * title 在 200 字内，**没有其它细节信息**）。
  *
+ * 因此本函数**只产出 `question`，不产出 `detail`**：
  * - `head` — 短外壳行（Gate 名与对象标题）。逐字进入 `question`，超出
- *   `ASK_QUESTION_MAX_CHARS` 时按预算裁剪（只裁外壳，不裁呈报）。
- * - `detail` — 本次请求未经任何裁剪的完整呈报文本，原样承载。宿主不校验
- *   `detail` 长度，且它渲染于可滚动 body 内，是宿主已提供的长文本位置。
+ *   `ASK_QUESTION_MAX_CHARS` 时按预算裁剪。
  *
- * 不变量（由 plugin/test 断言）：返回的 `question` 长度 ≤ 上界；`detail`
- * 逐字包含全部呈报内容。任何呈报内容的**丢失**都不可能发生——超限时的处置是
- * 移入 detail，不是截断。
+ * **呈报内容去哪了**：不再随提请下发。20 §16 / 22 §16 要求的「呈报内容」由
+ * 主控在**调用受控写入之前**写进对话正文（Human 在会话里读到的就是它），
+ * 弹窗只承担「这是什么动作、点哪个键」。这一分工的代价必须如实理解：
+ * **机械层不再证明 Human 看到过完整呈报**——它只证明取得过一次明确肯定答复。
+ * 该缺口的登记见 `20 §16` 与 `22 §16.2` 的据实声明段。
  */
-function assembleBoundedAsk({ head, detail }) {
+function composeAskTitle({ head }) {
   const lines = (Array.isArray(head) ? head : [])
     .filter((line) => typeof line === "string" && line.trim().length > 0)
     .map((line) => line.trim());
-  const report = typeof detail === "string" && detail.trim().length > 0 ? detail.trim() : null;
-  return {
-    question: clampHead(lines.join("\n"), ASK_QUESTION_MAX_CHARS),
-    ...(report === null ? {} : { detail: report })
-  };
+  return { question: clampHead(lines.join("\n"), ASK_QUESTION_MAX_CHARS) };
 }
 
 
 /** 21 §6.3 路由询问 identity — the Human decides between carrying the work as a
- * WorkCase or handling it directly. Same discipline as the registration consent:
+ * routing it or handling it directly. Same discipline as the registration consent:
  * the id and BOTH labels are shared between what is asked and what is accepted,
  * so the parse can never grant on a label that was never offered.
  *
- * This is a ROUTING question ("WorkCase or direct?"), NOT a content approval.
- * The content judgement belongs to Gate 1 (21 §10.1), where the Human sees the
+ * This is a ROUTING question ("routed or direct?"), NOT a content approval.
+ * The content judgement belongs to the pre-action consultation, where the Human sees the
  * whole object; asking for内容 here would demand a judgement the Human cannot
- * yet make. Only the "carry it as a WorkCase" answer authorises creation —
+ * yet make. Only the "carry it as routed work" answer authorises creation —
  * "handle it directly" means no object is created at all. */
 
 /** 20 §16 Spark Human Gate identity — 创建与终态转换两项共用同一询问 id
@@ -538,10 +537,13 @@ export function createHostSeams() {
    * `summary` is the 呈报内容 required by 20 §16 — the caller passes what the
    * Human must see to judge (create: dedup conclusion + question +
    * scope_boundary + serves; terminal: target status + disposition + relation
-   * targets). It is carried verbatim — but in `question.detail`, not in
-   * `question` (ADR 7ceaf7fc: the title area is not scrollable, so an
-   * unbounded report there pushes the options out of reach). Either way a
-   * caller cannot satisfy this gate with an empty or generic report.
+   * targets). **It no longer travels with the question** (Human 2026-11-13:
+   * 所有经 LDVH 业务的提请都简洁，title 在 200 字内，没有其它细节信息):
+   * the report is presented by 主控 in the conversation body BEFORE this call,
+   * and the dialog carries only the action line. The parameter is still
+   * required so a caller cannot reach this gate without having produced the
+   * report at all — but see the honest boundary: the seam can no longer prove
+   * the Human was shown it (20 §16 的据实声明段已登记该缺口).
    */
   async function requestSparkConsent({ action, objectTitle, summary, agent, signal }) {
     const ask = seams.ask;
@@ -552,25 +554,23 @@ export function createHostSeams() {
     const report = typeof summary === "string" && summary.trim().length > 0
       ? summary.trim()
       : null;
-    // 20 §16 requires the Human to receive the 呈报内容. A caller that sends
-    // none is refused rather than asked a content-free question: asking without
-    // the report would record a "yes" to something the Human never saw.
+    // A caller that supplies no report at all is refused rather than asked a
+    // content-free question: asking without one would record a "yes" to
+    // something the Human was never shown. (The seam cannot check WHERE the
+    // report was shown — only that one exists.)
     if (report === null) {
       return { granted: false, reason: "20 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
     }
-    // 有界组装（ADR 7ceaf7fc）：question 只放短外壳（Gate 名与对象标题），
-    // 20 §16 的完整呈报逐字进 detail。外壳 53 字符 + disposition 上界 200
-    // 字符使原组装至少 227 字符，故必须移入 detail 而不是压缩。
-    const head = [`Spark ${verb}确认（20 §16 Human Gate）`];
+    // 标题组装：只放 Gate 名与对象标题，不携带任何呈报细节。
+    const head = [`Spark ${verb}确认（20 §16）`];
     if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
-    const assembled = assembleBoundedAsk({ head, detail: report });
+    const composed = composeAskTitle({ head });
     try {
       const answer = await ask({
         questions: [{
           id: SPARK_CONSENT_QUESTION_ID,
           header: "Spark 授权",
-          question: assembled.question,
-          ...(assembled.detail === undefined ? {} : { detail: assembled.detail }),
+          question: composed.question,
           options: [
             { label: SPARK_CONSENT_LABEL, description: `确认${verb}该 Spark 对象` },
             { label: "取消", description: "不执行本次写入，保持现状" }
@@ -612,7 +612,11 @@ export function createHostSeams() {
    * change_log.summary evidence statement + relation targets (22 §10). A caller
    * that supplies none is refused rather than asked a content-free question:
    * asking without the report would record a "yes" to something never seen.
-   * The report goes in `question.detail`, not `question` (ADR 7ceaf7fc).
+   * **It no longer travels with the question** (Human 2026-11-13: 所有经 LDVH
+   * 业务的提请都简洁，title 在 200 字内，没有其它细节信息): 主控 presents it in
+   * the conversation body before calling this seam, and the dialog carries only
+   * the action line. The seam therefore can no longer prove the Human was shown
+   * the report — that gap is registered in 22 §16.2's 据实声明段.
    */
   async function requestAdrConsent({ action, objectTitle, summary, agent, signal }) {
     const ask = seams.ask;
@@ -623,24 +627,21 @@ export function createHostSeams() {
     const report = typeof summary === "string" && summary.trim().length > 0
       ? summary.trim()
       : null;
-    // 22 §16 requires the 呈报内容 before the question (mirrors 20 §16 at
-    // requestSparkConsent): a content-free ask would record consent to
-    // something the Human never saw.
+    // A content-free ask would record consent to something the Human never saw
+    // (mirrors 20 §16 at requestSparkConsent).
     if (report === null) {
       return { granted: false, reason: "22 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
     }
-    // 有界组装（ADR 7ceaf7fc）：question 只放短外壳（Gate 名与对象标题），完整
-    // 呈报逐字进 detail——退休呈报含退休理由全文与 change_log.summary，必然超 200。
-    const head = [`ADR ${verb}确认（22 §16 Human Gate）`];
+    // 标题组装：只放 Gate 名与对象标题，不携带任何呈报细节。
+    const head = [`ADR ${verb}确认（22 §16）`];
     if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
-    const assembled = assembleBoundedAsk({ head, detail: report });
+    const composed = composeAskTitle({ head });
     try {
       const answer = await ask({
         questions: [{
           id: ADR_CONSENT_QUESTION_ID,
           header: "ADR 授权",
-          question: assembled.question,
-          ...(assembled.detail === undefined ? {} : { detail: assembled.detail }),
+          question: composed.question,
           options: [
             { label: ADR_CONSENT_LABEL, description: `确认${verb}该 ADR 对象` },
             { label: "取消", description: "不执行本次写入，保持现状" }
@@ -662,7 +663,7 @@ export function createHostSeams() {
   }
 
     /**
-     * 两处把关询问（2026-11-13 Human 决定：取消工单→改问「要不要安排代理」）。
+     * 两处把关询问（2026-11-13 Human 决定：改问「要不要安排代理」）。
      *
      * 与上面三处 consent 的**根本差别**：那三处是 Human Gate（不取得答复就不许
      * 继续，fail-closed）。本处**不是 Gate**——Human 选「跳过」是**合法答复**，

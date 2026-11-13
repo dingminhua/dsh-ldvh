@@ -25,11 +25,15 @@ import {
   updateSparkObject,
   listSparkObjects,
   resolveRefsTargets,
+  // 删除白名单与 writer 同源（与 friction-tools 同一做法）：schema 的 enum 由
+  // writer 的具名常量算出，二者不可能漂移。schema 是模型读到的唯一入口——
+  // 枚举写小了不是「拦住越权」，而是让模型以为某个合法的删除不存在。
+  SPARK_REMOVABLE_FIELDS,
 } from "./spark-writer.js";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { toParameterSpec } from "./parameter-spec-adapter.js";
 import { currentRouteValues } from "./session-signature.js";
-import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
+import { FRONTMATTER_AFTER_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
@@ -56,7 +60,7 @@ const OPERATIONS = {
     // action, so the whole tool must declare no wall-clock deadline — otherwise
     // every CAS update silently pays for the Human wait and a late answer is
     // DISCARDED by a 30s timeout, leaving the gate unenforced in real
-    // compositions. See `workcase-tools.js` for the identical discipline and
+    // compositions. See the other fact tools for the identical discipline and
     // the descriptor factory for how the flag is consumed.
     //
     // Note the third 20 §16 Gate (问题/边界大改) deliberately does NOT route
@@ -472,7 +476,7 @@ async function executeWriteObject(args, exec, deps) {
     if (!dry.ok) {
       return writeRejected("spark-write-object", dry, factSourceRoot);
     }
-    // 20 §16 Gate 1/2: creation requires an explicit Human confirmation through
+    // 20 §16: creation requires an explicit Human confirmation through
     // the host answerer. Fail closed when the ask entry is absent — silence is
     // not consent, and an unconfirmed candidate must not silently become an
     // object (00 §3.4: without a scope-clear response the matter stays paused).
@@ -524,7 +528,7 @@ async function executeWriteObject(args, exec, deps) {
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
-  // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+  // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
@@ -764,7 +768,7 @@ function renderEnvelope(operationKey, value) {
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
   // **warnings 必须进模型可见文本**（2026-11-10）：只留在 envelope 里等于没给——
   // 与 `mechanical_issues` 此前「写入路径算出来了、投影与呈现两侧各 0 处命中」
-  // 同一失效模式（见 workcaseTextStructure.ts 头注释）。故与 gaps 同层渲染，
+  // 同一失效模式（见书写形态校验的头注释）。故与 gaps 同层渲染，
   // 但用 `warning:` 前缀区分：gap 是缺口披露，warning 是不阻断的提示。
   const warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
@@ -856,7 +860,7 @@ function parameterSchemaFor(operationKey) {
           object_uid: { type: "string", description: "update: target object" },
           expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
           frontmatter_after: (() => { const { required: _r, ...rest } = sparkFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
-          frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
+          frontmatter_removals: { type: "array", description: `update: explicit deletion declarations (specs/02 §10.5: 未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-list (SPARK_REMOVABLE_FIELDS for update: ${[...SPARK_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...SPARK_REMOVABLE_FIELDS] } },
           body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown)" },
           change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }
         },
@@ -871,7 +875,7 @@ function parameterSchemaFor(operationKey) {
 /**
  * `timeoutMs` is omitted for operations that block on a Human answer
  * (`awaitsHumanDecision`) — see the identical note in `ldvh-tools.js` and
- * `workcase-tools.js`. The host's per-tool deadline would otherwise discard a
+ * the other fact tools. The host's per-tool deadline would otherwise discard a
  * late answer, which does not make the gate slower but WRONG: the write would
  * be refused while the Human's confirmation arrives too late to be recorded.
  *

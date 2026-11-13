@@ -121,8 +121,17 @@ test("锚 A：三个在用槽位的**注册面**零破坏，diff 报出的字段
   // 剩余这条不是对本插件的破坏：plugins.bundle.config 用的是本包名作键，
   // 已占用清单增减与它无关。故断言保持「变更集合精确等于已归因集合」——未来的
   // 新变更仍会转红，但历史事实不再被一句错误的全称断言掩盖。
+  //
+  // 2026-11-13：plugins.bundle.config 与 plugins.row.config **双双退出消费面**
+  // （Human 决定「设置只留一处」，两个 keyed 槽位撤除，改用 settings.section）。
+  // 退出消费面后，宿主对这两个槽位的契约字段变更**不再影响本插件**，故期望集合
+  // 随之清空——**不是**「变更消失了」，是「变更与我们无关了」。
+  //
+  // 这里保留一句历史说明而不让它随条目移除而消失：那条 keyDomain 变更
+  // （「already taken」清单多一个 @deepseek-ai/dsh-cua-bundle）当年被归因为
+  // 「注册表快照，与本插件用包名作键无关」；该归因对已撤除的槽位仍然成立，
+  // 只是不再构成对本插件的约束。
   const KNOWN_SLOT_FIELD_CHANGES = {
-    "plugins.bundle.config": ["keyDomain"],
   };
   const observed = {};
   for (const c of r.tables.slots.tri.breaking.changed) observed[c.id] = [...c.contractFields].sort();
@@ -134,8 +143,10 @@ test("锚 A：三个在用槽位的**注册面**零破坏，diff 报出的字段
     "槽位契约字段变更集合必须精确等于已归因的条目；出现新条目须重新判断是否影响本插件",
   );
 
-  // 三、其余两个在用槽位仍须零契约变更（它们是真正没变的）。
-  for (const id of ["conversation.view", "plugins.row.config"]) {
+  // 三、其余在用槽位仍须零契约变更（它们是真正没变的）。
+  // 在用槽位 = conversation.view（会话视图）+ settings.section /
+  // settings.section.icon（设置页那节与其图标，2026-11-13 新增）。
+  for (const id of ["conversation.view", "settings.section", "settings.section.icon"]) {
     assert.equal(observed[id], undefined, `${id} 不得出现契约字段变更`);
   }
 });

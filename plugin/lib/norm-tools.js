@@ -13,7 +13,7 @@
 //     collision every colliding active Norm is WITHHELD and reported as
 //     `direction_collision` (fail-closed, 01 §9.1) instead of being served.
 //   - norm-write-object (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal incl. dedup result) and CAS update
+//     (after Human-confirmed proposal) and CAS update
 //     with change_log: active→active is 勘误/受控更新 with direction_key
 //     held fixed (27 §13.2 mechanically decidable half), active→retired is
 //     the terminal transition. Carries uniqueness layer 1 (27 §11 item 1):
@@ -69,7 +69,7 @@ const OPERATIONS = {
   "norm-write-object": {
     toolName: "ldvh_norm_write",
     writeShaped: true,
-    summary: "Controlled write of Norm fact objects: create (after Human-confirmed proposal incl. dedup result; requires a direction_key with no existing active Norm, else ERR_DIRECTION_ALREADY_EXISTS) and CAS update with change_log; active→active holds direction_key fixed (27 §13.2), active→retired is terminal (specs/03 §9.4–§9.5, specs/27 §11)",
+    summary: "Controlled write of Norm fact objects: create (after Human-confirmed proposal; requires a direction_key with no existing active Norm, else ERR_DIRECTION_ALREADY_EXISTS) and CAS update with change_log; active→active holds direction_key fixed (27 §13.2), active→retired is terminal (specs/03 §9.4–§9.5, specs/27 §11)",
     effect: "may_change_state"
   }
 };
@@ -305,12 +305,15 @@ async function executeWriteObject(args, exec, deps) {
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
-  // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+  // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
   if (typeof objectUid !== "string" || objectUid.length === 0) {
     return invalidRequest("norm-write-object", "object_uid is required for action=update", "update");
+  }
+  if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
+    return invalidRequest("norm-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
   if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return invalidRequest("norm-write-object", "frontmatter_after (object) and body_markdown_after (markdown) are required for action=update", "update");

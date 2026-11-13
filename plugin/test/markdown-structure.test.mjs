@@ -2,7 +2,7 @@
 //
 // WHY THIS EXISTS（真实缺陷，非假设）：
 // `h2Titles` / `sectionContent` / `countAtxHeadings` 曾在 6 个 writer 中各自
-// 实现，且语义分叉——workcase 的实现跳代码围栏，其余 5 份不跳；同一文件内
+// 实现，且语义分叉——有一份跳代码围栏，其余不跳；同一文件内
 // spark/pitfall 的 `h2Titles`（不跳围栏）与 `countAtxHeadings`（跳围栏）也相互
 // 矛盾。围栏内的 `## 假标题` 于是被部分实现当成真 H2，使 H2 集合校验产生假命中。
 //

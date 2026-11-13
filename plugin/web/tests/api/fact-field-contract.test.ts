@@ -31,7 +31,7 @@ const COMMON_FIELD_EXEMPTIONS: Record<string, readonly string[]> = {
   //（层级只两层，上下游由 parent_goal 与 serves 反查派生，不建第二边）。
   subgoal: ['urls', 'relations'],
   // 29 §8 / §11：DevLog 不采用 urls（条目源自内部过程，不调查外部世界）与
-  // refs（与工单的连接由**工单侧** refs 单向声明，条目侧不复制反向边）。
+  // refs（与工作对象的连接由**对象侧** refs 单向声明，条目侧不复制反向边）。
   // relations 仍采用（absorbed-into / superseded-by 两条终态边）。
   devlog: ['urls', 'refs'],
 };

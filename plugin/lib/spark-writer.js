@@ -228,7 +228,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     }
   }
 
-  // summary 200 字符上限（Human 2026-11-04 裁定 B1，workcase-5eec3197）：
+  // summary 200 字符上限（Human 2026-11-04 裁定 B1）：
   // 与 disposition 同一判定单位与拒绝纪律。update 路径由调用方按「本次是否改动
   // summary」决定是否跳过（B1：存量放行，不锁死 66 条现存超限对象）。
   if (typeof frontmatter.summary === "string" && frontmatter.summary.length > 0) {
@@ -501,7 +501,6 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
   // subgoals/ 与 devlogs/ 下，任何正文修订都被这条判据拦下。
   const dirs = [
     ["spark", SPARK_DIRECTORY],
-    ["workcase", "workcases"],
     ["adr", "adrs"],
     ["pitfall", "pitfalls"],
     ["research", "researches"],
@@ -850,7 +849,7 @@ export async function createSparkObject(args) {
 // ---------------------------------------------------------------------------
 
 /**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
  *
  * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `spark/invalid_uid`
  * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
@@ -1131,7 +1130,7 @@ export async function listSparkObjects(args) {
       object_uid: uid,
       // 02 §8 / §9 F1：`fact_type_key` 是跨类型公共身份字段，F1 卡片须自证类型——
       // 否则渲染层只能按「当前在列哪个页面」硬编码类型短名，换个消费面就错。
-      // 三处列表投影（spark/pitfall/workcase）此前都漏了它（object-reference 测试
+      // 两处列表投影（spark/pitfall）此前都漏了它（object-reference 测试
       // 早已断言却一直红着）。取落盘值而非常量：承载被改成别的类型时如实暴露。
       fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : SPARK_TYPE_KEY,
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
@@ -1270,7 +1269,7 @@ export async function updateSparkObject(args) {
 
   // Validate
   //
-  // 200 字符上限的**适用范围**（Human 2026-11-04 裁定 B1 + 乙，workcase-5eec3197）：
+  // 200 字符上限的**适用范围**（Human 2026-11-04 裁定 B1 + 乙）：
   // 只校验本次**改动**了 summary 的写入，逐字未改的既有 summary 放行。这是
   // 21 §15.1 已确立的先例（「只校验相对基线新增或改动的字段，逐字未改的既有
   // 字段放行——否则……将使受影响对象永久无法关闭」），照搬到本类型同理：

@@ -18,8 +18,7 @@
  * 例外（不经本模块，登记于设计语言文档）：
  * - diff 语法高亮（增删行、hunk 头、diff 统计色调）——代码高亮豁免（docs/01 §1.4）；
  * - 图表内色段（CognitionCenter 度量条等）——图表豁免；
- * - 域内单源表：workcaseCheckState / objectSignals / WorkCaseClosedStatusBadge /
- *   WorkCaseGistLine / WorkCaseCriteriaList（WorkCase 域 600 系强 chip 档，
+ * - 域内单源表：objectSignals 等（域内 600 系强 chip 档，
  *   与本模块横切档刻意不同密度）；
  * - 文件内一次性映射（ObjectList 状态图标 map、Friction 决策面板、Spark 紫块等）。
  *

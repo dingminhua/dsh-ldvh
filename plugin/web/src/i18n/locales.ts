@@ -31,16 +31,13 @@ export const STATUS_LOCALES: Record<string, { zh: string; en: string }> = {
   termination_cleanup: { zh: '终止善后中', en: 'Termination Cleanup' },
   closure_confirmation: { zh: '关闭待确认', en: 'Closure Confirmation' },
   closed: { zh: '已关闭', en: 'Closed' },
-  gate1_waiting: { zh: '等待 Gate 1', en: 'Waiting for Gate 1' },
   plan_revision_in_progress: { zh: '方案修订中', en: 'Plan revision in progress' },
   item_execution_in_progress: { zh: '工作项执行中', en: 'Work item execution in progress' },
   result_projection_preparing: { zh: '正在形成结果投影', en: 'Preparing result projection' },
   independent_result_review_in_progress: { zh: '独立结果复核中', en: 'Independent result review in progress' },
   closure_proposal_preparing: { zh: '正在形成关闭提案', en: 'Preparing closure proposal' },
   termination_cleanup_in_progress: { zh: '终止善后中', en: 'Termination cleanup in progress' },
-  gate2_waiting: { zh: '等待 Gate 2', en: 'Waiting for Gate 2' },
   blocked_at_current_position: { zh: '当前位置受阻', en: 'Blocked at current position' },
-  gate2_position_blocked: { zh: '关闭位置受阻', en: 'Blocked at closure position' },
   open: { zh: '未关闭', en: 'Open' },
   routed: { zh: '已分流', en: 'Routed' },
   implemented: { zh: '已关闭', en: 'Implemented' },
@@ -382,7 +379,7 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   pitfall_resolution: { zh: '解决', en: 'Resolution Applied' },
   pitfall_scope_section: { zh: '影响与适用范围', en: 'Impact & Applicability' },
   goal: { zh: '目标', en: 'Goal' },
-  // 21 §8 闭集无 `phase`：v5 用派生分组 `group`（pending_gate1/awaiting_gate2/
+  // 闭集无 `phase`：v5 用派生分组 `group`（
   // executing/closed）表达生命周期位置，故 `phase` 词条已移除。
   resume_from: { zh: '恢复入口', en: 'Resume From' },
   waiting_on: { zh: '等待对象', en: 'Waiting On' },
@@ -902,7 +899,7 @@ export function getObjectStatusHint(type: string, status: string, locale: string
     if (status === 'achieved') {
       return locale === 'en'
         ? 'Criterion satisfied by evidence — not implied by closing its work cases'
-        : '判据已由证据满足——不由名下工单关闭推出';
+        : '判据已由证据满足——不由名下工作全部关闭推出';
     }
     if (status === 'retired') {
       return locale === 'en'
@@ -1352,7 +1349,7 @@ export const UI_LOCALES = {
     'objectList.reason': '原因',
     // 10 §5.5「呈现降级」：gist 在 closed 时缺失合法（21 §8 终态只读）。卡面
     // 如实降级，不以 summary 静默替代、也不留白。
-    // 21 号三态直读 + 派生分组（WC-0002 呈现契约；派生规则：待批准关闭 = open ∧ 正文含 ## 结果 节）
+    // 派生分组（呈现契约；派生规则：待批准关闭 = open ∧ 正文含 ## 结果 节）
     // 已关闭卡的**合并徽标**用词（状态词 + 中心圆点 + 结论词，Human 裁定 2026-09-30）。
     // 与结论词单独出现的那套分开（已完成／部分达成
     // ／未达成／已取消，用于详情面与独立徽标），本套是**与状态词并排出现**时的短词——
@@ -2195,7 +2192,7 @@ export const UI_LOCALES = {
     'objectList.associationState.active': 'Active',
     'objectList.discarded': 'Discarded',
     'objectList.reason': 'Reason',
-    // v5 lifecycle groups (21 §9 + WC-0002 presentation contract; awaiting-gate2 = open ∧ body has ## 结果)
+    // v5 lifecycle groups (presentation contract)
     // Change flow (card body): key actions marked with a word (Human 2026-09-23).
     // Awaiting-closure checks and advice (parsed from the 21 §8 result section)
     // Advice directions (21 §8 advice section). The first two are the current

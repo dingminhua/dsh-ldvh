@@ -45,9 +45,9 @@ const PROXY_TIMEOUT_MS = 120_000;
  *
  * **为什么是这两个**（2026-10-19 实证）：API 子进程跑的是 `api/server.ts`，而它
  * **import 了 `web/shared/` 下的模块**（如 `api/services/facts.ts` 引
- * `shared/workcaseResultDraft.ts`）。只盯 `api/` 时，改共享模块不触发回收——子进程
+ * 共享模块）。只盯 `api/` 时，改共享模块不触发回收——子进程
  * 一直跑旧码，而磁盘早已更新，表现为「改了没生效」，且没有任何报错。实测：改
- * `shared/workcaseResultDraft.ts` 后 API 仍返回旧的解析结果，须手动往 `api/` 下
+ * 某个共享模块后 API 仍返回旧的解析结果，须手动往 `api/` 下
  * 踢一脚才收敛。
  *
  * 只列这两个子树而不是整个 `webRoot`：`src/`（浏览器侧，不经 API 子进程加载）与
@@ -224,7 +224,7 @@ export function createWebApiProcess(options) {
   // 监听面不止 api/：API 进程 import 了 web/shared/ 下的模块，只盯 api/ 时改共享
   // 模块不触发回收，表现为「改了没生效」且无任何报错（2026-10-19 实证）。
   //
-  // 回收判据（2026-10-09，工单 c6d88dac）：只有**内容真的变了**才回收。原实现
+  // 回收判据（2026-10-09）：只有**内容真的变了**才回收。原实现
   // 对任何 mtime 事件都 kill，一次 `touch` 就能把页面打死——而重拉只能靠已经
   // 打不开的页面发来的 /ldvh/api/* 请求，形成死锁。故此处对整棵被监听源码树取
   // 内容指纹（路径 + 长度 + 内容 hash，**不含 mtime**——混进 mtime 等于没修），

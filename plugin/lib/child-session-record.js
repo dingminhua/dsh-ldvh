@@ -8,8 +8,8 @@
 // still lists as live agents. A child that has ALREADY FINISHED is gone from the
 // host's agent service, so the rebuilt registry cannot see it at all — and that
 // is precisely the state the review channel needs ("the reviewer finished its
-// turn, now record its conclusion": workcase-tools record_review / record_audit).
-// Measured live on workcase-996e207a: five isolated reviewers (4dfcc7e9 /
+// turn, now record its conclusion": the review/audit recording entry).
+// Measured live: five isolated reviewers (
 // 7b598299 / 47ef943e / 230fe389 / 61ae6b21) each ended in "is not a subagent
 // registered under this session", while ldvh_collect_subagent_results reported
 // zero records.

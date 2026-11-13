@@ -51,8 +51,8 @@
 ### 与旧记录的两处实质性更正
 
 1. **`ldvh-base` 目录数由「五类」更正为七类**：现为
-   `sparks / workcases / adrs / pitfalls / researches / frictions / norms`。
-   旧记录与本文件原版本写「五类」（`sparks, workcases, adrs, pitfalls, studies`），
+   `sparks / adrs / pitfalls / researches / frictions / norms`。
+   旧记录与本文件原版本写「五类」（`sparks, adrs, pitfalls, studies`），
    `studies` 已不存在，`researches`/`frictions`/`norms` 后加。② 项最初照旧记录断言，
    在真机上因 `studies` 不存在而红——**是记录过期，不是实现缺陷**。
 2. **`pre-commit` 与 `commit-msg` 两枚 Hook**：旧记录只提 `commit-msg`。实测

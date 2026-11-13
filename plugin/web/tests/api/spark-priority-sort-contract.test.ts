@@ -34,7 +34,7 @@ test('未分档的 Spark 排在已分档之后，不被推定为任何档位（2
   assert.match(list, /不得代为推定档位/);
 });
 
-test('priority 排序只在 spark 提供（21 §8 WorkCase 闭集无 priority）', () => {
+test('priority 排序只在 spark 提供', () => {
   const list = read('src/pages/ObjectList.tsx');
   // 对无 priority 字段的类型提供「按优先级排序」会让名称与实际不符。
   assert.match(list, /const supportsPrioritySort = currentType === 'spark'/);

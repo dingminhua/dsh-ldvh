@@ -325,6 +325,6 @@ Human 决定只证明决定及其作用范围，不替代查重判断、载体�
 1. **不设中间态**——Pitfall 一经创建即 `active`，其正文七段必须据证据写全、各段非空、不以占位符或「待查明」标记冒充（§8、§10）。不得增设「待确认」「待复核」类中间态，也不得以任何状态为名保存未查明的失败机制（那属会话记录，不是 Pitfall）——其后的内容更正是勘误与补充级更新的职责（§9.3）；
 2. 不设 `symptoms`/`trigger_conditions`/`root_cause`/`resolution`/`avoidance`/`validation` frontmatter 字段——六要素分析主体住正文，frontmatter 只留 scope 薄索引；
 3. 不设 `severity`/`priority`/`tags`/`repeatability` 类装饰字段——经验重要性由消费点引用体现；
-4. 不建 `relations` 关系边——谱系由 disposition 承载、贡献关联由 WC 侧承载（02 §8.2 第 4 条）；
+4. 不建 `relations` 关系边——谱系由 disposition 承载、贡献关联由对象侧承载（02 §8.2 第 4 条）；
 5. 不建症状相似度自动匹配——预检与故障调查的匹配是 AI 语义工作（02 §9.2）；
 6. 不把 avoidance 提升为规则源——经验约束需强制时由规范源另行定义（00 §3.2）。

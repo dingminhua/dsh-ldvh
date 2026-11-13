@@ -101,7 +101,7 @@ export function detectStaleValidatorModules({ files = VALIDATOR_MODULE_FILES, cl
 }
 
 /**
- * `plugin/lib` 下全部模块（workcase-e487cdf4）。
+ * `plugin/lib` 下全部模块。
  *
  * 与 {@link VALIDATOR_MODULE_FILES} 的关系：后者是**precheck 专用子集**（只有那两个
  * 文件的旧代码会改变 precheck 结论）；本集合是**全量**——`plugin/lib` 里任何模块比
@@ -136,7 +136,7 @@ export function listLibraryModuleFiles(libraryDir) {
  *
  * 与 {@link detectStaleValidatorModules} 同形返回，便于调用方统一处理；差别只在
  * 受检集合。**结论只用于如实报告**：本函数不参与任何判定语义，不得据以拒绝写入
- * 或改写预检 `verdict`（workcase-e487cdf4 的 scope 第三条边界）。
+ * 或改写预检 `verdict`（本模块 scope 第三条边界）。
  *
  * @param {{libraryDir?: string, clock?: object, statMtimeMs?: (f: string) => number|null}} [options]
  */

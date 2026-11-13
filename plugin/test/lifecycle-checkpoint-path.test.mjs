@@ -333,7 +333,7 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
     // **没有 list()**：候选名由内置名 spawn 提供，与真宿主同形。
     getProvider: () => ({ name: "spawn", inheritsParentContext: false, capabilities: { outputSchema: true, agentOptions: true, depthLimit: true } }),
     startActivation: async (spec) => {
-      const request = spec?.request;
+      const request = spec;
       const promptText = request?.prompt?.[0]?.text ?? "";
       // 探针：把「桩是否被调用」与「窗口里到底有没有材料」写进可断言的地方——
       // 否则「没失败」既可能是逻辑正确，也可能是桩压根没跑（空过）。

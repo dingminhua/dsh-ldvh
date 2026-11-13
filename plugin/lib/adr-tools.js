@@ -63,7 +63,7 @@ const OPERATIONS = {
     // `spark-tools.js` for the identical discipline and the descriptor factory
     // for how the flag is consumed.
     //
-    // Known cost, registered in workcase-3e0ad5ca: the same flag removes the
+    // Known cost: the same flag removes the
     // deadline from `correct` and from `active → active` errata updates too,
     // because one descriptor carries all three actions.
     awaitsHumanDecision: true,
@@ -399,7 +399,7 @@ async function executeWriteObject(args, exec, deps) {
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
-  // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+  // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;

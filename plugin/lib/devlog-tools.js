@@ -66,7 +66,7 @@ const OPERATIONS = {
   },
   "devlog-precheck-create": {
     toolName: "ldvh_devlog_precheck_create",
-    summary: "只读机械预检一份 DevLog 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/29 §13 写入前机械预检；与 workcase-precheck-create 同形——同一 validator 的两个入口）",
+    summary: "只读机械预检一份 DevLog 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/29 §13 写入前机械预检；与 devlog-precheck-create 同形——同一 validator 的两个入口）",
     effect: "read"
   },
   "devlog-write-object": {
@@ -598,7 +598,7 @@ function parameterSchemaFor(operationKey) {
       serves: { type: "string", description: "optional SubGoal object_uid (canonical UUIDv4); must resolve to an active|achieved SubGoal (28 §12.3). Omit when not applicable — an entry without serves has an empty topic and the presentation layer must say so (29 §8.1)" },
       refs: { type: "array", items: { type: "object" }, description: "关联的事实对象引用（29 §8 / §12.3bis；采用面扩展经 Human 决定，02 §8.2）: array of {object_uid} — 目标须为同项目存在且可读的事实对象（**不校验目标状态**——关联是历史事实），上限 10 项，禁重复、禁携带目标标题或关系解释；**只载内容关联**，生命周期关系走 relations、外部资料走 urls、载体内部锚点走 serves；解析失败零写入拒绝，不得降级为空数组；不存在时省略（空数组会伪造一个条件字段）" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=dropped, forbidden otherwise (29 §8)" },
-      relations: { type: "array", items: { type: "object" }, description: "closed set {absorbed-into, superseded-by}, BOTH terminal-only (29 §11). absorbed-into (cardinality 1, iff status=absorbed) → ADR/WorkCase/Norm/Pitfall object_uid or {commit} form; superseded-by (cardinality 1, iff status=superseded) → DevLog object_uid ONLY (a commit cannot answer 「新结论在哪里」)" },
+      relations: { type: "array", items: { type: "object" }, description: "closed set {absorbed-into, superseded-by}, BOTH terminal-only (29 §11). absorbed-into (cardinality 1, iff status=absorbed) → ADR/Norm/Pitfall object_uid or {commit} form; superseded-by (cardinality 1, iff status=superseded) → DevLog object_uid ONLY (a commit cannot answer 「新结论在哪里」)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "occurred_at", "summary"],

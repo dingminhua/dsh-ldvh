@@ -21,7 +21,7 @@ const exec = (cwd) => ({ agent: { session: { header: { cwd } } } });
 
 /**
  * Build a fake host-seam registry whose Spark confirmation answerer is driven
- * by `reply`. Mirrors `routingSeam` in workcase-create-confirmation.test.mjs:
+ * by `reply`. Mirrors the routing seam used by the other fact tools:
  * the gate is injected through `deps.hostSeams`, NOT through ctx — host-seams.js
  * installs `seams.ask` at plugin load, which never runs in a unit test.
  */

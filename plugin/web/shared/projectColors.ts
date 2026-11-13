@@ -1,7 +1,7 @@
 /**
  * 项目色彩标识体系（全部管辖计划 Step 2）。
  *
- * 设计原则（docs 锚点：spark-workcase-rebuild Web 迁移线）：
+ * 设计原则（docs 锚点：Web 迁移线）：
  * - 项目色是第三正交维度，不侵占类型色（categoryColors）与状态色（statusColors）；
  * - 只承载「来自哪个项目」一个语义；
  * - 存储形态为色板键名（如 `emerald`），不是色值——亮暗主题由 CSS 变量换算；

@@ -580,7 +580,7 @@ test("schema + handler: action=correct 拒绝 frontmatter_after / frontmatter_re
 });
 
 // ---------------------------------------------------------------------------
-// 22 §16 Human Gate（workcase-3e0ad5ca）
+// 22 §16 Human Gate
 //
 // 22 §16 把「ADR 的创建」（第 1 项）与「ADR 的终态决定 retired」（第 2 项）定为
 // Human Gate，13 又写明创建是「Human 确认后经受控创建入口落盘」。此前实现侧零

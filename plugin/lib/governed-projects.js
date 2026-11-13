@@ -9,12 +9,12 @@ import { HOOK_BUNDLE_VERSION, inspectHook, installHook, uninstallHook as removeM
 
 const execFileAsync = promisify(execFile);
 const REGISTRATION_RELATIVE_PATH = ["ldvh", "governed-projects.yaml"];
-// v5 事实类型目录（03 §6.1 类型短名的复数形态）。20/21/22/23/24/25/26/27 各自落盘：
-// sparks(20) workcases(21) adrs(22) pitfalls(23) researches(24) frictions(26) norms(27)。
+// v5 事实类型目录（03 §6.1 类型短名的复数形态）。各类型各自落盘：
+// sparks(20) adrs(22) pitfalls(23) researches(24) frictions(26) norms(27)。
 // 25 Goal 为单例，落 ldvh-base/goal.md，不占目录。
 // 注：frictions 与 norms 曾漏于本清单（friction-writer.js 会写 frictions/，27 号定义 norms/），
 // 已按类型短名复数惯例补齐。
-const FACT_DIRECTORIES = ["sparks", "workcases", "adrs", "pitfalls", "researches", "frictions", "norms"];
+const FACT_DIRECTORIES = ["sparks", "adrs", "pitfalls", "researches", "frictions", "norms"];
 
 /**
  * 07 §5.4 precondition vocabulary. The registration entries are enabled only

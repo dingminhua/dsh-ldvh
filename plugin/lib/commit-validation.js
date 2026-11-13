@@ -81,7 +81,7 @@ export const GATE_RULES = Object.freeze({
   "validation/staged_path_uncovered": Object.freeze({ severity: "blocking", description: "a staged diff path is covered by no 关键变更 item (06 §6.1: no diff change may be omitted; K1 bidirectional, Human 2026-09-10)" }),
   "validation/signature_provider_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Provider does not match the authoritative session record" }),
   "validation/signature_model_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Model does not match the authoritative session record" }),
-  "validation/signature_source_unverifiable": Object.freeze({ severity: "blocking", description: "the authoritative route could not be resolved inside the commit-msg Hook, so the trailers' traceability cannot be verified — 09 §5.5 非 passed 即阻断; rule established by the 09 §8.1 item 2 decision (Human 2026-11-05, workcase-608786b8)" }),
+  "validation/signature_source_unverifiable": Object.freeze({ severity: "blocking", description: "the authoritative route could not be resolved inside the commit-msg Hook, so the trailers' traceability cannot be verified — 09 §5.5 非 passed 即阻断; rule established by the 09 §8.1 item 2 decision (Human 2026-11-05)" }),
   "git/index_empty": Object.freeze({ severity: "blocking", description: "candidate Index is empty" }),
   "facts/norm_direction_collision": Object.freeze({ severity: "blocking", description: "two or more ACTIVE Norm objects in ldvh-base/norms/ share one direction_key (27 §11 uniqueness second layer: the Git Gate traverses the index and refuses the commit)" }),
   "facts/norm_carrier_unparseable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base/norms/norm-*.md carrier cannot be parsed for the direction_key uniqueness assertion — an unreadable carrier cannot be proven conflict-free, so the gate fails closed rather than passing it" }),
@@ -226,7 +226,7 @@ export function checkSignatureAgainstRoute(message, route) {
 export function isGovernedCommitPath(path) {
   // The repository-root `README.md` is deliberately NOT a trigger: it is inside
   // the precheck's 检查范围 (09 §5.3 item 5) but outside this dispatch set, and
-  // Human decided (2026-11-05, workcase-608786b8) to keep that divergence and
+  // Human decided (2026-11-05) to keep that divergence and
   // declare it in 09 §5.5 rather than silently widening the Gate's domain.
   return path === "AGENTS.md" || path.startsWith("ldvh-base/") || path.startsWith("specs/");
 }
@@ -407,7 +407,7 @@ function hasBoundedSubstring(haystack, needle) {
 //     begin a path segment.
 //   - The tail class accepts any Unicode letter/mark/number, not only ASCII:
 //     a path may end in a CJK filename segment (e.g.
-//     `docs/workcase-xxxx-指称形态候选-2026-10-18.md`). An ASCII-only class
+//     `docs/指称形态候选-2026-10-18.md`). An ASCII-only class
 //     truncates the match before the CJK run and existence-checks the
 //     truncated token — a false `docs_reference_dangling` on a reference that
 //     resolves. The prefix class stays ASCII-punctuated so a CJK character
@@ -975,7 +975,6 @@ const FACT_TYPE_PREFIXES = Object.freeze({
   "ldvh-base/researches": "research",
   "ldvh-base/sparks": "spark",
   "ldvh-base/subgoals": "subgoal",
-  "ldvh-base/workcases": "workcase",
 });
 
 /** 取载体路径的事实类型目录与前缀；非载体返回 null。 */

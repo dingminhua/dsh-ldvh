@@ -81,15 +81,15 @@ test('fact list projections preserve full UID authority without derived identity
     );
 
     const adrList = await listObjects('adr', undefined, undefined, scope);
-    const workCaseList = await listObjects('pitfall', undefined, undefined, scope);
-    if (!adrList.ok || !workCaseList.ok) throw new Error('fact list unavailable');
+    const pitfallList = await listObjects('pitfall', undefined, undefined, scope);
+    if (!adrList.ok || !pitfallList.ok) throw new Error('fact list unavailable');
     const adr = (adrList.data.items as Array<Record<string, unknown>>)[0];
-    const workCase = (workCaseList.data.items as Array<Record<string, unknown>>)[0];
+    const pitfallItem = (pitfallList.data.items as Array<Record<string, unknown>>)[0];
     const retiredField = ['short', 'ref'].join('_');
     assert.equal(adr?.[retiredField], undefined);
     assert.equal(adr?.object_uid, adrUid);
-    assert.equal(workCase?.[retiredField], undefined);
-    assert.equal(workCase?.object_uid, pitfallUid);
+    assert.equal(pitfallItem?.[retiredField], undefined);
+    assert.equal(pitfallItem?.object_uid, pitfallUid);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

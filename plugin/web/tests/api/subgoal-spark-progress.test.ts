@@ -25,7 +25,7 @@ function read(relativePath: string): string {
 }
 
 const spark = (status: string) => ({ type: 'spark', status });
-const workcase = (status: string) => ({ type: 'workcase', status });
+const otherType = (status: string) => ({ type: 'adr', status });
 
 test('分母只含待处理与已落实，分子是已落实（Human 定案口径）', () => {
   const progress = summarizeServingSparkProgress([
@@ -59,8 +59,8 @@ test('已废弃不进分母：处置掉火花不算进度倒退', () => {
 test('空集不折算成 0%：三种「算不出」各有自己的状态（28 §8.1）', () => {
   // ① 名下没有火花
   assert.equal(summarizeServingSparkProgress([]).kind, 'empty');
-  assert.equal(summarizeServingSparkProgress([workcase('closed')]).kind, 'empty',
-    '只有工单不算有火花');
+  assert.equal(summarizeServingSparkProgress([otherType('retired')]).kind, 'empty',
+    '只有非火花类型不算有火花');
 
   // ② 火花全废弃——不是「没拆解」，是「拆了、都处置掉了」
   assert.equal(summarizeServingSparkProgress([spark('discarded')]).kind, 'allDiscarded');
@@ -73,14 +73,14 @@ test('空集不折算成 0%：三种「算不出」各有自己的状态（28 §
   }
 });
 
-test('工单不混进火花比值（两个轴）', () => {
+test('非火花类型不混进火花比值（两个轴）', () => {
   const progress = summarizeServingSparkProgress([
-    workcase('closed'), workcase('open'),
+    otherType('retired'), otherType('active'),
     spark('implemented'),
   ]);
   assert.equal(progress.kind, 'ratio');
   if (progress.kind !== 'ratio') return;
-  assert.equal(progress.denominator, 1, '工单不参与分母');
+  assert.equal(progress.denominator, 1, '非火花类型不参与分母');
   assert.equal(progress.implemented, 1);
 });
 
@@ -99,14 +99,14 @@ test('闭集外状态不猜档位、不静默丢弃：单独计数并如实上�
 });
 
 test('已落实不因下游完成而虚增：分子只数 implemented（20 §9「implemented ≠ 下游完成」）', () => {
-  // 这条防的是把工单关闭数读成火花落实——20 §9 与 28 §18 红线 3 同向。
+  // 这条防的是把其他对象的完成数读成火花落实——20 §9 与 28 §18 红线 3 同向。
   const progress = summarizeServingSparkProgress([
-    workcase('closed'), workcase('closed'), workcase('closed'),
+    otherType('retired'), otherType('retired'), otherType('retired'),
     spark('open'),
   ]);
   assert.equal(progress.kind, 'ratio');
   if (progress.kind !== 'ratio') return;
-  assert.equal(progress.implemented, 0, '三张工单已关闭不得抬高分子');
+  assert.equal(progress.implemented, 0, '其它对象的完成数不得抬高分子');
   assert.equal(progress.denominator, 1);
 });
 

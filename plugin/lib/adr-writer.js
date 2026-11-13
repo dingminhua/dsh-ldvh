@@ -605,7 +605,7 @@ export async function createAdrObject(args) {
 // ---------------------------------------------------------------------------
 
 /**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
  *
  * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `adr/invalid_uid`
  * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
@@ -822,7 +822,7 @@ export async function updateAdrObject(args) {
  * by 事实更正, not by a state transition — but until now `update` refused every
  * `retired` object unconditionally, so that promise had no carrier at all.
  *
- * The shape follows 21 §14 `correct` (WorkCase), NOT 26 §13: **this entry
+ * The shape follows 26 §13, NOT the retired type's §14: **this entry
  * takes no frontmatter input whatsoever**. decision / scope / status /
  * retirement_reason / relations / retired_at are inherited verbatim from the
  * on-disk object. That is a structural guarantee, not a checked one — the

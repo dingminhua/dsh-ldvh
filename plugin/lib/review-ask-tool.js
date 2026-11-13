@@ -6,14 +6,14 @@
  * 三个原因，每条都对应一个实测过的失效面：
  *
  * 1. **留痕**：宿主 `ctx.userQuestions.ask` 走 waterfall，**不进入会话事件流**
- *    （`workcase-route-ledger.js` 头注记录的实测）。裸调之后，事后无法从任何
+ *    （历史实测记录）。裸调之后，事后无法从任何
  *    权威记录回答「问过没有、答了什么」——本仓已经因此发生过一次主控误判
  *    「询问未发生」并补问了一遍。
  * 2. **不重问**：同一内容指纹问过就有答复可复用。裸调没有这层，重试必重问。
  * 3. **开关**：本工具自己读开关，关闭时**不问**——这样「打开才有」由一处实现
  *    保证，而不是要求主控每次都记得先查配置。
  *
- * ## 它不是 Gate（与 ldvh_workcase_write 的 approve 根本不同）
+ * ## 它不是 Gate（与任何 Human Gate 的 approve 根本不同）
  *
  * Human 选「跳过」是**合法答复**，不是拒绝，不阻断任何后续动作。故本工具
  * 返回 `decision: "review" | "skip" | "silent" | null`，**不返回 granted**——用
@@ -41,7 +41,7 @@ function envelope(operationKey, outcome, fields) {
 export const REVIEW_ASK_OPERATION = Object.freeze({
   toolName: "ldvh_review_ask",
   summary:
-    "两处把关询问（2026-11-13 Human 决定：取消工单后改为「要不要安排代理审查／复核」两问）。"
+    "两处把关询问（2026-11-13 Human 决定：改为「要不要安排代理审查／复核」两问）。"
     + "\n\nWHEN TO CALL: 仅当对应开关打开、且你判定当次任务属「复杂任务」时。"
     + "判据不是新造的：specs/04 §6.1 三条是**条文原文**（建立或修改结构性事物／存在多个可选路径的选型／方向可能与既定决策冲突）；"
     + "specs/04 §6.1 的排除五条取反是**据此推导的判据，不是条文原文**（该节只列排除清单，规范里没有正面规定「什么情况算复杂任务」）。"
@@ -58,7 +58,7 @@ export const REVIEW_ASK_OPERATION = Object.freeze({
   // 该字段当时无人消费，错值没造成实际后果——但留着会让将来读它的人（或工具）
   // 以为它不落盘。**错误但无人消费的声明仍然是错的**。
   effect: "may_change_state",
-  // 询问会阻塞在人身上，故整个工具不声明墙钟期限（与 ldvh_workcase_write 同理：
+  // 询问会阻塞在人身上，故整个工具不声明墙钟期限（与其它写入类工具同理：
   // 期限是逐工具的，声明一个会让所有调用都付 Human 等待的代价）。
   //
   // **该字段此前是死的**（本工具走 defineTool 直注册，不经 toolDescriptor，

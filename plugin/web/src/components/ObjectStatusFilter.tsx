@@ -16,8 +16,8 @@ const STATUS_FILTER_ORDER = [
   'open',
   'implemented',
   // 28 §9：子目标的达成态。排在 implemented 之后、resolved 之前——它同样是
-  // 「达成/落实」族，但与工单的 implemented 不是同一件事（达成由判据判定，
-  // 不由关闭工单推出，28 §18 红线 3）。
+  // 「达成/落实」族，但与对象自身的 implemented 不是同一件事（达成由判据判定，
+  // 不由名下工作全部关闭推出，28 §18 红线 3）。
   'achieved',
   'resolved',
   // 26 §9：Friction 已废弃（记错了的账目）——排在 resolved 后，属终态族。

@@ -121,14 +121,14 @@ function references(call, candidate) {
 }
 
 const GATE_TOOLS = new Set([
-  "ask_user_question", "ldvh_workcase_write", "update_goal", "create_goal",
-  "ldvh_pending_queue_resolve", "ldvh_workcase_precheck_create",
+  "ask_user_question", "update_goal", "create_goal",
+  "ldvh_pending_queue_resolve",
 ]);
 
 /**
  * **回指的证据强度分档**（2026-11-11 补，据实声明）。
  *
- * 实测回指按工具分布：bash 87、ldvh_workcase_write 48、structured_output 22、
+ * 实测回指按工具分布：bash 87、structured_output 22、
  * ldvh_spark_write 21、subagent 15…若一律记作「落实」，会把「读了一下那个文件」
  * 与「据此改写了对象」混为一谈——前者只证明该候选进入了视野，后者才接近
  * 34 §8.3 的「有改变」。
@@ -142,14 +142,14 @@ const GATE_TOOLS = new Set([
  *                 上下文，只证明它被传下去，不证明被采纳。
  */
 const REF_KIND_BY_TOOL = new Map([
-  ["ldvh_workcase_write", "write"], ["ldvh_spark_write", "write"],
+  ["ldvh_spark_write", "write"],
   ["ldvh_adr_write", "write"], ["ldvh_pitfall_write", "write"],
   ["ldvh_friction_write", "write"], ["ldvh_norm_write", "write"],
-  ["ldvh_devlog_write", "write"], ["ldvh_workcase_precheck_create", "write"],
+  ["ldvh_devlog_write", "write"],
   ["ldvh_pending_queue_resolve", "write"], ["edit", "write"],
   ["ask_user_question", "write"], ["update_goal", "write"],
   ["read", "read"], ["bash", "read"], ["grep", "read"],
-  ["ldvh_workcase_read", "read"], ["ldvh_norm_read", "read"],
+  ["ldvh_norm_read", "read"],
   ["ldvh_spark_read", "read"], ["ldvh_adr_read", "read"],
   ["subagent", "relay"], ["structured_output", "relay"], ["compress", "relay"],
 ]);

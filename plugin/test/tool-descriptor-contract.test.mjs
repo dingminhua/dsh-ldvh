@@ -40,9 +40,9 @@ test("every tool layer declares the output contract DSH 0.1.7 requires", async (
 /**
  * 写入口的前置校验闭集必须与工具描述符公布的 `action` 枚举一致（21 §14）。
  *
- * 实测缺陷：`ldvh_workcase_write` 的描述符枚举早已列出 `request_adjustment` /
+ * 实测缺陷：某写入工具的描述符枚举早已列出 `request_adjustment` /
  * `decide_adjustment`（21 §14 增量审批），两个处理分支也都实现了，但
- * `workcase-tools.js` 的 `WRITE_ACTIONS` 前置集合漏了它们。于是每次调用都在
+ * 该工具层的前置集合漏了它们。于是每次调用都在
  * 前置校验处被拒，报错写作「unknown action」——**看起来像参数写错，实际是门坏了**，
  * 于是该通道对所有 composition 静默失效，且没有任何测试覆盖这道闭集。
  *
@@ -86,7 +86,7 @@ test("write-action gates and the advertised action enum cannot drift apart", asy
 		}
 	}
 	// 下界为 0 而非 1：唯一同时持有 action enum 与 action gate 的层是已撤除的
-	// workcase-tools.js。断言仍保留，使将来任一工具层重新引入这对结构时本守卫
+	// 断言仍保留，使将来任一工具层重新引入这对结构时本守卫
 	// 立即生效；无此类层时 audited=0 是当前的合法事实，不是漏检。
 	assert.ok(audited >= 0, `audited ${audited}`);
 });

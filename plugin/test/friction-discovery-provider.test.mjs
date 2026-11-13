@@ -173,20 +173,40 @@ test("discover：以 outputSchema 与零上下文 provider 调用 start（§8.4 
 
   assert.equal(svc.starts.length, 1);
   const call = svc.starts[0];
-  // startActivation 的 spec：provider 与 label/signal 在顶层，prompt/parent/outputSchema
-  // 在 request 内层（SubagentActivationSpec 的形状，宿主 0.2.1-rc.1）。
+  // startActivation 的 spec（宿主 0.2.2-rc.2 的形状）：provider/label/signal/delivery
+  // 与 prompt/parent/outputSchema **同处顶层**。rc.1 的 `SubagentActivationSpec`
+  // 带一层 `request: Omit<SubagentStartRequest,'label'|'signal'>`，rc.2 改为
+  // `extends Omit<...>` 直接平铺（上游 575606a356「refactor(subagent): flatten
+  // activation task options」），实现随之改读 `spec.parent`。
   assert.equal(call.spec.provider, "spawn");
   assert.equal(call.spec.signal, SIGNAL);
   assert.equal(call.spec.delivery, "caller", "闲时辅助按 caller 取回结论，不走 parent 结算通知");
   assert.equal(call.spec.childId, undefined, "不得传 childId（会触发 DUPLICATE_CHILD 语义门槛）");
-  assert.equal(call.spec.request.parent, PARENT);
-  assert.ok(call.spec.request.outputSchema, "outputSchema 必须随请求传递——它是结构化判断的唯一通道");
-  assert.equal(call.spec.request.outputSchema.type, "object");
-  assert.ok(Array.isArray(call.spec.request.prompt) && call.spec.request.prompt[0].type === "text");
-  assert.match(call.spec.request.prompt[0].text, /N=3/);
-  assert.ok(call.spec.request.prompt[0].text.includes(CANDIDATES[0].object_uid));
+  assert.equal(call.spec.parent, PARENT);
+  assert.ok(call.spec.outputSchema, "outputSchema 必须随请求传递——它是结构化判断的唯一通道");
+  assert.equal(call.spec.outputSchema.type, "object");
+  assert.ok(Array.isArray(call.spec.prompt) && call.spec.prompt[0].type === "text");
+  assert.match(call.spec.prompt[0].text, /N=3/);
+  assert.ok(call.spec.prompt[0].text.includes(CANDIDATES[0].object_uid));
   assert.equal(out.outcome, "no-discovery");
   assert.equal(out.watermarkTurn, 5, "成功完成才给出推进凭据");
+});
+
+test("discover：派发 spec 用宿主 0.2.2-rc.2 的平铺形状（实现退回内层 request 即判红）", async () => {
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
+  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
+  await discover({ threshold: 3, candidates: CANDIDATES, window: { from: 1, to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] } });
+
+  assert.equal(svc.starts.length, 1);
+  const spec = svc.starts[0].spec;
+  // 形状守卫（specs/06 §5「断言须以被测面的真实形状为准」）：宿主 0.2.2-rc.2 把
+  // 激活任务选项拆平，prompt/parent/outputSchema 在 spec 顶层，rc.1 的 `request`
+  // 内层已不存在。实现若退回内层 request，本用例判红——宿主届时读 `spec.parent`
+  // 得 undefined 即抛 TypeError，派发在第一跳失败。
+  assert.equal(spec.request, undefined, "spec 不得再带 request 内层——宿主 0.2.2-rc.2 已拆平激活任务选项");
+  assert.ok(Array.isArray(spec.prompt), "prompt 必须在 spec 顶层");
+  assert.equal(spec.parent, PARENT);
+  assert.ok(spec.outputSchema, "outputSchema 必须在 spec 顶层");
 });
 
 test("discover：label 为 `ldvh-idle <秒级时刻>`，不列举任务（Human 决定 2026-10-14）", async () => {
@@ -234,7 +254,7 @@ test("prompt：公共段声明零上下文派生 + 机械交付，旧「继承�
   const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   await discover({ threshold: 3, candidates: CANDIDATES, window: { to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] } });
-  const text = svc.starts[0].spec.request.prompt[0].text;
+  const text = svc.starts[0].spec.prompt[0].text;
   assert.match(text, /零上下文/);
   assert.match(text, /机械交付/);
   assert.doesNotMatch(text, /你继承发起会话的主控上下文/, "旧继承措辞不得残留（11 §7.1 上下文供给段，2026-10-12）");
@@ -523,7 +543,7 @@ test("D5：无 provideWindow 时退回调用方给的 window（向后兼容旧�
   });
   assert.equal(out.outcome, "no-discovery");
   // 提示词须含该材料（证明退回路径也把内容交了出去）
-  assert.match(svc.starts[0].spec.request.prompt[0].text, /这是一段足够长的材料内容原文。/);
+  assert.match(svc.starts[0].spec.prompt[0].text, /这是一段足够长的材料内容原文。/);
 });
 
 test("D6：窗口有未观察缺口时，缺口被带出交由调用方登记（不静默、也不死锁）", async () => {

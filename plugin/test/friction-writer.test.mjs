@@ -6,7 +6,7 @@
 //      informs 只在销账流转写入。观察态 observing 已于 2026-10 退出闭集——
 //      观察材料改由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象），不进事实源；
 //      `observing → open`（阈值）与 `open → observing`（放回留观）两条流转一并删除）,
-//   §11 informs 关系（目标限 ADR/WorkCase 目录可解析）,
+//   §11 informs 关系（目标限 ADR 目录可解析）,
 //   §12 召回（默认 open；resolved/voided 只在 includeResolved）,
 //   §13 受控操作, §14.1 特有验证.
 // Tests assert spec behaviour; where the implementation diverges from the
@@ -399,12 +399,12 @@ async function seedResolvedWithAnchor(root, { anchorUid, informsUid }) {
   return uid;
 }
 
-/** 造一个最小的 informs 目标（workcase 目录下的载体，只要 object_uid 可解析）。 */
+/** 造一个最小的 informs 目标（adrs 目录下的载体，只要 object_uid 可解析）。 */
 async function seedInformsTarget(root, uid) {
-  await mkdir(join(root, "workcases"), { recursive: true });
+  await mkdir(join(root, "adrs"), { recursive: true });
   await writeFile(
-    join(root, "workcases", `workcase-${uid}.md`),
-    `---\nobject_uid: ${uid}\nfact_type_key: workcase\ntitle: 解药工单\nstatus: closed\ncreated_at: "2026-10-01T00:00:00.000Z"\n---\n\n# 解药工单\n`,
+    join(root, "adrs", `adr-${uid}.md`),
+    `---\nobject_uid: ${uid}\nfact_type_key: adr\ntitle: 解药决策\nstatus: active\ndecision: 采用 A。\nscope: 解药。\ncreated_at: "2026-10-01T00:00:00.000Z"\n---\n\n# 解药决策\n`,
     "utf8",
   );
 }
@@ -1111,7 +1111,7 @@ test("correct: resolved 账可改正文与 relations，终态判定逐字不变�
         target: { commit: "a".repeat(40) },
       }],
       bodyMarkdownAfter: resolvedBodyMarkdown(),
-      changeSummary: "更正销账时把消费者工单当作解药对象的形态偏差",
+      changeSummary: "更正销账时把消费者对象当作解药对象的形态偏差",
       humanAuthorization: "Human（dsh-ldvh 会话主，2026-10-09 明示「授权你可以临时修改一下」）",
       sessionSignature: TEST_SIGNATURE,
       gitCommitResolver: async () => true,
@@ -1510,7 +1510,7 @@ test("state machine: informs target not resolvable → friction/relation_target_
 test("state machine: informs target pointing to spark file (wrong type) → relation_target_unresolvable (26 §11)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    // Create a spark file (not ADR/WorkCase) — informs target must resolve in adrs/ or workcases/
+    // Create a spark file (not ADR) — informs target must resolve in adrs/
     await mkdir(join(root, "sparks"), { recursive: true });
     const sparkFm = {
       object_uid: "ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb",
@@ -2105,7 +2105,7 @@ test("attribution_ref 可解析性只认顶层 object_uid 声明行（缩进 uid
 // The pairing is the same-root cross-role edge: this Friction names the Pitfall
 // that records the avoidance for the *same* obstacle. It is state-neutral — a
 // pair exists whether the debt is open, settled or voided — and its target
-// resolves in pitfalls/, never in adrs//workcases/.
+// resolves in pitfalls/, never in adrs/.
 // ---------------------------------------------------------------------------
 
 /** Pitfall fixture file written to the fact source root for paired-with resolution. */

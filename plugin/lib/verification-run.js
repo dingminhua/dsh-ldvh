@@ -56,7 +56,7 @@ export const VERDICTS = Object.freeze(["pass", "fail", "not-checkable"]);
  *
  * **机械可核对的四行不得列入**（「延迟的取消」「二次确认空闲」「路径约定落实」
  * 「无主控预检落实」）——它们的验证入口是回读、对照与核对，登记为 not-checkable
- * 等于免掉四道本可核对的闸门。该禁止同时写在工单 scope 与测试里。
+ * 等于免掉四道本可核对的闸门。该禁止同时写在 scope 与测试里。
  */
 export const NOT_CHECKABLE_ROWS = Object.freeze({
   "派发准入": "本行当前不产生判定（§18 条件式）：§6.2 现不设任何准入约束，派发的准入由 §6.1 的进入契约界定；§6.2 重新引入约束时该行恢复效力",

@@ -58,7 +58,7 @@ const OPERATIONS = {
   },
   "subgoal-precheck-create": {
     toolName: "ldvh_subgoal_precheck_create",
-    summary: "只读机械预检一份 SubGoal 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/28 §13 提请前机械预检；与 workcase-precheck-create 同形——同一 validator 的两个入口）",
+    summary: "只读机械预检一份 SubGoal 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/28 §13 提请前机械预检；与 devlog-precheck-create 同形——同一 validator 的两个入口）",
     effect: "read"
   },
   "subgoal-write-object": {
@@ -203,9 +203,8 @@ async function deriveServingObjects(factSourceRoot, objectUid) {
     // Use each type's OWN list projection (their fields and status filters are
     // type authority, 20 §13 / 21 §13) rather than a bespoke directory scan:
     // a second reader here would drift from those writers.
-    // **WorkCase 分支已随该类型撤除**（Human 2026-11-13 决定，见 ADR
-    // adr-39547fb1）。此前这里 `import("./workcase-writer.js")` 取
-    // `listWorkcaseObjects`——该文件随类型一并删除后，这个动态 import 抛
+    // **该分支已随其类型撤除**（Human 2026-11-13 决定，见 ADR adr-39547fb1）。
+    // 此前这里有一处动态 import 取它——该文件随类型一并删除后，这个动态 import 抛
     // ERR_MODULE_NOT_FOUND，被下面 catch 吞成一条 gap，于是本列表的 serves
     // 派生**静默失效**（结果为空、看上去只是「没有对象服务于它」，而那与
     // 「查不了」是两回事）。测试没抓到是因为测试不走这条派生路径。
@@ -600,7 +599,7 @@ function parameterSchemaFor(operationKey) {
       order: { type: "integer", description: "optional display order (28 §8): positive integer, may be omitted, need not be unique or contiguous; it carries NO reference duty, so it may be changed freely at any time" },
       parent_goal: { type: "string", enum: ["project-goal"], description: "the goal key this sub-goal serves; must match the goal carrier's goal_key (28 §8)" },
       status: { type: "string", enum: ["active", "achieved", "retired"], description: "create must be active (28 §9.2 — the only legal initial state); update may transition active→achieved or active→retired, both terminal and read-only afterwards" },
-      criterion: { type: "string", description: "the decidable achievement condition — one sentence stating WHAT MATERIAL must appear for this sub-goal to count as achieved (28 §8/§10.2). This statement must appear VERBATIM in the 达成条件 body section (carrier coherence, 28 §8 字段间不变量 1; frontmatter is the single authoritative text — the body only expands it). 'Complete workcase X' / 'close N workcases' is NOT a criterion (28 §6.3)" },
+      criterion: { type: "string", description: "the decidable achievement condition — one sentence stating WHAT MATERIAL must appear for this sub-goal to count as achieved (28 §8/§10.2). This statement must appear VERBATIM in the 达成条件 body section (carrier coherence, 28 §8 字段间不变量 1; frontmatter is the single authoritative text — the body only expands it). 'Complete task X' / 'close N tasks' is NOT a criterion (28 §6.3)" },
       criterion_kind: { type: "string", enum: ["metric", "closure-records", "executable-check"], description: "how the criterion is proven (28 §10.2): metric = an observable value reaches a threshold; closure-records = a chain of closing records constitutes the material; executable-check = a reproducible check passes. This makes 'how would we prove it' a required answer at creation — it does NOT make the criterion decidable by itself" },
       alignment: { type: "string", description: "why this sub-goal serves the goal statement — must point at specific content of the goal statement, not a generic phrase (28 §8; red line 7). Non-empty is mechanically checkable; whether it is TRUE is a semantic judgement (28 §15)" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=retired, forbidden otherwise (28 §8)" },

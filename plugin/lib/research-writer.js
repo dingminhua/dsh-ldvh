@@ -267,7 +267,7 @@ export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing
  *
  * Mechanical scope (24 §14): relation_key closed set, minimal target shape,
  * updates cardinality and self-reference, duplicate edges. Target *type*
- * closed sets for cross-type keys (inspired-by/informs → spark/workcase/adr)
+ * closed sets for cross-type keys (inspired-by/informs → spark/adr)
  * need target resolution, which lands with the 20–22 type rebuilds — the
  * `updates` target IS resolvable in our own directory and is checked by the
  * create/update flows (research/relation_target_unresolvable).
@@ -976,7 +976,7 @@ function insertSurveySection(analysisBody, surveyH3Content) {
 // ---------------------------------------------------------------------------
 
 /**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
  *
  * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `research/invalid_uid`
  * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是

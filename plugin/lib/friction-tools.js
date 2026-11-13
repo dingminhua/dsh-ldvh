@@ -11,7 +11,7 @@
 //     open by default (26 §12 2026-10 修订：观察态已退出闭集; resolved stays out of ordinary
 //     candidates until historical tracing).
 //   - friction-write-object (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal incl. dedup result) and CAS update
+//     (after Human-confirmed proposal) and CAS update
 //     with change_log: status-preserving updates are supplement-level
 //     (26 §9.3); transitions follow 26 §9.2 (open→resolved/voided, both terminal; 观察不进账本).
 //
@@ -27,7 +27,7 @@ import {
   updateFrictionObject,
   correctFrictionObject,
   listFrictionObjects,
-  // 投影归一只有一份权威（workcase-54d4d176 复核发现 7）：原先此处内联了一份
+  // 投影归一只有一份权威（复核发现 7）：原先此处内联了一份
   // 逐字等价的 copy，两份一旦漂移就会出现「详情归一了、列表没归一」这类只在
   // 某个读法上暴露的分叉。writer 侧已 export，直接复用。
   normalizeAttributionRef,
@@ -64,7 +64,7 @@ const OPERATIONS = {
   "friction-write-object": {
     toolName: "ldvh_friction_write",
     writeShaped: true,
-    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided/accepted，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; →accepted needs disposition (non-empty), no informs, and a 处置 section (the 复审触发 inside it is an AI/Human semantic requirement — Code only checks the section is present and disposition is non-empty, 26 §15 内容项); all three terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 11 §12bis.1 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
+    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided/accepted，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; →accepted needs disposition (non-empty), no informs, and a 处置 section (the 复审触发 inside it is an AI/Human semantic requirement — Code only checks the section is present and disposition is non-empty, 26 §15 内容项); all three terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 11 §12bis.1 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
     effect: "may_change_state"
   }
 };
@@ -159,7 +159,7 @@ async function executeReadObject(args, exec, deps) {
       attribution: typeof fm.attribution === "string" ? fm.attribution : undefined,
       // 26 §8/§11（2026-10 订正）：attribution_ref 是对象形态 { object_uid }
       // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃
-      // （workcase-54d4d176）。裸 string 为存量兼容，归一为对象形态后投影。
+      // 裸 string 为存量兼容，归一为对象形态后投影。
       attribution_ref: normalizeAttributionRef(fm.attribution_ref),
       occurrence: fm.occurrence && typeof fm.occurrence === "object" ? fm.occurrence : undefined,
       disposition: typeof fm.disposition === "string" ? fm.disposition : undefined,
@@ -386,7 +386,7 @@ async function executeWriteObject(args, exec, deps) {
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
-  // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+  // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
@@ -471,7 +471,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     "friction/relations_invalid", "friction/relation_target_unresolvable", "friction/occurrence_invalid",
     // 26 §8/§11 锚点型：attribution_ref 出现时 object_uid 必须可解析为同项目事实
     // 对象；不可解析即零写拒绝——必须登记在此，否则会被当作 availability 失败
-    // 报成 unavailable（workcase/refs_target_unresolvable 漏登记的同类教训）。
+    // 报成 unavailable（同类教训：漏登记的关系键会静默失败）。
     "friction/attribution_ref_unresolvable",
     "friction/cas_conflict", "friction/change_summary_required", "friction/invalid_uid",
     "invalid_request",
@@ -489,7 +489,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
       : code === "friction/status_terminal"
         ? ["resolved Frictions are read-only (26 §9.2); a recurring obstacle goes through a NEW ledger entry referencing this uid"]
         : code === "friction/relations_invalid"
-          ? ["informs 1..n with resolvable ADR/WorkCase targets is required on the resolving transition (26 §11); paired-with (→ pitfall-<uid> in pitfalls/) is allowed in any state and is NOT a substitute for informs"]
+          ? ["informs 1..n with resolvable ADR targets is required on the resolving transition (26 §11); paired-with (→ pitfall-<uid> in pitfalls/) is allowed in any state and is NOT a substitute for informs"]
           : ["fix the reported mechanical issues and retry; zero write has occurred"]
   });
 }
@@ -577,7 +577,7 @@ function parameterSchemaFor(operationKey) {
       occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create. count = the number of independent sightings CONFIRMED WHEN THE ENTRY CAME INTO BEING (from the observation group size at promotion time; 1 for a Human-entered entry). It is NOT a threshold input any more — the threshold lives in the observation buffer (11 §9 第 3 项 / §12bis.1). first_at/last_at = earliest/latest sighting time. Frozen once resolved/voided. 例外: voided 且来源为闭集收缩改判者可缺 (26 §14.2). 2026-10 修订已删除 human_return_at：放回留观流转取消，机械通道不再按 count 改任何既有账目状态" },
 
       disposition: { type: "string", description: "why this entry was voided; REQUIRED iff status=voided, forbidden otherwise (26 §8) — the list card renders it so Human can read the reason without opening the detail page. resolved carries no such field: its outcome is already carried by the informs relation" },
-      relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs", "paired-with"] }, target: { type: "object", description: "26 §9.2 commit 例外：解药是一次受控提交且没有任何对象身份时，本形态用 `commit`（40 位 hex）代替 `object_uid`——两种形态互斥。此例外只对 informs 开放（paired-with 不采用，commit 不是「同源跨角色的经验」）。", properties: { object_uid: { type: "string" }, commit: { type: "string" } }, additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "closed set {informs, paired-with} (26 §11, 2026-10-28). informs 1..n points at remedy objects (ADR/WorkCase uids), appears only on resolved; paired-with points at the same-root cross-role Pitfall and may appear in ANY state (a pair exists whether or not the debt is settled). paired-with resolves in pitfalls/, informs in adrs//workcases/. **Single-sided storage**: the edge lives ONLY here; the Pitfall side does not carry a reverse edge (23 §11 — a mirrored copy would be a second carrier of the same fact that neither side can mechanically verify, and the two could silently diverge). The reverse direction (which debt corresponds to this experience?) is derived by reverse lookup over this field (26 §12 配对反查; ldvh_friction_list exposes paired_with). Do NOT instruct the Pitfall side to write a matching edge — its writer rejects relations outright" },
+      relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs", "paired-with"] }, target: { type: "object", description: "26 §9.2 commit 例外：解药是一次受控提交且没有任何对象身份时，本形态用 `commit`（40 位 hex）代替 `object_uid`——两种形态互斥。此例外只对 informs 开放（paired-with 不采用，commit 不是「同源跨角色的经验」）。", properties: { object_uid: { type: "string" }, commit: { type: "string" } }, additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "closed set {informs, paired-with} (26 §11, 2026-10-28). informs 1..n points at remedy objects (ADR uids), appears only on resolved; paired-with points at the same-root cross-role Pitfall and may appear in ANY state (a pair exists whether or not the debt is settled). paired-with resolves in pitfalls/, informs in adrs/. **Single-sided storage**: the edge lives ONLY here; the Pitfall side does not carry a reverse edge (23 §11 — a mirrored copy would be a second carrier of the same fact that neither side can mechanically verify, and the two could silently diverge). The reverse direction (which debt corresponds to this experience?) is derived by reverse lookup over this field (26 §12 配对反查; ldvh_friction_list exposes paired_with). Do NOT instruct the Pitfall side to write a matching edge — its writer rejects relations outright" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "phenomenon", "occurrence"],
@@ -616,7 +616,7 @@ function parameterSchemaFor(operationKey) {
           change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
           relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array (26 §13; every other field is inherited byte-identically unless explicitly removed). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
           frontmatter_additions: { type: "object", description: "correct ONLY (2026-11): FILL a field newly admitted to the closed set (symmetric to frontmatter_removals). Only for a MISSING field — never to change an existing value; the value must be derivable from existing carriers, never fabricated (26 §13). Currently admits occurrence only.", additionalProperties: true },
-          frontmatter_removals: { type: "array", description: `update/correct: explicit deletion declarations (specs/02 §10.5 三向声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-lists (FRICTION_REMOVABLE_FIELDS for update: ${[...FRICTION_REMOVABLE_FIELDS].join("/")}; CORRECT_REMOVABLE_FIELDS for correct: ${[...CORRECT_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...new Set([...FRICTION_REMOVABLE_FIELDS, ...CORRECT_REMOVABLE_FIELDS])] } },
+          frontmatter_removals: { type: "array", description: `update/correct: explicit deletion declarations (specs/02 §10.5: 未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-lists (FRICTION_REMOVABLE_FIELDS for update: ${[...FRICTION_REMOVABLE_FIELDS].join("/")}; CORRECT_REMOVABLE_FIELDS for correct: ${[...CORRECT_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...new Set([...FRICTION_REMOVABLE_FIELDS, ...CORRECT_REMOVABLE_FIELDS])] } },
           human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13). NOTE: this field is a self-report — its presence and content are NOT proof that Human actually consented (the same boundary as 21 §14 correct); the mechanical gate only guarantees the record was supplied." }
         },
         required: ["action"],

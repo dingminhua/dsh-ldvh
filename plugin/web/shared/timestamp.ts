@@ -12,9 +12,9 @@ export interface Rfc3339Timestamp {
  * 为什么需要它：js-yaml 会把**未加引号**的 ISO 8601 时间戳解析为 `Date` 实例，
  * 而事实契约（03 §6.1 与各类型规范）要求这些字段是 RFC 3339 文本。读取层的
  * `localFactReader` 只对其 `TIMESTAMP_FIELDS` 白名单（顶层 created_at 等）做该
- * 归一；嵌在 `gate_1` / `attempt` 等对象内的字段不经过那一步，因此在读取层之后
+ * 归一；嵌在嵌套对象内的字段不经过那一步，因此在读取层之后
  * 仍是 `Date`。任何「按 string 判定」的投影守卫都会把这些字段静默丢弃——
- * 这是 WorkCase 呈现保真缺陷的根因。
+ * 这是呈现保真缺陷的根因。
  *
  * 这里是该归一化的**唯一实现**：`shared/factChangeLog.ts` 的 `toChangeLogAtText`
  * 复用它，投影层亦复用它，不得各自重写一份。

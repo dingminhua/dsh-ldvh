@@ -1,14 +1,14 @@
-// `summary` 200 字符上限的契约（Human 2026-11-04 裁定 B1 + 乙，workcase-5eec3197）。
+// `summary` 200 字符上限的契约（Human 2026-11-04 裁定 B1 + 乙）。
 //
 // 钉住四件事：
-//   1. 上限**只对 Spark 生效**（索引层）；WorkCase / DevLog 是执行载体与结论快照，
+//   1. 上限**只对 Spark 生效**（索引层）；DevLog 是结论快照，
 //      不设上限，靠 §8 分块规则保可读性。
 //   2. 判定单位与既有四处一致：UTF-16 码元、按 `.length`、去首尾空白。
 //   3. **B1 语义**：存量逐字未改放行，改动即受检（沿用 21 §15.1 先例）。
 //   4. 拒绝消息须给出当前字数与超出量，且明写「不得截断后写入」——截断会破坏
 //      载体内聚（正文须逐字包含 summary）。
 //
-// 变异钉法：把上限改成 Infinity、把 skip 逻辑去掉、或把 WorkCase 也加上限，
+// 变异钉法：把上限改成 Infinity、把 skip 逻辑去掉、或把 DevLog 也加上限，
 // 本文件即转红。
 
 import { test } from "node:test";
@@ -39,7 +39,7 @@ function sparkCase(summary) {
 // ---------------------------------------------------------------------------
 
 test("SUMMARY_MAX_CHARS 与既有四处同为 200", () => {
-  assert.equal(SUMMARY_MAX_CHARS, 200, "须与 Spark.disposition / WorkCase.gist / Pitfall.disposition / Goal 目标陈述 同值");
+  assert.equal(SUMMARY_MAX_CHARS, 200, "须与 Spark.disposition / Pitfall.disposition / Goal 目标陈述 同值");
 });
 
 test("summaryLength 按 UTF-16 码元计、去首尾空白", () => {

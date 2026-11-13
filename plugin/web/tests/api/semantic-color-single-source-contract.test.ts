@@ -28,7 +28,7 @@ import test from 'node:test';
  *   `text-amber-400`（lucide icon 色，非面/非文字语义色）。
  * - 弱注记档：FieldReadNotes 的 `UNPARSED_NOTE_TEXT_CLASS`（600 档，刻意弱于
  *   WARN_TITLE 的 700 档；该文件注释已声明「是否并入待 Human 裁决」）。
- * - 域内自定档：WorkCaseCapabilityStatusBadge 的 `border-amber-400/35
+ * - 域内自定档：能力状态徽标的 `border-amber-400/35
  *   bg-amber-500/[0.07] text-amber-800 dark:text-amber-100`。
  */
 
@@ -122,8 +122,8 @@ test('批次 B 收敛掉的漂移变体不得回潮（src 内禁止再写）', a
  *
  * 本契约头注把若干「域内单源表」（objectSignals 等）列为豁免——它们不归横切原子管，这没问题。
  * 但**豁免不等于无人守卫**：表被豁免了，表的值却仍会被消费方手抄。
- * 实测缺口（2026-10-03）：`WORKCASE_CHECK_TAG_CLASS` 的 satisfied / partial /
- * unsatisfied 三个值在 `WorkCaseExecFlow.tsx` 与 `WorkCaseReadingLayout.tsx`
+ * 实测缺口（2026-10-03）：能力状态标签样式常量的 satisfied / partial /
+ * unsatisfied 三个值在执行流与阅读布局两处
  * 共被手抄 4 处（其中一处是 4 分支 mark switch），**既不在豁免明示清单的
  * 「值级」禁令内、也不被任何守卫读取**——表在、没人用，正是「假单源」。
  *
@@ -153,7 +153,7 @@ test('域内单源表的值不得被消费方手抄（表在、且真的只有�
       for (const value of values) {
         assert.ok(
           !body.includes(value),
-          `${path.relative(webRoot, f)} 手抄了域内单源表 ${tableRel} 的值「${value}」——请 import 该表的原子（如 WORKCASE_CHECK_TAG_CLASS.partial），不要复制字面量`,
+          `${path.relative(webRoot, f)} 手抄了域内单源表 ${tableRel} 的值「${value}」——请 import 该表的原子（如该表导出的分量），不要复制字面量`,
         );
       }
     }

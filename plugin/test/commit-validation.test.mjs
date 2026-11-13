@@ -722,8 +722,8 @@ test("extractDocsReferences ignores the bare directory token without a path", ()
 // rules are unaffected.
 test("extractDocsReferences extracts a CJK filename segment to its full extent", () => {
 	assert.deepEqual(
-		extractDocsReferences("产出：`docs/workcase-996e207a-指称形态候选-2026-10-18.md` §1"),
-		["docs/workcase-996e207a-指称形态候选-2026-10-18.md"],
+		extractDocsReferences("产出：`docs/指称形态候选-2026-10-18.md` §1"),
+		["docs/指称形态候选-2026-10-18.md"],
 	);
 	// Two such paths in one sentence are both taken whole.
 	assert.deepEqual(
@@ -821,10 +821,10 @@ test("checkDocsReferences exempts a token quoted as the rule's own truncation re
 	// defect (as pitfall-430bef13's 症状 must) names BOTH the real path and the
 	// prefix the validator produced; the prefix alone is an artifact of the rule,
 	// not an authority claim. The real path is still checked on its own.
-	const content = "报出的 token 是被截断的 ASCII 前缀（如 `docs/workcase-996e207a-指称形态候选-2026-10-18.md` 被截成 `docs/workcase-996e207a-`）。";
+	const content = "报出的 token 是被截断的 ASCII 前缀（如 `docs/指称形态候选-2026-10-18.md` 被截成 `docs/`）。";
 	const result = checkDocsReferences(
 		[{ path: "ldvh-base/pitfalls/pitfall-430bef13-3984-4b67-92e8-2dc5ab4c07cf.md", content }],
-		{ exists: (p) => p === "docs/workcase-996e207a-指称形态候选-2026-10-18.md" }
+		{ exists: (p) => p === "docs/指称形态候选-2026-10-18.md" }
 	);
 	assert.equal(result.ok, true);
 });
@@ -896,7 +896,7 @@ test("docs_reference_dangling is registered in the K1 rule registry", () => {
 // ---------------------------------------------------------------------------
 // Load-bearing declaration protection (01 §7 末段; 09 §5.3 item 6)
 //
-// The five classes the workcase's scope names, one test each, plus the
+// The five classes the scope names, one test each, plus the
 // boundary assertions the rule states about itself. Class 2 replays the
 // incident this implements: the declaration kept its marker and its
 // prohibition but lost its 恢复条件 sub-element, and the removal went
@@ -906,7 +906,7 @@ test("docs_reference_dangling is registered in the K1 rule registry", () => {
 const declarationUnit = (subject, resolution) =>
 	`| ${LOAD_BEARING_MARKER} ${subject} | 不得声称本文已完成对齐 | ${resolution ?? "**无**——须按判据逐处核对"} |`;
 
-const specCarrier = (content, baseline) => [{ path: "specs/21-WorkCase 工单.md", content, baseline }];
+const specCarrier = (content, baseline) => [{ path: "specs/22-ADR-决策.md", content, baseline }];
 
 const messageWith = (items) =>
 	["docs(x): y", "", "关键变更:", ...items.map((item) => `- ${item}`), "", "LDVH-Provider: p", "LDVH-Model: m"].join("\n");
@@ -916,7 +916,7 @@ const WITH_RESOLUTION = declarationUnit(SUBJECT, `${LOAD_BEARING_RESOLUTION_LABE
 
 test("class 1: a declaration present at HEAD but absent from the candidate is refused", () => {
 	const result = checkLoadBearingDeclarations(specCarrier("| 本文正文对 §7.2 的对齐 | 已完成 |\n", WITH_RESOLUTION), {
-		message: messageWith(["specs/21-WorkCase 工单.md: 调整表格行"]),
+		message: messageWith(["specs/22-ADR-决策.md: 调整表格行"]),
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.removed]);
@@ -924,7 +924,7 @@ test("class 1: a declaration present at HEAD but absent from the candidate is re
 
 test("class 2: dropping the 恢复条件 sub-element is refused (the incident's own shape)", () => {
 	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
-		message: messageWith(["specs/21-WorkCase 工单.md: 调整列表述"]),
+		message: messageWith(["specs/22-ADR-决策.md: 调整列表述"]),
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);
@@ -933,7 +933,7 @@ test("class 2: dropping the 恢复条件 sub-element is refused (the incident's 
 test("class 3: a resolvable independent-review reference lets the change through", () => {
 	const reference = "0ac049b5-68e2-4873-a545-f5e647c249b9";
 	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
-		message: messageWith([`specs/21-WorkCase 工单.md: 调整列表述，独立复核 ${reference}`]),
+		message: messageWith([`specs/22-ADR-决策.md: 调整列表述，独立复核 ${reference}`]),
 		resolvable: new Set([reference]),
 	});
 	assert.equal(result.ok, true);
@@ -942,7 +942,7 @@ test("class 3: a resolvable independent-review reference lets the change through
 
 test("class 4: an unresolvable reference exempts nothing", () => {
 	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
-		message: messageWith(["specs/21-WorkCase 工单.md: 调整列表述，独立复核 deadbeefdeadbeef"]),
+		message: messageWith(["specs/22-ADR-决策.md: 调整列表述，独立复核 deadbeefdeadbeef"]),
 		resolvable: new Set(),
 	});
 	assert.equal(result.ok, false);
@@ -951,8 +951,8 @@ test("class 4: an unresolvable reference exempts nothing", () => {
 
 test("class 5: an undecidable baseline fails closed rather than passing", () => {
 	const result = checkLoadBearingDeclarations([], {
-		message: messageWith(["specs/21-WorkCase 工单.md: 调整表格行"]),
-		unreadable: ["specs/21-WorkCase 工单.md"],
+		message: messageWith(["specs/22-ADR-决策.md: 调整表格行"]),
+		unreadable: ["specs/22-ADR-决策.md"],
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.baselineUnreadable]);
@@ -986,7 +986,7 @@ test("BOUNDARY: weakening a declaration while keeping marker and resolution is N
 	// check proves only that a resolvable reference was carried.
 	const weakened = `| ${LOAD_BEARING_MARKER} ${SUBJECT} | 尽量不对齐 | ${LOAD_BEARING_RESOLUTION_LABEL}也许某天 |`;
 	const result = checkLoadBearingDeclarations(specCarrier(weakened, WITH_RESOLUTION), {
-		message: messageWith(["specs/21-WorkCase 工单.md: 弱化表述"]),
+		message: messageWith(["specs/22-ADR-决策.md: 弱化表述"]),
 	});
 	assert.equal(result.ok, true);
 });
@@ -1032,7 +1032,7 @@ test("the resolution label must be CARRIED, not merely quoted in a code span", (
 	assert.equal(extractLoadBearingUnits(quoted)[0].hasResolution, false);
 	assert.equal(extractLoadBearingUnits(carried)[0].hasResolution, true);
 	const result = checkLoadBearingDeclarations(specCarrier(quoted, carried), {
-		message: messageWith(["specs/21-WorkCase 工单.md: 把要件改成引用形式"]),
+		message: messageWith(["specs/22-ADR-决策.md: 把要件改成引用形式"]),
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);

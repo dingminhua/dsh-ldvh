@@ -587,7 +587,7 @@ async function runCommitMsgChecks(argv) {
   // external workspace layout.
   const root = resolve(worktree);
   const message = await readFile(messageFile, "utf8");
-  // 09 §5.5 content dispatch (Human 2026-11-05, workcase-608786b8): the
+  // 09 §5.5 content dispatch (Human 2026-11-05): the
   // controlled-commit contract applies only when the staged content touches a
   // managed carrier (`ldvh-base/`), a spec carrier (「规范源文件」/「规则源成员」
   // share specs/ as their member set), or the repository-root AGENTS.md. An

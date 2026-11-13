@@ -1798,7 +1798,7 @@ test("L0 三段：索引不得混入候选语汇，也不得占 limit 名额", a
 	// `buildRecallInjection` 还传了 `excludeTypes: INJECTION_EXCLUDED_TYPES` 与
 	// `factSelection`（分节次序 + 每类型名额）。两个入口的**排除面与选择规则都不同**，
 	// 它们「条数相等」只是当时语料组成下的巧合：注入路径排除 spark 后由 adr/norm/
-	// pitfall/friction/research/workcase 填满 8 席，直调路径则让 6 条 spark 挤进来，
+	// pitfall/friction/research 填满 8 席，直调路径则让 6 条 spark 挤进来，
 	// 恰好也是 8。语料一变（本轮只是把几条账目从 open 改成 resolved）巧合即破——
 	// 红的不是被测行为，是断言把「同一批候选」当成了「同一套选择规则」。
 	//

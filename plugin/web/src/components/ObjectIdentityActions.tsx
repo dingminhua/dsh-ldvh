@@ -32,7 +32,7 @@ export default function ObjectIdentityActions({
   /**
    * **替代**默认 `StatusBadge` 的整枚替换口（不与之并排）。
    *
-   * 为什么需要：WorkCase 的「已关闭」卡按 Human 裁定 2026-09-30 把状态词与结论词**合并
+   * 为什么需要：已关闭卡按 Human 裁定 2026-09-30 把状态词与结论词**合并
    * 成一枚**徽标（`已关闭 · 完成` 等），其配色由 `outcome` 决定——而 `StatusBadge` 的取色
    * 只认 `status`（`getStatusColor`），给不出按结论取色的结果。故此处开一个**只替换、不叠加**
    * 的口子：提供 `statusBadge` 时不再渲染默认状态徽标。

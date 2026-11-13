@@ -102,8 +102,8 @@ const CORRECT_REMOVABLE_ANCHOR_FIELDS = new Set(["attribution_ref"]);
  */
 const FRICTION_RELATION_KEYS = new Set(["informs", "paired-with"]);
 
-/** informs targets resolve inside the ADR and WorkCase directories (26 §11). */
-const INFORMS_TARGET_DIRS = ["adrs", "workcases"];
+/** informs targets resolve inside the ADR directory (26 §11). */
+const INFORMS_TARGET_DIRS = ["adrs"];
 
 /** paired-with targets resolve inside the Pitfall directory (26 §11 / 23 §11). */
 const PAIRED_WITH_TARGET_DIR = "pitfalls";
@@ -198,7 +198,7 @@ function success(value) {
  * （锚点型）。列表/详情投影时把两种合法承载归一到对象形态：裸 string 为存量
  * 兼容（历史载体写法），提升为 { object_uid: <string> }；对象形态取其
  * object_uid。形状不合法者返回 undefined —— 不把坏数据投影出去
- * （workcase-54d4d176 回归点：原 `typeof === 'string'` 判定把对象形态静默丢弃）。
+ * （回归点：原 `typeof === 'string'` 判定把对象形态静默丢弃）。
  *
  * 这是投影归一的**唯一**权威：friction-tools.js 直接 import 本函数，不再内联
  * 副本（2026-10 复核发现 7——两份逐字等价的 copy 一旦漂移，就会出现「详情归一
@@ -223,7 +223,6 @@ export function normalizeAttributionRef(value) {
 /** Fact-type directories scanned when resolving an anchor reference. */
 const ATTRIBUTION_REF_DIRS = [
   ["spark", "sparks"],
-  ["workcase", "workcases"],
   ["adr", "adrs"],
   ["pitfall", "pitfalls"],
   ["research", "researches"],
@@ -238,7 +237,7 @@ const ATTRIBUTION_REF_DIRS = [
  * 为什么必须在写流程里做、而不是只做形态校验：26 §8 的承诺是「出现时由 Code
  * 机械核验可解析」。只校验形态（uuid 长得像）等于允许一个指向空气的锚点通过，
  * 而 §12 按归因机械聚合会把这条账算到一个不存在的对象头上——形态合法但语义
- * 悬空，正是 workcase-54d4d176 那类静默错误的上游形态。
+ * 悬空，正是一类静默错误的上游形态。
  *
  * 返回 { ok:true } 或 { ok:false, code, message }。裸 string 与对象形态都按
  * 存量兼容接受（归一后取 object_uid），形状问题由 validateFrictionFrontmatter
@@ -525,7 +524,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
  * Resolve every `relations` target against the fact source (26 §11).
  *
  * Target directory is dispatched **by relation_key**, never by a shared set:
- *   - `informs`     → ADR / WorkCase objects (the remedy);
+ *   - `informs`     → ADR objects (the remedy);
  *   - `paired-with` → Pitfall objects (the same-root cross-role counterpart).
  * Sharing one directory set would let a pairing point at an ADR, which is not
  * "another role of the same root" by any reading of 26 §11.
@@ -596,7 +595,7 @@ async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCo
     for (const dir of INFORMS_TARGET_DIRS) {
       for (const ext of [".md", ".yaml"]) {
         try {
-          await access(join(factSourceRoot, dir, `${dir === "adrs" ? "adr" : "workcase"}-${targetUid}${ext}`));
+          await access(join(factSourceRoot, dir, `adr-${targetUid}${ext}`));
           resolvedTarget = true;
           break;
         } catch { /* try next */ }
@@ -604,7 +603,7 @@ async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCo
       if (resolvedTarget) break;
     }
     if (!resolvedTarget) {
-      return { ok: false, code: "friction/relation_target_unresolvable", message: `informs target ${targetUid} does not resolve to an existing ADR/WorkCase object in ${INFORMS_TARGET_DIRS.join("/")}` };
+      return { ok: false, code: "friction/relation_target_unresolvable", message: `informs target ${targetUid} does not resolve to an existing ADR object in ${INFORMS_TARGET_DIRS.join("/")}` };
     }
   }
   return { ok: true };
@@ -898,7 +897,7 @@ export async function createFrictionObject(args) {
 // ---------------------------------------------------------------------------
 
 /**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
  *
  * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `friction/invalid_uid`
  * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
@@ -1194,7 +1193,7 @@ export async function updateFrictionObject(args) {
  * 更正与关系变更是不同动作，本入口覆盖两者）。逐字不变：status/title/phenomenon/
  * attribution/created_at/change_log（Code 追加一条）。
  *
- * 与 WorkCase 的 correct 的关键差异：那里 `next` 是落盘对象的克隆、调用方**完全
+ * 与其它类型 correct 的关键差异：那里 `next` 是落盘对象的克隆、调用方**完全
  * 无法触及任何 frontmatter 字段**（只改正文）；这里 relations 是销账动作写入的产物，
  * 写错时必须能改，故显式接收 `relationsAfter` 并对其重新跑全套关系校验与解析。
  */
@@ -1548,7 +1547,7 @@ export async function listFrictionObjects(args) {
       attribution: typeof frontmatter.attribution === "string" ? frontmatter.attribution : undefined,
       // 26 §8/§11（2026-10 订正）：attribution_ref 是对象形态 { object_uid }
       // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃
-      // （workcase-54d4d176）。裸 string 为存量兼容，归一为对象形态后投影。
+      // 裸 string 为存量兼容，归一为对象形态后投影。
       attribution_ref: normalizeAttributionRef(frontmatter.attribution_ref),
       // 26 §8 两条 UI 消费字段：occurrence 是「该阻碍被观察到多少次」的直接依据
       // （晋升时由同源条目数写入，此后作补充级记账），disposition 是 voided/accepted

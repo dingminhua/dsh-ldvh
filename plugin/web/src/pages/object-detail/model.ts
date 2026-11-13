@@ -31,7 +31,7 @@ export const META_KEYS = [
   // 列入 META_KEYS 以免作为未映射字段落入通用字段区重复呈现。
   'factRefs',
   // 03 §7.2 / 21 §13：factRefSources 是实时反查得到的普通引用来源，
-  // 仅用于 WorkCase 关闭后召回可见性，不是对象自身字段或生命周期关系。
+  // 仅用于关闭后召回可见性，不是对象自身字段或生命周期关系。
   'factRefSources',
   'refs',
 ];
@@ -46,8 +46,8 @@ export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
   // 撤掉呈现就不该继续留着它，否则「不呈现」这个决定没有落点。
   //
   // 出列后 `serves` 落回 `getObjectDetailContentEntries` 的兜底字段区。它不会
-  // 因此冒出来：spark 与 workcase 的详情都走专属阅读布局（`SparkReadingLayout`
-  // / `WorkCaseReadingLayout`），两者都不消费 `extraEntries`。**字段仍在对象上**，
+  // 因此冒出来：spark 等类型的详情都走专属阅读布局，均不消费 `extraEntries`。
+  // **字段仍在对象上**，
   // 只是没有任何面板渲染它——这正是本次要的形态。
   spark: [],
   pitfall: [],
@@ -74,7 +74,7 @@ export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
 };
 
 const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
-  // v5 WorkCase（21 §8 frontmatter 闭集 + 正文承载）。此表只作 ContentField
+  // v5 各类型的 frontmatter 闭集 + 正文承载。此表只作 ContentField
   // v5 ADR（22 号规范）：阅读布局按字段契约序消费（decision → scope →
   // trigger_signal → 终态 retirement_reason/retired_at/relations），正文
   // report_body 由布局按 H2 五段（决策背景/决定/备选与理由/后果/适用范围

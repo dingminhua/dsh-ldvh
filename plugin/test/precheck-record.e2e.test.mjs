@@ -116,9 +116,9 @@ test("端到端：进入 → 风险路由 → 三段判断 → 落实 → 记录
 	assert.equal(deviation.lateRegistration, false, "发现即登记，非延迟");
 
 	// ── 第 5 段：横切合并（34 §11）─────────────────────────────────────────
-	// 本系统横切全部业务系统，在 workcase 内执行时两套预检都要有。
+	// 本系统横切全部业务系统，在两套预检范围内执行时都要有。
 	const transverse = checkTransverseMerge({
-		systemKey: "workcase",
+		systemKey: "gate-consult",
 		ruleComplianceExecuted: true,
 		systemSpecificExecuted: true,
 	});

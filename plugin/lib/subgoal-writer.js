@@ -417,7 +417,7 @@ async function checkUidExclusive(factSourceRoot, objectUid) {
  * A dangling anchor is a REPORTED condition, not a silent downgrade: if the
  * goal carrier is missing or its goal_key differs, the sub-goal's upstream is
  * unprovable and the write must fail closed (same discipline as 25 §11
- * Enforcement: no goal.md ⇒ Gate 1 cannot accept, architecturally).
+ * Enforcement: no goal.md ⇒ authorisation cannot accept, architecturally).
  */
 export async function resolveParentGoal(factSourceRoot) {
   const goal = await readGoalObject({ factSourceRoot });
@@ -570,7 +570,7 @@ export async function precheckSubGoalCreate({ factSourceRoot, frontmatterDraft, 
     const issues = evaluated.error.details?.issues;
     // `invalid_request` is "the check could not be completed", not "the candidate
     // has a fixable defect" — kept as its own outcome so a blocked environment
-    // cannot be misread as a formatting hint (same split as WorkCase 21 §14).
+    // cannot be misread as a formatting hint.
     return success({
       mechanical_outcome: code === "invalid_request" ? "unverifiable" : "failed",
       candidate_fingerprint: candidateFingerprint,
@@ -646,7 +646,7 @@ export async function createSubGoalObject(args) {
 // ---------------------------------------------------------------------------
 
 /**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
  *
  * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `subgoal/invalid_uid`
  * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
@@ -855,7 +855,7 @@ export async function updateSubGoalObject(args) {
  *     "this work served that goal" is a historical fact).
  *   - `retired` is NOT a valid target for a NEW `serves` declaration; existing
  *     declarations keep their value and go through the local re-batch path.
- *   - An unresolvable uid fails closed (21 §10.1: Gate 1 cannot accept
+ *   - An unresolvable uid fails closed (authorisation cannot accept
  *     without a target).
  *
  * Historical note: this function used to take an `SG-n` business anchor. That

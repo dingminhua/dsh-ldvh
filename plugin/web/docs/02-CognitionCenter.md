@@ -141,8 +141,8 @@ Human 2026-11-03 定案两条，本区据此收密度：
 
 | 待决类型 | 派生条件 | 决定依据区直读字段 |
 |---|---|---|
-| 待批准计划 | 已解析 `current_snapshot_projection.handoff_narrative_key = gate1_waiting` 且 `blocking_overlay = false` | 与对象列表相同的紧凑 Gate 1 Card：`goal`、成功标准、执行授权边界；存在时必须显示能力限制与低保证 fallback，不能把同一 AI 视角写成独立 subagent |
-| 待确认关闭 | 已解析 `current_snapshot_projection.handoff_narrative_key = gate2_waiting` 且 `blocking_overlay = false` | 与对象列表相同的关闭确认 Card：`goal`、`closure_proposal` 与实际 contributed Pitfall |
+| 待批准计划 | 已解析 `current_snapshot_projection.handoff_narrative_key` 为行动前待批 且 `blocking_overlay = false` | 与对象列表相同的紧凑待批 Card：`goal`、成功标准、执行授权边界；存在时必须显示能力限制与低保证 fallback，不能把同一 AI 视角写成独立 subagent |
+| 待确认关闭 | 已解析 `current_snapshot_projection.handoff_narrative_key` 为收口待关 且 `blocking_overlay = false` | 与对象列表相同的关闭确认 Card：`goal`、`closure_proposal` 与实际 contributed Pitfall |
 | 阻塞待处置 | 已解析派生分类且 `blocking_overlay = true` | 显示完整 `blocking_summary` 与当前确认位置；不显示 Gate waiting、批准计划或确认关闭入口 |
 | 待确认经验 | Pitfall `status = draft` | 与对象列表共享普通 Pitfall Card；正文显示可读的 `symptoms`、`trigger_conditions`、`resolution`、`avoidance`、`validation_summary`、`applicability` |
 | 待修摩擦 | Friction `status = open` | 与对象列表共享普通 Friction Card；卡体留空（与列表卡一致），身份与状态由卡头托承载：类型、`occurrence` 重复观察、修改次数；标题即现象单句的浓缩，现象全文与入账依据住详情页（原卡头的 `impact` 轻/中/重 chip 已于 2026-11-02 随 26 §8 撤销分级制度移除） |
@@ -239,7 +239,7 @@ Helper 成功写入并回读后，浏览器没有可被 Helper 直接调用的�
 2. 不提供批准、关闭、分流、处置、优先级编辑或任何写入口；占位按钮、禁用按钮也不出现。
 3. 派生分类统计与条目分列不同字段；不得把派生分类放入名为 `status` 或 `byStatus` 的字段。orkCase 在两个既有行动模块中唯一归属：plan/closure group 进入待决定事项，progressing 进入推进中；unresolved 不从 `source_status`、raw status/phase 或文案回退。
 4. 不新增事实字段、状态、对象类型、第五进展分组或第二状态模型；待决类型、近期动态时间窗口、静默阈值均为 UI 层派生，如实标注。
-5. 收件箱正文直接复用对象列表 Card：计划确认显示 Gate 1 紧凑入口，并把授权中的 capability limitations 作为 Human 判断输入；关闭确认显示关闭判断输入区与后续贡献，blocked Human-position 显示阻塞待处置与当前位置，Pitfall `draft` 使用共享普通 Card 显示当前可读的六类判断字段。完整同源事实在标题打开的次级阅读中展开；模块摘要只提供当前收件箱的观察信息与对象索引。缺失或类型不符必须在对应消费位置如实降级，不能过滤坏成员后拼成看似完整的批准材料。
+5. 收件箱正文直接复用对象列表 Card：计划确认显示行动前待批的紧凑入口，并把授权中的 capability limitations 作为 Human 判断输入；关闭确认显示关闭判断输入区与后续贡献，blocked Human-position 显示阻塞待处置与当前位置，Pitfall `draft` 使用共享普通 Card 显示当前可读的六类判断字段。完整同源事实在标题打开的次级阅读中展开；模块摘要只提供当前收件箱的观察信息与对象索引。缺失或类型不符必须在对应消费位置如实降级，不能过滤坏成员后拼成看似完整的批准材料。
 6. 近期动态与近期热点关系都不读取或展示 Git 提交；二者均只从当前事实源的 `change_log` 读取活动，旧事实在没有可读流水时才回退自身时间字段。热点只使用事实源中已声明的正式关系；不得由标题、关键词、相近文件或语义推断连接。完整提交阅读仍进入现有提交页面。
 7. 复制语义按 01 §5；候选条目不用 `path`、`target` 或对象 ID 伪造 `canonical_path`；本模块只增加“复制模块摘要”，tooltip 按内容语义命名。
 8. i18n 全量双语；事实正文（goal、提案、commit message 等）不翻译；英文长文案允许换行，不以截断替代阅读。

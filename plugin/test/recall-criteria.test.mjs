@@ -185,13 +185,13 @@ test("类型词别名：成员唯一、不得与 fact_type_key 派生词冲突",
 
 test("关系展开：`\\|` 转义的多目标被还原成 `|` 分隔的目标表", () => {
 	const result = parseRecallCriteriaTable(
-		buildTable({ 关系展开: "inspired-by->spark\\|workcase\\|adr, informs->adr\\|workcase" }),
+		buildTable({ 关系展开: "inspired-by->spark\\|adr\\|subgoal, informs->adr\\|pitfall" }),
 		{},
 	);
 	assert.equal(result.ok, true, JSON.stringify(result.errors));
 	assert.deepEqual(result.values.relations, [
-		{ relationKey: "inspired-by", targets: ["spark", "workcase", "adr"] },
-		{ relationKey: "informs", targets: ["adr", "workcase"] },
+		{ relationKey: "inspired-by", targets: ["spark", "adr", "subgoal"] },
+		{ relationKey: "informs", targets: ["adr", "pitfall"] },
 	]);
 	// 转义不影响列切分：四列仍完整。
 	assert.equal(RECALL_CRITERIA_COLUMNS.length, 4);
@@ -239,14 +239,14 @@ test("loadRecallCriteria：跨类型别名冲突使冲突类型停用并报错",
 });
 
 // ---------------------------------------------------------------------------
-// 真实规范快照：specs/20–29 九张表（21 号 WorkCase 已于 2026-11-13 撤除；适用面见 02:498）
+// 真实规范快照：specs/20–29 九张表（21 号空位，适用面见 02:498）
 // ---------------------------------------------------------------------------
 
 test("快照：真实 specs/20–29 九张判据表全部可解析，七项齐备", async () => {
 	const result = await loadRecallCriteria(join(ROOT, "specs"));
 	assert.equal(result.ok, true, JSON.stringify(result.errors, null, 2));
 	assert.equal(result.unreadable, false);
-	assert.equal(result.byType.size, 9, `期望 9 个事实类型（21 号 WorkCase 已撤除），实得 ${result.byType.size}`);
+	assert.equal(result.byType.size, 9, `期望 9 个事实类型（21 号空位），实得 ${result.byType.size}`);
 	for (const [specId, typeKey] of Object.entries(FACT_TYPE_BY_SPEC_ID)) {
 		assert.ok(result.byType.has(typeKey), `spec ${specId}（${typeKey}）的判据表未解析成功`);
 	}

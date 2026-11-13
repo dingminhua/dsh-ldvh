@@ -83,11 +83,11 @@ test('Research keeps the YAML source node with display-time ordering; the implic
   // 24 §7 规范阅读序排序（yaml_source 原文解析后重排，不注入不过滤）；
   // 被移除的是「启发」节点（frontmatter implications 的解释性呈现）——机器
   // 索引不在 web 解析呈现，机器索引原文只在 YAML 源节点以原文形式出现。
-  // 2026-09-16 推广（workcase 63700bd2）：该节点不再按 objType 白名单挑选，
+  // 2026-09-16 推广：该节点不再按 objType 白名单挑选，
   // 全部事实类型在详情页底部一律呈现；research 的排序特例保持。
   assert.match(detail, /<YamlDataNode/);
   assert.match(detail, /sortedResearchFrontmatterYaml/);
-  // 白名单已撤销：该节点不得再被任何条件门控（否则 workcase/adr/pitfall/
+  // 白名单已撤销：该节点不得再被任何条件门控（否则 adr/pitfall/
   // friction/norm/goal 详情页会退回无 YAML 节点的状态）。断言直接锁定不变量
   // 「<YamlDataNode 之前不得出现 && ( 或 {…&& 形式的门控」，而非枚举旧写法——
   // 单条件改写（如 carrier === 'yaml' &&）同样被拦。

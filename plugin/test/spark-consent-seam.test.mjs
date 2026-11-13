@@ -10,8 +10,10 @@
 // (`{answers:[{id, selected:["确认"]}]}`), which is why a scalar comparison
 // silently fails open-or-shut. Each shape below is asserted explicitly.
 //
-// This file also owns the 200-char `question` bound (ADR 7ceaf7fc). The host
-// imposes NO length check, so nothing but these assertions holds it in place.
+// This file also owns the 200-char `question` bound and the "no detail block"
+// rule (Human 2026-11-13: 所有经 LDVH 业务的提请都简洁，title 在 200 字内，
+// 没有其它细节信息). The host imposes NO length check, so nothing but these
+// assertions holds it in place.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -124,17 +126,22 @@ test("spark consent: a throwing answerer fails closed (ASK_ABORTED is not consen
 });
 
 // ---------------------------------------------------------------------------
-// The 200-char bound (ADR 7ceaf7fc) — the report is carried in `detail`
+// The dialog carries ONE line (Human 2026-11-13)
 //
-// The defect this pins: `question` renders in the card's non-shrinkable title
-// area (no clamp, no scroll), while `detail` and the options share the
-// SCROLLABLE body. An unbounded report in `question` therefore pushes the
-// options out of reach — measured three Spark create confirms that ended
-// fail-closed because the Human could not answer. The host imposes NO length
-// check of its own, so the bound can only hold if this seam holds it.
+// 决定原文：「所有经过 ldvh 业务的提请，都要求内容简洁，title 字数在 200 字内，
+// 没有其它细节信息」。因此本接缝的弹窗只放一行动作标题，**不带 `detail`**；
+// 20 §16 的呈报内容改由主控在调用之前写进对话正文。
+//
+// 两个方向都要钉住，否则「简洁」会一路滑到「空问一句」：
+//   - 标题有界、且不带 detail（本组上半）；
+//   - 呈报缺失时**仍然拒绝提问**（本组下半）——接缝不再承载呈报，但不接受
+//     一个从未产生过呈报的调用。
+//
+// 代价如实记在这里：机械层**不再证明 Human 看到过完整呈报**，只证明取得过
+// 一次明确肯定答复。20 §16 的据实声明段已登记该缺口。
 // ---------------------------------------------------------------------------
 
-test("spark consent: the report reaches the Human verbatim via detail, and question stays within the bound", async () => {
+test("spark consent: the dialog carries one bounded title line and NO detail block", async () => {
   let seen = null;
   const { seams, install } = installWith(async (request) => {
     seen = request;
@@ -143,27 +150,26 @@ test("spark consent: the report reaches the Human verbatim via detail, and quest
   await seams.requestSparkConsent(CALL);
   const q = seen.questions[0];
   assert.equal(q.id, "ldvh-spark-consent", "the question id is shared with the parser");
-  assert.equal(q.detail, REPORT, `the report must reach the Human verbatim: ${q.detail}`);
+  assert.equal(q.detail, undefined, "卡片上不得再有 detail 块（Human 2026-11-13）");
   assert.ok(
     q.question.length <= ASK_QUESTION_MAX_CHARS,
     `question must stay within the bound, got ${q.question.length}: ${q.question}`
   );
   assert.ok(q.question.includes("示例对象"), "the object title must be shown");
   assert.ok(q.question.includes("创建"), "the verb must be shown");
-  // The report is carried in `detail`; repeating it in `question` would defeat
-  // the bound as soon as the report grows past it.
-  assert.ok(!q.question.includes(REPORT), "the report must not be duplicated into the bounded question");
+  // 呈报正文不得再挤进标题——它是对话正文的活，不是弹窗的。
+  assert.ok(!q.question.includes(REPORT), "the report must not be pushed into the title");
+  assert.ok(!q.question.includes("查重结论"), "no report field may leak into the title");
   // The offered labels are exactly what the parser accepts.
   const labels = q.options.map((o) => o.label);
   assert.deepEqual(labels, ["确认", "取消"]);
   install.dispose();
 });
 
-test("spark consent: an OVERSIZED report stays wholly in detail — question is bounded and nothing is lost", async () => {
-  // The real failure mode (ADR 7ceaf7fc §决策背景): ~3000 chars of 呈报 in
-  // `question` left the Human unable to reach the options. This asserts both
-  // halves of the disposition — the title area is bounded, AND the content
-  // moved rather than being truncated away.
+test("spark consent: an OVERSIZED report still yields a bounded, detail-free dialog", async () => {
+  // 原失败形态（~3000 字符呈报塞进 question）让 Human 够不到选项。现在的处置
+  // 不是「移进 detail」，而是「不进弹窗」——所以这里断言的是**不再有长文本**，
+  // 而不是「长文本搬到了哪一格」。
   let seen = null;
   const { seams, install } = installWith(async (request) => {
     seen = request;
@@ -179,11 +185,11 @@ test("spark consent: an OVERSIZED report stays wholly in detail — question is 
     q.question.length <= ASK_QUESTION_MAX_CHARS,
     `question must stay within the bound, got ${q.question.length}`
   );
-  assert.equal(q.detail, oversized.trim(), "the whole report must be carried verbatim in detail");
+  assert.equal(q.detail, undefined, "no detail block may carry it instead");
   install.dispose();
 });
 
-test("spark consent: an over-long object TITLE is bounded in question while the report survives", async () => {
+test("spark consent: an over-long object TITLE is clamped, and nothing else grows", async () => {
   let seen = null;
   const { seams, install } = installWith(async (request) => {
     seen = request;
@@ -194,11 +200,12 @@ test("spark consent: an over-long object TITLE is bounded in question while the 
   assert.equal(out.granted, true, JSON.stringify(out));
   const q = seen.questions[0];
   assert.ok(q.question.length <= ASK_QUESTION_MAX_CHARS, `got ${q.question.length}`);
-  assert.equal(q.detail, REPORT, "the report must be carried verbatim regardless of title length");
+  assert.ok(q.question.endsWith("…"), "an over-long title is cut, not passed through");
+  assert.equal(q.detail, undefined);
   install.dispose();
 });
 
-test("spark consent: the terminal action says 转入终态 and still requires the report", async () => {
+test("spark consent: the terminal action says 转入终态 in the title, and the dialog stays detail-free", async () => {
   let seen = null;
   const { seams, install } = installWith(async (request) => {
     seen = request;
@@ -207,14 +214,15 @@ test("spark consent: the terminal action says 转入终态 and still requires th
   const report = "拟转状态：implemented\ndisposition：已落实。";
   const out = await seams.requestSparkConsent({ ...CALL, action: "terminal", summary: report });
   assert.equal(out.granted, true, JSON.stringify(out));
-  assert.ok(seen.questions[0].question.includes("转入终态"), seen.questions[0].question);
-  assert.ok(seen.questions[0].detail.includes("disposition：已落实。"), "the disposition must reach the Human");
+  const q = seen.questions[0];
+  assert.ok(q.question.includes("转入终态"), q.question);
+  assert.equal(q.detail, undefined, "disposition goes to the conversation body, not the card");
   install.dispose();
 });
 
 test("spark consent: the bound is measured in UTF-16 units, so surrogate pairs cannot smuggle past it", async () => {
-  // The bound's own criterion is `.length ≤ 200`, and the repo's other 200-char
-  // cap (GIST_MAX_CHARS) measures `.length` too — NOT code points. Counting code
+  // The bound's own criterion is `.length <= 200`, and the repo's other 200-char
+  // cap (GIST_MAX_CHARS) measures `.length` too - NOT code points. Counting code
   // points instead lets an all-emoji title reach `.length = 366` while looking
   // like "exactly 200", i.e. the cap silently fails open on exactly the text a
   // Chinese-language project is most likely to receive.
@@ -235,26 +243,6 @@ test("spark consent: the bound is measured in UTF-16 units, so surrogate pairs c
   // Truncation must not split a surrogate pair (half a pair renders as U+FFFD).
   assert.doesNotMatch(q.question, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, "no lone high surrogate may survive the cut");
   assert.doesNotMatch(q.question, /(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/, "no lone low surrogate may survive the cut");
-  assert.equal(q.detail, REPORT, "the report is untouched by the bound");
-  install.dispose();
-});
-
-test("spark consent: the terminal gate's bounded question still fits a 200-char disposition (the case compression cannot fix)", async () => {
-  // ADR 7ceaf7fc §备选与理由: the shell costs 53 chars and 20 §8 caps
-  // `disposition` at 200, so the assembled `question` was ≥227 chars even at
-  // the maximum legal input — no amount of compression could have worked. The
-  // disposition must therefore reach the Human through `detail`.
-  let seen = null;
-  const { seams, install } = installWith(async (request) => {
-    seen = request;
-    return { answers: [{ id: "ldvh-spark-consent", selected: ["确认"] }] };
-  });
-  const report = `拟转状态：implemented\ndisposition：${"据".repeat(200)}`;
-  const out = await seams.requestSparkConsent({ ...CALL, action: "terminal", summary: report });
-  assert.equal(out.granted, true, JSON.stringify(out));
-  const q = seen.questions[0];
-  assert.ok(q.question.length <= ASK_QUESTION_MAX_CHARS, `got ${q.question.length}: ${q.question}`);
-  assert.ok(q.detail.includes("据".repeat(200)), "the full disposition must reach the Human");
   install.dispose();
 });
 
@@ -269,19 +257,4 @@ test("spark consent: the caller's cancellation signal is forwarded to the host",
   assert.equal(forwarded, controller.signal, "an abandoned prompt is only released if the signal is forwarded");
   install.dispose();
 });
-
-// ---------------------------------------------------------------------------
-// The routing seam's presentation (21 §6.3)
-//
-// The seam used to carry the AI's §6.3 lean reasons ("倾向建工单的理由" /
-// "倾向直接执行的理由") in `question.detail`, which rendered as a long
-// argument transcript above the two options. Human ruled (2026-10) that this
-// text must not appear: it is unverifiable AI self-report, and 21 §6.3 never
-// required presenting it. The routing question is a triage between two
-// dispositions, not a justification the Human is asked to weigh.
-//
-// The 200-char bound (ADR 7ceaf7fc) still applies to `question`, and the
-// Human's own words must still survive verbatim — hence the `detail` fallback
-// for an over-long `request`.
-// ---------------------------------------------------------------------------
 

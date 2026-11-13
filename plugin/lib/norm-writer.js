@@ -226,7 +226,7 @@ export function validateCarrierCoherence(frontmatter, body) {
   const issues = [];
   const declared = body.match(/direction_key:\s*([a-z0-9-]+)/);
   if (declared !== null && declared[1] !== frontmatter.direction_key) {
-    // 更正（workcase-5c0b8c2e）：原引「27 §8」，而载体内聚条款登记在 27 §7
+    // 更正：原引「27 §8」，而载体内聚条款登记在 27 §7
     // （27 §8 是字段契约，§8.1 是「没有主题指针时的口径」）。本类型的判据不变、
     // 报错形态也不改——27 §7 明确本类型不要求正文逐字复现任何 frontmatter 标量，
     // 它只校验「正文若声明 direction_key 须与 frontmatter 一致」，两侧都是短键。
@@ -437,7 +437,7 @@ export async function createNormObject(args) {
 // ---------------------------------------------------------------------------
 
 /**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
  *
  * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `norm/invalid_uid`
  * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是

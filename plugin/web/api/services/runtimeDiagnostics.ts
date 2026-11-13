@@ -68,7 +68,7 @@ export type ToolCallOutcome = {
   tool: string
   /** `completed` / `rejected` / `invalid_request` / `unknown`。 */
   status: string
-  /** 命中的错误码（如 `workcase/frontmatter_invalid`），无则为空数组。 */
+  /** 命中的错误码（如 `adr/frontmatter_invalid`），无则为空数组。 */
   codes: string[]
   /** 报错首句（已截断），供逐条记录展示。 */
   detail: string
@@ -163,7 +163,7 @@ const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
 ]
 
 /** 报错文本里出现的错误码。只认带命名空间的形态，避免把普通单词当错误码。 */
-const ERROR_CODE_PATTERN = /\b(validation\/[a-z_]+|workcase\/[a-z0-9_]+|research\/[a-z_]+|pitfall\/[a-z_]+|friction\/[a-z_]+|discovery\/[a-z_]+|pending_queue\/[a-z_]+|watermark\/[a-z_]+|session\/[a-z_]+)\b/g
+const ERROR_CODE_PATTERN = /\b(validation\/[a-z_]+|adr\/[a-z0-9_]+|research\/[a-z_]+|pitfall\/[a-z_]+|friction\/[a-z_]+|discovery\/[a-z_]+|pending_queue\/[a-z_]+|watermark\/[a-z_]+|session\/[a-z_]+)\b/g
 
 function classifyFailure(text: string): string {
   for (const { category, patterns } of FAILURE_CATEGORIES) {

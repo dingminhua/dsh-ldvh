@@ -188,7 +188,7 @@ test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜
 		);
 	}
 	assert.ok(!types.has("researche"), "不得把 researches 猜成 researche");
-	assert.ok(!types.has("workca"), "不得把 workcases 猜成 workca");
+	assert.ok(!types.has("spar"), "不得把 sparks 猜成 spar");
 });
 
 test("loadFacts：每条都有 status 与 title", async () => {
@@ -257,7 +257,7 @@ test("recallForAction：经验（Pitfall）能被召回到", async (t) => {
 test("recallForAction：默认只取各类型自己的活跃状态，可显式纳入其他状态", async () => {
 	// **2026-10-27 更正**：本条原断言 `every(f => f.status === "active")`——但
 	// 「活跃」不是所有类型都叫 `active`：spark/friction 的活跃态是 `open`，
-	// workcase 是 draft/open（见 `DEFAULT_STATUSES_BY_TYPE`）。原断言只在该查询
+	// 该类型的默认状态见 `DEFAULT_STATUSES_BY_TYPE`。原断言只在该查询
 	// 恰好召回不到 spark 时通过，属**依赖偶然的假通过**；排序一变就红。
 	// 正确判据：每条结果的状态须落在**它自己类型的**默认状态集内。
 	const def = await recallForAction({ action: "校验验证", root: ROOT });
@@ -597,7 +597,7 @@ test("单字噪声不得造成假命中（00 号不得靠「成」命中）", as
 
 test("单字不得单独构成命中依据（真实消息实测：10 条里 4-5 条是单字噪声）", async () => {
 	// 实测（用本会话真实用户消息）：
-	//   「把这批改动合入吧」10 条结果里 5 条纯单字命中——WorkCase 工单靠「批」、
+	//   「把这批改动合入吧」10 条结果里 5 条纯单字命中——
 	//   火花记录与双源召回靠「合」；「经验也要召回啊」有 4 条靠单字「回」。
 	// 单个汉字在本语料里覆盖 50–70% 的候选（实测「改」231/337），
 	// 靠一个字命中几乎等于没命中。
@@ -991,7 +991,7 @@ test("limitations 须如实披露词法匹配的固有边界", async () => {
 	// **口径变更说明**（2026-10-24，第 54 轮）：本用例原先断言样本量为 30，
 	// 且备注「只有 13/30 = 43% 命中」。两处都已过时：
 	//   · 样本量：早先未按类型区分默认状态，Pitfall 的 draft 也算进可见集（该档
-	//     2026-11-03 已取消，WorkCase 仍有 draft）；
+	//     2026-11-03 已取消）；
 	//     第 48 轮按 `23 §12` 改为「默认只含 active」后，候选是 23 条；
 	//   · 命中率：早先正文只匹配前 1200 字符，症状段（在 body 中后部）常被截掉；
 	//     第 46 轮改为全文匹配后复测为 23/23 = 100%。
@@ -1028,8 +1028,8 @@ test("能力边界须在渲染行里让读者看见（未命中不代表没有�
 test("弱命中不得抢占强命中的名额（实测：limit=3 时 2 弱命中挤掉 5 强命中）", async () => {
 	// 实测缺陷：排序只看 tier，而弱命中混在 tier 1、强命中在 tier 4，
 	// 于是「把 34 号规范改名成双源召回，走独立审核」limit=3 时返回
-	//   [强 34号, 弱 WorkCase, 弱 Research]
-	// 而随后还有 5 个强命中（01/03/11/09/工单执行）被 limit 挤掉。
+	//   [强 34号, 弱 Research]
+	// 而随后还有 5 个强命中（01/03/11/09）被 limit 挤掉。
 	// 弱命中不是不相关，但它证据更薄，不该抢占名额。
 	const q = "把 34 号规范改名成双源召回，走独立审核";
 	const r = await recallForAction({ action: q, root: ROOT, limit: 3 });
@@ -1095,7 +1095,7 @@ test("排序比较器：每层键都须真的被样本覆盖（无并列组 = �
 	assert.equal(compareFactHits(older, newer) > 0, true, "反向须对称");
 
 	// ② 状态等级：active 须压过更新的 draft（2026-11-03 起 Pitfall 无 draft，
-	// 该档现只由 WorkCase 等类型使用；statusRank 判据本身照旧适用）。
+	// statusRank 判据本身照旧适用）。
 	const draftNewer = mk({ ...base, status: "draft", updatedAt: "2026-10-27T00:00:00.000Z" });
 	assert.equal(
 		compareFactHits(mk(base), draftNewer) < 0, true,
@@ -1190,9 +1190,9 @@ test("排序须含「最后更新时间」作次级键，且只用存储时间�
 });
 
 test("类型点名层：点名某事实类型时，该类型自己的规范须居首", async () => {
-	// 实测缺陷：「写一个 WorkCase」首位是 `Spark-火花` 而不是 `WorkCase 工单`——
-	// 类型名会出现在多份规范的 scope 里（实测 workcase 命中 6 份、adr/pitfall/spark
-	// 各 4 份），同层同分后只按路径字典序，而 `20-Spark` 排在 `21-WorkCase` 前面。
+	// 实测缺陷：类型点名时首位可能不是目标规范——类型名会出现在多份规范的 scope
+	// 里（实测某类型名命中 6 份、adr/pitfall/spark 各 4 份），同层同分后只按路径
+	// 字典序，序号小的规范被排到前面。
 	const cases = [
 		{ q: "写一个 ADR", want: "ADR" },
 		{ q: "记一条 Spark", want: "Spark" },
@@ -1407,7 +1407,7 @@ test("REGISTERED_FACT_TYPES 须与 specs/20–29 段一致（防漂移）", asyn
 	const { join: joinPath } = await import("node:path");
 	const specsDir = joinPath(ROOT, "specs");
 	const files = (await readdir(specsDir)).filter((f) => /^2[0-9]-.*\.md$/.test(f));
-	// 从文件名取 ASCII 类型名（如 `21-WorkCase 工单.md` → workcase）。
+	// 从文件名取 ASCII 类型名（如 `22-ADR-决策.md` → adr）。
 	const fromSpecs = files
 		.map((f) => {
 			const name = f.replace(/\.md$/, "").replace(/^2[0-9]-/, "");
@@ -1865,7 +1865,7 @@ test("须给出 F0 层：类型/状态计数使「有多少在等」不依赖查
 	// 关键：draft 的计数必须可读——这是「有多少候选在等」的唯一可靠来源。
 	//
 	// **2026-10-30 改写**：原断言写死 `pitfall.draft > 0`，理由是「实测全库有 16 条
-	// draft Pitfall」。该前提已不成立——全库 draft 现存 1 条且是 workcase，Pitfall
+	// draft Pitfall」。该前提已不成立——Pitfall
 	// 侧 0 条 draft（29 active / 32 discarded）。断言随语料清零而失效，但**判据不能
 	// 跟着丢掉**：本用例守的是「F0 能直接读出 draft 数」，不是「此刻恰好有 draft」。
 	//
@@ -2766,7 +2766,7 @@ occurrence:
 
 test("结构化解析：块标量不得被读成字面量 `|`（旧行式解析的核心缺陷）", async () => {
 	// 实测背景（2026-10-29，本仓全量）：46 条对象的 summary 因块标量被读成 `"|-"`，
-	// 真实内容（平均 1099 字）对召回完全不可见；24 条 WorkCase 的 scope 变成 `"|-"`。
+	// 真实内容（平均 1099 字）对召回完全不可见；部分条目的 scope 变成 `"|-"`。
 	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
 	const { tmpdir } = await import("node:os");
 	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-blockscalar-"));

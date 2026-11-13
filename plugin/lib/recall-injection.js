@@ -70,10 +70,10 @@ export function renderStructuralTag(structural) {
   for (const [key, value] of Object.entries(structural)) {
     if (value === null || value === undefined) continue;
     if (typeof value === "boolean") {
-      // `gate1`：只在**已批准**时显示。未批准时显示 `gate1=false` 是无信息量的
-      // 噪声（绝大多数工单候选都未批准，会让每一行都多 12 字节）；而「没显示」
+      // 该字段只在**已批准**时显示。未批准时显示 false 是无信息量的
+      // 噪声（绝大多数候选都未批准，会让每一行都多 12 字节）；而「没显示」
       // 与「未批准」在这条渲染约定里同义，且**对象侧仍是结构事实**（调用方
-      // 可从 `structural.gate1` 读到 false），不构成静默丢失。
+      // 可从结构卡读到 false），不构成静默丢失。
       if (value === true) parts.push(`${key}=已批准`);
       continue;
     }
@@ -191,14 +191,14 @@ export const RECALL_BYTE_BUDGET = 2400;
  * 变更走受控提交；**改动属 specs/10 §9.1 第 2 项 Human Gate**。
  *
  * 次序依据（34 §12 交付口径）：ADR > Norm > Pitfall > Friction 是必须先看见的
- * 四类，research 与 workcase 兜底在其后。spark/goal 不进注入：spark 见
+ * 四类，research 兜底在其后。spark/goal 不进注入：spark 见
  * `INJECTION_EXCLUDED_TYPES`（31 §10），goal 是单例直读、本就不进候选。
  *
  * **名额不扩大任何预算**：总名额等于既有注入条数上限（3）。分节只是**交付组织**，
  * 不是新的排序键。
  */
 export const FACT_SECTION_ORDER = Object.freeze([
-  "adr", "norm", "pitfall", "friction", "research", "workcase",
+  "adr", "norm", "pitfall", "friction", "research",
 ]);
 
 /** 分节标题里的类型标签（只用于渲染，不参与判定）。 */
@@ -208,7 +208,6 @@ export const FACT_SECTION_LABELS = Object.freeze({
   pitfall: "Pitfall（踩坑经验）",
   friction: "Friction（摩擦账本）",
   research: "Research（调研报告）",
-  workcase: "WorkCase（工单）",
 });
 
 /**
@@ -223,7 +222,6 @@ export const QUOTA_BY_TYPE = Object.freeze({
   pitfall: 2,
   friction: 1,
   research: 1,
-  workcase: 1,
 });
 
 /** 单次注入交付的事实候选总名额（= 既有注入 limit 默认值，未扩大）。 */
@@ -1074,7 +1072,7 @@ export function renderRecallRow(result) {
         // （`pitfall-b878f526` 记录的同型缺陷：渲染层输出行缺字段致模型侧不可见）。
         //
         // 位置：**紧跟标题、在命中理由之前**——这几个值是对象的固有属性，
-        // 比「为什么被召回」更常用于一票否决（「这条工单还没过 Gate 1，别当它已批准」）。
+        // 比「为什么被召回」更常用于一票否决（「这条还没过批准，别当它已批准」）。
         // 形态保持**极短**：`· key=value / key=value`，与 `estimateLineBytes`
         // 的估算口径逐字一致（改这里必须同步改那里，否则预算会算漏）。
         const structural = renderStructuralTag(fact.structural);

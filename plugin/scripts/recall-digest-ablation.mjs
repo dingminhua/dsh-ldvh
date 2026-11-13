@@ -81,7 +81,7 @@ let MAX_PROBES = 120;
  */
 const STRIP_PATTERN = /^recall_digest:[^\n]*(?:[ \t]*\r?\n|$)/gm;
 const FACT_DIRS = Object.freeze([
-  "adrs", "devlogs", "frictions", "norms", "pitfalls", "researches", "sparks", "subgoals", "workcases",
+  "adrs", "devlogs", "frictions", "norms", "pitfalls", "researches", "sparks", "subgoals",
 ]);
 
 async function listMarkdown(dir) {

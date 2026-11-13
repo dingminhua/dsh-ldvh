@@ -682,7 +682,7 @@ test("lifecycle reload: cleanup failure is reported while other agents are still
     const registry = createLifecycleRegistry(host, { dshHomePath, workspaceRoot: base, sessionScopes: createSessionScopes() });
     const stop = registry.start();
     try {
-      // 用仍存在的工具做就绪探针：原探针是已撤除的 ldvh_workcase_write。
+      // 用仍存在的工具做就绪探针：原探针取自一个已撤除的工具。
       await waitFor(() => first.tools.has("ldvh_adr_write") && second.tools.has("ldvh_adr_write"), { label: "both tool batches" });
       await assert.rejects(stop(), /cleanup/i, "a partial cleanup must not be reported as successful");
       assert.equal(first.tools.size, 0, "the failing agent's synchronous cleanup was attempted");

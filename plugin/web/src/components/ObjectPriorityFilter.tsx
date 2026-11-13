@@ -5,7 +5,7 @@ import PriorityIcon from '@/components/PriorityIcon';
 
 // Spark 优先级档位（20 §8，2026-09-13 Human 裁定新增）：闭集 P0–P3。
 // AI 综合判断出初值、Human 可按情况调整；仅 open 时出现，终态省略。
-// WorkCase 无此字段（21 §160 闭集未含 priority）。
+// 其它类型无此字段。
 const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3'];
 
 interface ObjectPriorityFilterProps {

@@ -378,10 +378,10 @@ test("schema/writer agreement: every fact-type writer is covered by this guard",
 //      `FRONTMATTER_FIELD_ORDER`，于是落盘位置取决于「何时引入」而非语义归属
 //      —— 实测两份 draft 的 `gist` 都落在 `change_log` 之后。上面的
 //      schema/writer 守卫守的是「工具 schema ↔ 闭集」，不覆盖这条缝。
-//      spark 同样缺 `refs`，故本守卫覆盖全部登记的 writer 而不只 workcase。
+//      spark 同样缺 `refs`，故本守卫覆盖全部登记的 writer。
 //
 //   ② 序列化选项：`lineWidth: 0` 是 ef08d9e（2026-09-06，Human 反馈「YAML 折行
-//      不可读」）确立的跨 writer 约定，7 个 writer 已跟进，workcase（2026-09-15
+//      不可读」）确立的跨 writer 约定，7 个 writer 已跟进，
 //      建立）未继承——长中文 summary/scope 被折成 ~80 列 + 2 空格续行。数据无损，
 //      但 review 与 diff 的可读性下降。选项藏在 `buildFileContent` 里且非导出，
 //      故按源码文本断言（与「按源码解析」同法，见 closure-items.test.mjs 先例）。
@@ -393,7 +393,7 @@ const ORDER_ARRAYS = [
 test("schema/writer agreement: the frontmatter order array covers the writer's whole closed set", async () => {
 	for (const entry of ORDER_ARRAYS) {
 		// `import()` takes a URL specifier, not a native filesystem path: on
-		// win32 a bare `D:\...\workcase-writer.js` is parsed as the scheme `d:`
+		// win32 a bare `D:\...\writer.js` is parsed as the scheme `d:`
 		// and rejected with ERR_UNSUPPORTED_ESM_URL_SCHEME. pathToFileURL gives
 		// the file:// form ESM requires, on every platform.
 		const mod = await import(pathToFileURL(join(LIB, entry.module)).href);

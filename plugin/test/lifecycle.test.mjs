@@ -1135,7 +1135,7 @@ test("child: subagent/end for an unknown id is ignored (no cross-child contamina
 });
 
 test("pre-step onTurnStart：每回合第一次 step 跑一次、受管辖时；非受管辖不跑", async () => {
-	// 接线守卫：21 §14「以及该会话续接本对象」要求「会话继续干活」时把在办工单的目标
+	// 接线守卫：要求「会话继续干活」时把在办对象的目标
 	// 恢复武装。该义务只能挂在这个缝上——此前它只写在规范里、代码不做（2026-10-15 发现）。
 	const agent = makeAgent("s1", "/cwd");
 	const enter = { kind: "enter", messages: [{ role: "user", content: [] }] };
@@ -1174,7 +1174,7 @@ test("pre-step onTurnStart：抛错不得拦住回合，也不得静默吞掉", 
 // 2026-10-18 registry observability（子代理登记表被清空 修复 · 步骤 1）
 // ---------------------------------------------------------------------------
 //
-// 缺陷（workcase 复核无法收口）：插件 fiber 重建（dispose → start）后，
+// 缺陷（复核无法收口）：插件 fiber 重建（dispose → start）后，
 // `children` / `retiredChildren` 被清空，且 start() 只 adopt roots() —— 已存在
 // 的子代理不再入表，导致 collect 恒 0 条、record_review 恒「not a subagent
 // registered」。本用例钉住**观测面**：三类事件（写 children／清空／adopt）必须

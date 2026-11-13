@@ -1,4 +1,4 @@
-// `summary` 字段的 200 字符上限（workcase-5eec3197 的处置，Human 2026-11-04 裁定 B1）。
+// `summary` 字段的 200 字符上限（Human 2026-11-04 裁定 B1）。
 //
 // ## 为什么需要它
 //
@@ -11,7 +11,6 @@
 // 超限拒绝、不得截断后写入）：
 //
 //   * `Spark.disposition`（20 §9.1）
-//   * `WorkCase.gist`（21 §8）
 //   * `Pitfall.disposition`（23 §9.1）
 //   * Goal 目标陈述（25 §7）
 //
@@ -21,7 +20,7 @@
 //
 // ## 为什么只查本次改动的字段（Human 裁定 B1）
 //
-// 若对存量无条件生效，实测会有 **110 条对象**（Spark 66、WorkCase 44、DevLog 3）
+// 若对存量无条件生效，实测会有 **110 条对象**（Spark 66、DevLog 3 等）
 // 立即变成只读——它们现存 summary 全部超限，而任何一次 update 都会校验该字段。
 // 那等于用一条新规则冻结整个事实源。
 //
@@ -75,7 +74,7 @@ export function summaryLimitIssue(value, { field = "summary", clause } = {}) {
   if (length <= SUMMARY_MAX_CHARS) return null;
   const where = clause === undefined || clause.length === 0 ? "" : ` (${clause})`;
   return `${field}: must be ≤ ${SUMMARY_MAX_CHARS} characters (UTF-16 code units, same unit as `
-    + `Spark.disposition / WorkCase.gist / Pitfall.disposition / Goal 目标陈述)${where}; `
+    + `Spark.disposition / Pitfall.disposition / Goal 目标陈述)${where}; `
     + `got ${length} — 超 ${length - SUMMARY_MAX_CHARS} 字符。上限是索引层上限，`
     + `完整论述属于正文；**不得截断后写入**（截断会破坏载体内聚：正文须逐字包含 summary）`;
 }

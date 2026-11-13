@@ -96,7 +96,7 @@ app.use('/api/diagnostics', diagnosticsRoutes)
 /**
  * health
  *
- * `Access-Control-Allow-Origin` 不是装饰（工单 c6d88dac）：宿主的 Web 呈现探活要
+ * `Access-Control-Allow-Origin` 不是装饰：宿主的 Web 呈现探活要
  * 判定「iframe 那个地址是否真的健康」，而它从主文档直连本服务是**跨源**的。
  * 本服务上方的 cors() 白名单只放行本机 dev server（localhost:5173/5174/3000），
  * 对运行中的子进程实测确认：`Origin: null`、`dsh-app://app`、

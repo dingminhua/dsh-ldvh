@@ -266,7 +266,7 @@ async function makeWatchFixture(overrides = {}) {
 }
 
 test("source recycle self-heals the child without any incoming request", async () => {
-  // 回归（工单 c6d88dac）：原实现 kill 之后不重拉，而重拉只由 /ldvh/api/* 代理
+  // 回归：原实现 kill 之后不重拉，而重拉只由 /ldvh/api/* 代理
   // 请求触发——那个请求恰来自已打不开的页面，进程一死就永不自愈。这里断言：改内容
   // → 回收 → **全程不发任何请求** → 子进程自己回到运行态，且换成新 pid。
   const { root, manager, readPid, port } = await makeWatchFixture();
@@ -331,7 +331,7 @@ test("mtime-only touch keeps the child pid unchanged, real content change replac
 });
 
 test("unexpected child exit re-warms without any incoming request", async () => {
-  // 独立复核发现（工单 c6d88dac）：初版的「意外退出自愈」是**死代码**——
+  // 独立复核发现：初版的「意外退出自愈」是**死代码**——
   // exit 回调里 re-warm 的守卫是 `if (disposed || spawned !== null) return;`，
   // 而 spawned 只在 recycleChild 内清空，意外退出时仍指向已死进程，定时器必然
   // 早退。热刷新路径的自愈成立，崩溃路径从未生效。本用例钉住崩溃路径。

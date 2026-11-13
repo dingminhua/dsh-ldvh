@@ -8,7 +8,7 @@
  * 数据经 Web 字段级直读（localFactReader / facts.ts 的 listObjects），不复用 /api/dashboard 聚合逻辑。
  *
  * 命名纪律（02 §7 第 3 条）：
- * 待决类型 inboxKind 表示 Human 的计划批准（Gate 1）或关闭确认（Gate 2）。
+ * 待决类型 inboxKind 表示 Human 的行动前批准或关闭确认。
  * group 决定两个既有行动模块（待办收件 / 推进中事项）的唯一归属。
  */
 
@@ -209,8 +209,8 @@ function factKey(type: string, objectId: string, objectUid?: string): string {
 
 /**
  * 21 号三态直读收件判定（与列表筛选器共用同一派生函数，防口径漂移）：
- *   - group=pending_gate1 ⇒ 'plan_confirmation'（Gate 1 待批收件）
- *   - group=awaiting_gate2 ⇒ 'closure_confirmation'（Gate 2 待关收件）
+ *   - 行动前待批 ⇒ 'plan_confirmation'（待批收件）
+ *   - 收口待关 ⇒ 'closure_confirmation'（待关收件）
  *   - executing / closed ⇒ 不进待办收件（返回 null）
  */
 /**
@@ -284,7 +284,7 @@ function timestampInWindow(value: unknown, start: number, end: number): value is
  * 拿到的都是 `listObjects` 的列表项，而列表投影按载荷纪律剥离了 `report_body`
  * （`factFieldContract.ts` 的 `FACT_LIST_FIELD_NAMES` 排除个别类型）。
  * 从被剥离的输入重算只会得到 `executing`——这正是认知中心对「open ∧ 含结果节」
- * 的工单不产生 **Gate 2 待办**（`inboxKind` 落空）的成因，与列表/筛选侧的
+ * 的对象不产生**收口待办**（`inboxKind` 落空）的成因，与列表/筛选侧的
  * 同类缺陷同源。
  *
  * 读法：优先取 `current_snapshot_projection`（完整 view）；若缺失，则用已派生的

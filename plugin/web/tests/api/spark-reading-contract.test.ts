@@ -71,8 +71,8 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.match(source, /whitespace-normal break-words/);
   assert.match(source, /openPanel\(\{ type: 'object', title, objectType: legacyTarget\.factTypeKey, objectId: legacyTarget\.objectId \}\)/);
   assert.doesNotMatch(source, /StatusBadge status=\{association\.status\}/);
-  // v5：cancelled 不再映射 discarded——isDiscardedWorkCaseAssociation 已删除。
-  assert.doesNotMatch(source, /isDiscardedWorkCaseAssociation/);
+  // v5：cancelled 不再映射 discarded——该映射函数已删除。
+  assert.doesNotMatch(source, /isDiscarded\\w*Association/);
   assert.match(source, /function getFactAssociationState/);
   assert.match(source, /targetType === 'spark'/);
   assert.match(source, /association\.status === 'open'\) return 'pending'/);

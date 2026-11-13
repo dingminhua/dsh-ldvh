@@ -228,7 +228,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   // common 的 urls。relations 闭集仅 absorbed-into / superseded-by 两条终态边（§11）。
   // `refs` 于 2026-11-02 经 Human 决定并入 02 §8.2 的采用面（29 §8/§11/§12.3bis）：
   // 条目侧登记自己与哪些事实对象有**内容关联**（结论的依据来源、输入对象、相关
-  // 事项）。它与工单侧指向条目的 refs 是**两侧各自声明**、互不复制反向边；
+  // 事项）。它与对象侧指向条目的 refs 是**两侧各自声明**、互不复制反向边；
   // 生命周期关系仍走 relations。目标状态不校验（关联是历史事实）。
   // 正文五块固定 H2（背景/做法/实测/结论与边界/去向）由 report_body 承载；
   // absorbed 为压缩形态（仅「结论与边界」+「去向」两段，§9.1）。

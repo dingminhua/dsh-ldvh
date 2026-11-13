@@ -35,7 +35,7 @@ export const VALID_COMMIT_MESSAGE = [
  * A hermetic DSH shell environment for Git Gate (commit-msg) tests.
  *
  * The Hook resolves the authoritative route through the shell channel
- * (09 §5.1 取值来源 / workcase-608786b8). A test child would otherwise inherit
+ * (09 §5.1 取值来源). A test child would otherwise inherit
  * the real DSH_* of whoever runs the suite, so the route would be the live
  * session's provider/model and the assertions would depend on the operator.
  * Stripping the three route variables makes the child hermetic; callers that

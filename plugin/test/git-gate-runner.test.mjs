@@ -249,7 +249,7 @@ test("rejects legacy Product-Name/Model-Name trailers and accepts only LDVH-Prov
 
 		// The new field names are necessary but no longer sufficient: the SAME
 		// header + 关键变更段 passes only when the values trace back to the
-		// authoritative route (09 §5.1 取值来源, workcase-608786b8). Arbitrary
+		// authoritative route (09 §5.1 取值来源). Arbitrary
 		// values under the right field names are the forgery this test now pins.
 		const forged = [
 			"chore(x): 合规标题",

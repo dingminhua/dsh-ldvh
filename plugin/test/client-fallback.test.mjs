@@ -98,7 +98,7 @@ function runClientProbe(fetchImpl, options = {}) {
 }
 
 test("client probe reports unavailable when the iframe origin is dead, even though the host route answers", async () => {
-	// 回归（工单 c6d88dac，计划步骤 3）：原实现探活用相对路径 /ldvh/api/health，
+	// 回归（计划步骤 3）：原实现探活用相对路径 /ldvh/api/health，
 	// 命中**宿主**路由——宿主自己能答 200，于是子进程已死时探活仍报「可用」，
 	// 而 iframe 实连的回环地址是空的。这里让二者真实分歧，断言客户端结论。
 	//

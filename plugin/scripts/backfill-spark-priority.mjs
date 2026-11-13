@@ -24,7 +24,7 @@ const DRY = process.argv.includes('--dry-run');
 
 /** title → priority（来自已确认的回填建议表）。 */
 const ASSIGNMENTS = {
-  'Norm 与 WorkCase 承载层补建': 'P0',
+  'Norm 承载层补建': 'P0',
 
   'Git Gate 的 fail-open 通路': 'P1',
   '启动引导对 specs/ 的悬空假定': 'P1',

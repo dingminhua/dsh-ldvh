@@ -683,7 +683,7 @@ input::-moz-focus-inner {
   margin-bottom: 0.125rem;
 }
 
-/* Terminal fact cards use the same compact, circular list marker as WorkCase criteria.
+/* Terminal fact cards use the same compact, circular list marker as criteria surfaces.
  * Terminal source text can use either Markdown list form; both are non-sequential here. */
 .ldvh-terminal-fact-content .ldvh-inline-markdown :where(ul, ol) {
   list-style: none;
@@ -819,7 +819,7 @@ input::-moz-focus-inner {
   padding: 0.5rem 0.75rem;
 }
 
-/* 阅读节点的正文取色：正文须达 4.5:1（本仓库既有「正文线」，见 WorkCaseGistLine
+/* 阅读节点的正文取色：正文须达 4.5:1（本仓库既有「正文线」，见卡体正文
    对框/字分取的登记）。原值为 `text-secondary) / 0.92`，其 alpha 叠加使浅色壳底
    上实测只有 4.05:1，低于该线；去掉 alpha 后浅色 4.74:1、暗色 7.46:1，两主题均过。
    仅去掉这一个 alpha，不改色相，故节点间的主次层级不变。 */
@@ -852,8 +852,8 @@ input::-moz-focus-inner {
  * 撤销理由是其**作用面与动机不匹配**：
  *
  *   1. 该选择器挂在**六类阅读面共用的壳**（.ldvh-research-node-content）上——
- *      ADR/Pitfall/Spark/Research/Friction/Norm 与 WorkCase 全部走它，而当初的动机
- *      只是 WorkCase 的长摘要；等于给所有类型一并收窄（Human 实测发现 Spark 亦受影响）。
+ *      ADR/Pitfall/Spark/Research/Friction/Norm 全部走它，而当初的动机只是某一类型的
+ *      长摘要；等于给所有类型一并收窄（Human 实测发现 Spark 亦受影响）。
  *   2. 壳内文本列宽约 792px，40em（14px 字号）≈ 560px，**右侧留出约 29% 空白**。
  *      阅读节点里大多是**短字段**（几行即尽），对短字段收窄不产生任何可读性收益，
  *      只留下「文字没排满」的视觉缺陷——留白本身成了新问题。

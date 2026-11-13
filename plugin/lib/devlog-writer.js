@@ -79,7 +79,7 @@ export const DEVLOG_RELATION_KEYS = new Set(["absorbed-into", "superseded-by"]);
  * another DevLog would mean the other entry carries the same conclusion, which
  * is 29 §18 red line 3 (两处权威).
  */
-export const ABSORBING_TYPES = new Set(["adr", "workcase", "norm", "pitfall"]);
+export const ABSORBING_TYPES = new Set(["adr", "norm", "pitfall"]);
 
 /** 40-hex commit hash (02 §8.1 commit 形态; short hashes and refs refused). */
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
@@ -187,7 +187,7 @@ export function validateDevLogFrontmatter(frontmatter, options = {}) {
   if (typeof frontmatter.summary !== "string" || frontmatter.summary.trim().length === 0) {
     issues.push("summary: required and non-empty (29 §8 — 当前语义快照：结论与适用边界)");
   }
-  // **不设 200 字符上限**（Human 2026-11-04 裁定乙，workcase-5eec3197）。
+  // **不设 200 字符上限**（Human 2026-11-04 裁定乙）。
   // DevLog 的 summary 是「结论与边界」的完整快照（29 §8），与 Spark 的索引层
   // 定位不同：它要回答「结论是什么、在什么条件下成立、哪些已确认不成立」，
   // 200 字装不下这些。实测本仓 11 条 DevLog 中位 174 字、最大 243 字，
@@ -262,7 +262,7 @@ export function validateDevLogFrontmatter(frontmatter, options = {}) {
  * Relation contract (29 §11) + 字段间不变量 4 (状态与关系同变).
  *
  * Two edges only, both terminal-only:
- *   - `absorbed-into` → ADR/WorkCase/Norm/Pitfall object_uid, or commit form;
+ *   - `absorbed-into` → ADR/Norm/Pitfall object_uid, or commit form;
  *                      exactly 1 iff status=absorbed, forbidden otherwise.
  *   - `superseded-by` → DevLog object_uid ONLY (commit form refused: "the
  *                      overturning conclusion must be a DevLog object, else
@@ -611,7 +611,7 @@ async function checkUidExclusive(factSourceRoot, objectUid) {
 /**
  * Resolve an `absorbed-into` target (29 §11).
  *
- * Object form: must resolve to an ADR / WorkCase / Norm / Pitfall object. A
+ * Object form: must resolve to an ADR / Norm / Pitfall object. A
  * DevLog target is refused on purpose — absorbing one conclusion into another
  * entry creates two authorities for the same conclusion (29 §18 red line 3).
  *
@@ -644,7 +644,7 @@ export async function resolveAbsorbedIntoTarget({ factSourceRoot, target, gitCom
   if (!ABSORBING_TYPES.has(found.value.fact_type_key)) {
     return failure(
       "devlog/absorbed_into_unresolvable",
-      `absorbed-into must point at an ADR/WorkCase/Norm/Pitfall object, got ${JSON.stringify(found.value.fact_type_key)} (29 §11) — a DevLog cannot absorb into another DevLog (29 §18 红线 3)`,
+      `absorbed-into must point at an ADR/Norm/Pitfall object, got ${JSON.stringify(found.value.fact_type_key)} (29 §11) — a DevLog cannot absorb into another DevLog (29 §18 红线 3)`,
       { resolved_type: found.value.fact_type_key },
     );
   }
@@ -685,7 +685,7 @@ export async function resolveSupersededByTarget({ factSourceRoot, target }) {
  * being superseded). Only the identity is read.
  */
 export async function locateFactObject(factSourceRoot, uid) {
-  const dirs = ["adrs", "workcases", "norms", "pitfalls", "devlogs", "researches", "sparks", "frictions", "subgoals"];
+  const dirs = ["adrs", "norms", "pitfalls", "devlogs", "researches", "sparks", "frictions", "subgoals"];
   for (const dir of dirs) {
     const full = join(factSourceRoot, dir);
     let entries;
@@ -978,7 +978,7 @@ export async function precheckDevLogCreate({ factSourceRoot, frontmatterDraft, b
 // ---------------------------------------------------------------------------
 
 /**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`（workcase-410750b0）。
+ * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
  *
  * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `devlog/invalid_uid`
  * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是

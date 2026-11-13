@@ -993,7 +993,7 @@ test("routeFailure：未知去向拒绝", () => {
 
 test("checkTransverseMerge：两套都执行才构成通过", () => {
 	const result = checkTransverseMerge({
-		systemKey: "workcase",
+		systemKey: "gate-consult",
 		ruleComplianceExecuted: true,
 		systemSpecificExecuted: true,
 	});
@@ -1005,18 +1005,18 @@ test("checkTransverseMerge：两套都执行才构成通过", () => {
 
 test("checkTransverseMerge：只做本系统不免除该系统（§11 第一句）", () => {
 	const result = checkTransverseMerge({
-		systemKey: "workcase",
+		systemKey: "gate-consult",
 		ruleComplianceExecuted: true,
 		systemSpecificExecuted: false,
 	});
 	assert.equal(result.passed, false);
-	assert.deepEqual(result.missing, ["workcase 的专属预检"]);
+	assert.deepEqual(result.missing, ["gate-consult 的专属预检"]);
 	assert.equal(result.stopCondition, "34 §16.1 第 6 项");
 });
 
 test("checkTransverseMerge：只做该系统不免除本系统（§11 第二句，双向对称）", () => {
 	const result = checkTransverseMerge({
-		systemKey: "workcase",
+		systemKey: "gate-consult",
 		ruleComplianceExecuted: false,
 		systemSpecificExecuted: true,
 	});

@@ -58,13 +58,13 @@ test('只统计成对的 LDVH 工具调用，未配对的结果与无关工具�
       data: { toolCallId: 'c1', message: { content: [{ type: 'text', text: 'LDVH spark-read-object: completed\n' }] } },
     }),
     // 被拒的 LDVH 调用：应落进“缺必填参数”
-    eventLine({ type: 'tool/call', time: 1_700_000_002_000, data: { name: 'ldvh_workcase_write', callId: 'c2' } }),
+    eventLine({ type: 'tool/call', time: 1_700_000_002_000, data: { name: 'ldvh_adr_write', callId: 'c2' } }),
     eventLine({
       type: 'tool/result',
       time: 1_700_000_003_000,
       data: {
         toolCallId: 'c2',
-        message: { content: [{ type: 'text', text: 'LDVH workcase-write-object: invalid_request\ngap: frontmatter_after (object) is required for action=update' }] },
+        message: { content: [{ type: 'text', text: 'LDVH adr-write-object: invalid_request\ngap: frontmatter_after (object) is required for action=update' }] },
       },
     }),
     // 非 LDVH 工具：与本题无关，不得计入
@@ -89,7 +89,7 @@ test('只统计成对的 LDVH 工具调用，未配对的结果与无关工具�
     report.byCategory.map((row) => row.category),
     ['missing_arguments'],
   );
-  assert.equal(report.recentFailures[0]?.tool, 'ldvh_workcase_write');
+  assert.equal(report.recentFailures[0]?.tool, 'ldvh_adr_write');
   assert.match(report.recentFailures[0]?.detail ?? '', /frontmatter_after/);
   assert.equal(report.scope.sessionsScanned, 1);
   assert.equal(report.scope.sessionDirExists, true);

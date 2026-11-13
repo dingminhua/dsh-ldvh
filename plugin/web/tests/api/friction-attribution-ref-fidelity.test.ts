@@ -7,7 +7,7 @@ import { showObject } from '../../api/services/facts.ts';
 import { type LocalFactScope } from '../../api/services/localFactReader.ts';
 
 /**
- * 26 §8/§11「锚点型」attribution_ref 在读取层的保真回归（workcase-54d4d176）。
+ * 26 §8/§11「锚点型」attribution_ref 在读取层的保真回归。
  *
  * 缺陷形态：真实载体的 attribution_ref 是**对象形态** `{ object_uid }`（与
  * relations 的 target 同一承载），而字段契约一度登记为 `string`。读取层按
