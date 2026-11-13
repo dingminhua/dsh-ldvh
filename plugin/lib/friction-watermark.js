@@ -123,7 +123,7 @@ const watermarkQueues = new Map();
  * 决策——不满足 11 §6.2 所定义的「准入约束」（那类约束收窄发起条件）。故它不属
  * 本条 scope 所排除的形态。
  *
- * **上限的意义**：它是运行状态的体量上界（04 §14 第 5 条禁止无界账本）。
+ * **上限的意义**：它是运行状态的体量上界（04 §13 第 5 条禁止无界账本）。
  */
 export const FALLBACK_MAX_DISPATCH_TIMES = 64;
 
@@ -376,7 +376,7 @@ export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, ta
 /**
  * 读**派发状态**（闲时辅助的节流锚点与配额计数），与水位**共用同一个载体**。
  *
- * ## 为什么不新建一个文件（specs/04 §14 第 5 条）
+ * ## 为什么不新建一个文件（specs/04 §13 第 5 条）
  *
  * 该条禁止「为证明检查已执行而保存完整消息、思考链、运行日志或**第二状态账本**」。
  * 节流需要的两个量（上次派发时刻、本会话已派发次数）与水位同属「辅助机制的运行
@@ -438,7 +438,7 @@ export async function readDispatchState(dshHomePath, { projectRoot, sessionId } 
  *
  * ## 为什么并入既有载体而非新建文件
  *
- * 同 `readDispatchState` 的说明（04 §14 第 5 条禁止第二状态账本）：本项与水位、
+ * 同 `readDispatchState` 的说明（04 §13 第 5 条禁止第二状态账本）：本项与水位、
  * 派发状态同属「辅助机制的运行状态」，且作用域相同（受管辖项目根 + 会话 id）。
  *
  * 返回 `{ ok: true, value: { lastActivityAt } }`（写入后的值）。
@@ -499,7 +499,7 @@ export async function recordDispatch(dshHomePath, { projectRoot, sessionId, at, 
     const prevCount = Number.isInteger(entry.dispatchCount) && entry.dispatchCount >= 0 ? entry.dispatchCount : 0;
     const nextCount = prevCount + 1;
     // 时刻列表**有界**（容量按下面推导）。它是运行状态、不是账目，
-    // 按 04 §14 第 5 条不得无界增长；而配额窗口是有限的，故旧于窗口的时刻无消费方。
+    // 按 04 §13 第 5 条不得无界增长；而配额窗口是有限的，故旧于窗口的时刻无消费方。
     const prevTimes = Array.isArray(entry.dispatchTimes)
       ? entry.dispatchTimes.filter((v) => typeof v === "string" && v.length > 0)
       : [];
@@ -549,7 +549,7 @@ export async function recordDispatch(dshHomePath, { projectRoot, sessionId, at, 
  *
  * ## 语义
  *
- * `inFlight` 是**运行状态**（04 §14 第 5 条：不得无界增长），记「已占用、尚未
+ * `inFlight` 是**运行状态**（04 §13 第 5 条：不得无界增长），记「已占用、尚未
  * 收尾」的派发。本函数在临界区内完成三件事，三者同属一个读-判-写序列：
  *
  *   1. 读回 `inFlight`，非空即判 **在途**（`admit: false`）——同一会话同一时刻

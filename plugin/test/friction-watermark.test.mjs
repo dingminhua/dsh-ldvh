@@ -227,7 +227,7 @@ test("D3：突发多次并发推进同一会话，全部成功且最终为最大
 });
 
 // ---------------------------------------------------------------------------
-// 派发状态与水位**共存于同一载体**（闲时辅助节流用；specs/04 §14 第 5 条禁止
+// 派发状态与水位**共存于同一载体**（闲时辅助节流用；specs/04 §13 第 5 条禁止
 // 新建「第二状态账本」，故并入水位载体而非另起文件）。
 // ---------------------------------------------------------------------------
 //
@@ -335,7 +335,7 @@ test("派发状态：缺参与非法入参一律拒绝（不得静默写坏载�
 
 test("numberOfWindowSlots：返回具名常量（容量不再按配置推导——除数已随 §6.2 取消）", async () => {
   const { numberOfWindowSlots, FALLBACK_MAX_DISPATCH_TIMES } = await import("../lib/friction-watermark.js");
-  assert.ok(FALLBACK_MAX_DISPATCH_TIMES > 0, "须是有限正值（列表有界，04 §14 第 5 条）");
+  assert.ok(FALLBACK_MAX_DISPATCH_TIMES > 0, "须是有限正值（列表有界，04 §13 第 5 条）");
   assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 600_000 }), FALLBACK_MAX_DISPATCH_TIMES);
   assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 1_000 }), FALLBACK_MAX_DISPATCH_TIMES, "间隔不再是输入");
   assert.equal(numberOfWindowSlots({}), FALLBACK_MAX_DISPATCH_TIMES, "缺配置同样返回常量（不再有回落到 0 的分支）");

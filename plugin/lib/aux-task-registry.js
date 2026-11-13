@@ -68,7 +68,7 @@ export const UNIMPLEMENTED_AUX_TASKS = Object.freeze(["capacity-maintenance", "m
  * `friction-discovery`（摩擦发现）的登记项。
  *
  * 提示词段与输出 schema 的实际内容由 `friction-subagent-contract.js` 提供——本项
- * 只做**查找与分派**，不复制其正文（04 §14 第 6 条：不在规范里复制宿主/下位实现；
+ * 只做**查找与分派**，不复制其正文（04 §13 第 6 条：不在规范里复制宿主/下位实现；
  * 同理实现内部也不复制彼此的文本，否则一改两处必漂移）。
  */
 
@@ -299,7 +299,7 @@ export const AUX_TASK_REGISTRY = Object.freeze({
     key: FRICTION_DISCOVERY_KEY,
     implemented: true,
     // 三个部位的正文由契约/落地模块提供——本表只**引用**，不复制。
-    // 复制会使同一段规则有两份文本，一改两处必漂移（04 §14 第 6 条同理）。
+    // 复制会使同一段规则有两份文本，一改两处必漂移（04 §13 第 6 条同理）。
     promptSection: buildDiscoveryPromptSection,
     outputSchema: discoveryOutputSchema,
     validate: (slice, ctx) => validateDiscoveryVerdict(slice, {
