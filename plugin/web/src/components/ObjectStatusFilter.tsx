@@ -56,10 +56,6 @@ const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   norm: ['active', 'retired'],
   // 28 号 §9 状态闭集：active（推进中）→ achieved（已达成，终态）/ retired（已作废，终态）。
   subgoal: ['active', 'achieved', 'retired'],
-  // 29 号 §9 状态闭集：active（结论仍承重）→ absorbed（已被承接，正文压缩）/
-  // superseded（被推翻，全文保留）/ dropped（不再承重且无可指向承接物，全文保留）。
-  // 三个终态均不可重开。
-  devlog: ['active', 'absorbed', 'superseded', 'dropped'],
 };
 
 interface ObjectStatusFilterProps {

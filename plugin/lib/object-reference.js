@@ -32,7 +32,7 @@ const FACT_TYPE_KEYS = new Set([
   "norm",
   "goal",
   "subgoal",
-  "devlog",
+  // 29 号 DevLog 已于 2026-11-14 撤除，其指称形式不再可解析。
 ]);
 
 /** 供「两份清单须相等」的机械用例读取；业务调用方不得用它生成指称。 */

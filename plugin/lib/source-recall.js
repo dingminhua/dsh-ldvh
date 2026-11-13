@@ -136,10 +136,6 @@ export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   // **`subgoal` 于 2026-11 新增**（28 §12.4）：默认候选只含 `active`；
   // achieved/retired 仅在精确引用、历史追溯或达成证据汇总时展开。
   subgoal: ["active"],
-  // **`devlog` 于 2026-11 新增**（29 §12.4）：默认候选只含 `active`；
-  // absorbed/superseded/dropped 三终态不承重，仅在精确引用、历史追溯或
-  // 承接核对时展开——它们进入默认候选会稀释当次候选面。
-  devlog: ["active"],
 });
 
 /**
@@ -209,7 +205,7 @@ export function recallStatusPolicyOf(criteria, type) {
  * 召回不到——故 `source-recall.test.mjs` 有一条用例直接比对 specs 目录与本表。
  */
 export const REGISTERED_FACT_TYPES = Object.freeze([
-  "spark", "adr", "pitfall", "research", "goal", "friction", "norm", "subgoal", "devlog",
+  "spark", "adr", "pitfall", "research", "goal", "friction", "norm", "subgoal",
 ]);
 
 /**
@@ -287,21 +283,15 @@ export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
  * 主动查的入口是 `ldvh_spark_list`（`plugin/lib/spark-tools.js`），其
  * `keyword`／`priorities`／`serves`／`status` 收窄参数见 `31 §10`。
  *
- * ── DevLog 并入（2026-11-11 修）─────────────────────────────────────
+ * ── 类型撤除同步（2026-11-14）──────────────────────────────────────
  *
- * `29 §12.1` 的召回时机行逐字写明 DevLog「不进引导面自动注入，AI 主动查询」，
- * 与 spark 同一处置。而此前本常量只含 spark，devlog 仍进候选池——后果有两层：
- * ① 它**本来就不会被交付**（无分节次序），却计入 `counts.factHits` 与「未列出」
- * 的分母，实测同一次召回 112 条命中里含 8 条 devlog，使披露数字比实际职责范围
- * 大 8 条；② `34 §12` 的「职责边界」与「本次漏了什么」两类披露被混为一谈。
- *
- * 该收窄**不属 Human Gate**：`34 §15.1` 第 5 项把「**扩大**召回的类型范围」列为
- * 决定事项，收窄不在其中（与 spark 当初入列的判定同口径）；且此处只是让实现
- * 对齐 29 号已写明的边界，不新设边界。
- *
- * 主动查入口 `ldvh_devlog_list`（`plugin/lib/devlog-tools.js`）。
+ * DevLog（29 号）已按 00 §3.2 根决定撤除，01 §8 号位表 29 为空位。原先因
+ * `29 §12.1`「不进引导面自动注入」而与 spark 同列的 devlog 随之从本常量移除，
+ * 且不再属于 `REGISTERED_FACT_TYPES`——运行时不得再召回已撤销类型。
+ * 该收窄不属 Human Gate（`34 §15.1` 第 5 项只把「**扩大**召回的类型范围」
+ * 列为决定事项）。
  */
-export const INJECTION_EXCLUDED_TYPES = Object.freeze(["spark", "devlog"]);
+export const INJECTION_EXCLUDED_TYPES = Object.freeze(["spark"]);
 
 /**
  * **被排除事实类型的主动查入口**（`{type: toolName}`）。
@@ -313,7 +303,6 @@ export const INJECTION_EXCLUDED_TYPES = Object.freeze(["spark", "devlog"]);
  */
 const SCOPE_EXCLUDED_ENTRY_BY_TYPE = Object.freeze({
   spark: "ldvh_spark_list",
-  devlog: "ldvh_devlog_list",
 });
 
 /**
@@ -2757,7 +2746,8 @@ export function selectFactsBySection(hits, plan = {}) {
   //
   // **只给总数不够**（2026-11-11 修）：`34 §12` 要求「未检查范围须逐类列出」，
   // 而注入面此前拿到 `unassigned: 13` 却不知道是哪些类型，于是整条不披露。
-  // 实测该 13 条 = devlog 8 + subgoal 5——**知道分类型才可能判断该不该补规则**。
+  // 实测该 13 条 = devlog 8 + subgoal 5——**知道分类型才可能判断该不该补规则**
+  // （devlog 部分已随该类型撤除而不再出现；此处保留当时的实测口径说明）。
   // 故一并给出按类型明细（保序：Map 插入序即命中次序）。
   const unassignedByType = [];
   let unassigned = 0;
@@ -4026,7 +4016,11 @@ export async function recallForAction(input = {}) {
     // 「没看到」误当成「没有」——正是 `02 §9.2` 要防的「把零结果当无约束」。
     uncheckedRange: {
       // 被过滤掉的事实（按原因分列，读者可判断是否需要放宽）。
+      // 2026-11-14：未登记类型（如已撤除但存量未删的 devlog）单列在
+      // `excludedByTypeWhitelist`，此处须排除，否则同一事实被两类重复计数，
+      // 三类之和会大于 `candidatesExcluded`（实测 348 vs 327，差 21 条）。
       excludedByTypeFilter: types === null ? [] : scopedFacts
+        .filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type))
         .filter((fact) => !types.includes(fact.type))
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
       excludedByStatus: scopedFacts

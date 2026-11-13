@@ -57,32 +57,14 @@ test('类型色语义面有单一来源，色相取自类型色而非另立色�
     '正文色须与 --ldvh-text-primary 混合，才能在两主题下各自读得清');
 });
 
-test('两张卡的卡体主块都按本类型色上色，且面与正文成对', async () => {
+test('子目标判据面按本类型色上色，且面与正文成对', async () => {
   // 2026-11-03：子目标卡的判据面渲染下沉到 `components/SubGoalCardParts.tsx`
-  // （与聚焦页目标区同源），色相断言读那里。DevLog 卡体仍在 ObjectList 里。
-  const objectList = await read('src/pages/ObjectList.tsx');
+  // （与聚焦页目标区同源），色相断言读那里。
+  // 2026-11-14：原「两张卡」的另一张（DevLog 卡体）已随 29 号类型撤除，
+  // 本用例收窄为子目标一张；面/正文成对与不复用蓝面的判据不变。
   const subGoalParts = await read('src/components/SubGoalCardParts.tsx');
 
-  // ① DevLog 卡体（`summary` 承载块）
-  // 上界取 SubGoalCardContent（子目标卡的入口）——DevLog 卡体止于此。
-  // 取到文件末尾会把子目标卡那段的注释一并纳入，令
-  // 「DevLog 不得复用蓝面」的断言误判（子目标段的注释里提到过那个常量名）。
-  const devlogCard = objectList.slice(
-    objectList.indexOf('export function DevLogCardContent'),
-    objectList.indexOf('export function SubGoalCardContent'),
-  );
-  assert.ok(devlogCard.length > 0, '应能定位 DevLogCardContent');
-  assert.match(devlogCard, /getTypeSurfaceTint\(obj\.type\)/, 'DevLog 卡体须按本类型色上色');
-  assert.match(devlogCard, /style=\{tint\.surface\}/, '承载面色相须贴在面上');
-  // 正文色走 `SummaryText` 的 `bodyStyle` 口，**不能**只设外层 `style.color`：
-  // Markdown 渲染出的 `<p>` 由 `github-markdown-css` 着色、不继承外层 color。
-  // 2026-11-02 实测正是如此——外层已生效、块内正文仍是近黑。
-  assert.match(devlogCard, /bodyStyle=\{tint\.body\}/,
-    'DevLog 正文色须经 SummaryText 的 bodyStyle 传入（Markdown 的 p 不继承外层 color）');
-  assert.doesNotMatch(devlogCard, /border-blue-400\/20 bg-blue-500/,
-    'DevLog 卡体不得整面复用另一类型的判据面色（蓝曾是某个类型的类型色）');
-
-  // ② 子目标判据面（渲染在共享组件里；列表卡调用它）
+  // 子目标判据面（渲染在共享组件里；列表卡调用它）
   const subGoalCard = subGoalParts.slice(
     subGoalParts.indexOf('export function SubGoalCriterionSurface'),
     subGoalParts.indexOf('export function SubGoalDisclosureButton'),
@@ -168,7 +150,7 @@ function mixOklab(
   );
 }
 
-test('九类类型色 × 两主题的正文都过 4.5:1（混合比例由本判据兜住）', async () => {
+test('八类类型色 × 两主题的正文都过 4.5:1（混合比例由本判据兜住）', async () => {
   const { CATEGORY_COLORS } = await import('../../src/utils/categoryColors.ts');
   const tint = await read('src/utils/typeSurface.ts');
 
@@ -184,8 +166,9 @@ test('九类类型色 × 两主题的正文都过 4.5:1（混合比例由本判�
   // --ldvh-text-primary 两档），不用白/黑这类仓库外假设。
   const css = await read('src/index.css');
 
-  // 事实类型九类（CATEGORY_COLORS 里还混着 conventional commit scope 色，不属于事实对象）。
-  const factTypes = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'];
+  // 事实类型八类（CATEGORY_COLORS 里还混着 conventional commit scope 色，不属于事实对象；
+  // 29 号 DevLog 已于 2026-11-14 撤除）。
+  const factTypes = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'];
 
   const failures: string[] = [];
   for (const mode of ['light', 'dark'] as const) {

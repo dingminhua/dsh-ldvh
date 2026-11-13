@@ -1429,12 +1429,21 @@ export function renderRecallRow(result) {
       filterParts.push(`${ur.excludedByTypeWhitelist.length} 条未登记类型不参与`);
     }
     const filteredNote = filterParts.length > 0 ? `；另 ${filterParts.join("、")}` : "";
+    // **极小预算档的紧凑尾巴（2026-11-14）**：本行是固定披露、永不参与渲染层
+    // 候选裁剪，故它的长度直接决定极小预算的地板。DevLog 撤除后 21 条存量按
+    // 34 §12 如实进入「未登记类型不参与」类别，使 800 档从 796 顶到 826。
+    // 沿用本文件既有的极小预算纪律（1257 行保底说明行同法）：只压缩与第 2 行
+    // 重复的通用复述，逐类条数与类别名一律保留，不静默省略任何一类。
+    const cbLimitBytes = typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
+    const tightBudget = cbLimitBytes !== null && cbLimitBytes > 0 && cbLimitBytes <= 1200;
+    const completenessTail = completeness === "unavailable"
+      ? "**「未命中」不构成「无相关」的证据**（34 §12），不得据此按零命中路径继续（§16.1 第 7 项）。"
+      : tightBudget
+        ? "未列出的不代表不存在（34 §12）。"
+        : "未取得的部分不代表不存在；「未命中」不构成「无相关」的证据（34 §12）。";
     lines.push(withBaselineYieldNote(
       `（本次召回完整度：**${completeness}**${notRead.length > 0 ? `；未读取的源：${notRead.join("；")}` : ""}${filteredNote}。` +
-        (completeness === "unavailable"
-          // 语义声明已由第 2 行统一承载；此处只报**本态特有的处置约束**。
-          ? "**「未命中」不构成「无相关」的证据**（34 §12），不得据此按零命中路径继续（§16.1 第 7 项）。"
-          : "未取得的部分不代表不存在；「未命中」不构成「无相关」的证据（34 §12）。") +
+        completenessTail +
         "）",
     ));
   }

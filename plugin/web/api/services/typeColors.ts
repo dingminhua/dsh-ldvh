@@ -12,7 +12,8 @@ export const TYPE_COLORS: Record<string, string> = {
   goal: '#10b981',       // emerald —— 与前端 CATEGORY_COLORS.goal 一致（25 号项目目标，近期动态行用后端色）
   subgoal: '#84cc16',    // lime —— 与前端 CATEGORY_COLORS.subgoal 一致（28 号子目标：目标层的下级锚点，
                          //         取绿色族以表明与 goal 同属目标层、又浅一档以示从属）
-  devlog: '#2c9e43',     // 青绿色（green 偏 teal）—— 与前端 CATEGORY_COLORS.devlog 一致（29 号开发日志）。
+  // devlog 色已随 29 号类型于 2026-11-14 撤除（本表 Record<string, string> 允许缺键）。
+  // 原值 #2c9e43（青绿色，Human 定案冷色系）的历史依据见 git 历史。
                          //         色相 132°：Human 定案改用冷色系（此前为 magenta
                          //         #ca21a0 / 315°）。冷色带里只有绿色带可用——青色带
                          //         （≈195°）距状态天蓝 #0284c7(200°) 仅 5°、靛蓝带

@@ -148,13 +148,15 @@ export function isRegisteredFactType(typeKey) {
 /**
  * 类型短名 → 事实源子目录名。
  *
- * **与 `plugin/lib/*-writer.js` 的 `*_DIRECTORY` 常量逐项相等**——那九个常量才是
+ * **与 `plugin/lib/*-writer.js` 的 `*_DIRECTORY` 常量逐项相等**——那八个常量才是
  * 各自的权威定义，此处只是把它们集中成一张查询表供按类型枚举用。漂移时以 writer
- * 为准：本表被 `object-identifier.test.mjs` 钉住与九个常量一致。
+ * 为准：本表被 `object-identifier.test.mjs` 钉住与八个常量一致。
+ *
+ * 2026-11-14：DevLog（29 号）已撤除，`devlog: "devlogs"` 随之移除。存量
+ * `ldvh-base/devlogs/` 暂留为历史档案，但不再作为可反查的登记类型。
  */
 export const FACT_TYPE_DIRECTORIES = Object.freeze({
   adr: "adrs",
-  devlog: "devlogs",
   friction: "frictions",
   norm: "norms",
   pitfall: "pitfalls",

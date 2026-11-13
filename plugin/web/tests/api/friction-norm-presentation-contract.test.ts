@@ -173,7 +173,9 @@ test('norm list cards carry direction_key and retired terminal reason', () => {
   // 保留原正向断言会让「把它加回来」这件事永远不红。
   const normCard = objectList.slice(
     objectList.indexOf('export function NormCardContent'),
-    objectList.indexOf('/**\n * 29 号 §8 `summary`'),
+    // 2026-11-14：结束标记原为 DevLog 卡的 doc 注释（29 号已撤除），
+    // 现取其后的子目标卡 doc 注释——切片范围与原来等价。
+    objectList.indexOf('/**\n * 28 号 §12 F1 投影的列表承载'),
   );
   assert.ok(normCard.length > 0, 'NormCardContent 段应可定位');
   assert.doesNotMatch(normCard, /direction_key/, '活跃规范卡体不得再读 direction_key');

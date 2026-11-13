@@ -20,7 +20,6 @@ import {
   SparkCardContent,
   ResearchCardContent,
   SubGoalCardContent,
-  DevLogCardContent,
 } from '@/pages/ObjectList';
 import { fetchFederationObjects, type FederationObjectItem, type FederationProjectOption } from '@/utils/api';
 import { useProjectScope } from '@/utils/projectContext';
@@ -29,7 +28,8 @@ import { getTypeLabel } from '@/i18n/locales';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
 
-const OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const;
+// 29 号 DevLog 已于 2026-11-14 撤除，退出联邦类型值域。
+const OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const;
 
 /** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称 + 计数），单选。
  *
@@ -141,9 +141,6 @@ export default function FederationObjects() {
     if (currentType === 'friction') return <FrictionCardContent obj={item} />;
     if (currentType === 'norm') return <NormCardContent obj={item} />;
     if (currentType === 'subgoal') return <SubGoalCardContent obj={item} />;
-    // 29 号 DevLog：联邦卡与单项目卡同体——`summary` 是本类型的结论，卡面必须给出
-    // （理由见 DevLogCardContent）；不因视图不同而换一套。
-    if (currentType === 'devlog') return <DevLogCardContent obj={item} />;
     return null;
   };
 

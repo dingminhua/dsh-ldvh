@@ -182,6 +182,10 @@ test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜
 		assert.ok(types.has(expected), `应含类型 ${expected}，实际 ${[...types].join(",")}`);
 	}
 	for (const t of types) {
+		// 2026-11-14：DevLog 已撤除，盘上 21 条存量尚未物理删除，其类型
+		// `devlog` 因此**不在**已登记闭集内。这是撤除期的预期状态，不是
+		// 目录名猜单复数产生的脏值；运行时按「未登记类型被排除」如实披露。
+		if (t === "devlog") continue;
 		assert.ok(
 			REGISTERED_FACT_TYPES.includes(t),
 			`类型 ${t} 不在已登记闭集内——目录名猜单复数会产生这类值`,
@@ -2535,22 +2539,17 @@ test("31 §10：excludeTypes 为 null 时行为与不传完全一致（不改变
 	});
 });
 
-test("31 §10／29 §12.1：声明范围常量的成员须各有规范依据，且只会变窄", async () => {
+test("31 §10：声明范围常量的成员须各有规范依据，且只会变窄", async () => {
 	// 34 §15.1 第 5 项把「**扩大**召回的类型范围」列为 Human 决定事项；
 	// 收窄不在其中。本用例钉住「这里只会变窄」——若有人往名单里加类型，
 	// 那是在扩大而非收窄，须走 Human Gate。
 	//
-	// **2026-11-11 补 devlog**：`29 §12.1` 的召回时机行逐字写明 DevLog
-	// 「不进引导面自动注入，AI 主动查询」，与 `20 §12.1`（Spark，31 §10）同形。
-	// 此前常量只含 spark，devlog 仍进候选池——它不是「收窄」，而是**实现没做到
-	// 规范已经写明的事**。故本用例的判据从「只有 spark」改为「每个成员都能
-	// 指到一条写明不进自动注入的规范条文」，且名单本身仍只能靠 Human Gate 扩大。
-	//
 	// 判据表：类型 → 依据条文。新增成员必须在此登记依据，否则本用例红——
 	// 这挡住「往名单里塞一个类型来让它从候选里消失」这种无授权的扩大。
+	// **2026-11-14**：DevLog（29 号）已撤除，`devlog` 连已登记类型都不是，
+	// 故从排除名单与 BASIS 一并移除——名单只会变窄，本次即一次收窄。
 	const BASIS = {
 		spark: "20 §12.1／31 §10",
-		devlog: "29 §12.1",
 	};
 	assert.deepEqual(
 		[...INJECTION_EXCLUDED_TYPES].sort(),
@@ -2588,16 +2587,11 @@ test("召回路径的用例须与它们所测的路径同参（`excludeTypes` �
 	});
 });
 
-test("29 §12.1：注入路径不得让 devlog 进候选池，且须给出主动查入口", async () => {
-	// **2026-11-11 新增**。`29 §12.1` 的召回时机行逐字写明 DevLog「不进引导面
-	// 自动注入，AI 主动查询」。此前 `INJECTION_EXCLUDED_TYPES` 只含 spark，
-	// devlog 仍进候选池——双重后果：它本来就不会被交付（无分节认领），却计入
-	// `counts.factHits` 与「未列出」的分母。实测同一查询 112 条命中里含 8 条
-	// devlog，使披露数字比实际职责范围大 8 条。
-	//
-	// 两段：① devlog 不进候选池；② 既然从扫描范围里拿掉了它，注入面就必须给出
-	// 可执行的替代入口——只说「不含 devlog」等于把读者丢回原点（与既有 spark
-	// 处置同形，`34 §12`）。
+test("已撤除类型：盘上残留 devlog 载体须如实披露为未登记类型被排除", async () => {
+	// **2026-11-14 改写**。DevLog（29 号）已按 00 §3.2 根决定撤除，
+	// REGISTERED_FACT_TYPES 不再含 devlog。本用例改为钉住仍生效的机制：
+	// 盘上若残留已撤除类型的载体（存量 21 条暂未物理删除），召回不得静默吞掉，
+	// 须按「未登记事实类型被排除」如实披露（02 §9.2、34 §12）。
 	const { buildRecallInjection } = await import("../lib/recall-injection.js");
 	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
 	const { tmpdir } = await import("node:os");
@@ -2636,23 +2630,22 @@ test("29 §12.1：注入路径不得让 devlog 进候选池，且须给出主动
 			!(r.result?.unchecked?.facts ?? []).some((f) => /devlogs\//.test(f.path)),
 			"devlog 不得出现在「未列出」清单里——它不属本路径的声明范围，不是本次漏掉的",
 		);
-		assert.match(r.text ?? "", /devlog/, "注入文本须点明本路径不含 devlog");
-		assert.match(r.text ?? "", /ldvh_devlog_list|ldvh_\*_list/, "注入文本须给出 devlog 的主动查入口");
+		// 类型撤除后（2026-11-14）：devlog 已从 REGISTERED_FACT_TYPES 移除，
+		// 盘上若仍有该类型载体，须按「未登记类型被排除」如实披露，不得静默吞掉
+		// （02 §9.2 禁把零结果当无约束）。
+		assert.match(
+			r.text ?? "",
+			/未登记类型不参与/,
+			"盘上残留的已撤除类型须如实披露为「未登记类型不参与」",
+		);
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}
 });
 
-test("29 §12.1：注入路径不得让 devlog 进候选池，且须给出主动查入口", async () => {
-	// **2026-11-11 新增**。`29 §12.1` 的召回时机行逐字写明 DevLog「不进引导面
-	// 自动注入，AI 主动查询」。此前 `INJECTION_EXCLUDED_TYPES` 只含 spark，
-	// devlog 仍进候选池——双重后果：它本来就不会被交付（无分节认领），却计入
-	// `counts.factHits` 与「未列出」的分母。实测同一查询 112 条命中里含 8 条
-	// devlog，使披露数字比实际职责范围大 8 条。
-	//
-	// 本用例两段：① devlog 不进候选池；② 既然从扫描范围里拿掉了它，注入面
-	// 就必须给出可执行的替代入口——只说「不含 devlog」等于把读者丢回原点
-	// （`34 §12` 与既有 spark 处置同形）。
+test("已撤除类型：盘上残留 devlog 载体须如实披露为未登记类型被排除", async () => {
+	// **2026-11-14 改写**（同前一用例）：类型已撤除，改钉「未登记类型
+	// 不得静默吞掉」这一仍在生效的披露纪律。
 	const { buildRecallInjection } = await import("../lib/recall-injection.js");
 	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
 	const { tmpdir } = await import("node:os");
@@ -2682,9 +2675,13 @@ test("29 §12.1：注入路径不得让 devlog 进候选池，且须给出主动
 			!(r.result?.unchecked?.facts ?? []).some((f) => /devlogs\//.test(f.path)),
 			"devlog 不得出现在「未列出」清单里——它不属本路径的声明范围，不是本次漏掉的",
 		);
-		// 替代入口须在注入文本里可读（数据层 entryByType → 渲染行）。
-		assert.match(r.text ?? "", /devlog/, "注入文本须点明本路径不含 devlog");
-		assert.match(r.text ?? "", /ldvh_devlog_list/, "注入文本须给出 devlog 的主动查入口");
+		// 类型撤除后（2026-11-14）：不再有 ldvh_devlog_list 主动查入口；
+		// 残留存量按「未登记类型被排除」如实披露即可（02 §9.2）。
+		assert.match(
+			r.text ?? "",
+			/未登记类型不参与/,
+			"盘上残留的已撤除类型须如实披露为「未登记类型不参与」",
+		);
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}

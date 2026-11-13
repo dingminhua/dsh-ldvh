@@ -58,5 +58,6 @@ export function hasChecklist(value: string) {
 export function isObjectRef(refId: string) {
   const match = refId.match(/^([a-z]+)-\d+$/);
   if (!match) return false;
-  return ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'].includes(match[1]);
+  // 29 号 DevLog 已于 2026-11-14 撤除，不再认 devlog-N 形式。
+  return ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'].includes(match[1]);
 }

@@ -43,7 +43,7 @@ import {
 const ROOT = join(import.meta.dirname, "..", "..");
 const SPECS_DIR = join(ROOT, "specs");
 
-/** 类型 → 它的事实规范文件名（20–29，21 号空位）。这是**唯一映射来源**，不得在别处再抄一份。 */
+/** 类型 → 它的事实规范文件名（20–29，21 与 29 号空位）。这是**唯一映射来源**，不得在别处再抄一份。 */
 const TYPE_SPEC_FILES = Object.freeze({
 	spark: "20-Spark-火花.md",
 	adr: "22-ADR-决策.md",
@@ -53,7 +53,7 @@ const TYPE_SPEC_FILES = Object.freeze({
 	friction: "26-Friction-摩擦账本.md",
 	norm: "27-Norm-事实规范.md",
 	subgoal: "28-SubGoal-子目标.md",
-	devlog: "29-DevLog-开发日志.md",
+	// 29 号 DevLog 已于 2026-11-14 撤除（01 §8 号位表为空位），映射随之删除。
 });
 
 async function readSpec(name) {

@@ -1,22 +1,21 @@
 // `summary` 200 字符上限的契约（Human 2026-11-04 裁定 B1 + 乙）。
 //
 // 钉住四件事：
-//   1. 上限**只对 Spark 生效**（索引层）；DevLog 是结论快照，
-//      不设上限，靠 §8 分块规则保可读性。
+//   1. 上限**只对 Spark 生效**（索引层）；其余类型不设此上限。
 //   2. 判定单位与既有四处一致：UTF-16 码元、按 `.length`、去首尾空白。
 //   3. **B1 语义**：存量逐字未改放行，改动即受检（沿用 21 §15.1 先例）。
 //   4. 拒绝消息须给出当前字数与超出量，且明写「不得截断后写入」——截断会破坏
 //      载体内聚（正文须逐字包含 summary）。
 //
-// 变异钉法：把上限改成 Infinity、把 skip 逻辑去掉、或把 DevLog 也加上限，
-// 本文件即转红。
+// 2026-11-14：原第 4 节「DevLog 不设上限」随该类型撤除而移除；本文件不再
+// import devlog-writer.js。变异钉法改为：把上限改成 Infinity、把 skip 逻辑
+// 去掉，本文件即转红。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { SUMMARY_MAX_CHARS, summaryLength, summaryLimitIssue } from "../lib/summary-limit.js";
 import { validateSparkFrontmatter } from "../lib/spark-writer.js";
-import { validateDevLogFrontmatter } from "../lib/devlog-writer.js";
 
 /** 一个字段齐备的 Spark frontmatter（缺字段会产生无关 issue，淹没断言）。 */
 function sparkCase(summary) {
@@ -98,20 +97,6 @@ test("Spark：skip 只豁免长度，不豁免其它校验", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. DevLog：不设上限（乙）
+// 4. 原 DevLog「不设上限」对照用例已于 2026-11-14 随该类型撤除移除。
+//    本文件不再 import devlog-writer.js；「上限只对 Spark 生效」由上面各节钉住。
 // ---------------------------------------------------------------------------
-
-test("DevLog：长 summary 不受 200 字约束（结论快照需完整）", () => {
-  const fm = {
-    object_uid: "07ef92cf-1577-40af-aecf-69d06273fd92",
-    fact_type_key: "devlog",
-    created_at: "2026-11-04T00:00:00Z",
-    change_log: [{ at: "2026-11-04T00:00:00Z", summary: "x" }],
-    title: "测试日志",
-    occurred_at: "2026-11-04T00:00:00Z",
-    summary: "甲".repeat(400),
-    status: "active",
-  };
-  const r = validateDevLogFrontmatter(fm);
-  assert.ok(!r.issues.some((i) => i.includes("≤ 200")), `DevLog 不应有 summary 上限，实际：${JSON.stringify(r.issues)}`);
-});

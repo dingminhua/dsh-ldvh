@@ -53,8 +53,9 @@ async function withScope(run: (scope: LocalFactScope, root: string) => Promise<v
 
 test('目录缺失按零对象处理：不再报 type_not_integrated', async () => {
   await withScope(async (scope) => {
-    // devlogs 目录根本没建（同本仓真实现状）。
-    const listed = await listLocalFacts('devlog', scope);
+    // subgoals 目录在临时根下根本没建（本契约对任何登记类型同形；2026-11-14
+    // 原例 devlog 已随 29 号类型撤除，改用 subgoal 承载同一断言）。
+    const listed = await listLocalFacts('subgoal', scope);
     assert.equal(listed.status, 'complete', '目录缺失应报 complete（零对象），不是 type_not_integrated');
     assert.deepEqual(listed.items, []);
     assert.deepEqual(listed.issues, [], '零对象不是覆盖问题，不得带 issue');
@@ -63,9 +64,9 @@ test('目录缺失按零对象处理：不再报 type_not_integrated', async () 
 
 test('目录缺失与空目录给出同一结果（判据不是目录是否存在）', async () => {
   await withScope(async (scope, root) => {
-    const missing = await listLocalFacts('devlog', scope);
-    await mkdir(path.join(root, 'ldvh-base', 'devlogs'), { recursive: true });
-    const empty = await listLocalFacts('devlog', scope);
+    const missing = await listLocalFacts('subgoal', scope);
+    await mkdir(path.join(root, 'ldvh-base', 'subgoals'), { recursive: true });
+    const empty = await listLocalFacts('subgoal', scope);
     // 逐字段相等：若将来有人在其中一条路径上加「这条目录不存在」之类的说明，
     // 这个断言会立刻红——那正是本次要消除的分歧。
     assert.deepEqual(empty, missing);
@@ -74,15 +75,15 @@ test('目录缺失与空目录给出同一结果（判据不是目录是否存�
 
 test('精确读取缺失目录中的 id 返回 not_found 且带回 canonical_path', async () => {
   await withScope(async (scope) => {
-    const detail = await readLocalFact('devlog', 'devlog-11111111-2222-4333-8444-555555555555', scope);
+    const detail = await readLocalFact('subgoal', 'subgoal-11111111-2222-4333-8444-555555555555', scope);
     assert.equal(detail.status, 'not_found', '目录缺失时的精确读取是「没有这个对象」，不是「类型未接入」');
-    assert.equal(detail.metadata.canonical_path, 'ldvh-base/devlogs/devlog-11111111-2222-4333-8444-555555555555.md');
+    assert.equal(detail.metadata.canonical_path, 'ldvh-base/subgoals/subgoal-11111111-2222-4333-8444-555555555555.md');
   });
 });
 
 test('列表投影：目录缺失的类型返回 complete + 空列表 + 无覆盖问题', async () => {
   await withScope(async (scope) => {
-    const listed = await listObjects('devlog', undefined, undefined, scope);
+    const listed = await listObjects('subgoal', undefined, undefined, scope);
     if (!listed.ok) throw new Error(listed.error);
     assert.equal(listed.data.coverage_status, 'complete');
     assert.deepEqual(listed.data.items, []);

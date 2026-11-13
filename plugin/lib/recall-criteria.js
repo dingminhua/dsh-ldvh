@@ -72,7 +72,8 @@ export const FACT_TYPE_BY_SPEC_ID = Object.freeze({
   "26": "friction",
   "27": "norm",
   "28": "subgoal",
-  "29": "devlog",
+  // 29 号 DevLog 已于 2026-11-14 撤除（01 §8 号位表为空位），映射随之删除；
+  // 号位不复用，详见 02 §7.1 fact_type_key 值域。
 });
 
 /** 全部已登记事实类型键（用于「别名不得与类型键派生词冲突」的校验）。 */

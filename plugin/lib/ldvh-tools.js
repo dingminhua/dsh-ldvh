@@ -43,7 +43,9 @@ import { registerFrictionTools } from "./friction-tools.js";
 import { registerNormTools } from "./norm-tools.js";
 import { registerGoalTools } from "./goal-tools.js";
 import { registerSubGoalTools } from "./subgoal-tools.js";
-import { registerDevLogTools } from "./devlog-tools.js";
+// DevLog（29 号）已于 2026-11-14 撤除（Human 根决定，见 01 §8 号位表 29 空位）。
+// 工具注册随之移除：ldvh_devlog_read / list / precheck_create / write 不再提供，
+// 运行时不得再创建或读取已撤销的事实类型。类型载体清除属后续批次。
 
 const execFileAsync = promisify(execFile);
 
@@ -1963,11 +1965,9 @@ export function registerLdvhTools(ctx, deps) {
   // downstream `serves` resolves against; carries anchor uniqueness (28 §6.2)
   // and `parent_goal` resolution (28 §14.1) before any write.
   disposers.push(registerSubGoalTools(ctx, deps));
-  // DevLog mechanical layer (specs/29 writer) — the process-knowledge conclusion
-  // entries: five fixed H2 sections, `summary` as a live semantic snapshot
-  // (29 §9.3 细化/替换 分档), serve-or-empty topic, and three terminal states
-  // whose `absorbed` form is COMPRESSED.
-  disposers.push(registerDevLogTools(ctx, deps));
+  // DevLog mechanical layer removed 2026-11-14 — the type was retired by a
+  // 00 §3.2 root decision (01 §8 number 29 is now an empty slot). No tools are
+  // registered for it; the four ldvh_devlog_* operations are gone.
   // 两处把关询问（2026-11-13 Human 决定：改为「要不要安排代理」两问）。
   //
   // **不写事实源、不参与受控写入**：它只读开关、发询问、记答复，与 21 §6.3 的
@@ -2194,6 +2194,11 @@ export function renderEnvelope(operationKey, value) {
   if (operationKey === "review-ask" || env.operation_key === "review-ask") {
     const r = env.result ?? {};
     if (r.point !== undefined) lines.push(`point: ${r.point}`);
+    // **本次 bug 的修复口**（2026-11-14）：自由输入提交的文字必须逐字出现在
+    // 模型唯一可见窗口（03 §9.5 render）。它是补充信息，不是 review/skip 决定。
+    if (typeof r.custom_note === "string" && r.custom_note.length > 0) {
+      lines.push(`custom_note（Human 自由输入，非答复、不冒充 review/skip，请逐字读）: ${r.custom_note}`);
+    }
     // 开关与复用状态：让模型能判断「这次为什么没问」。
     if (r.switch_enabled !== undefined) lines.push(`switch_enabled: ${r.switch_enabled}`);
     if (r.asked !== undefined) lines.push(`asked: ${r.asked}`);

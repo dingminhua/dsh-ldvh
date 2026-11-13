@@ -120,19 +120,7 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     achieved: { zh: '已达成', en: 'Achieved' },
     retired: { zh: '已作废', en: 'Retired' },
   },
-  devlog: {
-    // 29 号 §9 状态闭集：active（结论仍承重）→ absorbed（已被承接，正文压缩为
-    // 两段）/ superseded（被推翻，全文保留）/ dropped（不再承重且无可指向承接物，
-    // 全文保留）。三个终态均不可重开。
-    //
-    // 「已被承接」与「被推翻」**必须不同词**：前者是结论还在、只是搬到承接物
-    // 那里（正向），后者是结论失去地位（负向）。两处都经 `change_log` 与正文
-    // 形态可核，合并成一个「已收起」会把这条关键区分抹掉。
-    active: { zh: '承重中', en: 'Active' },
-    absorbed: { zh: '已被承接', en: 'Absorbed' },
-    superseded: { zh: '已被推翻', en: 'Superseded' },
-    dropped: { zh: '不再承重', en: 'Dropped' },
-  },
+  // 29 号 DevLog 的状态闭集词条已随该类型于 2026-11-14 撤除。
 };
 
 export function getObjectStatusLocale(type: string, status: string, locale: string): string {
@@ -201,7 +189,6 @@ export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
   norm: { zh: '规范', en: 'Norm' },
   goal: { zh: '目标', en: 'Goal' },
   subgoal: { zh: '子目标', en: 'Sub-goal' },
-  devlog: { zh: '开发日志', en: 'DevLog' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -496,24 +483,8 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   subgoal_kind_hint: { zh: '判法', en: 'How it is judged' },
   subgoal_alignment: { zh: '对齐说明', en: 'Alignment' },
   subgoal_disposition: { zh: '作废去向', en: 'Disposition' },
-  // v5 DevLog（29 号 §8）阅读节点与卡片标题。正文五段固定 H2 也在此登记
-  // （29 §8 的骨架即本类型的阅读节序）。
-  // `occurred_at` 与 `created_at` 的**语义分工仍然成立**（§10.4：前者是「做这件事
-  // 的时间」，后者是「条目形成的时间」，不得互相冒充），但二者的**并排呈现**已于
-  // 2026-11-02 撤除——详见下方删除说明。
-  // `devlog_occurred_at` / `devlog_created_at` 两个字段标签**已删除**（2026-11-02，
-  // Human 定案「圈出来的部分不用显示」）：它们唯一的消费方是详情页的时间轴节点，
-  // 该节点整块撤除后无消费方。列表卡头那枚 `occurred_at` 徽章也于同日撤除
-  // （`objectList.devlogOccurredLabel` / `...Absent` 随之无消费方，见下），故
-  // `occurred_at` 现在**没有任何单卡呈现面**——它的回查职责由**按 `occurred_at`
-  // 排序的条目清单**承担（29 §12.1「时间线回查」）。
-  devlog_summary: { zh: '当前结论', en: 'Current Conclusion' },
-  devlog_disposition: { zh: '退出理由', en: 'Disposition' },
-  devlog_background: { zh: '背景', en: 'Background' },
-  devlog_approach: { zh: '做法', en: 'Approach' },
-  devlog_measurements: { zh: '实测', en: 'Measurements' },
-  devlog_conclusion: { zh: '结论与边界', en: 'Conclusion & Boundary' },
-  devlog_destination: { zh: '去向', en: 'Destination' },
+  // 29 号 DevLog 的阅读节点与卡片标题词条（devlog_*）已随该类型于
+  // 2026-11-14 撤除；其 `occurred_at` 呈现面早在 2026-11-02 已撤（见 git 历史）。
   category: { zh: '分类', en: 'Category' },
   priority: { zh: '优先级', en: 'Priority' },
   assignee: { zh: '执行者', en: 'Assignee' },
@@ -936,7 +907,7 @@ export const UI_LOCALES = {
     'nav.frictions': '摩擦',
     'nav.norms': '规范',
     // 2026-11-13：侧栏不设子目标入口，'nav.subgoals' 随之撤除（子目标在聚焦页目标区）。
-    'nav.devlogs': '开发日志',
+    // 2026-11-14：'nav.devlogs' 随 29 号类型撤除（zh/en 两表同步删键）。
 
     'goalDetail.openDetail': '查看目标详情',
     'goalDetail.subGoals': '子目标',
@@ -978,15 +949,9 @@ export const UI_LOCALES = {
     // 「已落实」在本仓库是跨类型的状态词，不该有第二个出处。
     'objectList.subGoalSparkProgressOpen': '待处理',
     'objectList.subGoalSparkProgressImplemented': '已落实',
-    // 29 号 DevLog 列表卡与详情面的界面词条。
-    // `objectList.devlogNoTopic` **已删除**（2026-11-02，Human 定案「圈出来的部分
-    // 不用显示」）：空集提示与两时间行同住详情页的一个 `<section>`，整块撤除。
-    // 撤除的依据不是「这句话不好」，而是 `serves` 自 2026-11-01 起已不在本类型任何
-    // 呈现面出现（29 §12.1），空集提示只是该字段缺席的推断而非条目内容；规范 29
-    // §8.1/§14.1 已同步修订（不再要求呈现面标注）。**29 号字段 `serves` 本身未撤销**，
-    // 它的非呈现消费方（召回精确引用、承接核对）照旧。
-    'objectList.devlogCompressedBody': '已被承接，正文压缩为「结论与边界」与「去向」两段（29 §9.1）',
-    'objectList.devlogConclusionMissing': '当前结论缺失——29 §8 要求 summary 非空且逐字出现在「结论与边界」段',
+    // 29 号 DevLog 列表卡与详情面的界面词条已随该类型于 2026-11-14 撤除
+    // （devlogCompressedBody / devlogConclusionMissing；devlogNoTopic 更早于
+    // 2026-11-02 撤除，均见 git 历史）。
     // `objectDetail.subGoalOrderAbsent` 已删除（2026-11-02 晚）：它唯一的消费方是
     // 子目标详情面顶部那个锚点块，该块已随「只保留判法」整体撤除。缺失态文案改由
     // `objectList.subGoalOrderAbsent` 承担——卡头与身份头用的是同一枚
@@ -1275,7 +1240,7 @@ export const UI_LOCALES = {
     'cognition.sparkHealth.copiedModuleSummary': '已复制模块摘要',
 
     // 空态分两句（Human 定案 2026-11-02）：此前只有一句「未找到 {type} 对象」，且 {type}
-    // 传的是**原始类型键**（norm / devlog），于是中文界面里会冒出英文键名。两句的分工是
+    // 传的是**原始类型键**（norm 一类），于是中文界面里会冒出英文键名。两句的分工是
     // **读者的问题不同**，不是措辞偏好：
     // · `noObjects` —— 这个类型**本来就没有**任何对象（目录都没建过也算），下一步是去建；
     // · `noObjectsUnderFilter` —— 对象**有**，只是当前筛选没命中，下一步是放宽筛选。
@@ -1691,9 +1656,6 @@ export const UI_LOCALES = {
     'help.objects.norm.what': '管辖项目里成体系的方向规范，约束与度量并存。',
     'help.objects.norm.when': '某条做法已经稳定到值得对整个项目生效时。',
     'help.objects.norm.look': '这条规范说了什么、它约束哪些方向、有没有反重复机制。',
-    'help.objects.devlog.what': '一次已收敛的过程性工作的结论条目：做了什么、实测到什么、结论与适用边界。',
-    'help.objects.devlog.when': '一段工作告一段落，结论值得被下一次引用时。',
-    'help.objects.devlog.look': '那次做了什么、实测结果，以及结论在什么范围内成立。',
 
     'help.gates.lead': '有几类事不会由 AI 替你定。它们各有明确的触发条件，和一份给你的响应契约。',
     'help.gates.inquiry.title': '结构化问询',
@@ -1816,7 +1778,7 @@ export const UI_LOCALES = {
     'nav.frictions': 'Frictions',
     'nav.norms': 'Norms',
     // 2026-11-13: the sidebar has no sub-goal entry; 'nav.subgoals' is withdrawn with it.
-    'nav.devlogs': 'DevLogs',
+    // 2026-11-14: 'nav.devlogs' is withdrawn with the DevLog type (both zh/en tables).
 
     'goalDetail.openDetail': 'Open goal detail',
     'goalDetail.subGoals': 'Sub-goals',
@@ -1844,8 +1806,6 @@ export const UI_LOCALES = {
     'focusV2.subGoalCollapse': 'Collapse',
     'objectList.subGoalSparkProgressOpen': 'Pending',
     'objectList.subGoalSparkProgressImplemented': 'Implemented',
-    'objectList.devlogCompressedBody': 'Absorbed — the body is compressed to the two sections "Conclusion & Boundary" and "Destination" (29 §9.1)',
-    'objectList.devlogConclusionMissing': 'Current conclusion missing — 29 §8 requires a non-empty `summary` appearing verbatim in the "Conclusion & Boundary" section',
     'objectDetail.subGoalCriterionDetail': 'Criterion (expanded)',
     'objectDetail.subGoalAlignmentDetail': 'Alignment (expanded)',
     'objectDetail.subGoalServingWork': 'Work serving this sub-goal',
@@ -2520,9 +2480,6 @@ export const UI_LOCALES = {
     'help.objects.norm.what': 'Systematic direction norms of the governed project, where constraint and measurement live together.',
     'help.objects.norm.when': 'When a practice has become stable enough to bind the whole project.',
     'help.objects.norm.look': 'What the norm says, which directions it constrains, and whether it carries an anti-duplication rule.',
-    'help.objects.devlog.what': 'An entry for a converged piece of process work: what was done, what was measured, the conclusion and its boundary of validity.',
-    'help.objects.devlog.when': 'When a stretch of work concludes and the conclusion is worth citing next time.',
-    'help.objects.devlog.look': 'What was done that time, the measurements, and the range within which the conclusion holds.',
 
     'help.gates.lead': 'A few kinds of thing are never decided by the AI for you. Each has a defined trigger and a response contract addressed to you.',
     'help.gates.inquiry.title': 'Structured inquiry',

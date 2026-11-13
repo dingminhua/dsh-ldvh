@@ -36,7 +36,7 @@ import { VALID_FM_KEYS as PITFALL_FM_KEYS } from "../lib/pitfall-writer.js";
 import { VALID_FM_KEYS as FRICTION_FM_KEYS } from "../lib/friction-writer.js";
 import { VALID_FM_KEYS as NORM_FM_KEYS } from "../lib/norm-writer.js";
 import { VALID_FM_KEYS as SUBGOAL_FM_KEYS } from "../lib/subgoal-writer.js";
-import { VALID_FM_KEYS as DEVLOG_FM_KEYS } from "../lib/devlog-writer.js";
+// DevLog（29 号）已于 2026-11-14 撤除，其 writer 与 tools 不再纳入本守卫。
 
 const LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "lib");
 const SPECS = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "specs");
@@ -99,12 +99,6 @@ const TYPES = [
 		writerKeys: SUBGOAL_FM_KEYS,
 		load: () => import("../lib/subgoal-tools.js"),
 		operationKey: "subgoal-write-object",
-	},
-	{
-		name: "devlog",
-		writerKeys: DEVLOG_FM_KEYS,
-		load: () => import("../lib/devlog-tools.js"),
-		operationKey: "devlog-write-object",
 	},
 ];
 
@@ -359,7 +353,9 @@ test("schema/writer agreement: every fact-type writer is covered by this guard",
 	const writerTypes = files
 		.filter((name) => name.endsWith("-writer.js"))
 		.map((name) => name.replace("-writer.js", ""))
-		.filter((name) => !["goal"].includes(name)); // Goal is a singleton with no frontmatter draft argument
+		// goal：单例、无 frontmatter draft 参数；devlog：29 号已于 2026-11-14
+		// 撤除，其 writer 文件暂留（带在途改动，待后续批次物理删除），故豁免。
+		.filter((name) => !["goal", "devlog"].includes(name));
 	const covered = new Set(TYPES.map((type) => type.name));
 	const uncovered = writerTypes.filter((name) => !covered.has(name));
 	assert.deepEqual(

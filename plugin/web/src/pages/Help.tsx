@@ -122,7 +122,6 @@ const SPINE_STAGES: StageShape[] = [
       { to: '/objects/pitfall', type: 'pitfall' },
       { to: '/objects/friction', type: 'friction' },
       { to: '/objects/norm', type: 'norm' },
-      { to: '/objects/devlog', type: 'devlog' },
     ],
   },
 ];
@@ -172,7 +171,6 @@ const OBJECT_MAP: { type: string; to: string; what: LocaleKey; when: LocaleKey; 
   { type: 'pitfall', to: '/objects/pitfall', what: 'help.objects.pitfall.what', when: 'help.objects.pitfall.when', look: 'help.objects.pitfall.look' },
   { type: 'friction', to: '/objects/friction', what: 'help.objects.friction.what', when: 'help.objects.friction.when', look: 'help.objects.friction.look' },
   { type: 'norm', to: '/objects/norm', what: 'help.objects.norm.what', when: 'help.objects.norm.when', look: 'help.objects.norm.look' },
-  { type: 'devlog', to: '/objects/devlog', what: 'help.objects.devlog.what', when: 'help.objects.devlog.when', look: 'help.objects.devlog.look' },
 ];
 
 /** 交互入口：07 §6 的五类入口——Human Gate 与交还流程在 Web 上的落点。 */

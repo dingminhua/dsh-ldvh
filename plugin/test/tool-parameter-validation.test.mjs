@@ -80,11 +80,12 @@ test("每一个经 ctx.tools.register 注册的工具都在参数层拒绝非法
 		names.length,
 		`duplicate tool names registered: ${names.filter((n, i) => names.indexOf(n) !== i).join(", ")}`,
 	);
-	// 43 是当前登记的全部 LDVH 工具（撤除一批后少了 3 个）。数量写下界
-	// 失效，但**减少**工具（例如某层悄悄没注册）必须转红。
+	// 40 是当前登记的全部 LDVH 工具（2026-11-14 撤除 29 号 DevLog 的四个
+	// ldvh_devlog_* 工具后，从 44 减到 40）。数量写下界失效，但**减少**工具
+	// （例如某层悄悄没注册）必须转红。
 	assert.ok(
-		registered.length >= 43,
-		`expected the full LDVH tool batch (>= 43), registered ${registered.length}`,
+		registered.length >= 40,
+		`expected the full LDVH tool batch (>= 40), registered ${registered.length}`,
 	);
 
 	const unguarded = [];

@@ -116,25 +116,8 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'order', 'parent_goal', 'criterion', 'criterion_kind', 'alignment',
     'report_body', 'disposition', 'change_log',
   ],
-  // v5 DevLog（29 号规范）：阅读布局按**阅读次序**消费（summary 结论 → 去向 →
-  // 背景/做法/实测 → relations → change_log），正文 report_body 由布局按 H2 分节
-  // 呈现——此处只做 ContentField 兜底排序。
-  // `occurred_at` / `created_at` **曾并列入表**（理由：29 §10.4 要求两个时间分开
-  // 呈现）。2026-11-02 Human 定案「圈出来的部分不用显示」撤除详情页时间轴节点后，
-  // 两字段的语义分工不变（§10.4 仍要求不得用 `created_at` 冒充发生时间），但**不再
-  // 在详情页重复呈现**：2026-11-02 二次定案把列表卡头的 `occurred_at` 徽章也撤了
-  // （29 §10.4 同步订正），`occurred_at` 现由**按 `occurred_at` 排序的条目清单**
-  // 承担回查职责（29 §12.1「时间线回查」），`created_at` 走 change_log 首条与底部
-  // YAML 原文。故二者**不再列入本表**——留着会让人以为详情页仍在显式渲染它们
-  // （本表是兜底字段区的排序，DevLogReadingLayout 不消费它，但表的成员本身就是一份
-  // 「该字段有呈现面」的声明）。
-  // `refs` 于 2026-11-02 经 Human 决定并入 02 §8.2 采用面（29 §8/§11/§12.3bis）：
-  // 内容关联由**列表卡关联区**承载（与 Spark 卡同一承载方式），详情页不另设一行——
-  // 同一关联在两处各画一遍没有新信息。
-  devlog: [
-    'summary', 'disposition', 'report_body',
-    'change_log', 'relations',
-  ],
+  // v5 DevLog（29 号）的兜底排序条目已随该类型于 2026-11-14 撤除
+  // （原表含 summary/disposition/report_body/change_log/relations）。
   // v5 Spark（20 号规范）：阅读布局按字段契约序消费（question → scope_boundary
   // → intent → summary → 演变 → 终态 disposition），正文 report_body 由布局按
   // H2 分节呈现——此处只做 ContentField 兜底排序。

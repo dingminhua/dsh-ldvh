@@ -32,12 +32,6 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
   { to: '/objects/friction', labelKey: 'nav.frictions', icon: OBJECT_TYPE_ICONS.friction },
   { to: '/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
-  // 29 号 DevLog：开发日志排在**全部事实对象的最后**（Human 定案 2026-11-02
-  // 「放在所有事实对象的最后」）。理由不是重要性排序，而是**读法**：前面八类
-  // 都是「当前要处理或要遵守的东西」（目标、悬置问题、在办工作、调研、决策、
-  // 经验、摩擦、规范），DevLog 是「已经收敛、仍可回查的过程结论」——它是回查
-  // 入口而非行动入口，故收在对象族末尾、目录/变更/提交这些工具页之前。
-  { to: '/objects/devlog', labelKey: 'nav.devlogs', icon: OBJECT_TYPE_ICONS.devlog },
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: NAV_ICONS.projectFiles },
   { to: '/changes', labelKey: 'nav.changes', icon: NAV_ICONS.changes },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
@@ -49,9 +43,9 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
 ];
 
 /** 联邦作用域导航（全部管辖计划 Step 4）：
- * 聚焦→联邦聚焦页；八类对象→联邦聚合列表（**子目标同样不设联邦入口**，
- * 与项目态同一条理由：它由聚焦页目标区承载，2026-11-13 撤除）；
- * devlog 收在对象族末位；目录/变更/提交是
+ * 聚焦→联邦聚焦页；六类对象→联邦聚合列表（**子目标不设联邦入口**，
+ * 与项目态同一条理由：它由聚焦页目标区承载，2026-11-13 撤除；DevLog
+ * 已于 2026-11-14 随类型撤除退出联邦）；目录/变更/提交是
  * 单项目专属页，联邦态灰显。 */
 const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [
   { to: '/federation', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
@@ -61,7 +55,6 @@ const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; di
   { to: '/federation/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
   { to: '/federation/objects/friction', labelKey: 'nav.frictions', icon: OBJECT_TYPE_ICONS.friction },
   { to: '/federation/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
-  { to: '/federation/objects/devlog', labelKey: 'nav.devlogs', icon: OBJECT_TYPE_ICONS.devlog },
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: NAV_ICONS.projectFiles, disabled: true },
   { to: '/changes', labelKey: 'nav.changes', icon: NAV_ICONS.changes, disabled: true },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },

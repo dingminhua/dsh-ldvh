@@ -82,14 +82,6 @@ const CASES = [
     clause: "22 §8",
   },
   {
-    type: "devlog",
-    file: "devlog-writer.js",
-    fn: "validateCarrierCoherence",
-    frontmatter: { summary: LONG },
-    body: `# T\n\n## 结论与边界\n\n${BODY_MARK}\n`,
-    clause: "29 §8",
-  },
-  {
     type: "friction",
     file: "friction-writer.js",
     fn: "validateCarrierCoherence",

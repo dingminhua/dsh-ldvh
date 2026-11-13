@@ -34,7 +34,7 @@ import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { getFactReadMeta, isReadableFact, reconstructFactYaml, sortedResearchFrontmatterYaml, type FactCarrier, type FactReadMeta } from '@/utils/factReadMeta';
 import { getObjectUpdatedAt } from '@/utils/factChangeLog';
-import { AdrReadingLayout, ChangeLogReadingNode, DevLogReadingLayout, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, PitfallTextNodeContent, SparkReadingLayout, SubGoalReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
+import { AdrReadingLayout, ChangeLogReadingNode, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, PitfallTextNodeContent, SparkReadingLayout, SubGoalReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
 import { fieldIssue } from '@/pages/object-detail/fieldIssues';
 import {
@@ -58,7 +58,8 @@ import {
   type RelatedContentEntry,
 } from '@/pages/object-detail/model';
 import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
-export { AdrReadingLayout, DevLogReadingLayout, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, SparkReadingLayout, SubGoalReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
+// DevLog 阅读布局已随 29 号类型于 2026-11-14 撤除。
+export { AdrReadingLayout, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, SparkReadingLayout, SubGoalReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 
 // v5 Research（24 号薄索引）阅读布局消费的字段全集：固定 H2 正文（report_body）、
 // 概览与三态索引、退出语义；v4 study 遗留字段（research_intent/abstract/
@@ -296,8 +297,6 @@ export function FactReadingContent({
         <NormReadingLayout obj={obj} locale={locale} />
       ) : objType === 'subgoal' ? (
         <SubGoalReadingLayout obj={obj} locale={locale} />
-      ) : objType === 'devlog' ? (
-        <DevLogReadingLayout obj={obj} locale={locale} />
       ) : objType === 'goal' ? (
         <GoalReadingLayout obj={obj} locale={locale} />
       ) : objType === 'spark' ? (
