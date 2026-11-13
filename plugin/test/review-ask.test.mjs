@@ -24,6 +24,7 @@ import { join } from "node:path";
 
 import {
   COMPLEXITY_CRITERIA,
+  GATE_POINT_EXCLUSIONS,
   REVIEW_ASK_ANSWERS,
   REVIEW_ASK_POINTS,
   askEnabledFor,
@@ -93,6 +94,43 @@ test("COMPLEXITY_CRITERIA：每条都带规范出处，不新增判据", () => {
     assert.equal(typeof item.label, "string");
     // 出处必须是既有规范，且不得是「本模块自创」——判据留在规范里是这条设计的前提。
     assert.match(item.source, /^specs\/(04|21) /, `${item.key} 的出处须回指 04 §6.1 或 21 §6.3，实际 ${item.source}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 点位排除（2026-11-14 Human 决定，specs/32 §4.2）
+// ---------------------------------------------------------------------------
+
+test("GATE_POINT_EXCLUSIONS：三类都有承接面、出处与反向边界，且属 32 号不属 04 号", () => {
+  assert.ok(Array.isArray(GATE_POINT_EXCLUSIONS) && GATE_POINT_EXCLUSIONS.length === 3,
+    "点位排除恰为三类（32 §4.2），不得就地增删——增删属 Human 决定");
+  for (const item of GATE_POINT_EXCLUSIONS) {
+    for (const field of ["key", "label", "carried", "source", "notExcluded"]) {
+      assert.equal(typeof item[field], "string", `${item.key} 缺 ${field}`);
+      assert.ok(item[field].trim().length > 0, `${item.key} 的 ${field} 不得为空`);
+    }
+    // **出处必须是 32 号**：这三类是「何时不请示」的点位排除，权威在 specs/32 §4.2。
+    // 若有人把它改标成 specs/04，等于把 32 的规则写成 04 的判据——32 §19 第 5 项
+    // 明禁两张清单互相顶替，而这条一旦混读，「含一段调研」会被推成「不算复杂任务」。
+    assert.match(item.source, /^specs\/32 §4\.2/, `${item.key} 的出处须回指 specs/32 §4.2，实际 ${item.source}`);
+    // carried 是**承接面引用**，不是「已核对」的结论：必须带条文号，供回指原文。
+    assert.match(item.carried, /§/, `${item.key} 的承接面须写明条文号，不得只写机制名`);
+  }
+});
+
+test("点位排除与判据清单必须是两份数据、不得合并（32 §19 第 5 项）", () => {
+  // 破法很具体：有人觉得「反正都是不请示的理由」，把三类塞进 COMPLEXITY_CRITERIA
+  // 省得渲染两块。那一步同时犯三件事——改了 04 的判据条数（本文无权）、把
+  // 「不算复杂」与「不必问」压成一句、并让方案收敛自查随排除一起被免掉。
+  const criteriaKeys = new Set(COMPLEXITY_CRITERIA.map((i) => i.key));
+  for (const item of GATE_POINT_EXCLUSIONS) {
+    assert.ok(!criteriaKeys.has(item.key), `${item.key} 不得进 COMPLEXITY_CRITERIA：那是 04 §6.1 的编译产物`);
+  }
+  // 反向：判据清单里也不得出现点位排除的字（同一理由，方向相反）
+  for (const item of COMPLEXITY_CRITERIA) {
+    assert.doesNotMatch(item.label, /调研取证与报告|受控提交与推送|既有事实对象的操作/,
+      `04 侧判据「${item.key}」不得内嵌 32 侧点位排除的条目`);
+    assert.doesNotMatch(item.source, /specs\/32/, `04 侧判据「${item.key}」的出处不得指向 32 号`);
   }
 });
 

@@ -1831,3 +1831,52 @@ test("把关提示行：静默开关取不到时不得出现自相矛盾的「�
 	assert.match(on, /静默执行：\*\*已开启\*\*/);
 	assert.doesNotMatch(on, /按关闭处理/, "已开启与按关闭处理不可能同时成立");
 });
+
+test("把关提示行：点位排除渲染在判据之后，且带交付义务与不免除清单", async () => {
+	// 2026-11-14 Human 决定（specs/32 §4.2）。这条测试守的是**形状**，不是措辞：
+	// 排除必须作为独立一块出现在判据之后（后置判断），并当场说出三件事——
+	// 「整件才算」、「不免自查与 Human Gate」、「命中要写那一行声明」。
+	// 三件里任何一件没渲染出来，主控读到的就是一句「这类不必问」，那正是
+	// 32 §16 登记的「误豁免事后不可见」。
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	const { GATE_POINT_EXCLUSIONS, COMPLEXITY_CRITERIA } = await import("../lib/review-ask.js");
+	const text = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
+
+	// ① 三类都渲染出来，且带各自的承接面与反向边界
+	for (const item of GATE_POINT_EXCLUSIONS) {
+		assert.ok(text.includes(item.label), `点位排除「${item.key}」未进入注入行`);
+		assert.ok(text.includes(item.carried), `「${item.key}」的承接面未渲染——只剩结论没有依据`);
+		assert.ok(text.includes(item.notExcluded), `「${item.key}」的不适用边界未渲染——排除会被过度解释`);
+	}
+
+	// ② 后置：排除块必须出现在判据清单之后，且在两处行为指令之前
+	const criteriaEnd = text.lastIndexOf(COMPLEXITY_CRITERIA[COMPLEXITY_CRITERIA.length - 1].label);
+	const exclusionHead = text.indexOf("点位排除");
+	const actionHead = text.indexOf("① 动手前");
+	assert.ok(criteriaEnd !== -1 && exclusionHead !== -1 && actionHead !== -1);
+	assert.ok(exclusionHead > criteriaEnd, "点位排除不得渲染在判据之前——它是判为复杂之后的第二道");
+	assert.ok(exclusionHead < actionHead, "点位排除须先于行为指令渲染，否则 ①② 两句里的「未命中排除」无所指");
+
+	// ③ 交付义务与不免除：两行都要在，缺一行就只剩「不必问」
+	assert.match(text, /整件/, "须写明按当次工作整体判定，不按动作切分");
+	assert.match(text, /方案收敛自查/, "须写明排除不免 04 §6.1 的自查");
+	assert.match(text, /Human Gate/, "须写明排除不免任何 Human Gate 的提请");
+	assert.match(text, /点位排除（32 §4\.2）：命中/, "须给出那行交付声明的模板");
+	assert.match(text, /不写这行按未请示处理/, "交付声明缺写时的后果须当场说出");
+
+	// ④ 反向护栏：不得把排除说成「不算复杂任务」（两张清单互不顶替）
+	assert.doesNotMatch(text, /点位排除[^\n]*不算复杂任务/, "排除不得被表述为对复杂任务判定的改写");
+});
+
+test("把关提示行：行为指令须以「未命中排除」为条件（否则排除在指令层不生效）", async () => {
+	// 「装了排除、注入行里也写了，但 ①② 两句仍写『判为复杂就问』」——这是本仓
+	// 「配置武装只挂装载路径」那类失效的近亲：数据到位，指令没到位，主控照旧问。
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	const asked = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
+	assert.match(asked, /① 动手前[\s\S]*?未命中排除[\s\S]*?须先询问 Human/, "行动前指令须把排除作为前置条件");
+	assert.match(asked, /② 收口前[\s\S]*?未命中[\s\S]*?须询问 Human/, "收口前指令须把排除作为前置条件");
+
+	const silent = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: true });
+	assert.match(silent, /① 动手前[\s\S]*?未命中排除[\s\S]*?不要问/, "静默档同样须先看排除");
+	assert.match(silent, /② 收口前[\s\S]*?未命中[\s\S]*?不要问/);
+});

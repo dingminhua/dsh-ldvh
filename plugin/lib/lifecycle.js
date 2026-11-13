@@ -52,7 +52,7 @@ import { recordRun, readRuns } from "./idle-runlog.js";
 // stage 的唯一派生点：三处调用同一实现，避免「修一处漏两处」（见 run-stage.js 注释）。
 import { deriveStage } from "./run-stage.js";
 import { verifyRun as verifyMechanically, NOT_CHECKABLE_ROWS, MECHANICAL_ROWS, DEFERRED_ROWS } from "./verification-run.js";
-import { COMPLEXITY_CRITERIA, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
+import { COMPLEXITY_CRITERIA, GATE_POINT_EXCLUSIONS, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
 
 
 
@@ -69,8 +69,10 @@ import { COMPLEXITY_CRITERIA, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
  * ## 为什么把判据原文抄进注入行
  *
  * 判据来自 04 §6.1，**不是新造**。但其中两部分性质不同：**三条正面是
- * 条文原文**；**五条排除的取反是据此推导的判据，不是条文原文**（该节只列排除清单，
+ * 条文原文**；**排除清单的取反是据此推导的判据，不是条文原文**（该节只列排除清单，
  * 规范里没有正面规定「什么情况算复杂任务」——2026-11-13 逐条核对原文后的更正）。
+ * 判据之后另渲染一道**点位排除**（32 §4.2，2026-11-14 Human 决定）：它管「已判为
+ * 复杂任务的这一处要不要去问 Human」，不属 04 的判据，故单独成块、不得并入编号列表。
  * 此处抄的是**判据清单**而非规则正文
  * ——10 §5.3 的「不复制第二份规则源」针对的是把规范条文整体搬进引导面形成第二
  * 权威；一份标明出处的判据清单是让 AI 能据此判断的**必要输入**，与召回行列出
@@ -113,20 +115,39 @@ export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown
     // **不接收 silentKnown**（同日同上）：它的语义（这个值有没有被配置写明）
     // 由 `reviewAskMode` 在工具侧如实报告，本行只表达「开着会怎样」。
     // 收下一个不用的参数，等于给下一位读者留一个「它应该有用」的假信号。
-    lines.push("- 静默执行：**已开启** —— 判为复杂任务后**不问**，直接自动安排那次代理核对；每次须在交付里原样引用该次结果的 notice 一行（静默不等于无痕）。");
+    lines.push("- 静默执行：**已开启** —— 判为复杂任务且**未命中点位排除**时**不问**，直接自动安排那次代理核对；每次须在交付里原样引用该次结果的 notice 一行（静默不等于无痕）。命中点位排除时该处不问**也不派发**——排除管的是那一次核对要不要发生，它优先于档位（32 §6.3 末段）。");
   }
-  lines.push("", "判据（不新造；specs/04 §6.1 三条正面是条文原文，其排除五条取反是据此推导的判据而非条文）：");
+  lines.push("", "判据（不新造；specs/04 §6.1 三条正面是条文原文，其排除清单取反是据此推导的判据而非条文）：");
   lines.push(criteria);
+  // ── 点位排除（2026-11-14 Human 决定，specs/32 §4.2）────────────────────
+  //
+  // **渲染在判据之后**，因为它是一道后置判断：先判「算不算复杂任务」（04 §6.1），
+  // 再判「这一处要不要去问 Human」（32 §4.2）。把它并进上面的编号列表，就是把
+  // 两张清单压成一张——32 §19 第 5 项明禁互相顶替，而压进同一个列表后主控只会
+  // 读出一句「这些不算复杂任务」，那既改了 04 的语义（本文无权），也顺手把
+  // 方案收敛自查一起免掉了（32 §4.2「不免除清单」禁止的正是这个读法）。
+  //
+  // 条目取自 GATE_POINT_EXCLUSIONS 常量，不在此另写散文：注入行与工具描述两处
+  // 都渲染同一份数据，改一处即两处同步（单一来源，同 REVIEW_ASK_ROW_SUMMARY 的理由）。
+  const exclusionLines = GATE_POINT_EXCLUSIONS.map((item) => `  - ${item.label}｜承接：${item.carried}｜不适用：${item.notExcluded}`).join("\n");
+  lines.push(
+    "",
+    "点位排除（specs/32 §4.2，判为复杂任务**之后**才看；命中则该处**不问**）：",
+    exclusionLines,
+    "  命中要件：**当次工作整件**只属上述一类——混合任务照旧请示，本文不按动作切分。",
+    "  命中不免两件事：`04 §6.1` 的方案收敛自查与主控自查照做；任何 Human Gate 的提请照提（新建事实对象、改决策与适用范围语义、受保护内容）。",
+    "  命中即须交付一行：`点位排除（32 §4.2）：命中〔哪一类〕｜当次整体范围〔…〕｜判定理由〔…〕`——不写这行按未请示处理（32 §16）。",
+  );
   lines.push("");
   if (preOn && silentOn) {
-    lines.push("① 动手前：按上面判据判定本次是否「复杂任务」。判为复杂时，**不要问**——调 `ldvh_review_ask` 会直接返回派发模板，按它派零上下文子代理审查，结论回来后再动手。");
+    lines.push("① 动手前：按上面判据判定本次是否「复杂任务」，再看是否命中点位排除。判为复杂**且未命中排除**时，**不要问**——调 `ldvh_review_ask` 会直接返回派发模板，按它派零上下文子代理审查，结论回来后再动手。");
   } else if (preOn) {
-    lines.push("① 动手前：按上面判据判定本次是否「复杂任务」。判为复杂时，须先询问 Human「是否安排代理审查」，取得明确答复后才动手。");
+    lines.push("① 动手前：按上面判据判定本次是否「复杂任务」，再看是否命中点位排除。判为复杂**且未命中排除**时，须先询问 Human「是否安排代理审查」，取得明确答复后才动手。");
   }
   if (postOn && silentOn) {
-    lines.push("② 收口前：一件复杂任务做完时，**不要问**——调 `ldvh_review_ask` 直接取派发模板，派零上下文子代理逐条核对后再收口。");
+    lines.push("② 收口前：一件复杂任务做完时，先看是否命中点位排除；**未命中**则**不要问**——调 `ldvh_review_ask` 直接取派发模板，派零上下文子代理逐条核对后再收口。");
   } else if (postOn) {
-    lines.push("② 收口前：一件复杂任务做完时，须询问 Human「是否安排代理复核」，取得明确答复后再收口。");
+    lines.push("② 收口前：一件复杂任务做完时，先看是否命中点位排除；**未命中**则须询问 Human「是否安排代理复核」，取得明确答复后再收口。");
   }
   lines.push("");
   // **不再推荐裸调 ask_user_question**（2026-11-13 独立审核 MINOR #5）。
