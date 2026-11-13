@@ -10,7 +10,7 @@
 //     order/title/status/criterion projection, active-only by default
 //     (28 §12.4: achieved/retired stay out of ordinary candidates).
 //   - subgoal-write-object (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal incl. dedup result) and CAS update with
+//     (after Human-confirmed proposal) and CAS update with
 //     change_log: active→active is 补充级更新 with `object_uid` held fixed
 //     (28 §9.2 锚点冻结), active→achieved and active→retired are the two
 //     terminal transitions. Carries identity uniqueness (28 §17 第 5 项) and
@@ -64,7 +64,7 @@ const OPERATIONS = {
   "subgoal-write-object": {
     toolName: "ldvh_subgoal_write",
     writeShaped: true,
-    summary: "Controlled write of SubGoal fact objects: create (after Human-confirmed proposal incl. dedup result; requires a resolvable parent goal) and CAS update with change_log; `order` is freely adjustable, `object_uid` is not (28 §8), active→achieved and active→retired are terminal (specs/02 §10, specs/28 §13)",
+    summary: "Controlled write of SubGoal fact objects: create (after Human-confirmed proposal; requires a resolvable parent goal) and CAS update with change_log; `order` is freely adjustable, `object_uid` is not (28 §8), active→achieved and active→retired are terminal (specs/02 §10, specs/28 §13)",
     effect: "may_change_state"
   }
 };
@@ -203,24 +203,16 @@ async function deriveServingObjects(factSourceRoot, objectUid) {
     // Use each type's OWN list projection (their fields and status filters are
     // type authority, 20 §13 / 21 §13) rather than a bespoke directory scan:
     // a second reader here would drift from those writers.
+    // **WorkCase 分支已随该类型撤除**（Human 2026-11-13 决定，见 ADR
+    // adr-39547fb1）。此前这里 `import("./workcase-writer.js")` 取
+    // `listWorkcaseObjects`——该文件随类型一并删除后，这个动态 import 抛
+    // ERR_MODULE_NOT_FOUND，被下面 catch 吞成一条 gap，于是本列表的 serves
+    // 派生**静默失效**（结果为空、看上去只是「没有对象服务于它」，而那与
+    // 「查不了」是两回事）。测试没抓到是因为测试不走这条派生路径。
+    // 现在只保留 Spark（`serves` 是该类型的现行字段，20 §12.3）。
     const { listSparkObjects } = await import("./spark-writer.js");
-    const { listWorkcaseObjects } = await import("./workcase-writer.js");
     const items = [];
     const gaps = [];
-
-    const workcases = await listWorkcaseObjects({ factSourceRoot, includeClosed: true, limit: 2000 });
-    if (!workcases.ok) {
-      gaps.push(`serves-lookup(workcase): ${workcases.error?.code ?? "unknown"}: ${workcases.error?.message ?? ""}`);
-    } else {
-      for (const item of workcases.value.items ?? []) {
-        if (item?.serves === objectUid) {
-          items.push({ fact_type_key: "workcase", object_uid: item.object_uid, title: item.title, status: item.status });
-        }
-      }
-      if (workcases.value.total > (workcases.value.items ?? []).length) {
-        gaps.push(`serves-lookup(workcase) truncated: ${(workcases.value.items ?? []).length} of ${workcases.value.total} — the derived list may be incomplete`);
-      }
-    }
 
     const sparks = await listSparkObjects({ factSourceRoot, includeTerminal: true, limit: 2000 });
     if (!sparks.ok) {
@@ -441,6 +433,9 @@ async function executeWriteObject(args, exec, deps) {
   const changeSummary = args?.change_summary;
   if (typeof objectUid !== "string" || objectUid.length === 0) {
     return invalidRequest("subgoal-write-object", "object_uid is required for action=update", "update");
+  }
+  if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
+    return invalidRequest("subgoal-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
   if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return invalidRequest("subgoal-write-object", "frontmatter_after (object) and body_markdown_after (markdown) are required for action=update", "update");

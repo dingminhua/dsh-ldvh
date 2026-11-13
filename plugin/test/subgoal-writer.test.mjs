@@ -990,3 +990,36 @@ test("subgoal tools: read serves only governed sessions", async () => {
 	assert.equal(r.outcome, "unavailable");
 	assert.ok(r.gaps.some((g) => /governance state/.test(g)));
 });
+
+// ---------------------------------------------------------------------------
+// serves 派生的依赖面：动态 import 的目标必须真的存在
+// ---------------------------------------------------------------------------
+
+test("subgoal tools: serves 派生的动态 import 目标必须存在（防静默降级）", async () => {
+	// 回归锚（2026-11-13 实查）：WorkCase 类型撤除后，`subgoal-tools.js` 里那句
+	// `import("./workcase-writer.js")` 仍在，运行时抛 ERR_MODULE_NOT_FOUND，
+	// 被 catch 吞成一条 gap——于是 serves 派生对**全部**类型失效，而返回值看上去
+	// 只是「没有对象服务于它」。这与「查不了」是两回事，正是本仓反复否定的
+	// 静默降级。测试当时没抓到，是因为没有一条用例走这条派生路径。
+	//
+	// 本用例钉两件事：① 源码里不得残留指向已删除模块的动态 import；
+	// ② 每个动态 import 的目标文件确实存在（防下一个同形态回归）。
+	const { readFile, access } = await import("node:fs/promises");
+	const { join, dirname } = await import("node:path");
+	const { fileURLToPath } = await import("node:url");
+	const here = dirname(fileURLToPath(import.meta.url));
+	const src = await readFile(join(here, "../lib/subgoal-tools.js"), "utf8");
+
+	// ① 不得再引用已撤除的 WorkCase 写入器（注释提及不算——只在代码里查）
+	const codeOnly = src.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+	assert.doesNotMatch(codeOnly, /import\(\s*["'`]\.\/workcase-writer/, "WorkCase 类型已撤除，不得再动态 import 其写入器");
+
+	// ② 所有动态 import 目标须可解析
+	const targets = [...codeOnly.matchAll(/import\(\s*["'`](\.\/[^"'`]+)["'`]\s*\)/g)].map((m) => m[1]);
+	assert.ok(targets.length > 0, "本文件本就依赖动态 import，匹配为空说明正则已失效");
+	for (const t of targets) {
+		await access(join(here, "../lib", t)).catch(() => {
+			assert.fail(`动态 import 目标不存在：${t}——这会在运行期被 catch 吞成静默降级`);
+		});
+	}
+});
