@@ -122,7 +122,6 @@ export const MATCHED_FACT_FIELDS = Object.freeze([
 
 export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   spark: ["open"],
-  workcase: ["draft", "open"],
   // **`friction` 于 2026-10-26 修订**：`observing` 已退出 26 §9 状态闭集（观察
   // 材料改由 11 §12bis.1 的本地缓冲承载，不进事实源），故默认候选只含 `open`。
   friction: ["open"],
@@ -211,7 +210,7 @@ export function recallStatusPolicyOf(criteria, type) {
  * 召回不到——故 `source-recall.test.mjs` 有一条用例直接比对 specs 目录与本表。
  */
 export const REGISTERED_FACT_TYPES = Object.freeze([
-  "spark", "workcase", "adr", "pitfall", "research", "goal", "friction", "norm", "subgoal", "devlog",
+  "spark", "adr", "pitfall", "research", "goal", "friction", "norm", "subgoal", "devlog",
 ]);
 
 /**
@@ -1624,6 +1623,12 @@ export async function loadSpecs(specsDir) {
     out.push({
       source: "spec",
       ref: pick("spec_key") || file.replace(/\.md$/, ""),
+      // **稳定引用**（`34 §8.2` 第 2、4 项）：`spec_key` 是规范侧可直达 L4 全文的
+      // 标识，其值即 `ldvh_read_specification_content` 的 `responsibility_key`。
+      // **不与 `ref` 混用**：`ref` 保留「取不到 spec_key 时退回文件名」的既有语义，
+      // 而文件名不是可用的 responsibility_key——把它当稳定引用交付，读者会拿到一个
+      // 工具读不到的引用。故此处**只登记真实存在**的 spec_key，缺失时为 null。
+      specKey: pick("spec_key") || null,
       specId: pick("spec_id"),
       title: pick("title") || file.replace(/\.md$/, ""),
       positioning: pick("positioning"),
@@ -1817,6 +1822,12 @@ export async function loadFacts(baseDir, options = {}) {
         type,
         dir,
         ref: textField(fm.object_uid) || file.replace(/\.md$/, ""),
+        // **稳定引用**（`34 §8.2` 第 2、4 项）：完整 `object_uid`，可直达 F3
+        // （`ldvh_*_read` 的 `object_uid` 参数）。
+        // **缺失时给 null，不退回文件名**——`ref` 的退回语义是为内部去重与关系
+        // 反查保留的；把文件名当 object_uid 交给读者，工具侧解析不到，等于给了
+        // 一个看起来可用、实际取不到的入口（`34 §8.2` 要求「可直达」）。
+        objectUid: textField(fm.object_uid) || null,
         title: textField(fm.title),
         status: textField(fm.status),
         scope: textField(fm.scope) || textField(fm.scope_boundary),
@@ -3321,6 +3332,13 @@ export async function recallForAction(input = {}) {
   // `02 §9.1` 要求「数量…必须可观察」，读者要看的正是**丢了多少**。
   const allSpecHits = collect(specs, (c) => ({
     kind: "spec", ref: c.ref, title: c.title, path: c.path,
+    // **规范侧稳定引用**（`34 §8.2` 第 2、4 项）：`spec_key` 可直达 L4 全文
+    // （`ldvh_read_specification_content` 的 `responsibility_key`）。
+    // 本实现**不提供 `heading_path`**：现有匹配层只做整载体级匹配，没有定位到
+    // 具体 H2/H3 的判据；凭空给一个章节路径会暗示「已定位到 L3」，而
+    // `34 §8.2` 第 4 项明禁这种暗示。故此处为 null，渲染层据此标「L4 全文」。
+    specKey: c.specKey ?? null,
+    headingPath: null,
     // 绝对路径：语料来自回退来源时 `path` 在项目根下读不到，须用此字段。
     ...(c.absolutePath === undefined ? {} : { absolutePath: c.absolutePath }),
     positioning: c.positioning.slice(0, 160),
@@ -3337,6 +3355,10 @@ export async function recallForAction(input = {}) {
   const allFactHits = collect(pool, (c) => ({
     kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
     absolutePath: c.absolutePath,
+    // **事实侧稳定引用**（`34 §8.2` 第 2、4 项）：完整 `object_uid`，可直达 F3
+    // （`ldvh_*_read` 的 `object_uid` 参数）。缺失时为 null，由渲染层如实标注，
+    // 不伪造、不静默省略。
+    objectUid: c.objectUid ?? null,
     // **最后更新时间进候选卡**（2026-10-27）：使读者在卡片上就能看见
     // 「这条有多旧」，也让排序的次级键对读者可复核（排序依据须可观察）。
     // 取不到时为空串，如实留空而不伪造时间。
@@ -3510,12 +3532,14 @@ export async function recallForAction(input = {}) {
     const reason = typeof item.hitReason === "string" ? item.hitReason : "";
     const path = typeof item.path === "string" ? item.path : "";
     const excerpt = typeof item.excerpt === "string" ? item.excerpt : "";
-    // **结构字段的渲染量须计入**（2026-10-29）：`structural` 进卡后渲染层会在
-    // 同一行追加形如 ` · serves=SG-1 / priority=P2 / directionKey=release-gate` 的尾巴。
-    // 不计的话预算会按「没有这批字段」来分配，实际注入超出 `10:241` 的核对项。
-    //
-    // 口径与渲染层保持一致：键名 + `=` + 值 + 分隔符（` / `）与行首 ` · `。
-    // 这里是**估算**，取偏保守的字节数（UTF-8 下中文键值 3 字节/字）。
+    // **稳定引用的渲染量须计入**（`34 §8.2` 第 2、4 项，2026-11-12）：事实候选行
+    // 现在会附 `object_uid`、规范候选行会附 `spec_key`。不计的话预算按「没有这批
+    // 字段」分配，实际注入必然超出——与下方 structural 同一条理由，且同样直接
+    // 违反 `10:241`。取**偏保守**估算：固定标签（`· uid=`／`· key=`）按实际
+    // 渲染形态计入，标识串本身按原值长度计入。
+    const stableRef = typeof item.objectUid === "string" && item.objectUid !== ""
+      ? ` · uid=${item.objectUid}`
+      : (typeof item.specKey === "string" && item.specKey !== "" ? ` · key=${item.specKey}` : "");
     let structuralBytes = 0;
     if (item.structural !== null && typeof item.structural === "object") {
       const parts = [];
@@ -3526,7 +3550,8 @@ export async function recallForAction(input = {}) {
       if (parts.length > 0) structuralBytes = Buffer.byteLength(` · ${parts.join(" / ")}`, "utf8");
     }
     // 前缀（`- [type/status] `）、分隔符与本行换行的粗略常量，取 8 字节。
-    return Buffer.byteLength(`${title}${reason}${path}${excerpt}`, "utf8") + structuralBytes + 8;
+    return Buffer.byteLength(`${title}${reason}${path}${excerpt}${stableRef}`, "utf8")
+      + structuralBytes + 8;
   };
   // ── **三段 L0 常驻枚举的预算次序**（Human 决定 2026-11-04）───────────────
   //

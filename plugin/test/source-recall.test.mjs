@@ -178,7 +178,7 @@ test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜
 	assert.ok(facts.length > 0, "事实源不得为空（否则后续断言全部失去前提）");
 	const types = new Set(facts.map((f) => f.type));
 	// 七类，单数形；曾因从目录名猜单复数得 "researche"/"workca"。
-	for (const expected of ["adr", "friction", "norm", "pitfall", "research", "spark", "workcase"]) {
+	for (const expected of ["adr", "friction", "norm", "pitfall", "research", "spark"]) {
 		assert.ok(types.has(expected), `应含类型 ${expected}，实际 ${[...types].join(",")}`);
 	}
 	for (const t of types) {
@@ -1194,7 +1194,6 @@ test("类型点名层：点名某事实类型时，该类型自己的规范须�
 	// 类型名会出现在多份规范的 scope 里（实测 workcase 命中 6 份、adr/pitfall/spark
 	// 各 4 份），同层同分后只按路径字典序，而 `20-Spark` 排在 `21-WorkCase` 前面。
 	const cases = [
-		{ q: "写一个 WorkCase", want: "WorkCase" },
 		{ q: "写一个 ADR", want: "ADR" },
 		{ q: "记一条 Spark", want: "Spark" },
 		{ q: "新增一条 Pitfall", want: "Pitfall" },
@@ -1812,11 +1811,10 @@ test("默认候选状态须按类型取，不得统一写死 active（20–27 �
 	if (await skipWithoutCorpus(t)) return;
 	// 实测缺陷（2026-10-24）：默认状态原写死 ["active"]，而多数类型**没有**
 	// active 这个状态——结果它们默认一条都召回不到：
-	//   Spark 默认是 open（34 条不可见）、WorkCase 是 draft+open（36 条全不可见）、
+	//   Spark 默认是 open（34 条不可见）、
 	//   Friction 是 open（+ 当时的 observing，2026-10-26 已退出闭集；当时 92 条不可见）。
 	//   合计 142 条本可召回的不可见。
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.spark], ["open"], "20：默认候选只含 open");
-	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.workcase], ["draft", "open"], "21 §13：默认含 draft 与 open");
 	// 2026-10-26 修订：observing 已退出 26 §9 闭集（观察材料改由 11 §12bis.1 的
 	// 本地缓冲承载，不进事实源），故默认候选只含 open。
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.friction], ["open"], "26：默认只含 open");
@@ -1997,6 +1995,13 @@ test("M-21：一源不可读但另一源有非截断命中时，须报 partial �
 			action: "把 34 号规范改名成双源召回",
 			root: e,
 			limit: 500, // 大到规范命中不被截断（specHits≈19 < 500）
+			// **字节预算也须给足**（2026-11-12）：本用例要证明的是「一源不可读 →
+			// partial」，前提是**没有别的截断来源**。候选行自 34 §8.2 第 4 项起
+			// 带上 `object_uid`／`spec_key`，每行约多 40 字节；沿用默认 4000 字节
+			// 会让规范侧因**预算**不足而截断，于是 `truncated=true`，前提自检失败
+			// ——那是真实且预期的行为变化，不是缺陷。故此处把预算放大到不构成约束，
+			// 使本用例仍只检验「源不可读」这一个变量。
+			budgetBytes: 40_000_000,
 		});
 		// 前提自检：确有规范命中、未截断、事实源零候选——否则本用例失去意义。
 		assert.ok(r.counts.specHits > 0, "须有规范命中，否则未触及本场景");

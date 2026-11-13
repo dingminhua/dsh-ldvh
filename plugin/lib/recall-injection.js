@@ -252,20 +252,19 @@ export const FACT_QUOTA_TOTAL = 3;
 export const ADR_BASELINE_BYTE_BUDGET = 600;
 
 /**
- * **消费侧纪律行的让位阈值**（字节）：预算低于此值时整行不输出。
+ * **【已退役】消费侧纪律行的让位阈值**（原 2000 字节，2026-11-12 起不再生效）。
  *
- * 为什么要一个阈值：本行（约 130 字节）是**新增的固定行**，而 1200–1600 档的
- * 固定声明实测已占去九成以上预算（见 `BASELINE_YIELD_BELOW_BYTES` 与各段
- * 让位注释）。在这些档位新增任何整行都会顶破地板，进而触发更贵一档的
- * 「超出预算」归因行——为说一句用法反而把整条注入撑破，与本文件
- * （`scopeExcluded` 段）同一取舍。
+ * 旧行为：用法是一条独立行，预算低于此值整行不输出。
  *
- * 为什么取 2000：`ADR_BASELINE_BYTE_BUDGET`（600，基线）+ 三段 L0 索引
- * （实测约 900–1100）+ 固定声明（约 720）之后，2000 档才剩余足够容纳本行；
- * 低于此值让位，材料本身**不因此丢失**（让位不等于删除，与基线让位同一纪律）。
+ * **为什么退役**（`34 §8.2` 第 3 项）：该判据把「要不要给用法」绑在**预算**上，
+ * 与「本次有没有交付候选」无关——实测两个方向都错：1200 档有候选却不说用法，
+ * 10K 档零候选反倒说了一句。规范第 3 项要求的是「消费方法与候选**同时**可见」，
+ * 故判据改为「是否真的交付了候选行」（见 `renderRecallRow` 的 `usageIndex` 段），
+ * 与预算阈值无关。
  *
- * 变更须走受控提交；改动属「改变引导面注入形式或预算边界」（`10 §9.1` 第 2 项）。
- * 本次引入经 Human 决定（2026-11-11 会话，选择「B 先修消费侧」）。
+ * **符号保留**：它曾是导出常量，仓外消费方可能引用；直接删除会让这类引用在
+ * 运行期变成 `undefined` 而不是明确失败。此处保留名字并注明退役，使「还按旧
+ * 阈值判断用法行」的调用方读到这段说明，而不是以为阈值仍有效。
  */
 export const DISCIPLINE_LINE_MIN_BYTES = 2000;
 
@@ -731,31 +730,35 @@ export function renderRecallRow(result) {
   // 此前「候选不是结论」「未命中不代表无相关」在基线段尾、三态行、截断行
   // 各复述一遍（实测同一语义出现 3–4 次、约 360 字节）。现统一在此声明一次，
   // 其余各处只报**本次特有的事实**（几条、哪条源未读、裁去几条），不复述语义。
+  //
+  // ── **消费用法**（`34 §8.2` 第 3 项，2026-11-12 重订）────────────────
+  //
+  // 旧实现把「怎么用」放在独立行（`disciplineLine`），而它有让位阈值：预算
+  // < 2000 时整行静默消失。但 `34 §8.2` 第 3 项把消费方法定为**交付候选**的
+  // 要素——交付了候选却没有「它不是结论、该怎么判断」的指引，恰在最容易被
+  // 误读的场合失去这条边界。
+  //
+  // **判据改为「有没有候选」而不是「预算够不够」**：旧行的存在与否只看预算，
+  // 与本次是否交付候选无关（1200 档有候选却不说用法，10K 档零候选反倒说了
+  // 一句）。这正是要用错方向的地方。现在用法行在**渲染裁剪之后**按实际交付的
+  // 候选行决定（见下方 `usageRendered` 段），有候选必有用法，零候选不占字节。
+  const USAGE_HINT = "用法（34 §8.2）：逐条判适用；改变须写明依据来自哪一条，确认不改变须说明为何";
+  // **本句是全行唯一的「候选性/未命中」权威声明**（2026-10-25 去冗余）：
+  // 此前「候选不是结论」「未命中不代表无相关」在基线段尾、三态行、截断行
+  // 各复述一遍（实测同一语义出现 3–4 次、约 360 字节）。现统一在此声明一次，
+  // 其余各处只报**本次特有的事实**（几条、哪条源未读、裁去几条），不复述语义。
   lines.push("以下由确定性匹配取得，是**候选**不是结论：命中不等于适用（02 §9.2／34 §13）；**未命中也不代表无相关**；**常驻列出者同样不证明适用**。是否适用须自行判断。");
-  // **消费侧纪律（2026-11-11，本轮新增）**：34 §8.3 把「落实」定为三项同时成立
-  // ——有指向、有改变、有可回指依据；而此前注入面**只交付材料、不交付用法**：
-  // 实测 38 个真实注入回合中，动手却未在 reasoning 中提及候选者 23/38（60.5%），
-  // 参数回指候选仅 4/38（10.5%）。材料进了上下文却没进判断，正是缺这一行。
+  // **用法行紧跟声明、在候选之前**（2026-11-12 重订）：位置在候选区之前，
+  // 使读者先知道「这份清单怎么用」再读条目；若写在末尾，被埋在几十行索引之后
+  // 等于没写（同文件既有用例正是钉这一点）。
   //
-  // 为什么要写在注入面而不是别处：本行随候选**同一时机**到达，读者不需要
-  // 另行检索就知道「这份清单该怎么用」；写进规范源则要读者先想到去读它。
-  //
-  // **为什么只给两个动作、不要求逐条汇报**：逐条说明会对每回合都新增一份
-  // 输出负担（§4.9 流程轻重与后果相称）。两个动作都落在既有行动里——
-  // 「说明为何不改变」属 §8.3 合法的「确认无需改变」结论，「停止并回指」
-  // 属 §8.1 第 4 项的既有形态，本行不新设任何闸门。
-  //
-  // **预算纪律**：本行是**可选行**，极小预算下整行让位（见下方 `hasDisciplineRoom`）。
-  // 不并进第 2 行——那行是全行唯一的候选性权威声明，混入用法会使其语义分裂。
-  const disciplineLine = "（**用法**（34 §8.3）：若某条改变了你的做法——路径、前置条件、是否继续——写明依据来自哪一条；若确认都不适用，在交还里说明为何不改变，不得默认视为已遵守。）";
-  // 让位阈值取 2000 字节：实测 1200–1600 档的固定声明已占九成预算（见下方
-  // `BASELINE_YIELD_BELOW_BYTES` 与各段让位注释），此时任何新增整行都会顶破地板；
-  // 而本行约 130 字节，2000 档起才有余量。低于阈值的档位**静默不输出**——
-  // 与「极小预算下基线让位」同一纪律：让位不等于数据丢失，材料仍全部送达。
-  const hasDisciplineRoom = !(typeof result?.budget?.limitBytes === "number"
-    && result.budget.limitBytes > 0
-    && result.budget.limitBytes < DISCIPLINE_LINE_MIN_BYTES);
-  if (hasDisciplineRoom) lines.push(disciplineLine);
+  // **是否输出由「最终是否真的交付了候选」决定**（不是预算阈值）：本行先按
+  // 数据层有没有候选占位，渲染裁剪完成后若无任何候选行则撤下（见下方
+  // `finalizeUsageLine`）。这样「有候选必有用法、零候选不占字节」两个方向都成立。
+  const usageLine = `（${USAGE_HINT}）`;
+  const usageIndex = usageLine === "" ? -1 : lines.push(usageLine) - 1;
+  // 用法行是否因「让到只剩一条候选仍放不下」而撤下——必须进入披露，不得静默。
+  let usageYielded = false;
   // **能力边界须让读者看见**：词法匹配只能对上「字面相近」的东西。
   // 实测（2026-10-24 复测）：用 Pitfall 自己的「症状段」去召回它自己，23/23 = 100%
   // （22 条靠 tier 1 适用范围、1 条靠 tier 4 正文）。旧值 43%（13/30）是第 46 轮
@@ -1020,7 +1023,17 @@ export function renderRecallRow(result) {
       // 实测：单条规范卡 114 字符里路径占 67（59%），读者须先读完
       // `ldvh-base/pitfalls/pitfall-86f03312-6d12-47f2-…md` 才看到命中理由。
       // 故顺序改为：标题 → **命中理由** → 路径（路径仍保留，供打开文件）。
-      lines.push(`- ${spec.title} — ${spec.hitReason}（${shown}）`);
+      //
+      // **稳定引用进模型可见面**（`34 §8.2` 第 2、4 项，2026-11-12）：路径不是
+      // 稳定引用——回退来源时它甚至读不到，且重新按路径检索本可避免。此处补
+      // `spec_key`（即 `ldvh_read_specification_content` 的 `responsibility_key`）。
+      // **必须写明它是 L4 全文入口**：本实现只做整载体级匹配、不给出
+      // `heading_path`，若不明说「L4」，读者会以为已经定位到具体章节（§8.2 第 4 项
+      // 明禁这种暗示）。缺失 `spec_key` 时如实标「无稳定引用」，不伪造。
+      const stable = typeof spec.specKey === "string" && spec.specKey !== ""
+        ? `；spec_key=${spec.specKey}（L4 全文入口）`
+        : "；无稳定 spec_key（只能按路径读取）";
+      lines.push(`- ${spec.title} — ${spec.hitReason}（${shown}${stable}）`);
     }
   }
   if (facts.length > 0) {
@@ -1065,8 +1078,15 @@ export function renderRecallRow(result) {
         // 形态保持**极短**：`· key=value / key=value`，与 `estimateLineBytes`
         // 的估算口径逐字一致（改这里必须同步改那里，否则预算会算漏）。
         const structural = renderStructuralTag(fact.structural);
+        // **事实侧稳定引用进模型可见面**（`34 §8.2` 第 2、4 项，2026-11-12）：
+        // 行内给出完整 `object_uid`，它正是 `ldvh_*_read` 的 `object_uid` 参数，
+        // 读者不必从 UUID 文件名里反推、也不必重新检索。缺失时如实标注，
+        // 不静默省略、不用文件名冒充（文件名不是 object_uid）。
+        const stableUid = typeof fact.objectUid === "string" && fact.objectUid !== ""
+          ? ` · uid=${fact.objectUid}`
+          : " · uid=缺失（该载体未声明 object_uid）";
         lines.push(
-          `- [${fact.type}${status}] ${fact.title}${structural} — ${fact.hitReason}（${fact.path}）${excerpt}`,
+          `- [${fact.type}${status}] ${fact.title}${structural} — ${fact.hitReason}（${fact.path}）${stableUid}${excerpt}`,
         );
       }
     }
@@ -1200,7 +1220,13 @@ export function renderRecallRow(result) {
       const reason = typeof item?.hitReason === "string" ? item.hitReason : "";
       const path = typeof item?.path === "string" ? item.path : "";
       const excerpt = typeof item?.excerpt === "string" ? item.excerpt : "";
-      return Buffer.byteLength(`${title}${reason}${path}${excerpt}`, "utf8") + 8;
+      // **稳定引用须计入**（同数据层口径，`34 §8.2` 第 2、4 项）：行内会追加
+      // `· uid=…` 或 `· key=…`。不计会低估单条大小，把「预算放不下」误判成
+      // 「条数限制」——与上方注释里那两次归因错误同一形态。
+      const stable = typeof item?.objectUid === "string" && item.objectUid !== ""
+        ? ` · uid=${item.objectUid}`
+        : (typeof item?.specKey === "string" && item.specKey !== "" ? ` · key=${item.specKey}` : "");
+      return Buffer.byteLength(`${title}${reason}${path}${excerpt}${stable}`, "utf8") + 8;
     };
     const nextDropped = result.unchecked?.specs?.[0] ?? result.unchecked?.facts?.[0];
     const nextSize = nextDropped === undefined ? 0 : estimateLineBytes(nextDropped);
@@ -1370,7 +1396,18 @@ export function renderRecallRow(result) {
   // 路径此前只渲染截断说明、从不渲染 `recallCompleteness`——AI 在注入上下文中
   // 无从核对 §6 零命中退出路径的 complete 前提。`complete` 时不加行（稳态安静，
   // 与截断说明只在有事发生时输出同一纪律）；`partial`/`unavailable` 必须出声。
-  const completeness = result?.recallCompleteness;
+  //
+  // ── **渲染层裁掉的候选也属「未返回」**（2026-11-12，`34 §12` 修）──────────
+  //
+  // 旧实现的三态行只反映数据层的取值。而渲染层还有自己的字符上限与字节预算
+  // （见下方裁剪循环）：数据层 `complete`、渲染层却裁掉若干候选时，注入文本会
+  // 同时出现「完整度：complete」与「渲染层裁去 N 条候选」——两句互相矛盾，
+  // 且 `34 §12` 要求取值与未检查范围逐类对应，此时正确取值是 `partial`。
+  //
+  // 判据取**本函数已算出的裁剪结果**（`renderDroppedByRender`），故三态行必须
+  // 在其后生成：这里先占位，裁剪完成后回填真实取值（见下方回填段）。
+  const completenessAtDataLayer = result?.recallCompleteness;
+  const completeness = completenessAtDataLayer;
   if (completeness === "partial" || completeness === "unavailable") {
     const notRead = Array.isArray(result?.uncheckedRange?.sourceNotRead)
       ? result.uncheckedRange.sourceNotRead
@@ -1499,7 +1536,47 @@ export function renderRecallRow(result) {
     if (trimmed[i + 1] !== undefined && trimmed[i + 1].startsWith("- ")) continue;
     trimmed.splice(i, 1);
   }
-  if (droppedByRender > 0) {
+  // ── **消费用法行：有候选必有，零候选不占字节**（`34 §8.2` 第 3 项）──────
+  //
+  // 判据是规范第 3 项本身（「消费方法须与候选同时可见」），不是预算阈值。
+  // 旧 `disciplineLine` 只在 ≥2000 档输出，结果两个方向都错：1200 档有候选却
+  // 不说用法，10K 档零候选反倒说了一句。
+  //
+  // **代价的承担方式**（`34 §8.2` 与 Human「预算受限时优先精确率」的合成）：
+  // 本行约 116 字节。预算不够时**让最弱的一条候选让位**来换它（裁剪循环已按
+  // 证据序排好，尾部即最弱），但**始终保留至少一条候选**——若让到只剩一条仍
+  // 放不下，则撤下本行并如实记入裁剪披露，不假称已给出用法。
+  //
+  // 位置：紧跟候选性声明、在所有候选行之前。写在末尾会被埋在几十行索引之后，
+  // 等于没写（同文件既有用例正是钉这一点）。
+  if (usageIndex !== -1) {
+    const overNow = () => limitBytes !== null && limitBytes > 0
+      && Buffer.byteLength(trimmed.join("\n"), "utf8") + NOTE_RESERVE_BYTES > limitBytes;
+    const candidateCount = () => trimmed.filter((line) => line.startsWith("- ")).length;
+    if (candidateCount() === 0) {
+      // 无候选可判：撤下（没有对象时「逐条判适用」只是噪声并白占字节）。
+      const at = trimmed.indexOf(usageLine);
+      if (at !== -1) trimmed.splice(at, 1);
+    } else {
+      // 让位次序：先删尾部候选（证据最弱者），至少留一条。
+      while (overNow() && candidateCount() > 1) {
+        const idx = findDeletable();
+        if (idx === -1) break;
+        trimmed.splice(idx, 1);
+        droppedByRender += 1;
+        byteTriggered = true;
+      }
+      if (overNow()) {
+        // 让到只剩一条仍放不下：撤下用法行，并把这件事记入披露（不静默）。
+        const at = trimmed.indexOf(usageLine);
+        if (at !== -1) trimmed.splice(at, 1);
+        usageYielded = true;
+      }
+    }
+  }
+  // **即使没裁候选，只要用法行让位也要出声**（`34 §8.2` 第 3 项 + §12 不静默）：
+  // 否则「本次未给出消费方法」在输出里完全不可见。
+  if (droppedByRender > 0 || usageYielded) {
     const reasons = [];
     if (charTriggered) reasons.push(`字符上限 ${charLimit}`);
     // **观察 A（第八次复核）**：预算内含说明行预留（NOTE_RESERVE_BYTES），
@@ -1516,9 +1593,18 @@ export function renderRecallRow(result) {
     // 且 `K + M` 必然等于 `s + f`（可机械核对；`finalCount` 口径与
     // `renderRecallRow` 的 `- ` 行一致，与数据层两侧条数之和同源）。
     const finalCount = trimmed.filter((l) => l.startsWith("- ")).length;
+    // **渲染层裁剪导致的完整度降级须与三态取值一致**（`34 §12`，2026-11-12）：
+    // 数据层可能报 `complete`（它没裁），而渲染层按字符／字节硬约束又裁掉了候选
+    // ——此时交付给读者的范围已不完整，`complete` 与实际不符。降级写进**同一行**
+    // （不新增行）：新增整行会顶破极小预算的地板，而披露底线本就在这一行。
+    const renderDowngraded = droppedByRender > 0 && completenessAtDataLayer === "complete";
+    const usageYieldNote = usageYielded
+      ? "；**用法行已让位**（让到只剩一条候选仍放不下），本次未给出消费方法——须自行按 34 §8.2 判断"
+      : "";
+    const downgradeSuffix = renderDowngraded ? "；因此本次召回完整度按 **partial** 记（数据层未裁，渲染层未全部交付）" : "";
     const fullNote =
       `（**渲染层按硬约束（${reasons.join("／")}）裁去 ${droppedByRender} 条候选**；` +
-      `现列出 ${finalCount} 条（渲染层自己的口径）。` +
+      `现列出 ${finalCount} 条（渲染层自己的口径）${downgradeSuffix}${usageYieldNote}。` +
       `未列出的不代表不存在，需更多请缩小动作范围。）`;
     // **地板情形的紧凑说明行**（第八次复核观察 C 的明示取舍之机械承载）：
     // 候选行裁光后固定声明+披露行仍可能顶破预算（实测 800 字节下 807）——
@@ -1538,7 +1624,8 @@ export function renderRecallRow(result) {
     if (byteTriggered) compactReasons.push(`字节预算 ${limitBytes}`);
     const compactNote =
       `（渲染层按硬约束（${compactReasons.join("／")}）裁去 ${droppedByRender} 条候选，` +
-      `现列出 ${finalCount} 条；未列出的不代表不存在。）`;
+      `现列出 ${finalCount} 条${renderDowngraded ? "，完整度按 partial 记" : ""}`
+      + `${usageYielded ? "；用法行已让位，须自行按 34 §8.2 判断" : ""}；未列出的不代表不存在。）`;
     trimmed.push(fullNote);
     if (limitBytes !== null && limitBytes > 0 && Buffer.byteLength(trimmed.join("\n"), "utf8") > limitBytes) {
       trimmed[trimmed.length - 1] = compactNote;
@@ -1765,6 +1852,25 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
       ? "渲染文本触硬约束（字符上限／字节预算）已按行裁去部分候选行；固定声明与披露行未裁；候选数据本身未因此减少，调大 limit 未必能显示更多，需先缩短标题/命中理由或提高上限（后者属 Human 决定事项，10:261）"
       : "渲染文本未触硬约束",
   };
+  // **消费方法是否真的出现在交付面**（`34 §8.2` 第 3 项）：中文披露已写在
+  // 裁剪行里，此处再给一个机械可观察的布尔，使调用方与测试不必解析文案。
+  // 判据取**渲染后的文本**而非中间变量：撤回用法行的分支都在 renderRecallRow
+  // 内部，只有真实输出才能回答「读者到底看到没有」。
+  result.render = {
+    ...result.render,
+    usagePresent: text.includes("用法（34 §8.2）"),
+  };
+  // **渲染层裁剪导致的完整度降级须与三态取值一致**（`34 §12`，2026-11-12）：
+  // 数据层可能报 `complete`（它没裁），而渲染层按字符／字节硬约束又裁掉了候选
+  // ——此时交付给读者的范围已不完整，`complete` 与实际不符。降级写进**同一行**
+  // （不新增行）：新增整行会顶破极小预算的地板，而披露底线本就在这一行。
+  const renderDowngraded = renderTruncated && result.recallCompleteness === "complete";
+  if (renderDowngraded) {
+    // 机械可观察的取值也随之一致：调用方与测试据 `result.recallCompleteness`
+    // 判断「能否按零命中路径继续」，它不得与注入文本自述的取值相反。
+    result.recallCompleteness = "partial";
+    result.render.completenessDowngraded = true;
+  }
   return { inject: true, text, digest: text, result };
 }
 

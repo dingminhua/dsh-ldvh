@@ -1883,49 +1883,63 @@ test("L0 常驻：经验不占索引份额，故不存在「经验先让位」�
 	assert.ok(Number.isInteger(r.result.l0Enumeration.pitfallTotal), "经验总数须仍可取得");
 });
 
-test("34 §8.3 消费侧纪律：含候选时须交付「该怎么用」，不能只交付材料", async (t) => {
+test("34 §8.2 第 3 项：交付了候选就必须同时给出消费方法（判据是「有候选」，不是预算档位）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	// **为什么这条必须有**（2026-11-11）：改动前注入面只交付候选、不交付用法，
-	// 实测 38 个真实注入回合中「动手却未提及候选」占 60.5%、参数回指仅 10.5%。
-	// 没有这条用例，删掉纪律行不会有任何测试转红——防护形同不存在
-	// （见 pitfall-新增防护无直接用例致变异零检出）。
+	// **为什么这条必须有**（2026-11-11 首版，2026-11-12 改判据）：注入面曾只交付候选、
+	// 不交付用法，实测 38 个真实注入回合中「动手却未提及候选」占 60.5%、参数回指
+	// 仅 10.5%。首版把用法做成独立行 + 2000 字节门槛，于是**有候选却不说用法**
+	// （1200 档）与**零候选却说用法**（10K 档）两个方向都出现过。
+	// 现行判据来自 34 §8.2 第 3 项本身：消费方法与候选**同时可见**。
 	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
 	assert.equal(r.inject, true);
 	assert.match(r.text, /【双源召回/, "前提：应已产生候选区");
-	// 纪律行须点名 34 §8.3 与两个可执行动作，二者缺一都退化为口号。
-	assert.match(r.text, /用法/, "须给出用法纪律");
-	assert.match(r.text, /34 §8\.3/, "须回指规范依据，使纪律可核对");
+	const hasCandidates = r.text.split("\n").some((l) => l.startsWith("- "));
+	assert.ok(hasCandidates, "前提：本档须真的交付了候选（否则本用例失去意义）");
+	assert.match(r.text, /用法/, "有候选时须给出用法");
+	assert.match(r.text, /34 §8\.2/, "须回指规范依据，使纪律可核对");
 	assert.match(r.text, /写明依据来自哪一条/, "须给出「有改变」时的动作");
-	assert.match(r.text, /为何不改变/, "须给出「确认无需改变」时的动作（§8.3 合法结论）");
-	// 纪律行须在候选之前出现：候选被埋在 77 行索引底部时，写在末尾等于没写。
+	assert.match(r.text, /不改变须说明为何/, "须给出「确认无需改变」时的动作（§8.3 合法结论）");
+	// 用法行须在候选之前出现：候选被埋在几十行索引底部时，写在末尾等于没写。
 	const lines = r.text.split("\n");
-	const disciplineIdx = lines.findIndex((l) => l.includes("【用法】") || /（\*\*用法\*\*/.test(l));
-	const lastIndexIdx = lines.map((l) => l.startsWith("· ")).lastIndexOf(true);
-	assert.ok(disciplineIdx !== -1, "纪律行应存在");
-	assert.ok(disciplineIdx < lastIndexIdx, `纪律行须在 L0 索引之前（实际 ${disciplineIdx}，末条索引 ${lastIndexIdx}）`);
+	const usageIdx = lines.findIndex((l) => l.includes("用法（34 §8.2）"));
+	const firstCandidateIdx = lines.findIndex((l) => l.startsWith("- "));
+	assert.ok(usageIdx !== -1, "用法行应存在");
+	assert.ok(
+		usageIdx < firstCandidateIdx,
+		`用法行须在候选之前（实际 ${usageIdx}，首条候选 ${firstCandidateIdx}）`,
+	);
 });
 
-test("34 §8.3 消费侧纪律：极小预算下整行让位，且不得顶破预算地板", async (t) => {
+test("34 §8.2 第 3 项：零候选时不得输出用法（不为一句用不上的话付字节）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	// 该行是**新增固定行**，1200–1600 档固定声明已占九成预算（见其余让位用例）。
-	// 若让位判据失效，这里会超限——故本用例同时钉「让位」与「不超预算」两件事。
-	for (const budgetBytes of [800, 1200, 1600, 1900]) {
+	// 反方向控制：极小预算下候选行会被渲染层裁光。此时没有可判的对象，
+	// 「逐条判适用」只是噪声。旧契约在 10K 档零候选时仍输出用法行，正是
+	// 「用法与候选无关」的缺陷形态；本用例把它钉死。
+	for (const budgetBytes of [800, 1200, 1600]) {
 		const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes });
 		assert.equal(r.inject, true, `${budgetBytes} 档应仍注入`);
 		const actual = Buffer.byteLength(r.text, "utf8");
 		assert.ok(actual <= budgetBytes, `${budgetBytes} 档实际 ${actual} 字节，不得超预算`);
-		assert.ok(!r.text.includes("**用法**"), `${budgetBytes} 档应让位纪律行`);
+		const candidates = r.text.split("\n").filter((l) => l.startsWith("- ")).length;
+		if (candidates === 0) {
+			assert.ok(
+				!r.text.includes("用法（34 §8.2）"),
+				`${budgetBytes} 档候选为 0，不得输出用法行（实际：${r.text.includes("用法（34 §8.2）")}）`,
+			);
+		}
 	}
 });
 
-test("34 §8.3 消费侧纪律：达到阈值即输出（让位判据的边界须可分辨）", async (t) => {
+test("34 §8.2 第 3 项：有候选的档位必有用法（正控制，防判据写成恒假）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	// 只有「让位」用例、没有「到达阈值即输出」的正控制，会让让位判据写成
-	// 恒假也照样全绿（见 pitfall-否定式守卫用例缺正控制致假通过）。
-	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 2000 });
+	// 只有「零候选不输出」的反控制、没有正控制，会让判据写成恒假也照样全绿
+	// （见 pitfall-否定式守卫用例缺正控制致假通过）。
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 1900 });
 	assert.equal(r.inject, true);
-	assert.ok(r.text.includes("**用法**"), "2000 档（= DISCIPLINE_LINE_MIN_BYTES）须输出纪律行");
-	assert.ok(Buffer.byteLength(r.text, "utf8") <= 2000, "输出纪律行后仍不得超预算");
+	const candidates = r.text.split("\n").filter((l) => l.startsWith("- ")).length;
+	assert.ok(candidates > 0, "前提：1900 档须真的交付了候选");
+	assert.ok(r.text.includes("用法（34 §8.2）"), "有候选时须输出用法行");
+	assert.ok(Buffer.byteLength(r.text, "utf8") <= 1900, "输出用法行后仍不得超预算");
 });
 
 test("兜底通道：说了「自行检索」就须给出具体入口，且该行须真的出现在输出里", async () => {
@@ -1999,3 +2013,102 @@ test("兜底通道：兜底行不得使小预算档的候选数倒挂于更小�
 	}
 });
 
+
+// ---------------------------------------------------------------------------
+// 34 §8.2 第 2、4 项：稳定引用须在模型可见面可直接使用
+// ---------------------------------------------------------------------------
+
+test("34 §8.2 第 4 项：事实候选行须带 object_uid，且它等于载体的 object_uid", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	// **为什么这条必须有**：数据层早就把 `ref`（= object_uid）带上了，但渲染层
+	// 只印路径——读者只能从 UUID 文件名反推，或重新检索一次。§8.2 第 4 项
+	// 明写「稳定引用不能只存在于内部结构或文件路径中」。
+	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
+	assert.equal(r.inject, true);
+	const factRows = r.text.split("\n").filter((l) => l.startsWith("- ["));
+	assert.ok(factRows.length > 0, "前提：须有事实候选行");
+	const withUid = factRows.filter((l) => / · uid=[0-9a-f]{8}-[0-9a-f]{4}-/.test(l));
+	assert.ok(withUid.length > 0, `事实候选行须带完整 object_uid。实际行：${factRows[0]}`);
+	// 逐条核对：行内 uid 必须与数据层该候选的 objectUid 一致（不得张冠李戴）。
+	for (const fact of r.result.facts) {
+		if (typeof fact.objectUid !== "string" || fact.objectUid === "") continue;
+		assert.ok(
+			r.text.includes(` · uid=${fact.objectUid}`),
+			`候选「${fact.title}」的 object_uid 未出现在渲染行里`,
+		);
+	}
+});
+
+test("34 §8.2 第 4 项：缺失 object_uid 时如实标注，不得用文件名冒充", async () => {
+	// 存量载体可能没有 object_uid 声明。此时必须出声，而不是把文件名当 uid 交付
+	// ——那会给出一个看起来可用、实际解析不到的入口。
+	const text = renderRecallRow({
+		specs: [],
+		facts: [{ type: "pitfall", status: "active", title: "无声明载体", path: "ldvh-base/pitfalls/x.md", hitReason: "标题命中：校验" }],
+		truncated: false,
+		budget: {},
+	});
+	assert.match(text, /uid=缺失/, "缺 object_uid 须如实标注");
+	assert.ok(!/ · uid=x(\.md)?/.test(text), "不得把文件名冒充 object_uid");
+});
+
+test("34 §8.2 第 2、4 项：规范候选行须带 spec_key 并明示 L4（不得暗示已定位章节）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
+	const specRows = r.text.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- ["));
+	assert.ok(specRows.length > 0, "前提：须有规范候选行");
+	const withKey = specRows.filter((l) => /spec_key=[a-z0-9-]+（L4 全文入口）/.test(l));
+	assert.ok(withKey.length > 0, `规范候选行须带 spec_key 并标明 L4。实际行：${specRows[0]}`);
+	// **不得暗示已定位到 L3**：本实现不提供 heading_path。
+	const leaked = specRows.filter((l) => /heading_path|章节已定位|L3 章节/.test(l));
+	assert.deepEqual(leaked, [], `不得暗示已定位章节（本实现只到 L4）：${leaked.join(" | ")}`);
+	// 逐条核对：行内 spec_key 必须与数据层该候选的 specKey 一致。
+	for (const spec of r.result.specs) {
+		if (typeof spec.specKey !== "string" || spec.specKey === "") continue;
+		assert.ok(r.text.includes(`spec_key=${spec.specKey}`), `候选「${spec.title}」的 spec_key 未出现在渲染行里`);
+	}
+});
+
+test("34 §12：渲染层裁掉候选时，完整度不得仍报 complete", async () => {
+	// 数据层 `complete` = 它没裁；渲染层另有字符上限与字节预算。两者可以不一致，
+	// 但**交付给读者的结论必须只有一个**：只要渲染层裁了候选，交付范围就不完整。
+	// 旧实现会同时输出「完整度：complete」与「渲染层裁去 N 条候选」，两句互相矛盾。
+	const longReason = "正文命中：".concat("R".repeat(400));
+	const result = {
+		specs: Array.from({ length: 6 }, (_, i) => ({
+			title: `夹具规范${i}`, path: `specs/9${i}-fixture.md`, hitReason: longReason, specKey: `fixture-${i}`,
+		})),
+		facts: [],
+		truncated: false,
+		partial: false,
+		overBudget: false,
+		recallCompleteness: "complete",
+		counts: { specHits: 6, factHits: 0, specsReturned: 6, factsReturned: 0 },
+		unchecked: { specs: [], facts: [] },
+		uncheckedRange: { sourceNotRead: [], excludedByTypeFilter: [], excludedByStatus: [], excludedByTypeWhitelist: [] },
+		decisionBaseline: { items: [], sourceUnreadable: false },
+		l0Enumeration: { segments: [], pitfallTotal: 0 },
+		budget: { limitBytes: 1200, usedBytes: 900, limit: 12 },
+	};
+	const text = renderRecallRow(result);
+	const dropped = /裁去 (\d+) 条候选/.exec(text);
+	assert.ok(dropped !== null && Number(dropped[1]) > 0, `前提：本夹具须触发渲染层裁剪。实际：${text}`);
+	assert.ok(
+		!/完整度：\*\*complete\*\*/.test(text),
+		`渲染层已裁候选，不得仍宣称 complete。实际：${text}`,
+	);
+});
+
+test("34 §8.2 第 3 项：用法是否出现须机械可观察（render.usagePresent）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	// 中文披露写在裁剪行里，调用方与测试不该靠解析文案判断「这次到底给没给用法」。
+	for (const budgetBytes of [800, 1200, 1900, 10240]) {
+		const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes });
+		if (r.inject !== true) continue;
+		assert.equal(
+			r.result.render.usagePresent,
+			r.text.includes("用法（34 §8.2）"),
+			`${budgetBytes} 档：render.usagePresent 须与文本实际内容一致`,
+		);
+	}
+});

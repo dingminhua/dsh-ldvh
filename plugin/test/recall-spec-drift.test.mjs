@@ -43,10 +43,9 @@ import {
 const ROOT = join(import.meta.dirname, "..", "..");
 const SPECS_DIR = join(ROOT, "specs");
 
-/** 类型 → 它的事实规范文件名（20–27）。这是**唯一映射来源**，不得在别处再抄一份。 */
+/** 类型 → 它的事实规范文件名（20–29，21 号 WorkCase 已撤除）。这是**唯一映射来源**，不得在别处再抄一份。 */
 const TYPE_SPEC_FILES = Object.freeze({
 	spark: "20-Spark-火花.md",
-	workcase: "21-WorkCase 工单.md",
 	adr: "22-ADR-决策.md",
 	pitfall: "23-Pitfall-踩坑经验.md",
 	research: "24-Research-调研报告.md",
