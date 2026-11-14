@@ -508,6 +508,63 @@ test("list: 方向定位不合契约时不外发摘录、显式标 unavailable",
 	});
 });
 
+// MAJOR-3 负向守卫：带合规「**管什么**：」标签、但首句含 §8 第 2 条点名的
+// 授权措辞「可直接」时，须 unavailable（禁词判定的机械承载不得形同虚设）。
+test("list: 合规标签但首句含「可直接」时须 unavailable", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		const body = `## 方向定位与适用范围
+
+**管什么**：本方向管甲事项，AI 可直接执行。
+
+## 核心规则体系
+
+规则一。
+
+## 约束与反模式
+
+禁止项。
+
+## 验证与遵从性检查
+
+核对方式。
+`;
+		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
+		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === created.value.object_uid);
+		assert.equal(item.positioning, "", "首句含授权措辞时不得外发摘录");
+		assert.match(item.positioning_status, /unavailable/);
+	});
+});
+
+// MAJOR-3 负向守卫：带合规标签、但首句 >60 字时，须 unavailable（≤60 字
+// 长度判定的机械承载不得形同虚设；合契约用例只有 30 字，删掉上限也全绿）。
+test("list: 合规标签但首句超 60 字时须 unavailable", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		const long = "本方向管".repeat(16) + "事项。";  // 67 字，>60
+		const body = `## 方向定位与适用范围
+
+**管什么**：${long}
+
+## 核心规则体系
+
+规则一。
+
+## 约束与反模式
+
+禁止项。
+
+## 验证与遵从性检查
+
+核对方式。
+`;
+		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
+		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === created.value.object_uid);
+		assert.equal(item.positioning, "", "首句超 60 字时不得外发摘录（不截断外发半句）");
+		assert.match(item.positioning_status, /unavailable/);
+	});
+});
+
 // ---------------------------------------------------------------------------
 // Tool-plane reachability (the aa12604 defect class)
 // ---------------------------------------------------------------------------

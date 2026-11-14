@@ -1085,19 +1085,25 @@ export const L0_SEGMENT_ENTRYPOINTS = Object.freeze({
  */
 export const L0_SHARE_DIVISOR = 3;
 
-/**
- * 段尾声明（无条目被省略时）。刻意压短：它每回合常驻。
- *
- * Norm 段另给「方向定位」的取用入口：索引行只有标题与方向键，AI 仅凭标题
- * 无法判断哪份规范在管当次事项；`ldvh_norm_list` 返回每份的方向定位摘录
- * （`positioning`），据此判断该展开哪份，再用 `ldvh_norm_read` 读详情。
- * 本行只给方法与入口，不携带定位内容本身——故仍是 L0 索引语汇，不带摘录、
- * 不构成第二规则源，也不把「看得见」说成「已判定适用」。
- */
+/** 段尾声明（无条目被省略时）。刻意压短：它每回合常驻。 */
 export const L0_FULL_NOTE = "（L0 索引：只标「有哪些」，不证明适用。）";
 
-/** Norm 段的段尾声明：比通用段尾多一句「方向定位取用入口」。 */
-export const L0_NORM_NOTE = "（L0 索引：只标「有哪些」，不证明适用。判断哪份规范管当次事项时，用 ldvh_norm_list 取各份方向定位，再按需 ldvh_norm_read 展开详情。）";
+/**
+ * Norm 段的段尾声明：与通用段尾等长的「方向定位取用入口」改写。
+ *
+ * 索引行只有标题与方向键，AI 仅凭标题无法判断哪份规范在管当次事项；
+ * `ldvh_norm_list` 返回每份的方向定位摘录（`positioning`），据此判断该展开哪份，
+ * 再用 `ldvh_norm_read` 读详情。本行只给方法与入口，不携带定位内容本身——
+ * 故仍是 L0 索引语汇，不带摘录、不构成第二规则源，也不把「看得见」说成
+ * 「已判定适用」。展开详情的下一步由 `ldvh_norm_list` 工具摘要与 27 §10 承接。
+ *
+ * **长度硬约束**：必须 ≤ `L0_FULL_NOTE`（60B）。`planL0Enumeration` 的段尾预算取
+ * max(截断版, 全量版)；本句若在 60B 与 102B 之间，omitted=0 档虽不超截断版预留，
+ * 却仍比基线通用段尾多出字节，会在临界预算档（实测 2070）挤掉 1 条 spec 候选。
+ * 故本句压到 60B：与通用段尾等长、完全不挤候选，同时守住 §8.4 第 3 项的
+ * 「L0 索引/不证明适用」自证并点名 `ldvh_norm_list` 入口。修改须同步量字节。
+ */
+export const L0_NORM_NOTE = "（L0 索引不证明适用；定位用 ldvh_norm_list。）";
 
 /**
  * **规划 L0 常驻枚举**（纯函数，字节账与渲染逐字同源）。
@@ -1155,13 +1161,18 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
     // 段尾两版：全量版短，截断版要报「共几条、去哪儿取全量」。逐条装填时按
     // **最坏**那版判容量，装填完再取真实版本——宁可少列一条，不得列完才发现
     // 段尾放不下（那会静默超预算）。
-    // 段尾预算一律按「截断版」预留（与既有行为一致，不在紧预算下多吃条目）。
-    // 方向定位取用指引（全量版）比截断版长；若按它预留，1900 档会少列 1 条、
-    // 1500/1600 档整段让位——那是本次改动引入的退化（实测）。故预留只用截断版。
+    // 全量版（尤其含方向定位入口的 L0_NORM_NOTE）必须 ≤ 截断版字节数，否则
+    // omitted=0 时实际渲染更长的段尾、却只按截断版扣预算，差额会静默挤掉候选区
+    // （实测 2070–2260 档 specs 少 1 条）。这里做机械守卫：超了就按「少列一条」
+    // 处理，而不是放宽预留（那会让 1500/1600 档整段让位）。
     const noteOf = (shown) =>
       `（本档预算仅容前 ${shown} 条，共 ${total} 条；全量用 ${entry}。L0 索引不证明适用。）`;
     const fullNote = segment.type === "norm" ? L0_NORM_NOTE : L0_FULL_NOTE;
-    const worstNoteBytes = Buffer.byteLength(noteOf(total), "utf8") + 1;
+    const truncNoteBytes = Buffer.byteLength(noteOf(total), "utf8") + 1;
+    const fullNoteBytes = Buffer.byteLength(fullNote, "utf8") + 1;
+    // 守卫：取两版较长者预留。全量版若写长，表现为少列条目（不静默超预算），
+    // 而非丢弃段尾——宁可少列一条的既有纪律。
+    const worstNoteBytes = Math.max(truncNoteBytes, fullNoteBytes);
     // 连「段头 + 段尾 + 一条」都放不下 ⇒ 本段整段让位，痕迹由调用方并入披露行。
     if (cap - used < headerBytes + worstNoteBytes + Buffer.byteLength(segment.entries[0] ?? "", "utf8") + 1) {
       planned.push({ type: segment.type, lines: [], total, shown: 0, omitted: total, bytes: 0, yielded: true });

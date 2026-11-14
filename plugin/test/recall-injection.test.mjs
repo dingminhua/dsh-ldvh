@@ -31,7 +31,7 @@ import {
 	renderRecallRow,
 	shouldRecall,
 } from "../lib/recall-injection.js";
-import { recallForAction, RECALL_DIRECT_BYTE_BUDGET, RECALL_LIMIT_MAX, INJECTION_EXCLUDED_TYPES } from "../lib/source-recall.js";
+import { recallForAction, RECALL_DIRECT_BYTE_BUDGET, RECALL_LIMIT_MAX, INJECTION_EXCLUDED_TYPES, L0_NORM_NOTE, L0_FULL_NOTE } from "../lib/source-recall.js";
 import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -1761,20 +1761,32 @@ test("L0 常驻：ADR 与事实规范全量列出，经验改为按需一行（2
 });
 
 // 34 §8.1 适用识别：L0 索引行只有标题+direction_key，AI 无法据此判断
-// 「哪份规范在管当次事项」。段尾须给出确定性入口，让 AI 去 ldvh_norm_list
-// 取各份方向定位、再 ldvh_norm_read 展开详情。只给方法与入口，不带摘录。
+// 「哪份规范在管当次事项」。段尾须给出确定性入口（ldvh_norm_list 取方向定位）；
+// 只给方法与入口，不带摘录。段尾须与通用段尾等长，否则会挤掉候选（见下条）。
 test("L0 常驻：事实规范段尾须给出方向定位的取用入口", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 51200 });
 	assert.equal(r.inject, true);
-	assert.match(r.text, /用 ldvh_norm_list 取各份方向定位/, "段尾须指明方向定位的取用工具");
-	assert.match(r.text, /ldvh_norm_read 展开详情/, "段尾须指明展开详情的工具");
+	assert.match(r.text, /定位用 ldvh_norm_list/, "段尾须指明方向定位的取用工具");
 	// 索引行形态不变：不带定位内容本身（守 34 §8.4 第 1 项「字段止于 L0」）。
 	const normRow = r.text.split("\n").find((l) => l.startsWith("· 发布门槛"));
 	assert.ok(normRow && !normRow.includes("｜"), "索引行不得夹带摘录/定位内容");
 	// 纯读取回合（无词法候选）同样要有这句入口。
 	const pure = await buildRecallInjection({ userText: "继续", projectRoot: ROOT, limit: 99, budgetBytes: 10240 });
-	assert.match(pure.text, /用 ldvh_norm_list 取各份方向定位/, "纯读取回合也须给出入口");
+	assert.match(pure.text, /定位用 ldvh_norm_list/, "纯读取回合也须给出入口");
+});
+
+// MAJOR-1 回归守卫：断言「全量版段尾字节 ≤ 通用段尾字节」这一机械不变量。
+// 段尾由 planL0Enumeration 取 max(截断版, 全量版) 预留，故只要全量版不比通用
+// 段尾长，就不会比基线多吃份额、挤掉 spec 候选。本用例只守这个不变量（不逐档
+// 对照基线；逐档相等由独立复核在 129 个预算档上验证），任何把段尾写长的改动转红。
+test("L0 全量段尾不得长于通用段尾（份额守卫）", () => {
+	// 直接断言机械不变量：全量版段尾字节 ≤ 通用段尾字节（60B）。这样即使没有
+	// 基线对照，任何把段尾写长的改动都会立刻转红，而不必依赖某个预算档的巧合。
+	assert.ok(
+		Buffer.byteLength(L0_NORM_NOTE, "utf8") <= Buffer.byteLength(L0_FULL_NOTE, "utf8"),
+		`Norm 全量段尾 ${Buffer.byteLength(L0_NORM_NOTE, "utf8")}B 不得超过通用段尾 ${Buffer.byteLength(L0_FULL_NOTE, "utf8")}B，否则挤占候选份额`,
+	);
 });
 
 test("L0 三段：索引不得混入候选语汇，也不得占 limit 名额", async (t) => {
