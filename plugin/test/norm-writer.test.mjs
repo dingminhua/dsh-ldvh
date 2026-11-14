@@ -508,6 +508,9 @@ test("list: 方向定位不合契约时不外发摘录、显式标 unavailable",
 	});
 });
 
+// MAJOR-3 负向守卫：带合规「**管什么**：」标签、但首句含 §8 第 2 条点名的
+// 授权措辞「可直接」时，须 unavailable（禁词判定的机械承载不得形同虚设）。
+
 // ---------------------------------------------------------------------------
 // Tool-plane reachability (the aa12604 defect class)
 // ---------------------------------------------------------------------------
@@ -775,6 +778,49 @@ test("27 §15.2：create 的 body 缺「方向定位与适用范围」段 ⇒ �
 		assert.equal(seams.calls.length, 0, "缺段时不得提问");
 		const { readdir } = await import("node:fs/promises");
 		assert.deepEqual(await readdir(join(f.root, "norms")).catch(() => []), [], "零写入");
+	});
+});
+
+test("27 §15.2：注定失败的 create 一律不先惊动 Human（建前只读预检）", async () => {
+	// 实测过的真实缺陷：Gate 原先排在 writer 的机械校验之前，于是四种**注定失败**
+	// 的输入每一种都会先弹出询问、拿到「确认」，再被 writer 拒掉——那道确认已经
+	// 发生、已经落进会话记录，读起来却像一次失败的决定，且让 Gate 沦为噪声。
+	// 预检复用 writer 自己的校验函数（01 §11.4：不新造第二规则源）。
+	await withTemp("ldvh-norm-gate.", async (base) => {
+		const f = await governedFixture(base);
+		const BODY = BODY_H2;
+		const cases = [
+			["direction_key 格式非法", { ...CREATE_ARGS, frontmatter_draft: { title: "坏键", direction_key: "BAD KEY!!", status: "active" } }],
+			["title 超 40 字", { ...CREATE_ARGS, frontmatter_draft: { title: "超长标题".repeat(12), direction_key: "long-title", status: "active" } }],
+			["正文骨架残缺", { ...CREATE_ARGS, body_markdown: "## 方向定位与适用范围\n\n**管什么**：只有一段。" }],
+		];
+		for (const [name, args] of cases) {
+			const seams = fakeSeams("确认");
+			const env = await runWrite(args, seams, f);
+			assert.equal(seams.calls.length, 0, `${name}：不得先问 Human（实际问了 ${seams.calls.length} 次）`);
+			assert.notEqual(env.outcome, "completed", `${name}：不得完成`);
+			// 拒绝理由必须可行动，不是内部错误
+			assert.ok(!String(env.gaps).includes("Cannot read"), `${name}：不得报内部错误`);
+		}
+		// 反向：合法输入仍必须真的问（预检不得误伤）
+		const ok = fakeSeams("确认");
+		const envOk = await runWrite({ ...CREATE_ARGS, body_markdown: BODY }, ok, f);
+		assert.equal(ok.calls.length, 1, "合法输入须照常提问——预检不能把一切都拦下");
+		assert.equal(envOk.outcome, "completed");
+	});
+});
+
+test("27 §15.2：direction_key 已占用时不先问 Human（与 writer 同一拒绝码）", async () => {
+	await withTemp("ldvh-norm-gate.", async (base) => {
+		const f = await governedFixture(base);
+		const first = fakeSeams("确认");
+		const env1 = await runWrite(CREATE_ARGS, first, f);
+		assert.equal(env1.outcome, "completed", "夹具须建立成功");
+		const seams = fakeSeams("确认");
+		const env2 = await runWrite(CREATE_ARGS, seams, f);   // 同一 direction_key
+		assert.equal(seams.calls.length, 0, `占用冲突时不得先问 Human，实际问了 ${seams.calls.length} 次`);
+		assert.equal(env2.outcome, "rejected", `须为 rejected，实际 ${env2.outcome}`);
+		assert.ok(String(env2.gaps).includes("ERR_DIRECTION_ALREADY_EXISTS") || String(env2.gaps).includes("27 §11"), `须给出 27 §11 的唯一性理由：${JSON.stringify(env2.gaps)}`);
 	});
 });
 

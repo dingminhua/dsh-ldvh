@@ -44,6 +44,12 @@ import {
   updateNormObject,
   listNormObjects,
   ERR_DIRECTION_ALREADY_EXISTS,
+  // 建前预检**复用写入器自己的校验函数**，不新造第二套判据（01 §11.4：
+  // 规则不得在代码里出现第二份权威）。预检与写入因此不可能漂移。
+  validateNormFrontmatter,
+  validateNormBodyStructure,
+  listActiveDirectionKeys,
+  NORM_TYPE_KEY,
 } from "./norm-writer.js";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { toParameterSpec } from "./parameter-spec-adapter.js";
@@ -294,6 +300,65 @@ async function requestNormGate(deps, exec, { action, objectTitle, summary }) {
 }
 
 /**
+ * 建前只读预检（2026-11-15）：**在惊动 Human 之前**判掉注定失败的 create。
+ *
+ * **为什么需要它**（实测量出的真实缺陷）：Gate 原先排在写入器的机械校验之前，
+ * 于是 `direction_key` 格式非法、`direction_key` 已被占用、正文骨架缺段、`title`
+ * 超 40 字这四种**注定失败**的输入，每一种都会先弹出询问、拿到 Human 的「确认」，
+ * 然后被 writer 拒掉。实测四次 create 全部「先问 1 次、再拒」。那道确认已经发生、
+ * 已经落进会话记录，读起来却像一次失败的决定——与 `27 §15.1`「Human 决定只证明
+ * 决定及其作用范围」的边界不符，也让 Gate 沦为噪声。
+ *
+ * **判据不新造**：这里调的是写入器自己的 `validateNormFrontmatter` /
+ * `validateNormBodyStructure` / `listActiveDirectionKeys`，与 `createNormObject`
+ * 内部逐步同源。故预检通过而写入被拒，只可能发生在校验之间的竞态（另一进程刚占
+ * 用了同一个 direction_key），那时才值得消耗一次 Human 确认。
+ *
+ * **只读**：不分配 UID、不留占位、不写缓存（`02 §10.3` 的无副作用草案口径）。
+ */
+async function precheckNormCreate({ factSourceRoot, draft, bodyMarkdown }) {
+  // Code 托管字段在写入时才定值；预检用占位值补齐，只为让**类型字段**被校验到。
+  const probe = {
+    ...draft,
+    object_uid: "00000000-0000-4000-8000-000000000000",
+    fact_type_key: NORM_TYPE_KEY,
+    created_at: new Date(0).toISOString(),
+    status: draft?.status ?? "active",
+  };
+  const fm = validateNormFrontmatter(probe);
+  if (!fm.ok) {
+    return { ok: false, error_code: "norm/frontmatter_invalid",
+      reason: "frontmatter 未过 27 §8 机械校验（此时提问只会让你为一次注定失败的写入点头）", issues: fm.issues };
+  }
+  const listed = await listActiveDirectionKeys(factSourceRoot);
+  if (!listed.ok) {
+    // 扫描失败不等于可以放行：不提问、如实报告（与 writer 同向的 fail-closed）。
+    return { ok: false, error_code: "norm/scan_failed",
+      reason: `无法扫描 ${"norms"}/ 以核对 direction_key 唯一性：${listed.reason}`, issues: [] };
+  }
+  const occupied = listed.active.filter((e) => e.direction_key === draft?.direction_key);
+  if (occupied.length > 0) {
+    return {
+      ok: false,
+      reason: `direction_key "${draft?.direction_key}" 已被另一份 active Norm 占用（27 §11 唯一性）；请走对既有对象的受控更新，或先退役它再新建`,
+      issues: occupied.map((e) => `占用者：${e.object_uid ?? e.file}（${e.title ?? ""}）`),
+      error_code: ERR_DIRECTION_ALREADY_EXISTS,
+    };
+  }
+  // **必须先拼装 H1**：`createNormObject` 是 `assembleBody(title, bodyMarkdown)`
+  // 之后才校验，而 `validateNormBodyStructure` 要求正文恰好一个 H1。直接喂原始
+  // body 会把每一份合法输入都判成「缺 H1」——预检与写入必须同形，否则预检自己
+  // 就成了新的误判源（本次实测触发）。
+  const assembled = `# ${draft?.title ?? ""}\n\n${String(bodyMarkdown).trim()}`;
+  const bod = validateNormBodyStructure(assembled, draft?.title ?? "");
+  if (!bod.ok) {
+    return { ok: false, error_code: "norm/body_invalid",
+      reason: "正文未过 27 §8 四段骨架校验（此时提问只会让你为一次注定失败的写入点头）", issues: bod.issues };
+  }
+  return { ok: true };
+}
+
+/**
  * 安全取「方向定位与适用范围」段——`sectionContent` **找不到该 H2 时返回 `null`**，
  * 直接 `.trim()` 会抛 `TypeError`，把一条本该是「缺段，请补」的清晰拒绝变成一条
  * 内部 JS 错误（独立复核 MAJOR-1 实测：父提交报 `norm/body_invalid` + 点名缺失的
@@ -431,6 +496,17 @@ async function executeWriteObject(args, exec, deps) {
       return invalidRequest("norm-write-object",
         `27 §15.2 requires the 呈报内容 before the Human confirmation can be asked; missing: ${createGaps.join("、")}`,
         "create");
+    }
+    // **建前只读预检，排在 Gate 之前**（2026-11-15）：注定失败的输入不该先让
+    // Human 点一次「确认」。预检复用 writer 自己的校验函数，故与写入判据同源。
+    const pre = await precheckNormCreate({ factSourceRoot, draft, bodyMarkdown });
+    if (!pre.ok) {
+      return writeRejected(
+        "norm-write-object",
+        { ok: false, error: { code: pre.error_code ?? "norm/precheck_failed", message: pre.reason, details: { issues: pre.issues } } },
+        factSourceRoot,
+        "create",
+      );
     }
     const createReport = normReportFor("create", args);
     const gate = await requestNormGate(deps, exec, {
