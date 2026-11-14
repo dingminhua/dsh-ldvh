@@ -1085,8 +1085,19 @@ export const L0_SEGMENT_ENTRYPOINTS = Object.freeze({
  */
 export const L0_SHARE_DIVISOR = 3;
 
-/** 段尾声明（无条目被省略时）。刻意压短：它每回合常驻。 */
+/**
+ * 段尾声明（无条目被省略时）。刻意压短：它每回合常驻。
+ *
+ * Norm 段另给「方向定位」的取用入口：索引行只有标题与方向键，AI 仅凭标题
+ * 无法判断哪份规范在管当次事项；`ldvh_norm_list` 返回每份的方向定位摘录
+ * （`positioning`），据此判断该展开哪份，再用 `ldvh_norm_read` 读详情。
+ * 本行只给方法与入口，不携带定位内容本身——故仍是 L0 索引语汇，不带摘录、
+ * 不构成第二规则源，也不把「看得见」说成「已判定适用」。
+ */
 export const L0_FULL_NOTE = "（L0 索引：只标「有哪些」，不证明适用。）";
+
+/** Norm 段的段尾声明：比通用段尾多一句「方向定位取用入口」。 */
+export const L0_NORM_NOTE = "（L0 索引：只标「有哪些」，不证明适用。判断哪份规范管当次事项时，用 ldvh_norm_list 取各份方向定位，再按需 ldvh_norm_read 展开详情。）";
 
 /**
  * **规划 L0 常驻枚举**（纯函数，字节账与渲染逐字同源）。
@@ -1144,8 +1155,12 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
     // 段尾两版：全量版短，截断版要报「共几条、去哪儿取全量」。逐条装填时按
     // **最坏**那版判容量，装填完再取真实版本——宁可少列一条，不得列完才发现
     // 段尾放不下（那会静默超预算）。
+    // 段尾预算一律按「截断版」预留（与既有行为一致，不在紧预算下多吃条目）。
+    // 方向定位取用指引（全量版）比截断版长；若按它预留，1900 档会少列 1 条、
+    // 1500/1600 档整段让位——那是本次改动引入的退化（实测）。故预留只用截断版。
     const noteOf = (shown) =>
       `（本档预算仅容前 ${shown} 条，共 ${total} 条；全量用 ${entry}。L0 索引不证明适用。）`;
+    const fullNote = segment.type === "norm" ? L0_NORM_NOTE : L0_FULL_NOTE;
     const worstNoteBytes = Buffer.byteLength(noteOf(total), "utf8") + 1;
     // 连「段头 + 段尾 + 一条」都放不下 ⇒ 本段整段让位，痕迹由调用方并入披露行。
     if (cap - used < headerBytes + worstNoteBytes + Buffer.byteLength(segment.entries[0] ?? "", "utf8") + 1) {
@@ -1165,7 +1180,7 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
       continue;
     }
     const omitted = total - kept.length;
-    const note = omitted > 0 ? noteOf(kept.length) : L0_FULL_NOTE;
+    const note = omitted > 0 ? noteOf(kept.length) : fullNote;
     const bytes = headerBytes
       + kept.reduce((sum, line) => sum + Buffer.byteLength(line, "utf8") + 1, 0)
       + Buffer.byteLength(note, "utf8") + 1;

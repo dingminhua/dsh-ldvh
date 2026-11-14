@@ -66,6 +66,43 @@ const STATUSES = new Set(["active", "retired"]);
 /** Retirement-reason closed set (27 §8, §8.1). */
 const RETIREMENT_REASONS = new Set(["superseded", "outdated", "out-of-scope"]);
 
+/**
+ * "方向定位与适用范围" 首句的确定性摘录，由 `ldvh_norm_list` 投影，供 AI
+ * 判断该展开哪份 Norm（34 §8.1 适用识别）。它是正文首句的派生视图、不落
+ * frontmatter 字段，故正文仍是唯一权威文本（27 §7 载体内聚）。
+ *
+ * 与 27 §8 书写契约绑定：**只取 `**管什么**：` 标签后的首句**。取不到标签
+ * 一律返回 ""，由 list 投影显式标注不可用（34 §12 三态），绝不回退整段首段——
+ * 旧载体「上游更新跟进规程」的整段首句是「…AI 无须另行请示即可按本规程跟进」，
+ * 回退会把一句脱离上下文的授权当成「本规范管什么」抛给 AI。
+ */
+const POSITIONING_MAX_CHARS = 60;
+// 与 27 §8 第 2 条逐字对齐：禁「无须/无需/不必…请示」「可直接」「免予/免于」
+// 等授权措辞。旧实现只认「…请示」连用、漏「可直接」与独立的「免于/免予」；
+// 这里补齐规范点名的词，但不把「不必/无须」等泛词独立拦下（会误伤正常定位句）。
+const POSITIONING_FORBIDDEN = /无须.*请示|无需.*请示|不必.*请示|免予.*请示|免于.*请示|可直接|免予|免于/;
+
+function directionPositioningOf(raw) {
+  const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+  const section = sectionContent(body, "方向定位与适用范围");
+  if (!section) return "";
+  const firstParagraph = section.split(/\n\s*\n/)[0];
+  // 27 §8 第 1 条：标签须为粗体 `**管什么**` + 中文冒号 `：`。
+  // 先在「原样折叠空白」的字符串上判标签（强制粗体与中文冒号，拒半角冒号/无粗体），
+  // 再在「剥除 markdown 标记」的字符串上取正文——两者分工，避免正文里的粗体
+  // 把首句字数算多（实测「发布门槛」的 `**发布前必须通过的检查清单**` 曾致 63>60）。
+  const trimmed = firstParagraph.replace(/\s+/g, " ").trim();
+  const labelMatch = /^\*\*管什么\*\*：\s*/.exec(trimmed);
+  const flat = trimmed.replace(/\*\*/g, "").replace(/`/g, "");
+  // 剥标记后标签等价为「管什么：」；用它定位正文起点。
+  const labelled = labelMatch ? /^管什么：\s*([\s\S]*)/.exec(flat) : null;
+  if (!labelled) return "";  // 标签不合契约：不外发摘录，交由 list 显式标注
+  const cut = /^(.+?[。；])/.exec(labelled[1]);
+  const text = (cut ? cut[1] : labelled[1]).trim();
+  if (text.length === 0 || text.length > POSITIONING_MAX_CHARS || POSITIONING_FORBIDDEN.test(text)) return "";
+  return text;
+}
+
 /** Title cap (27 §8: ≤ 40 字; same UTF-16 code-unit counting as 20 §9.1). */
 const MAX_TITLE_LENGTH = 40;
 
@@ -710,19 +747,30 @@ export async function listNormObjects(args) {
   // Fail-closed: colliding active Norms are withheld from the ordinary result.
   const servable = wanted.filter((item) => !collidingFiles.has(item.file));
 
-  const projected = servable.map((item) => ({
-    object_uid: item.frontmatter.object_uid ?? null,
-    // fact_type_key is projected so the renderer can build the typed reference
-    // form `<type>-<8hex>` without guessing the type (02 §9.3 指称形态); the
-    // same field is projected by the other five writers' list paths.
-    fact_type_key: typeof item.frontmatter.fact_type_key === "string" ? item.frontmatter.fact_type_key : "",
-    file: item.file,
-    title: item.frontmatter.title ?? null,
-    status: item.frontmatter.status ?? null,
-    direction_key: item.frontmatter.direction_key ?? null,
-    retirement_reason: item.frontmatter.retirement_reason ?? null,
-    fingerprint: fileFingerprint(item.raw),
-  }));
+  const projected = servable.map((item) => {
+    const positioning = directionPositioningOf(item.raw);
+    return {
+      object_uid: item.frontmatter.object_uid ?? null,
+      // fact_type_key is projected so the renderer can build the typed reference
+      // form `<type>-<8hex>` without guessing the type (02 §9.3 指称形态); the
+      // same field is projected by the other five writers' list paths.
+      fact_type_key: typeof item.frontmatter.fact_type_key === "string" ? item.frontmatter.fact_type_key : "",
+      file: item.file,
+      title: item.frontmatter.title ?? null,
+      status: item.frontmatter.status ?? null,
+      direction_key: item.frontmatter.direction_key ?? null,
+      // Bounded, deterministic excerpt of the 方向定位与适用范围 first sentence
+      // (27 §8 书写契约). Lets the consumer decide which Norm applies and which
+      // to open via ldvh_norm_read, without putting rule text into the L0 row.
+      // "" = 首句不合契约、定位不可机械导出（34 §12 三态），由 status 显式告知。
+      positioning,
+      positioning_status: positioning === ""
+        ? "unavailable: 方向定位首句不合 27 §8 书写契约（缺「管什么」标签／超 60 字／含授权措辞），请用 ldvh_norm_read 读正文"
+        : "ok",
+      retirement_reason: item.frontmatter.retirement_reason ?? null,
+      fingerprint: fileFingerprint(item.raw),
+    };
+  });
   const effectiveLimit = Number.isInteger(limit) && limit > 0 ? limit : 200;
   const sliced = projected.slice(0, effectiveLimit);
   const truncated = projected.length > sliced.length;

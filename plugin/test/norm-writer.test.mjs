@@ -436,6 +436,77 @@ test("list: active-only by default; retired surfaces only with status=all (27 §
 // 34 §8.1 适用识别：AI 仅凭标题无法判断哪份规范在管当次事项，故 list 投影
 // 须给出「方向定位与适用范围」段的确定性摘录，供其决定展开哪份（ldvh_norm_read）。
 // 该摘录是正文的派生视图、不是新增 frontmatter 字段（27 §7 载体内聚不破）。
+test("list: projections carry a bounded, deterministic 方向定位 excerpt", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		// 直接以带「管什么」标记的四段正文创建，模拟真实 Norm 的方向定位段。
+		const body = `## 方向定位与适用范围
+
+**管什么**：本方向管示例事务的准入与边界，不回答其它方向的判定。
+
+## 核心规则体系
+
+规则一。
+
+## 约束与反模式
+
+禁止项。
+
+## 验证与遵从性检查
+
+核对方式。
+`;
+		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
+		const uid = created.value.object_uid;
+
+		const listed = await listNormObjects({ factSourceRoot: root });
+		const item = listed.value.items.find((i) => i.object_uid === uid);
+		assert.ok(item, "the created Norm must be listed");
+		assert.equal(typeof item.positioning, "string");
+		assert.match(item.positioning, /本方向管示例事务的准入与边界/);
+		assert.ok(!item.positioning.includes("管什么"), "markdown 标记须剥除");
+		assert.ok(!item.positioning.includes("**"), "强调标记须剥除");
+		// 27 §8 契约：≤60 字、无截断（超限即不合格、不外发）。断言具体长度而非
+		// 恒真的上界，使「实现把上限放宽」时本用例会红（06 §7 断言检测力）。
+		assert.ok(item.positioning.length <= 60, "摘录须 ≤60 字（27 §8 书写契约）");
+		assert.ok(!item.positioning.endsWith("…"), "合契约时不得出现截断省略号");
+		// 确定性：同一载体两次调用逐字相同。
+		const again = await listNormObjects({ factSourceRoot: root });
+		assert.equal(again.value.items.find((i) => i.object_uid === uid).positioning, item.positioning);
+	});
+});
+
+// 27 §8 书写契约 / M1 防线：不合契约的首段（无标签、含授权措辞、超长）
+// 绝不外发成「定位」摘录，须显式标 unavailable 并指引读正文（34 §12 三态）。
+// 旧「上游更新跟进规程」的整段首句是「…AI 无须另行请示即可按本规程跟进」，
+// 回退取首段会把一句脱离上下文的授权抛给 AI。
+test("list: 方向定位不合契约时不外发摘录、显式标 unavailable", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		const body = `## 方向定位与适用范围
+
+当 Human 告知上游已更新时，AI 无须另行请示即可按本规程跟进；适用于差分全过程。
+
+## 核心规则体系
+
+规则一。
+
+## 约束与反模式
+
+禁止项。
+
+## 验证与遵从性检查
+
+核对方式。
+`;
+		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
+		const uid = created.value.object_uid;
+		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === uid);
+		assert.equal(item.positioning, "", "无「管什么」标签且含授权措辞时不得外发摘录");
+		assert.match(item.positioning_status, /unavailable/, "须显式标注不可用");
+		assert.match(item.positioning_status, /ldvh_norm_read/, "须指引读正文，不静默当成没有定位");
+	});
+});
 
 // ---------------------------------------------------------------------------
 // Tool-plane reachability (the aa12604 defect class)

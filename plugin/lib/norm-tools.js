@@ -64,7 +64,7 @@ const OPERATIONS = {
   },
   "norm-list-objects": {
     toolName: "ldvh_norm_list",
-    summary: "Enumerate Norm fact objects (F0/F1 discovery): direction_key/title/status projection for the governed project; active-only by default; a collision on one direction_key withholds every colliding Norm and reports direction_collision (fail-closed, specs/27 §11 item 3 / §10)",
+    summary: "Enumerate Norm fact objects (F0/F1 discovery): direction_key/title/status AND a bounded 方向定位与适用范围 excerpt (positioning) per Norm, so the consumer can decide which Norm governs the current matter before opening it with ldvh_norm_read; active-only by default; a collision on one direction_key withholds every colliding Norm and reports direction_collision (fail-closed, specs/27 §11 item 3 / §10)",
     effect: "read"
   },
   "norm-write-object": {

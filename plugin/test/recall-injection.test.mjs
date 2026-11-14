@@ -1760,6 +1760,23 @@ test("L0 常驻：ADR 与事实规范全量列出，经验改为按需一行（2
 	assert.match(r.text, /· 发布门槛（release-gate）/, "Norm 条目须带 direction_key");
 });
 
+// 34 §8.1 适用识别：L0 索引行只有标题+direction_key，AI 无法据此判断
+// 「哪份规范在管当次事项」。段尾须给出确定性入口，让 AI 去 ldvh_norm_list
+// 取各份方向定位、再 ldvh_norm_read 展开详情。只给方法与入口，不带摘录。
+test("L0 常驻：事实规范段尾须给出方向定位的取用入口", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 51200 });
+	assert.equal(r.inject, true);
+	assert.match(r.text, /用 ldvh_norm_list 取各份方向定位/, "段尾须指明方向定位的取用工具");
+	assert.match(r.text, /ldvh_norm_read 展开详情/, "段尾须指明展开详情的工具");
+	// 索引行形态不变：不带定位内容本身（守 34 §8.4 第 1 项「字段止于 L0」）。
+	const normRow = r.text.split("\n").find((l) => l.startsWith("· 发布门槛"));
+	assert.ok(normRow && !normRow.includes("｜"), "索引行不得夹带摘录/定位内容");
+	// 纯读取回合（无词法候选）同样要有这句入口。
+	const pure = await buildRecallInjection({ userText: "继续", projectRoot: ROOT, limit: 99, budgetBytes: 10240 });
+	assert.match(pure.text, /用 ldvh_norm_list 取各份方向定位/, "纯读取回合也须给出入口");
+});
+
 test("L0 三段：索引不得混入候选语汇，也不得占 limit 名额", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 10240 });
