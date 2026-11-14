@@ -1804,12 +1804,12 @@ test("把关提示行：静默执行开着时，两处由「须询问」改为�
 	// 这是本开关的行为面：主控读到的指令变了。只加一行状态而不改这两句，
 	// 主控仍会照旧去问——那与「开关打开了却不生效」是同一类失效。
 	assert.match(silent, /静默执行：\*\*已开启\*\*/);
-	assert.match(silent, /① 动手前[\s\S]*?不要问/, "行动前那一支须改为「不要问」");
+	assert.match(silent, /① 行动前[\s\S]*?不要问/, "行动前那一支须改为「不要问」");
 	assert.match(silent, /② 收口前[\s\S]*?不要问/, "收口前那一支须改为「不要问」");
 	// 反向：静默关着时不得出现「不要问」
 	const asked = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
 	assert.doesNotMatch(asked, /不要问/, "静默关着时仍须照旧询问");
-	assert.match(asked, /须先询问 Human「是否安排代理审查」/);
+	assert.match(asked, /询问 Human「是否安排代理审查」/);
 	// 静默开着但两处询问开关都关：没有作用对象，不得出现静默态
 	// （生命周期那边也直接不注入，这里是函数自身的边界）
 	const noSubject = buildReviewAskNotice({ preOn: false, postOn: false, silentOn: true });
@@ -1852,7 +1852,7 @@ test("把关提示行：点位排除渲染在判据之后，且带交付义务�
 	// ② 后置：排除块必须出现在判据清单之后，且在两处行为指令之前
 	const criteriaEnd = text.lastIndexOf(COMPLEXITY_CRITERIA[COMPLEXITY_CRITERIA.length - 1].label);
 	const exclusionHead = text.indexOf("点位排除");
-	const actionHead = text.indexOf("① 动手前");
+	const actionHead = text.indexOf("① 行动前");
 	assert.ok(criteriaEnd !== -1 && exclusionHead !== -1 && actionHead !== -1);
 	assert.ok(exclusionHead > criteriaEnd, "点位排除不得渲染在判据之前——它是判为复杂之后的第二道");
 	assert.ok(exclusionHead < actionHead, "点位排除须先于行为指令渲染，否则 ①② 两句里的「未命中排除」无所指");
@@ -1873,10 +1873,56 @@ test("把关提示行：行为指令须以「未命中排除」为条件（否�
 	// 「配置武装只挂装载路径」那类失效的近亲：数据到位，指令没到位，主控照旧问。
 	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
 	const asked = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
-	assert.match(asked, /① 动手前[\s\S]*?未命中排除[\s\S]*?须先询问 Human/, "行动前指令须把排除作为前置条件");
-	assert.match(asked, /② 收口前[\s\S]*?未命中[\s\S]*?须询问 Human/, "收口前指令须把排除作为前置条件");
+	assert.match(asked, /① 行动前[\s\S]*?未命中排除[\s\S]*?询问 Human/, "行动前指令须把排除作为前置条件");
+	assert.match(asked, /② 收口前[\s\S]*?未命中[\s\S]*?询问 Human/, "收口前指令须把排除作为前置条件");
 
 	const silent = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: true });
-	assert.match(silent, /① 动手前[\s\S]*?未命中排除[\s\S]*?不要问/, "静默档同样须先看排除");
+	assert.match(silent, /① 行动前[\s\S]*?未命中排除[\s\S]*?不要问/, "静默档同样须先看排除");
 	assert.match(silent, /② 收口前[\s\S]*?未命中[\s\S]*?不要问/);
+});
+
+// ---------------------------------------------------------------------------
+// 提示时机（2026-11-14 Human 指出「主控还没有自己意见的时候，怎么会有审查这个
+// 说法？说明审查的提示时机有问题」）
+// ---------------------------------------------------------------------------
+
+test("把关提示行：行动前那处须带「方案已有候选」这个时点条件", async () => {
+	// **本条守的是一个真实发生的误读**：旧行文只写「动手前」，被读成「任务第一秒」，
+	// 于是在主控尚未读完规范、尚未形成任何判断时就发起了询问——而行动前那处问的是
+	// 「要不要对**候选**安排一次独立核对」（32 §8.1），32 §7.2 又把「方案关键主张」
+	// 列为该处可选输入。没有候选就没有可核对的对象，此时发问是空问，正是 32 §6.4
+	// 明禁的「为规避判断而一律请示（那会使机制退化为噪音）」。
+	//
+	// 规范里的进入信号是 32 §6.1 的「尚未开始产生副作用」，不是「尚未做任何事」：
+	// 读规范、查事实、收敛方案都不产生副作用。故注入行必须把这一条写出来，否则
+	// 主控只能凭「动手前」三个字猜时点。
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	for (const silentOn of [false, true]) {
+		const text = buildReviewAskNotice({ preOn: true, postOn: true, silentOn });
+		assert.match(text, /① 行动前（方案已有候选/, "行动前指令须在标题处写明时点条件");
+		assert.match(text, /尚无候选方案时不得发起该处请示/, "须明说无候选时不发起（否则空问仍会发生）");
+		assert.match(text, /尚未产生副作用/, "须写明 32 §6.1 的进入信号是「尚未产生副作用」而非「尚未做任何事」");
+	}
+});
+
+test("把关提示行：答复不构成动手／收口前提（不得把请示写成暂停）", async () => {
+	// **本条守的是与 00 §2.5 的直接冲突**：旧行文写「取得明确答复后才动手」，
+	// 而 00 §2.5 原文是「请示本身不是行动放行的前提，**也不使行动在取得答复前
+	// 暂停**」，32 §3.4 更明禁「把「未取得答复」处置为「必须暂停」」。
+	//
+	// 冲突的实际后果不是理论问题：受保护文本 guidance-text.js 里那句「也不使行动
+	// 在取得答复前暂停」与这条注入行同批进入上下文，而注入行是祈使句、带「才」字，
+	// 模型照后者执行。2026-11-14 本会话即照此在无候选时发起了询问。
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	for (const silentOn of [false, true]) {
+		const text = buildReviewAskNotice({ preOn: true, postOn: true, silentOn });
+		// 反向：这两句旧措辞一个都不许留
+		assert.doesNotMatch(text, /取得明确答复后才动手/, "不得把请示写成动手的前提（00 §2.5）");
+		assert.doesNotMatch(text, /取得明确答复后再收口/, "不得把请示写成收口的前提（00 §2.5）");
+	}
+	// 征询档须当场说明「未取得答复怎么办」，否则「不暂停」只是一句否定
+	const asked = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
+	assert.match(asked, /\*\*答复不构成动手前提\*\*/, "须明说答复不构成动手前提");
+	assert.match(asked, /未取得答复时按既有路径继续/, "须给出未取得答复时的处置方向");
+	assert.match(asked, /\*\*答复不构成收口前提\*\*/, "收口处同理");
 });
