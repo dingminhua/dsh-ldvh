@@ -37,7 +37,6 @@ import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
 import { LDVH_ERROR_TEXT_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
-import { getTypeSurfaceTint } from '@/utils/typeSurface';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type StatusReason = { label: string; text: string; missing?: boolean };
@@ -977,6 +976,21 @@ export default function ObjectList() {
       <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-4 min-h-8 border-b border-ldvh-border bg-ldvh-bg/95 px-6 py-3 backdrop-blur">
         {/* Spark 三联过滤之一：priority（20 §8，Human 裁定 2026-09-13）——
             AI 出初值、Human 可调整；仅 open 时出现，故终态分组下不展示。 */}
+        {/* 24 §5（2026-11-14）：报告形态筛选独占一行，与状态筛选分行。
+            **不能与状态筛选并排**：两者各有一个「全部」，并排会出现
+            「全部 50」「全部 50」紧挨——读者会当成重复渲染，也分不清哪个「全部」
+            归哪一组。Spark 的优先级筛选同样是独立一行（见下），此处沿用同一布局。
+            形态筛选与优先级互斥（前者只属 report、后者只属 spark），故共用这行的位置。 */}
+        {supportsFormNavigation && formOptions.length > 0 && (
+          <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <ReportFormFilter
+              activeForm={activeForm}
+              onChange={handleFormChange}
+              options={formOptions}
+              loading={loading}
+            />
+          </div>
+        )}
         {supportsPriorityNavigation && priorityOptions.length > 0 && (
           <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <ObjectPriorityFilter
@@ -1001,17 +1015,6 @@ export default function ObjectList() {
               total={statusTotal}
               loading={loading}
             />
-            {/* 24 §5：形态筛选与状态筛选正交、可叠加。仅报告类型渲染
-                （其它类型 formOptions 为空，组件自身返回 null）。 */}
-            {supportsFormNavigation && (
-              <ReportFormFilter
-                activeForm={activeForm}
-                onChange={handleFormChange}
-                options={formOptions}
-                total={statusTotal}
-                loading={loading}
-              />
-            )}
           </div>
           <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
             {renderObjectSearch()}

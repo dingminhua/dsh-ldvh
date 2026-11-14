@@ -41,8 +41,6 @@ interface ReportFormFilterProps {
   onChange: (form: ReportForm | null) => void;
   /** 后端 `formOptions`：只含实际出现的形态。 */
   options?: Array<{ status: string; count: number }>;
-  /** 「全部」的总数（当前池的对象数）。 */
-  total?: number;
   loading?: boolean;
   className?: string;
 }
@@ -55,7 +53,6 @@ export default function ReportFormFilter({
   activeForm,
   onChange,
   options = [],
-  total = 0,
   loading = false,
   className = '',
 }: ReportFormFilterProps) {
@@ -76,21 +73,18 @@ export default function ReportFormFilter({
 
   return (
     <div className={`ldvh-tab-list ${className}`} aria-label={t('objectList.formFilter')}>
-      {/* 「全部」在首位：与 `CommitFilterGroup` 一致（那里 allLabel 也排第一），
-          它是不筛选的兜底项，读者第一眼就该看到「不筛」这个默认态。 */}
-      <button
-        type="button"
-        onClick={() => onChange(null)}
-        className={getButtonClass(activeForm === null)}
-      >
-        {t('objectList.all')}
-        <span className="ldvh-tab-count">{loading ? '·' : total}</span>
-      </button>
+      {/* **本组不设「全部」**：状态筛选行已有「全部 50」，两组紧邻时会出现
+          两个「全部」并排，读者分不清归哪一组、也不当它是重复渲染才怪。
+          取消选中的通道仍在——点击已选中的形态即取消（见下方 onClick 的三元）；
+          与 `SegmentedControl` 的「再点一次取消」同一交互直觉。
+          （参考样式里 `CommitFilterGroup` 有「全部」，那是该页唯一的筛选组，
+          没有重复问题；本页有两组，故不照搬。） */}
       {forms.map(({ form, count }) => (
         <button
           key={form}
           type="button"
-          onClick={() => onChange(form)}
+          // 再点已选中的形态即取消筛选（回到不过滤），补上「全部」缺席的那条通道。
+          onClick={() => onChange(activeForm === form ? null : form)}
           // 颜色只做文字色，与 `CommitFilterGroup` 的 getOptionColor 同一手法。
           style={{ color: FORM_TEXT_COLOR[form] }}
           className={getButtonClass(activeForm === form)}
