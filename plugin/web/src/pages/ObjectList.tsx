@@ -4,7 +4,8 @@ import { ArrowDownWideNarrow, CalendarClock, CircleAlert, Clock3, History, Searc
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import ObjectStatusFilter from '@/components/ObjectStatusFilter';
-import ReportFormFilter, { type ReportForm } from '@/components/ReportFormFilter';
+import ReportFormFilter from '@/components/ReportFormFilter';
+import { FORM_PALETTE, type ReportForm } from '@/utils/reportFormPalette';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -190,14 +191,22 @@ export function ObjectCardFrame({
               一个胶囊里塞两段身份读起来是一个复合词，读者会以为「报告·调研」是
               某种类型名；拆开后「报告」是类型、「调研」是形态，各自可辨、也可分别
               扫读。仅 report 类型有第二枚（其它类型无 report_form）。 */}
-          {obj.type === 'report' && typeof obj.report_form === 'string' && obj.report_form.length > 0 && (
-            <span
-              className="ldvh-chip-sm"
-              style={{ backgroundColor: `${typeColor}12`, borderColor: `${typeColor}44`, color: typeColor }}
-            >
-              {getFieldValueLabel('report_form', obj.report_form, locale)}
-            </span>
-          )}
+          {obj.type === 'report' && typeof obj.report_form === 'string' && obj.report_form.length > 0 && (() => {
+            // 形态徽章复用筛选条的同一组配色（`FORM_PALETTE`）——同一形态在筛选条与
+            // 卡片上必须是同一颜色，否则读者会以为是两个不同的东西。
+            const form = obj.report_form as ReportForm;
+            const palette = FORM_PALETTE[form];
+            return (
+              <span
+                className="ldvh-chip-sm"
+                style={palette
+                  ? { backgroundColor: palette.bg, borderColor: palette.border, color: palette.text }
+                  : undefined}
+              >
+                {getFieldValueLabel('report_form', obj.report_form, locale)}
+              </span>
+            );
+          })()}
           {/* Human 定案：卡头标签序 = 类型 → 优先级 → 修改次数；不设关联
               chip（条件字段有值才显示，20 §8 priority 仅 open 时出现）。
 

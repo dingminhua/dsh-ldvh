@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useI18n } from '@/i18n/context';
 import { getFieldValueLabel } from '@/i18n/locales';
+import { FORM_PALETTE, FORM_ORDER, type ReportForm } from '@/utils/reportFormPalette';
 
 /**
  * 24 §5（2026-11-14）：报告形态筛选条。
@@ -9,31 +10,14 @@ import { getFieldValueLabel } from '@/i18n/locales';
  * （调研型／总结型／审核型）共用一个 `report` 类型，靠 `report_form` 区分。
  * 类型筛选看不出形态差异，故本组件在报告列表上单独提供形态筛选。
  *
- * **样式参照 `ObjectPriorityFilter` 与 changelog 的 `CommitFilterGroup`**：
- * 同一个 `ldvh-tab-list` 容器 + 同一组 `ldvh-tab-button` 类，**只有文字着色
- * 区分选项**，不加背景与边框——大面积色块会让筛选条抢走列表内容的注意力，
- * 与既有筛选条也不一致。
+ * **样式参照 Spark 的 P0–P3 胶囊**（`ObjectPriorityFilter`）：同一个
+ * `ldvh-tab-list` 容器 + 同一组 `ldvh-tab-button` 类，每个选项带自己的
+ * **浅底 + 同色文字 + 同色边框**。三形态各取一色（绿 / 橙 / 紫，色相互隔），
+ * 确保扫读时一眼可分；配色见 `@/utils/reportFormPalette`。
  *
  * 与 `ObjectStatusFilter` 的分工：那个筛**状态**（活跃／已废弃），本组件筛
  * **形态**（调研／总结／审核）。两者正交、可叠加。
  */
-export type ReportForm = 'research' | 'summary' | 'audit';
-
-/**
- * 三形态的文字色。
- *
- * 取报告类别色 teal `#14b8a6`（见 `categoryColors.ts`）的邻近色域：三者同族
- * 可辨，不会被误读成三个不同的事实类型；又因色调有区分，扫读时不至于混成一片。
- * （与 `CommitFilterGroup` 用的 `CATEGORY_COLORS[commitType]` 同一手法：
- * 颜色只做文字色，不做底色。）
- */
-const FORM_TEXT_COLOR: Record<ReportForm, string> = {
-  research: '#0f766e', // teal-700
-  summary: '#0891b2',  // cyan-600
-  audit: '#4338ca',    // indigo-700
-};
-
-const FORM_ORDER: ReportForm[] = ['research', 'summary', 'audit'];
 
 interface ReportFormFilterProps {
   /** 当前选中的形态；null 表示「全部」（不过滤）。 */
@@ -83,8 +67,16 @@ export default function ReportFormFilter({
           key={form}
           type="button"
           onClick={() => onChange(form)}
-          // 颜色只做文字色，与 `CommitFilterGroup` 的 getOptionColor 同一手法。
-          style={{ color: FORM_TEXT_COLOR[form] }}
+          // 三形态各用自己的浅底 + 同色文字 + 同色边框（参考 P0–P3 胶囊的做法）。
+          //
+          // **选中态必须在这里自己给**：内联样式优先级高于 `ldvh-tab-button-active`
+          // 的 @apply 类（那类设的 border/bg/text 会被内联覆盖），只给一组色值会让
+          // 选中与未选中看起来一模一样。故选中时换成更深的底与实心边框。
+          style={{
+            color: FORM_PALETTE[form].text,
+            backgroundColor: activeForm === form ? FORM_PALETTE[form].activeBg : FORM_PALETTE[form].bg,
+            borderColor: activeForm === form ? FORM_PALETTE[form].activeBorder : FORM_PALETTE[form].border,
+          }}
           className={getButtonClass(activeForm === form)}
         >
           {getFieldValueLabel('report_form', form, locale)}
