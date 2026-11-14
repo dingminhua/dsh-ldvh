@@ -317,14 +317,33 @@ async function requestNormGate(deps, exec, { action, objectTitle, summary }) {
  * **只读**：不分配 UID、不留占位、不写缓存（`02 §10.3` 的无副作用草案口径）。
  */
 async function precheckNormCreate({ factSourceRoot, draft, bodyMarkdown }) {
-  // Code 托管字段在写入时才定值；预检用占位值补齐，只为让**类型字段**被校验到。
+  // **必须与 createNormObject 同形**（2026-11-15 自查抓出）：写入器在拼 frontmatter
+  // 之前先做三件事，预检若不做就会与写入判据分歧——
+  //   ① `change_summary` 被剥出 draft、进 `change_log`，**它不是 frontmatter 字段**，
+  //      却出现在 `frontmatter_draft` 的 schema 里（合法输入）。预检若原样喂给
+  //      `validateNormFrontmatter`，会把这份**合法**输入判成闭集违规而误拒。
+  //   ② create 的合法初态唯一是 active；`status` 由写入器强制覆写为 active。
+  //   ③ 终态伴随字段（retirement_reason/retired_at）在创建时禁入。
+  const { change_summary: _strippedSummary, ...draftFields } = draft ?? {};
   const probe = {
-    ...draft,
+    ...draftFields,
     object_uid: "00000000-0000-4000-8000-000000000000",
     fact_type_key: NORM_TYPE_KEY,
     created_at: new Date(0).toISOString(),
-    status: draft?.status ?? "active",
   };
+  // ① 初态：只有 active 合法（27 §8.1）。这比 writer 更早报错，判断同源。
+  if (probe.status !== undefined && probe.status !== "active") {
+    return { ok: false, error_code: "norm/initial_state_violation",
+      reason: `create must initialise as status=active; got ${JSON.stringify(probe.status)} (27 §8.1 — 合法初态唯一)`,
+      issues: [] };
+  }
+  probe.status = "active";
+  // ② 终态伴随字段创建时禁入（27 §8）。
+  if (probe.retirement_reason !== undefined || probe.retired_at !== undefined) {
+    return { ok: false, error_code: "norm/frontmatter_invalid",
+      reason: "create must not carry retirement_reason/retired_at (27 §8: terminal fields accompany status=retired only)",
+      issues: [] };
+  }
   const fm = validateNormFrontmatter(probe);
   if (!fm.ok) {
     return { ok: false, error_code: "norm/frontmatter_invalid",

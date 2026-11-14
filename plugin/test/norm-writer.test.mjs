@@ -810,6 +810,53 @@ test("27 §15.2：注定失败的 create 一律不先惊动 Human（建前只读
 	});
 });
 
+test("建前预检必须与写入器同形：change_summary 是合法输入，不得误拒", async () => {
+	// 自查抓出的真缺陷：`frontmatter_draft.change_summary` 在 schema 里**合法**
+	// （writer 会把它剥出 draft 放进 change_log），而预检第一版原样喂给
+	// validateNormFrontmatter，于是把这份**合法**输入判成 `unexpected field
+	// "change_summary"` 闭集违规而拒。预检与写入不同源，就成了新的误判源。
+	await withTemp("ldvh-norm-gate.", async (base) => {
+		const f = await governedFixture(base);
+		const seams = fakeSeams("确认");
+		const env = await runWrite({
+			...CREATE_ARGS,
+			frontmatter_draft: { ...CREATE_ARGS.frontmatter_draft, change_summary: "初始创建" },
+		}, seams, f);
+		assert.equal(env.outcome, "completed", `带 change_summary 的合法输入不得被拒：${JSON.stringify(env.gaps)}`);
+		assert.equal(seams.calls.length, 1, "合法输入须照常提问");
+	});
+});
+
+test("建前预检必须与写入器同形：初态与终态伴随字段沿用 writer 的判定", async () => {
+	await withTemp("ldvh-norm-gate.", async (base) => {
+		const f = await governedFixture(base);
+		// ① create 带 status=retired → initial_state_violation，且不问
+		{
+			const seams = fakeSeams("确认");
+			const env = await runWrite({
+				...CREATE_ARGS,
+				// retired_at 被宿主 schema 挡住（additionalProperties:false），故只用 status+retirement_reason
+				frontmatter_draft: { title: "初态非法", direction_key: "initial-bad", status: "retired", retirement_reason: "outdated" },
+			}, seams, f);
+			assert.equal(seams.calls.length, 0, "初态非法不得先问 Human");
+			assert.equal(env.outcome, "rejected", `须为 rejected，实际 ${env.outcome}`);
+			assert.ok(String(env.gaps).includes("initial_state_violation") || String(env.gaps).includes("27 §8.1"),
+				`须给出初态理由：${JSON.stringify(env.gaps)}`);
+		}
+		// ② create 带 retirement_reason 而 status=active → frontmatter_invalid，且不问
+		{
+			const seams = fakeSeams("确认");
+			const env = await runWrite({
+				...CREATE_ARGS,
+				frontmatter_draft: { title: "夹带终态字段", direction_key: "terminal-smuggle", status: "active", retirement_reason: "outdated" },
+			}, seams, f);
+			assert.equal(seams.calls.length, 0, "终态伴随字段禁入时不得先问 Human");
+			assert.equal(env.outcome, "rejected", `须为 rejected，实际 ${env.outcome}`);
+			assert.ok(String(env.gaps).includes("retirement_reason"), `须点明 retirement_reason：${JSON.stringify(env.gaps)}`);
+		}
+	});
+});
+
 test("27 §15.2：direction_key 已占用时不先问 Human（与 writer 同一拒绝码）", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
