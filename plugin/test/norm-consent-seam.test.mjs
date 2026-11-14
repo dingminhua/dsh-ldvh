@@ -2,15 +2,19 @@
 //
 // Why this file exists: norm-writer.test.mjs injects a FAKE seam, so it proves the
 // call sites are wired but never exercises the seam's own parse. An independent
-// review measured that gap concretely — changing the parse
-// to fall back to `answers[0]` and dropping the `agent` forwarding left ALL 27
-// adr-tools cases green. The 27 §15 Gate fails closed only if this function
-// itself refuses every answer shape other than an exact affirmative AND carries
-// the live agent (without it the host forwarder declines → NO_PROVIDER).
+// review measured that gap on the ADR seam (adr-consent-seam.test.mjs): falling
+// back to `answers[0]` and dropping the `agent` forwarding left every
+// norm-writer call-site case green. The 27 §15 Gate fails closed only if this
+// function itself refuses every answer shape other than an exact affirmative AND
+// carries the live agent (without it the host forwarder declines → NO_PROVIDER).
 //
 // This file also owns the 200-char `question` bound and the "no detail block"
-// rule for ADR asks (Human 2026-11-13): the host imposes no length check, so
+// rule for 27 §15 asks (Human 2026-11-13): the host imposes no length check, so
 // nothing but these assertions holds it.
+//
+// **本文件是从 `adr-consent-seam.test.mjs` 改造的**：两者的接缝解析形态必须逐一
+// 对应，否则「ADR 守住了、Norm 漏了」这类不对称会长期潜伏。改造后须逐行核过
+// 残留（主句写 Norm、从句仍写 ADR 的那种半改状态是最难发现的）。
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -109,9 +113,10 @@ test("norm consent: decline / no choice / wrong id / empty answers all refuse", 
 });
 
 test("norm consent: an affirmative given to ANOTHER question in the same batch does not grant", async () => {
-  // The exact defect an independent review proved was untested: falling back to
-  // `answers[0]` would grant ADR consent from a "yes" given to a different
-  // question. The affirmative here comes FIRST, so a first-entry fallback grants.
+  // The exact defect an independent review proved was untested on the ADR seam:
+  // falling back to `answers[0]` would grant Norm consent from a "yes" given to
+  // a different question. The affirmative here comes FIRST, so a first-entry
+  // fallback grants.
   const { seams, install } = installWith(async () => ({
     answers: [
       { id: "ldvh-adr-consent", selected: ["确认"] },

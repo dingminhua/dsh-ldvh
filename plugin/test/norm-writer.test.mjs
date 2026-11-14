@@ -757,6 +757,57 @@ test("27 §15.2：create 缺查重结论即硬拒，且根本不发出提问", a
 	});
 });
 
+test("27 §15.2：create 的 body 缺「方向定位与适用范围」段 ⇒ 清晰拒绝，不是内部 TypeError", async () => {
+	// 独立复核 MAJOR-1 实测抓出：`sectionContent` 找不到该 H2 时**返回 null**，
+	// 我第一版直接 `.trim()`，于是把一条「缺段，请补」的可行动拒绝变成
+	// `Cannot read properties of null`。缺段是常规输入错误，必须走 gaps 报出来。
+	// 与 norm-tools.js 自己的「缺什么报什么」纪律、00 §4.6 据实声明同向。
+	await withTemp("ldvh-norm-gate.", async (base) => {
+		const f = await governedFixture(base);
+		const seams = fakeSeams("确认");
+		// 故意去掉该 H2（保留其余三段）
+		const noPositioning = BODY_H2.replace(/## 方向定位与适用范围\n\n[^#]*/, "");
+		assert.ok(!noPositioning.includes("## 方向定位与适用范围"), "夹具须真的缺该段");
+		const env = await runWrite({ ...CREATE_ARGS, body_markdown: noPositioning }, seams, f);
+		assert.equal(env.outcome, "invalid_request", `缺段须为 invalid_request，实际 ${env.outcome}: ${JSON.stringify(env.gaps)}`);
+		assert.ok(!String(env.gaps).includes("Cannot read properties of null"), `不得把缺段报成内部错误：${JSON.stringify(env.gaps)}`);
+		assert.ok(String(env.gaps).includes("方向定位与适用范围"), `须点名缺的是哪一段：${JSON.stringify(env.gaps)}`);
+		assert.equal(seams.calls.length, 0, "缺段时不得提问");
+		const { readdir } = await import("node:fs/promises");
+		assert.deepEqual(await readdir(join(f.root, "norms")).catch(() => []), [], "零写入");
+	});
+});
+
+test("27 §15.2：seam 在、答题器不在 ⇒ rejected + 零写入（生产真正会走的路径）", async () => {
+	// 复核 MINOR-3：`requestNormGate` 的 `unavailable` 分支（deps.hostSeams 缺失）
+	// 在生产装配链上**不可达**——index.js 恒注入 hostSeams。生产真正会走到的是
+	// **接缝内部**的「无答题器」→ granted:false → rejected。上面那条用例钉的是
+	// 不可达分支，这条钉可达的那条。
+	await withTemp("ldvh-norm-gate.", async (base) => {
+		const f = await governedFixture(base);
+		// 真实的 createHostSeams()，但 ctx 里没有 userQuestions
+		const { createHostSeams } = await import("../lib/host-seams.js");
+		const seams = createHostSeams();
+		const install = seams.install({
+			get: (key) => ({
+				tools: { guard: () => () => {} },
+				invariants: { register: () => () => {} },
+				userQuestions: undefined,   // ← 无答题器
+				fs: { resolve: async (p) => ({ targetKey: `tk:${p}`, displayPath: p }), stat: async () => ({ version: "v", type: "file" }) },
+			}[key]),
+			on: () => () => {},
+			emit: () => {},
+			logger: { info() {} },
+		}, { dshHomePath: dshHome(f.home) });
+		const env = await runWrite(CREATE_ARGS, seams, f);
+		assert.equal(env.outcome, "rejected", `无答题器须 fail-closed 为 rejected，实际 ${env.outcome}`);
+		assert.ok(String(env.gaps).includes("no human-answerer"), `须点明无答题器：${JSON.stringify(env.gaps)}`);
+		const { readdir } = await import("node:fs/promises");
+		assert.deepEqual(await readdir(join(f.root, "norms")).catch(() => []), [], "零写入");
+		install.dispose();
+	});
+});
+
 test("27 §15.2：create 未取得确认即零写入", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
@@ -846,6 +897,38 @@ test("27 §15.2：active → active 更新不问；active → retired 必须问�
 		assert.equal(seamsB.calls[0].action, "retire");
 		const after = await readNormObject({ factSourceRoot: f.root, objectUid: uid });
 		assert.equal(after.value.frontmatter.status, "active", "被拒绝时状态不得改变");
+	});
+});
+
+test("27 §15.2：CAS 指纹过期时不去打扰 Human（不为注定失败的写入点头）", async () => {
+	// 独立复核 MINOR-2：Gate 若在 CAS 校验之前、且不读当前载体，Human 会被问、
+	// 会答「确认」，而写入随后因指纹不匹配被拒——那道确认已经发生、已经落进会话
+	// 记录，读起来却像一次失败的决定。ADR 的 retire 分支先读载体，这里同形。
+	await withTemp("ldvh-norm-gate.", async (base) => {
+		const f = await governedFixture(base);
+		const created = await createNormObject({
+			factSourceRoot: f.root,
+			frontmatterDraft: { title: "代码风格", direction_key: "code-style", status: "active", change_summary: "初始" },
+			bodyMarkdown: BODY_H2,
+			sessionSignature: testSignature(),
+		});
+		assert.equal(created.ok, true, "夹具须建立成功");
+		const uid = created.value.object_uid;
+		const read = await readNormObject({ factSourceRoot: f.root, objectUid: uid });
+
+		const seams = fakeSeams("确认");
+		const env = await runWrite({
+			action: "update",
+			object_uid: uid,
+			expected_fingerprint: "deadbeef".repeat(8),   // ← 故意过期
+			frontmatter_after: { status: "retired", retirement_reason: "outdated" },
+			body_markdown_after: read.value.body,
+			change_summary: "方向不再需要",
+		}, seams, f);
+		assert.equal(seams.calls.length, 0, `指纹不符时不得打扰 Human，实际问了 ${seams.calls.length} 次`);
+		assert.notEqual(env.outcome, "completed", "指纹不符不得完成");
+		const after = await readNormObject({ factSourceRoot: f.root, objectUid: uid });
+		assert.equal(after.value.frontmatter.status, "active", "状态不得改变");
 	});
 });
 

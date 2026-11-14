@@ -294,6 +294,20 @@ async function requestNormGate(deps, exec, { action, objectTitle, summary }) {
 }
 
 /**
+ * 安全取「方向定位与适用范围」段——`sectionContent` **找不到该 H2 时返回 `null`**，
+ * 直接 `.trim()` 会抛 `TypeError`，把一条本该是「缺段，请补」的清晰拒绝变成一条
+ * 内部 JS 错误（独立复核 MAJOR-1 实测：父提交报 `norm/body_invalid` + 点名缺失的
+ * 段名，本次一度报 `Cannot read properties of null`）。缺段是**常规输入错误**，
+ * 必须走 gaps 报出来，不能变成异常。
+ */
+function positioningOf(args) {
+  const body = typeof args?.body_markdown === "string" ? args.body_markdown : "";
+  if (body.length === 0) return "";
+  const section = sectionContent(body, "方向定位与适用范围");
+  return typeof section === "string" ? section.trim() : "";
+}
+
+/**
  * 呈报内容（27 §15.2）：创建给查重结论 + 方向定位；退役给理由与据实说明。
  *
  * **为什么创建侧读正文而不是 frontmatter**（2026-11-15 独立审查 MAJOR-1）：我第一版
@@ -320,8 +334,7 @@ function normReportFor(action, args) {
     const directionKey = typeof draft.direction_key === "string" ? draft.direction_key.trim() : "";
     lines.push(`方向键：${directionKey.length > 0 ? directionKey : "（缺失）"}`);
     // 方向定位与适用范围：本类型的「scope」在正文首段，不在 frontmatter。
-    const body = typeof args?.body_markdown === "string" ? args.body_markdown : "";
-    const positioning = body.length > 0 ? sectionContent(body, "方向定位与适用范围").trim() : "";
+    const positioning = positioningOf(args);
     const flat = positioning.replace(/\s+/g, " ").trim();
     lines.push(`方向定位与适用范围：${flat.length > 0 ? flat : "（缺失）"}`);
   } else {
@@ -353,8 +366,7 @@ function normReportGaps(action, args) {
     }
     if (typeof draft.title !== "string" || draft.title.trim().length === 0) gaps.push("frontmatter_draft.title");
     if (typeof draft.direction_key !== "string" || draft.direction_key.trim().length === 0) gaps.push("frontmatter_draft.direction_key");
-    const body = typeof args?.body_markdown === "string" ? args.body_markdown : "";
-    if (body.length === 0 || sectionContent(body, "方向定位与适用范围").trim().length === 0) {
+    if (positioningOf(args).trim().length === 0) {
       gaps.push("body_markdown 的「方向定位与适用范围」段（本类型的适用范围在正文，不在 frontmatter）");
     }
   } else {
@@ -486,19 +498,39 @@ async function executeWriteObject(args, exec, deps) {
   // 迁移**要问——同状态更新（勘误级、补充级）不改变方向是否仍在生效，属 02 §10.5
   // 的受控更新，不问。这也与 22 §16 把 Gate 限定在 create/retire 的形态一致。
   if (frontmatterAfter.status === "retired") {
-    const retireGaps = normReportGaps("update", args);
-    if (retireGaps.length > 0) {
+    // **先读当前载体再决定问不问**（与 `adr-tools.js` 的 retire 分支同形，2026-11-15
+    // 独立复核 MINOR-2）：不读就会让 Human 为一次注定失败的写入点头——已过期 CAS
+    // 指纹、或对象已 retired 的情形，writer 随后照样拒绝，可那道「确认」已经发生、
+    // 已经落进会话记录，读起来却像一次失败的决定。故：
+    //   ① 指纹不符 → 直接拒，不消耗 Human 的一次确认；
+    //   ② 对象已不是 active → 不是本 Gate 的对象，交给 writer 以 terminal_readonly 拒；
+    //   ③ 询问外壳用**载体上的** title，不用请求里的（请求可带任意 title）。
+    const current = await readNormObject({ factSourceRoot, objectUid });
+    if (!current.ok) {
+      return writeRejected("norm-write-object", current, factSourceRoot, "update");
+    }
+    if (current.value.fingerprint !== expectedFingerprint) {
       return invalidRequest("norm-write-object",
-        `27 §15.2 requires the 呈报内容 before the Human confirmation can be asked; missing: ${retireGaps.join("、")}`,
+        `expected_fingerprint does not match the current carrier (CAS baseline, 02 §10.5): re-read the object and retry — no Human confirmation was requested for this attempt`,
         "update");
     }
-    const retireReport = normReportFor("update", args);
-    const gate = await requestNormGate(deps, exec, {
-      action: "retire",
-      objectTitle: typeof frontmatterAfter.title === "string" ? frontmatterAfter.title : "",
-      summary: retireReport,
-    });
-    if (!gate.ok) return gate.envelope;
+    if (current.value.frontmatter?.status === "active") {
+      const retireGaps = normReportGaps("update", args);
+      if (retireGaps.length > 0) {
+        return invalidRequest("norm-write-object",
+          `27 §15.2 requires the 呈报内容 before the Human confirmation can be asked; missing: ${retireGaps.join("、")}`,
+          "update");
+      }
+      const currentTitle = typeof current.value.frontmatter?.title === "string"
+        ? current.value.frontmatter.title
+        : undefined;
+      const gate = await requestNormGate(deps, exec, {
+        action: "retire",
+        objectTitle: currentTitle,
+        summary: normReportFor("update", args),
+      });
+      if (!gate.ok) return gate.envelope;
+    }
   }
   const updated = await updateNormObject({
     factSourceRoot,

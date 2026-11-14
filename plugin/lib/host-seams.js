@@ -742,7 +742,9 @@ export function createHostSeams() {
    * consent, and this path must fail closed.
    *
    * `summary` is the 呈报内容 the Human must see to judge — create: the dedup
-   * conclusion + title/direction_key/scope; retire: retirement_reason + the
+   * conclusion + title/direction_key + 正文「方向定位与适用范围」段（**本类型没有
+   * `scope` 字段**：27 §8 闭集里没有它，规则整体住正文，见 27 §7 载体内聚）;
+   * retire: retirement_reason + the
    * change_log.summary evidence statement. A caller that supplies none is
    * refused rather than asked a content-free question. It does NOT travel with
    * the question (Human 2026-11-13: LDVH 提请一律简洁); 主控 presents it in
