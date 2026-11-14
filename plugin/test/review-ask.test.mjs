@@ -101,15 +101,15 @@ test("COMPLEXITY_CRITERIA：每条都带规范出处，不新增判据", () => {
 // 点位排除（2026-11-14 Human 决定，specs/32 §4.2）
 // ---------------------------------------------------------------------------
 
-test("GATE_POINT_EXCLUSIONS：三类都有承接面、出处与反向边界，且属 32 号不属 04 号", () => {
-  assert.ok(Array.isArray(GATE_POINT_EXCLUSIONS) && GATE_POINT_EXCLUSIONS.length === 3,
-    "点位排除恰为三类（32 §4.2），不得就地增删——增删属 Human 决定");
+test("GATE_POINT_EXCLUSIONS：四类都有承接面、出处与反向边界，且属 32 号不属 04 号", () => {
+  assert.ok(Array.isArray(GATE_POINT_EXCLUSIONS) && GATE_POINT_EXCLUSIONS.length === 4,
+    "点位排除恰为四类（32 §4.2），不得就地增删——增删属 Human 决定");
   for (const item of GATE_POINT_EXCLUSIONS) {
     for (const field of ["key", "label", "carried", "source", "notExcluded"]) {
       assert.equal(typeof item[field], "string", `${item.key} 缺 ${field}`);
       assert.ok(item[field].trim().length > 0, `${item.key} 的 ${field} 不得为空`);
     }
-    // **出处必须是 32 号**：这三类是「何时不请示」的点位排除，权威在 specs/32 §4.2。
+    // **出处必须是 32 号**：这四类是「何时不请示」的点位排除，权威在 specs/32 §4.2。
     // 若有人把它改标成 specs/04，等于把 32 的规则写成 04 的判据——32 §19 第 5 项
     // 明禁两张清单互相顶替，而这条一旦混读，「含一段调研」会被推成「不算复杂任务」。
     assert.match(item.source, /^specs\/32 §4\.2/, `${item.key} 的出处须回指 specs/32 §4.2，实际 ${item.source}`);
@@ -119,7 +119,7 @@ test("GATE_POINT_EXCLUSIONS：三类都有承接面、出处与反向边界，�
 });
 
 test("点位排除与判据清单必须是两份数据、不得合并（32 §19 第 5 项）", () => {
-  // 破法很具体：有人觉得「反正都是不请示的理由」，把三类塞进 COMPLEXITY_CRITERIA
+  // 破法很具体：有人觉得「反正都是不请示的理由」，把四类塞进 COMPLEXITY_CRITERIA
   // 省得渲染两块。那一步同时犯三件事——改了 04 的判据条数（本文无权）、把
   // 「不算复杂」与「不必问」压成一句、并让方案收敛自查随排除一起被免掉。
   const criteriaKeys = new Set(COMPLEXITY_CRITERIA.map((i) => i.key));
@@ -128,7 +128,7 @@ test("点位排除与判据清单必须是两份数据、不得合并（32 §19 
   }
   // 反向：判据清单里也不得出现点位排除的字（同一理由，方向相反）
   for (const item of COMPLEXITY_CRITERIA) {
-    assert.doesNotMatch(item.label, /调研取证与报告|受控提交与推送|既有事实对象的操作/,
+    assert.doesNotMatch(item.label, /调研取证与报告|受控提交与推送|既有事实对象的操作|逐条转承/,
       `04 侧判据「${item.key}」不得内嵌 32 侧点位排除的条目`);
     assert.doesNotMatch(item.source, /specs\/32/, `04 侧判据「${item.key}」的出处不得指向 32 号`);
   }
@@ -138,9 +138,9 @@ test("点位排除与判据清单必须是两份数据、不得合并（32 §19 
 // 点位排除与规范原文的漂移面（2026-11-14 行动后复核 MINOR-5）
 // ---------------------------------------------------------------------------
 
-test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原文逐字找到", async () => {
+test("GATE_POINT_EXCLUSIONS：四类名称与承接条文须能在 specs/32 原文逐字找到", async () => {
   // 权威：01 §11.4「不得由 Code、测试、索引或页面先行制造事实上的第二规则源」。
-  // 本模块把 32 §4.2 的三类写成了常量，规范改某类的名称或所引条文而代码不跟，
+  // 本模块把 32 §4.2 的四类写成了常量，规范改某类的名称或所引条文而代码不跟，
   // 代码就成了第二份规则源——且没有任何既有测试会红。故逐字回指原文。
   //
   // **方向是「代码里的每个值在原文中存在」**，不查「原文里的每个值在代码中存在」：
@@ -163,7 +163,23 @@ test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原�
     // 每条 source 指向的条文号（specs/32 §4.2）须存在
     if (!spec.includes("### 4.2 明确排除与证明边界")) drifted.push(`${item.key}: 32 §4.2 节标题`);
     // 承接面里的条文号须能在原文找到（只查 §编号串，不查散文）
-    for (const sec of item.carried.match(/(?:09|02|33) §[0-9.]+[a-z]?/g) ?? []) {
+    // 第 4 类（纯逐条转承）的承接面落在 00、22 与 27 号，故编号表须一并扩到这几个——
+    // 不扩的后果是「代码引了 22 §16，而 22 号根本没有那一节」这类漂移无声通过。
+    // **00 号必须在里面**（2026-11-14 复审 MINOR-G，实测抓出）：第 4 类最承重的一条
+    // 承接面是 `00 §4.4/§2.9`，而原式只认 09/02/33/22/27——`carried.match(...)` 实测
+    // 只得到 `['22 §16','27 §15','27 §13.1','02 §10.4']`，最承重的那条**没有守卫**，
+    // 写错节号测试仍绿。
+    //
+    // `/§2.9` 这种「同一条里省略主编号」的写法会被上式漏掉，故先把这种缩写补全再匹配。
+    //
+    // **缩写的主编号要沿用前一个，不能一律补成 00**（第一版就是这么写错的：
+    // `02 §10.4/§10.5/§10.7` 被展开成 `02 §10.4 00 §10.5 00 §10.7`，于是三条
+    // 真引用被报成「specs/00 无对应标题」——守卫误报和守卫失效一样有害）。
+    const carriedNormalized = item.carried.replace(
+      /(\d\d) §([0-9.]+[a-z]?)((?:\/§[0-9.]+[a-z]?)+)/g,
+      (_all, spec, first, rest) => `${spec} §${first}` + rest.split("/").map((seg) => ` ${spec} ${seg}`).join(""),
+    );
+    for (const sec of carriedNormalized.match(/(?:00|09|02|33|22|27) §[0-9.]+[a-z]?/g) ?? []) {
       // **slice(4) 不是 slice(3)**（2026-11-14 修，独立复核 MINOR-4 抓出）。
       // 匹配串形如 `"33 §10.3"`：下标 0-1 是编号、2 是空格、**3 是 § 号本身**，
       // 故 sec.slice(3) 得到 `"§10.3"`，拼进正则变成 `^#+\s+§10\.3\s`——永远匹配
@@ -172,7 +188,7 @@ test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原�
       // 成「承接条文在规范里无同名标题」——三个标题其实逐字都在。
       // 正确取法是 sec.slice(4)，或下面这行等价地把 § 从 head 里清掉。
       const [specNo, secNo] = [sec.slice(0, 2), sec.slice(4)];
-      const file = { "09": "09", "02": "02", "33": "33" }[specNo];
+      const file = { "00": "00", "09": "09", "02": "02", "33": "33", "22": "22", "27": "27" }[specNo];
       if (!file) continue;
       // 33 号交付合同的编号在本仓原文里是 §14（正文编号）；此处只验 §编号在
       // 对应规范的目录里出现过——按原文的 H 行查找。
@@ -181,6 +197,9 @@ test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原�
         "09": "受控提交与机械守护规范.md",
         "02": "事实源与事实模型基础规范.md",
         "33": "调研吸收系统规范.md",
+        "00": "理念与构成.md",
+        "22": "ADR-决策.md",
+        "27": "Norm-事实规范.md",
       }[specNo]), "utf8").catch(() => null);
       if (text === null) { drifted.push(`${item.key}: 语料不可读 specs/${file}`); continue; }
       // 兜底：即使上游取法再变，head 里也不得残留 § 号（否则正则必然恒假，
@@ -190,12 +209,109 @@ test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原�
         drifted.push(`${item.key}: 承接条文 ${sec} 的编号解析为空或非数字（解析逻辑失效，非规范漂移）`);
         continue;
       }
-      if (!new RegExp(`^#+\\s+${head.replace(".", "\\.")}\\s`, "m").test(text)) {
+      // **标题后可以是空格，也可以是句点加空格**（2026-11-14 扩面时修）：
+      // 原正则只认 `### 10.3 程序化审计` 那种「编号 + 空格」，而顶层节写成
+      // `## 16. Human Gate`（编号 + 句点）。第 4 类的承接面恰好都落在顶层节，
+      // 旧正则会把它们全报成漂移——而「守卫误报」和「守卫失效」一样能让下一位
+      // 读者把真实漂移当噪音跳过。
+      const headingRe = new RegExp(`^#+\\s+${head.replace(/\./g, "\\.")}(?:\\.)?\\s`, "m");
+      if (!headingRe.test(text)) {
         drifted.push(`${item.key}: 承接条文 ${sec} 在 specs/${file} 无对应标题`);
       }
     }
   }
   assert.deepEqual(drifted, [], `点位排除常量与规范原文漂移（01 §11.4 禁第二规则源）：\n${drifted.join("\n")}`);
+});
+
+test("GATE_POINT_EXCLUSIONS：label 的语义限定须回指规范里的分段，而不是自造一套", async () => {
+  // 2026-11-14 三轮复审 MINOR-9 抓出的空洞：漂移守卫只查 `label.split("（")[0]`
+  // （类别名），而本类失守过的恰恰是**括号里那串限定**——类别名两次都没变。
+  // 上一条「summary 含 label 全文」只证明渲染器没退回手抄，不证明 label 与规范一致。
+  //
+  // 判据形态刻意保守：本类 label 用「先决条件按点位分别成立见（三）」这种**指路**
+  // 写法，不当自由散文。判据是**成对**的：关键词须在 label 里、其段号须在 label 里、
+  // 「**（N）关键词」须在规范里——只查编号存在不够（改指到另一个存在的段仍会绿）。
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const spec = await readFile(
+    join(import.meta.dirname, "..", "..", "specs/32-把关请示系统规范.md"), "utf8",
+  );
+  const target = GATE_POINT_EXCLUSIONS.find((i) => i.key === "pure-verbatim-absorption");
+  assert.ok(target, "第 4 类须存在（32 §4.2 第 4 项）");
+  // **不只查编号存在，还要查指向对不对**（2026-11-14 四轮复审 MINOR-8）：
+  // 只校验「（N）这一段存在」的话，把「先决条件见（三）」改成「见（八）」仍然全绿
+  // ——（八）确实存在，只是讲的不是先决条件。故把 label 里每处指路与其**期望关键词**
+  // 成对列出：改错段号时关键词对不上，测试即红。
+  const expectations = [
+    { marker: "规则单位", section: "二", keyword: "规则单位与范围" },
+    { marker: "先决条件", section: "三", keyword: "先决条件" },
+    { marker: "计量口径", section: "八", keyword: "计量口径" },
+  ];
+  const failures = [];
+  for (const { marker, section, keyword } of expectations) {
+    if (!target.label.includes(marker)) {
+      failures.push(`label 未提及「${marker}」——该限定被删掉了，读的人就不知道去规范哪一段`);
+      continue;
+    }
+    if (!target.label.includes(`（${section}）`)) {
+      failures.push(`label 的「${marker}」未回指（${section}），实际 label：${target.label}`);
+      continue;
+    }
+    if (!spec.includes(`**（${section}）${keyword}`)) {
+      failures.push(`规范里「**（${section}）${keyword}」不存在——label 指错了段或规范改段序了`);
+    }
+  }
+  assert.deepEqual(failures, [], `第 4 类 label 与 §4.2 分段失配：\n${failures.join("\n")}`);
+});
+
+test("工具描述：点位排除的每个 label **全文**须出现在 ldvh_review_ask 的 summary 里", async () => {
+  // 2026-11-14 复审 MAJOR-D：工具描述是**模型读得最靠后的那一面**（拿到工具结果就读它），
+  // 而它此前是手抄副本。实测失效形状：规范把「一次工作含多条去向不因此出列」写进边界后，
+  // 工具描述仍写「一份 ADR → 一份新 Norm」——正是触发整条第 4 类的那个工作形状被判错。
+  //
+  // **必须查 label 全文，不能只查类别名**：本类改名前后类别名都含「转承」，
+  // 变的恰是括号里那串限定。只查类别名的守卫在这次的失效上完全不会红。
+  const { REVIEW_ASK_OPERATION } = await import("../lib/review-ask-tool.js");
+  const summary = REVIEW_ASK_OPERATION.summary;
+  const missing = GATE_POINT_EXCLUSIONS
+    .filter((item) => !summary.includes(item.label))
+    .map((item) => item.key);
+  assert.deepEqual(
+    missing, [],
+    `工具描述缺下列类别的 label 全文（模型会把这类工作判错）：${missing.join(", ")}`,
+  );
+});
+
+test("GATE_POINT_EXCLUSIONS：notExcluded 也须逐字回指原文（此前无任何守卫）", async () => {
+  // 2026-11-14 独立审核 MAJOR-5 的复发面：上一版把规范里的「一次工作转承多份 ADR」
+  // 写进 §4.2 的边界，却**没写进常量**——注入行由常量渲染（lifecycle.js），于是
+  // 模型读到的边界比规范窄，会把「一次转承两条 ADR」误判成仍需请示。而那恰是触发
+  // 整条第 4 类的真实工作形状。
+  //
+  // 上一条用例只查 label 的类别名与 carried 里的 § 编号，**不查 notExcluded**，
+  // 所以这处漂移当时没有任何测试会红。本条补上：按「；」切成片段，逐段在原文中找。
+  //
+  // 反方向（规范加了边界而常量没跟）本用例查不出，与上一条同一取舍：解析规范结构
+  // 越出机械层边界。故调边界时**先改规范再改常量**，别指望这里替你想起来。
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const spec = await readFile(
+    join(import.meta.dirname, "..", "..", "specs/32-把关请示系统规范.md"), "utf8",
+  );
+  // **只查第 4 类**：前三类的 notExcluded 是早于本条用例的既有文案，未按逐字形态
+  // 写（它们把「不适用」栏写成了自己的措辞，其中两处还带 § 引用）。把它们一并纳入
+  // 会立刻红成一片，而那不是本次要守的东西——本次守的是**新加这一类**不留副本漂移。
+  // 把前三类也收进来需要先改规范措辞，那属独立的一次改动，不在本用例的范围里。
+  const target = GATE_POINT_EXCLUSIONS.find((i) => i.key === "pure-verbatim-absorption");
+  assert.ok(target, "第 4 类须存在（32 §4.2 第 4 项）");
+  const missing = target.notExcluded
+    .split("；")
+    .map((f) => f.trim())
+    .filter((f) => f.length > 0 && !spec.includes(f));
+  assert.deepEqual(
+    missing, [],
+    `第 4 类的 notExcluded 与 specs/32 §4.2 原文不一致（01 §11.4 禁第二规则源）：\n${missing.join("\n")}`,
+  );
 });
 
 test("设置页 hint 与工具参数说明：须写明行动前那处的时点，且不得承诺「答复后才动手」", async () => {
@@ -311,11 +427,47 @@ test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2
     }
     // 关键词集合**双语并列**，故不依赖出现顺序、也不依赖语种判定：任一侧没提到
     // 点位排除，那一次就不匹配，即报出该侧。顺序假设在词条表重排时会假绿。
-    const mentions = /点位排除|三类情况不问|point-level exclusion|not asked/i;
+    // **不写死条数，也不放过过期条数**（2026-11-14 增第 4 类时修）：
+    //
+    // 原式写死「三类情况不问」，规范改成四类后就对中文侧**恒假**——它红的原因与
+    // 「中英不同步」毫无关系，而修它的人多半会去改文案。单纯去掉条数（只留
+    // 「情况不问」）又走向另一个坑：过期的「三类情况不问」照样匹配，改条数可静默回退。
+    //
+    // 故改成两条判据：
+    //   ① 必须出现术语（中文「点位排除」／英文 point-level exclusion 或 not asked）；
+    //   ② 若出现条数表述，其数必须等于 `GATE_POINT_EXCLUSIONS.length`——过期条数即红。
+    // 条数从常量取，改条目时自动跟上；这里**不**要求文案必须写条数（那会把
+    // 「删掉条数只留术语」这种正当改法判红）。
+    const numerals = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+    const words = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+    const expected = GATE_POINT_EXCLUSIONS.length;
     values.forEach((v, idx) => {
-      if (!mentions.test(v)) {
-        const lang = /[㐀-䶿一-鿿]/.test(v) ? "中文" : "英文";
+      const lang = /[㐀-䶿一-鿿]/.test(v) ? "中文" : "英文";
+      // 术语面**两种写法都算**：中文文案有写成「点位排除」的（post/silent 两条），
+      // 也有写成「四类情况不问」的（pre 那条）——只认前者会把一条正当文案判红。
+      // 「情况不问」不写条数，条数由下面那条独立判据核（过期条数即红）。
+      if (!/点位排除|情况不问|point-level exclusion|not asked/i.test(v)) {
         failures.push(`${key} 的${lang}侧未提到点位排除（该侧第 ${idx + 1} 次出现）`);
+        return;
+      }
+      // 中文侧：任何「N类情况不问」**或「N类点位排除」**都须与当前条数一致。
+      // 后者是 2026-11-14 复审 MINOR-H 抓出的漏：post/silent 两条 hint 写的正是
+      // 「四类点位排除」，原式只认「N类情况不问」——把 post/silent 改成「三类」
+      // 测试仍然全绿。同一类失效：判据只覆盖了它当时看到的那一种措辞。
+      for (const m of v.matchAll(/([零一二三四五六七八九十]|[0-9]+)类(?:情况不问|点位排除)/g)) {
+        const raw = m[1];
+        const got = /^[0-9]+$/.test(raw) ? Number(raw) : numerals.indexOf(raw);
+        if (got !== expected) {
+          failures.push(`${key} 的${lang}侧写了「${m[0]}」，但当前点位排除为 ${expected} 类（过期条数）`);
+        }
+      }
+      // 英文侧：任何「N cases are not asked」同样须一致
+      for (const m of v.matchAll(/([0-9]+|one|two|three|four|five|six|seven|eight|nine|ten) (?:cases are not asked|point-level exclusions)/gi)) {
+        const raw = m[1].toLowerCase();
+        const got = /^[0-9]+$/.test(raw) ? Number(raw) : words.indexOf(raw) + 1;
+        if (got !== expected) {
+          failures.push(`${key} 的${lang}侧写了「${m[0]}」，但当前点位排除为 ${expected} 类（过期条数）`);
+        }
       }
     });
   }

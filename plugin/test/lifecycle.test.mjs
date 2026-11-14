@@ -1842,7 +1842,7 @@ test("把关提示行：点位排除渲染在判据之后，且带交付义务�
 	const { GATE_POINT_EXCLUSIONS, COMPLEXITY_CRITERIA } = await import("../lib/review-ask.js");
 	const text = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
 
-	// ① 三类都渲染出来，且带各自的承接面与反向边界
+	// ① 四类都渲染出来，且带各自的承接面与反向边界
 	for (const item of GATE_POINT_EXCLUSIONS) {
 		assert.ok(text.includes(item.label), `点位排除「${item.key}」未进入注入行`);
 		assert.ok(text.includes(item.carried), `「${item.key}」的承接面未渲染——只剩结论没有依据`);
