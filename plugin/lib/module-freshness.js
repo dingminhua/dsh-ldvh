@@ -30,16 +30,52 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * 进程启动时刻（毫秒时间戳）。
+ * 进程启动时刻（毫秒时间戳）——**取两个来源中更晚的那个，并优先信任 `timeOrigin`**。
  *
- * 用 `Date.now() - uptime` 反推，而不是读 `/proc` 或 `ps`——后者在 Windows 与
- * 沙箱里不可用，而 `process.uptime()` 是跨平台的。
+ * ## 为什么不再只用 `Date.now() - process.uptime()`
  *
- * @param {{nowMs?: number, uptimeSec?: number}} [clock] 注入用；生产不传。
+ * 原实现只用 uptime 反推。跨平台上这是可用的，但 2026-11-15 实测出一次**真实的
+ * 误报**：宿主进程 `ps` 显示启动于 04:49:34，而该函数反推出 03:26:42——**早了 83
+ * 分钟**，且该值在用户重启前后**完全相同**（同一份估算被两次读出）。后果不是
+ * 「读数略偏」，而是方向性的：`mtime > startMs` 的判据会把**重启后刚加载的新模块**
+ * 全部判成陈旧，于是 `ldvh_inspect_loaded_modules` 每次重启都报 stale，而这个工具的
+ * 全部意义就是回答「我改的代码进运行实例了吗」——它一旦恒报陈旧，就再也回答不了，
+ * 并会把人引向「重启没生效」这一错误结论（本次即由此误判，已由 `ps` 与「新会话 →
+ * 新进程」两路反证推翻）。
+ *
+ * ## 判据
+ *
+ * `performance.timeOrigin` 是运行时**权威**的进程起始时刻（Node ≥ 16 与 Electron
+ * 各进程均提供，无平台依赖，精度到亚毫秒）。`now - uptime` 只在它缺失时作兜底。
+ * 两者都可用时取**较晚**者：估算若偏早，最多把新模块误判成陈旧（本函数的失效方向），
+ * 取较晚值即把该误判面压到最小；而偏晚则可能漏报陈旧，属本函数已声明的边界
+ * （「mtime 未变检不出」同一类），且 `stale` 为空本就不等于一致。
+ *
+ * @param {{nowMs?: number, uptimeSec?: number, timeOriginMs?: number|null}} [clock]
+ *   注入用；生产不传。
  * @returns {number} 毫秒时间戳。
  */
-export function processStartMs({ nowMs = Date.now(), uptimeSec = process.uptime() } = {}) {
-  return nowMs - uptimeSec * 1000;
+export function processStartMs({ nowMs = Date.now(), uptimeSec = process.uptime(), timeOriginMs } = {}) {
+  const origin = timeOriginMs === undefined ? defaultTimeOrigin() : timeOriginMs;
+  const fromUptime = nowMs - uptimeSec * 1000;
+  if (typeof origin !== "number" || !Number.isFinite(origin)) return fromUptime;
+  // 取较晚者：估算偏早是本函数唯一会制造**假陈旧**的方向，故不让偏早的估算胜出。
+  return Math.max(origin, fromUptime);
+}
+
+/**
+ * `performance.timeOrigin`，读不到时返回 null（不抛）。
+ *
+ * 单独抽出来便于测试注入：直接 `import { performance }` 在个别受限运行时里可能
+ * 不存在，故用可选链并兜底。
+ */
+function defaultTimeOrigin() {
+  try {
+    const origin = globalThis.performance?.timeOrigin;
+    return typeof origin === "number" && Number.isFinite(origin) ? origin : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

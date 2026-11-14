@@ -78,7 +78,9 @@ test("VALIDATOR_MODULE_FILES 仍是 2 个文件（扩面不得改变预检行为
 });
 
 test("detectStaleValidatorModules 默认仍只检那 2 个文件", () => {
-  const report = detectStaleValidatorModules({ clock: { nowMs: 1_000_000, uptimeSec: 0 } });
+  // timeOriginMs 显式给出：不注入时函数会读真实的 performance.timeOrigin，
+  // 与 nowMs/uptimeSec 这组假��钟不一致，用例就成了不确定的。
+  const report = detectStaleValidatorModules({ clock: { nowMs: 1_000_000, uptimeSec: 0, timeOriginMs: 1_000_000 } });
   assert.equal(report.checked, 2);
 });
 
@@ -122,7 +124,7 @@ test("情形三：新增文件（在进程启动之后才出现）→ 报陈旧"
     setMtime(fresh, nowMs);
     const report = detectStaleLibraryModules({
       libraryDir: dir,
-      clock: { nowMs: nowMs - 60_000, uptimeSec: 0 },
+      clock: { nowMs: nowMs - 60_000, uptimeSec: 0, timeOriginMs: nowMs - 60_000 },
     });
     assert.equal(report.checked, 1);
     assert.equal(report.stale.length, 1, "启动后新增的模块必然比进程新");
@@ -173,11 +175,48 @@ test("mtime 与进程启动同毫秒时按未陈旧处理（宁可漏报一次�
 });
 
 test("全量检测报告带 start_ms 与 library_dir，便于调用方如实披露", () => {
-  const report = detectStaleLibraryModules({ clock: { nowMs: 10_000_000, uptimeSec: 100 } });
+  // uptime 反推 = 10_000_000 - 100_000 = 9_900_000；timeOrigin 显式对齐到同一值。
+  const report = detectStaleLibraryModules({ clock: { nowMs: 10_000_000, uptimeSec: 100, timeOriginMs: 9_900_000 } });
   assert.equal(report.start_ms, 9_900_000);
   assert.ok(typeof report.library_dir === "string" && report.library_dir.endsWith("lib"));
 });
 
-test("processStartMs 由 now 减 uptime 反推（跨平台，不依赖 /proc）", () => {
-  assert.equal(processStartMs({ nowMs: 10_000, uptimeSec: 3 }), 7_000);
+test("复现 2026-11-15 的假陈旧：uptime 反推偏早 83 分钟时，新模块不得被判陈旧", () => {
+  // 这条钉住的是**后果**，不只是 processStartMs 的取值。实测形态：宿主 ps 启动于
+  // 04:49:34，uptime 反推报 03:26:42（早 4972 秒），于是重启后刚加载的模块
+  // （mtime 04:15）全部被判成陈旧——而这个工具的全部意义就是回答「我改的代码
+  // 进运行实例了吗」，恒报陈旧等于再也回答不了。
+  const realStart = 1_000_000_000;
+  const skewMs = 4972 * 1000;           // 83 分钟，实测偏移
+  const nowMs = realStart + 300_000;    // 进程已跑 5 分钟
+  // 真实形态：**重启之后**磁盘上的模块都是重启前就有的版本，故 mtime < 启动时刻。
+  // 误判的来源是反推值偏早到把「启动之前」也划进了「mtime 晚于它」。
+  const moduleMtime = realStart - 10_000;  // 模块在启动前 10 秒定稿（= 已被加载的新代码）
+
+  // 修复前：只用 uptime 反推。实测形态是反推值**偏早** skewMs，即
+  // `now - uptime` 比真实启动早 83 分钟。用 uptimeSec 把这个偏差摆出来：
+  //   想要反推值 = realStart - skew，则 uptime = (now - (realStart - skew)) / 1000
+  const skewedUptime = (nowMs - (realStart - skewMs)) / 1000;
+  const broken = processStartMs({ nowMs, uptimeSec: skewedUptime, timeOriginMs: null });
+  assert.equal(broken, realStart - skewMs, "夹具须真的复现「反推值偏早」");
+  assert.ok(moduleMtime > broken,
+    "夹具须能复现「mtime 晚于反推值」这个误判前提：反推值偏早到把启动前的模块也判成陈旧");
+
+  // 修复后：timeOrigin 给出真实启动 → mtime 早于它 → 不陈旧
+  const fixed = processStartMs({ nowMs, uptimeSec: 300 + 4972, timeOriginMs: realStart });
+  assert.equal(fixed, realStart, "须取到真实启动时刻");
+  assert.ok(moduleMtime < fixed, "启动后改过的模块不得被判陈旧");
+});
+
+test("processStartMs 优先信任 timeOrigin（uptime 反推只在它缺失时兜底）", () => {
+  // 2026-11-15 实测的假陈旧：uptime 反推把宿主启动时刻报早了 83 分钟，导致
+  // 重启后刚加载的新模块被全部判成陈旧。timeOrigin 是运行时权威值，优先它。
+  assert.equal(processStartMs({ nowMs: 10_000, uptimeSec: 3, timeOriginMs: 9_500 }), 9_500,
+    "两源都在时取较晚者");
+  assert.equal(processStartMs({ nowMs: 10_000, uptimeSec: 3, timeOriginMs: 6_000 }), 7_000,
+    "timeOrigin 更早时取 uptime 反推——偏早会制造假陈旧，故不让它胜出");
+  assert.equal(processStartMs({ nowMs: 10_000, uptimeSec: 3, timeOriginMs: null }), 7_000,
+    "timeOrigin 缺失时回退到 uptime 反推（跨平台兜底）");
+  assert.equal(processStartMs({ nowMs: 10_000, uptimeSec: 3, timeOriginMs: Number.NaN }), 7_000,
+    "timeOrigin 非法时同样回退，不抛");
 });
