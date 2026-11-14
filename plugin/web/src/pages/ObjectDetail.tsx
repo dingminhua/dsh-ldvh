@@ -1474,7 +1474,7 @@ export function ResearchReadingLayout({
           fieldKey={fieldKey}
           value={value}
           locale={locale}
-          objType="research"
+          objType="report"
           objectPath={objectPath}
         />
       ))}
