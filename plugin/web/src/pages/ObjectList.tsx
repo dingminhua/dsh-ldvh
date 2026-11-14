@@ -4,6 +4,7 @@ import { ArrowDownWideNarrow, CalendarClock, CircleAlert, Clock3, History, Searc
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import ObjectStatusFilter from '@/components/ObjectStatusFilter';
+import ReportFormFilter, { type ReportForm } from '@/components/ReportFormFilter';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -717,6 +718,8 @@ export default function ObjectList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<ObjectItem[]>([]);
   const [statusOptions, setStatusOptions] = useState<ObjectStatusOption[]>([]);
+  // 24 §5：报告三形态筛选（仅 report 类型有形态，其它类型 formOptions 为空）。
+  const [formOptions, setFormOptions] = useState<ObjectStatusOption[]>([]);
   const [priorityOptions, setPriorityOptions] = useState<ObjectStatusOption[]>([]);
   const [statusTotal, setStatusTotal] = useState(0);
   const [coverageStatus, setCoverageStatus] = useState<FactCoverageStatus>('complete');
@@ -732,6 +735,14 @@ export default function ObjectList() {
   const statusParam = searchParams.get('status');
   const activeStatus = getEffectiveListStatus(currentType, statusParam);
   // Spark 三联过滤之三：priority（20 §8，仅 spark 生效；闭集 P0–P3）。
+  // 24 §5：报告形态参数（?form=）。只认闭集三值，非法值当未选——
+  // 与后端 400 口径互补：后端拒非法值，前端不因脏 URL 报错。
+  const formParam = searchParams.get('form');
+  const supportsFormNavigation = currentType === 'report';
+  const activeForm: ReportForm | null = supportsFormNavigation
+    && (formParam === 'research' || formParam === 'summary' || formParam === 'audit')
+    ? formParam
+    : null;
   const priorityParam = searchParams.get('priority');
   const supportsPriorityNavigation = currentType === 'spark';
   const activePriority = supportsPriorityNavigation
@@ -768,18 +779,20 @@ export default function ObjectList() {
     setLoading(true);
     setError(null);
     setStatusOptions([]);
+    setFormOptions([]);
     setPriorityOptions([]);
     setStatusTotal(0);
     setCoverageStatus('complete');
     setCoverageProblemCount(0);
     setCoverageProblems([]);
-    fetchObjects(currentType, activeStatus ?? undefined, undefined, activePriority ?? undefined)
+    fetchObjects(currentType, activeStatus ?? undefined, undefined, activePriority ?? undefined, activeForm ?? undefined)
       .then((result) => {
         const receivedItems = result.data?.items ?? [];
         const nextItems = receivedItems
           .filter((item) => !isDeprecatedListCard(item) || searchParams.get('status') === ALL_STATUS_PARAM || activeStatus === item.status);
         setItems(nextItems);
         setStatusOptions(result.data?.statusOptions ?? []);
+        setFormOptions(result.data?.formOptions ?? []);
         setPriorityOptions(result.data?.priorityOptions ?? []);
         setStatusTotal(result.data?.statusTotal ?? nextItems.length);
         setCoverageStatus(result.data?.coverage_status ?? 'complete');
@@ -796,7 +809,7 @@ export default function ObjectList() {
   // 却会因此触发重取并把列表清成 spinner。最干净的写法是在该 filter 里直接用
   // statusParam，但那行表达式被 pitfall-card-contract.test.ts:13 逐字钉住。
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上方说明：读取值已在依赖中，加对象反致多余重取
-  }, [currentType, activeStatus, activePriority, statusParam]);
+  }, [currentType, activeStatus, activePriority, statusParam, activeForm]);
 
   const sortedItems = sortObjectsForList(items, activeSort);
   const normalizedObjectSearch = objectSearch.trim().toLowerCase();
@@ -825,6 +838,16 @@ export default function ObjectList() {
   const handleStatusChange = (status: string | null) => {
     const nextParams = new URLSearchParams(searchParams);
     writeListStatusParam(currentType, nextParams, status);
+    setSearchParams(nextParams);
+  };
+
+  // 24 §5：形态切换。与状态筛选不同，形态**没有默认值**——不选就是全部，
+  // 故选中即写参数、取消即删参数，不引入「默认形态」概念（那会让读者以为
+  // 某种形态优先）。
+  const handleFormChange = (form: ReportForm | null) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (form) nextParams.set('form', form);
+    else nextParams.delete('form');
     setSearchParams(nextParams);
   };
 
@@ -977,6 +1000,17 @@ export default function ObjectList() {
               total={statusTotal}
               loading={loading}
             />
+            {/* 24 §5：形态筛选与状态筛选正交、可叠加。仅报告类型渲染
+                （其它类型 formOptions 为空，组件自身返回 null）。 */}
+            {supportsFormNavigation && (
+              <ReportFormFilter
+                activeForm={activeForm}
+                onChange={handleFormChange}
+                options={formOptions}
+                total={statusTotal}
+                loading={loading}
+              />
+            )}
           </div>
           <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
             {renderObjectSearch()}

@@ -559,6 +559,8 @@ export async function fetchObjects(
   status?: string,
   lifecycle?: string,
   priority?: string,
+  /** 24 §5：报告形态（research/summary/audit）。仅 report 类型接受。 */
+  form?: string,
 ): Promise<{
   ok: boolean;
   summary: { count: number; coverage_status?: FactCoverageStatus };
@@ -568,6 +570,8 @@ export async function fetchObjects(
     observed_at?: string;
     collection_issues?: FactListProblem[];
     statusOptions?: ObjectStatusOption[];
+    /** 24 §5：报告形态计数（仅 report 类型非空）。 */
+    formOptions?: ObjectStatusOption[];
     /** Spark 三联过滤之 priority（20 §8）计数。 */
     priorityOptions?: ObjectStatusOption[];
     statusTotal?: number;
@@ -578,6 +582,7 @@ export async function fetchObjects(
   if (status) params.set('status', status);
   if (lifecycle) params.set('lifecycle', lifecycle);
   if (priority) params.set('priority', priority);
+  if (form) params.set('form', form);
   const qs = params.toString();
   return request(`/objects/${type}${qs ? `?${qs}` : ''}`);
 }

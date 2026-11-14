@@ -59,9 +59,11 @@ test('Spark list carries three filters (priority/serves/lifecycle)', () => {
   assert.match(route, /priorityOptions/)
   // priority 参数仅对 spark 生效。
   assert.match(route, /const priority = type === 'spark' && typeof req\.query\.priority === 'string'/)
+  // 2026-11-14：24 号改造后 fetchObjects 增第 5 参（报告形态 ?form=），
+  // 断言随之带上 activeForm——否则本守卫会把一次合规的参数扩展判成回归。
   assert.match(
     list,
-    /fetchObjects\(currentType, activeStatus \?\? undefined, undefined, activePriority \?\? undefined\)/,
+    /fetchObjects\(currentType, activeStatus \?\? undefined, undefined, activePriority \?\? undefined, activeForm \?\? undefined\)/,
   )
   assert.doesNotMatch(list, /const fetchStatus = currentType === 'spark'/)
   // Spark 状态闭集（open/implemented/discarded，20 §9）与通用类型同路径过滤；

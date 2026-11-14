@@ -141,6 +141,29 @@ function getStatusOptions(items: ListedObject[]): StatusOption[] {
  *  （个别类型无此字段——其字段闭集未含 priority。） */
 const SPARK_PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3'] as const
 
+/**
+ * 24 §5（2026-11-14）：报告三形态闭集。三形态共用一个 `report` 类型，
+ * 靠 `report_form` 区分来源面；列表的形态筛选据此提供计数与过滤。
+ *
+ * 只有 `report` 类型有本筛选——其它类型的对象没有 `report_form` 字段，
+ * 故 `getFormOptions` 对它们返回空数组，前端据此不渲染该筛选条。
+ */
+const REPORT_FORMS = ['research', 'summary', 'audit'] as const
+
+function getFormOptions(items: ListedObject[]): StatusOption[] {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const form = (item as Record<string, unknown>).report_form
+    if (typeof form !== 'string' || form.length === 0) continue
+    counts.set(form, (counts.get(form) ?? 0) + 1)
+  }
+  // 只列闭集内实际出现的形态，并保持闭集次序（调研型→总结型→审核型），
+  // 不按计数排序：形态是固定分类，次序变动会让读者每次找不到位置。
+  return REPORT_FORMS
+    .filter((form) => counts.has(form))
+    .map((form) => ({ status: form, count: counts.get(form) ?? 0 }))
+}
+
 function getSparkPriorityOptions(items: ListedObject[]): StatusOption[] {
   const counts = new Map<string, number>()
   for (const item of items) {
@@ -200,6 +223,14 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   }
   // v5 Spark 与通用类型同路径：状态闭集（open/implemented/discarded，20 §9）
   // 直接下推过滤。
+  // 24 §5：报告形态筛选（?form=research|summary|audit）。非法值直接 400，
+  // 不静默忽略——静默忽略会让读者以为筛选生效而实际看到全量。
+  const form = type === 'report' && typeof req.query.form === 'string' ? req.query.form : undefined
+  if (form && !REPORT_FORMS.includes(form as typeof REPORT_FORMS[number])) {
+    res.status(400).json({ ok: false, error: `Invalid report form: ${form} (24 §5: ${REPORT_FORMS.join('/')})` })
+    return
+  }
+
   const result = await listObjects(type, undefined, status, factScope)
 
   if (!result.ok) {
@@ -210,10 +241,14 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   const allItems = getResultItems(result)
   const items = type === 'spark'
     ? allItems.filter((item) => !priority || item.priority === priority)
-    : allItems
+    : type === 'report'
+      ? allItems.filter((item) => !form || (item as Record<string, unknown>).report_form === form)
+      : allItems
   if (isRecord(result.data)) {
     const statusItems = status ? await listObjectSummaries(type, factScope) : items
     result.data.statusOptions = getStatusOptions(statusItems)
+    // 形态计数与状态计数同口径（反映当前池，非全量）。
+    result.data.formOptions = type === 'report' ? getFormOptions(statusItems) : []
     if (type === 'spark') {
       // priority 计数与状态过滤同口径（反映当前池，非全量）。
       const priorityPool = status
@@ -225,6 +260,13 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   }
   if (isRecord(result.data)) {
     result.data.items = sortByUpdatedDesc(items)
+    // 形态过滤后必须同步 summary.count——它是列表页显示的总数，
+    // 沿用 listObjects 的原始计数会让「筛了 0 条却显示 50」自相矛盾。
+    // （状态过滤走的是同一段的 result.data.items 替换，其 count 由前端按
+    //  items 长度兜底；这里显式对齐，避免依赖前端的行为。）
+    if (isRecord(result.summary) && typeof result.summary.count === 'number') {
+      result.summary.count = items.length
+    }
   }
 
   res.json(result)
