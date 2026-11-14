@@ -508,9 +508,6 @@ test("list: 方向定位不合契约时不外发摘录、显式标 unavailable",
 	});
 });
 
-// MAJOR-3 负向守卫：带合规「**管什么**：」标签、但首句含 §8 第 2 条点名的
-// 授权措辞「可直接」时，须 unavailable（禁词判定的机械承载不得形同虚设）。
-
 // ---------------------------------------------------------------------------
 // Tool-plane reachability (the aa12604 defect class)
 // ---------------------------------------------------------------------------
@@ -789,18 +786,26 @@ test("27 §15.2：注定失败的 create 一律不先惊动 Human（建前只读
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const BODY = BODY_H2;
+		// **每条都钉住具体错误码与结论形态**（独立复核 MINOR-3）：只断言
+		// `outcome !== "completed"` 太弱——`unavailable` 也会通过，而「预检给出一个
+		// 错的理由」同样会通过。这正是上一轮 BLOCKER 能溜过测试的原因。
 		const cases = [
-			["direction_key 格式非法", { ...CREATE_ARGS, frontmatter_draft: { title: "坏键", direction_key: "BAD KEY!!", status: "active" } }],
-			["title 超 40 字", { ...CREATE_ARGS, frontmatter_draft: { title: "超长标题".repeat(12), direction_key: "long-title", status: "active" } }],
-			["正文骨架残缺", { ...CREATE_ARGS, body_markdown: "## 方向定位与适用范围\n\n**管什么**：只有一段。" }],
+			["direction_key 格式非法", { ...CREATE_ARGS, frontmatter_draft: { title: "坏键", direction_key: "BAD KEY!!", status: "active" } },
+				"rejected", "norm/frontmatter_invalid", "direction_key"],
+			["title 超 40 字", { ...CREATE_ARGS, frontmatter_draft: { title: "超长标题".repeat(12), direction_key: "long-title", status: "active" } },
+				"rejected", "norm/frontmatter_invalid", "title"],
+			["正文骨架残缺", { ...CREATE_ARGS, body_markdown: "## 方向定位与适用范围\n\n**管什么**：只有一段。" },
+				"rejected", "norm/body_invalid", "H2"],
 		];
-		for (const [name, args] of cases) {
+		for (const [name, args, wantOutcome, wantCode, wantReason] of cases) {
 			const seams = fakeSeams("确认");
 			const env = await runWrite(args, seams, f);
 			assert.equal(seams.calls.length, 0, `${name}：不得先问 Human（实际问了 ${seams.calls.length} 次）`);
-			assert.notEqual(env.outcome, "completed", `${name}：不得完成`);
-			// 拒绝理由必须可行动，不是内部错误
-			assert.ok(!String(env.gaps).includes("Cannot read"), `${name}：不得报内部错误`);
+			assert.equal(env.outcome, wantOutcome, `${name}：outcome 须为 ${wantOutcome}，实际 ${env.outcome}`);
+			const gaps = String(env.gaps);
+			assert.ok(gaps.includes(wantCode), `${name}：须带错误码 ${wantCode}，实际 ${gaps}`);
+			assert.ok(gaps.includes(wantReason), `${name}：须点明 ${wantReason}，实际 ${gaps}`);
+			assert.ok(!gaps.includes("Cannot read"), `${name}：不得报内部错误`);
 		}
 		// 反向：合法输入仍必须真的问（预检不得误伤）
 		const ok = fakeSeams("确认");
