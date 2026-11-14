@@ -18,8 +18,8 @@ const fixtures = [
     body: '---\nfact_type_key: pitfall\ntitle: Pitfall fixture\nstatus: active\nscope: Applies to this fixture\ncreated_at: "2026-01-01"\n---\n\n# Pitfall fixture\n\n## 影响与适用范围\n\nApplies to this fixture\n',
   },
   {
-    type: 'research', id: 'research-0001', directory: 'researches', carrier: 'markdown',
-    body: '---\nobject_id: research-0001\nfact_type_key: research\ntitle: Study fixture\nstatus: active\n---\n\n## 研究问题\n\nFixture body.\n',
+    type: 'report', id: 'report-0001', directory: 'reports', carrier: 'markdown',
+    body: '---\nobject_id: report-0001\nfact_type_key: report\ntitle: Report fixture\nstatus: active\nreport_form: research\ncreated_at: "2026-01-01"\n---\n\n## 研究问题\n\nFixture body.\n',
   },
 ] as const;
 
@@ -44,11 +44,11 @@ test('local exact reads carry source metadata for each local carrier, while list
       assert.equal(result.data.fact_read_failure, undefined);
     }
 
-    const listed = await listObjects('research', undefined, undefined, scope);
+    const listed = await listObjects('report', undefined, undefined, scope);
     if (!listed.ok) throw new Error(listed.error);
     assert.equal(listed.ok, true);
     const candidate = (listed.data.items as Array<Record<string, unknown>>)[0];
-    assert.equal(candidate?.object_id, 'research-0001');
+    assert.equal(candidate?.object_id, 'report-0001');
     assert.equal('canonical_path' in (candidate ?? {}), false);
     assert.equal('carrier' in (candidate ?? {}), false);
     assert.equal(candidate?.read_status, 'readable');
@@ -137,15 +137,15 @@ test('UID-native object ids open through the exact-read detail path', async () =
 test('identity and required-field problems remain readable field-level results', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-facts-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const studyDir = path.join(root, 'ldvh-base', 'researches');
+  const studyDir = path.join(root, 'ldvh-base', 'reports');
   await mkdir(studyDir, { recursive: true });
   await writeFile(
-    path.join(studyDir, 'research-0002.md'),
-    '---\nobject_id: research-9999\nfact_type_key: research\nstatus: active\n---\n\n## 研究问题\n\nBroken identity.\n',
+    path.join(studyDir, 'report-0002.md'),
+    '---\nobject_id: report-9999\nfact_type_key: report\nstatus: active\nreport_form: research\ncreated_at: "2026-01-01"\n---\n\n## 研究问题\n\nBroken identity.\n',
     'utf8',
   );
   try {
-    const readable = await showObject('research-0002', scope);
+    const readable = await showObject('report-0002', scope);
     if (!readable.ok) throw new Error(readable.error);
     assert.equal(readable.ok, true);
     assert.equal(readable.summary.read_status, undefined);
@@ -155,18 +155,19 @@ test('identity and required-field problems remain readable field-level results',
     const issues = readable.data.field_issues as Array<Record<string, unknown>>;
     // 03 §6.1 明文不保留公共 updated_at（变更时间由 change_log[].at 承担），
     // 故它不再属必填、不出现在缺失清单中。
+    // 本夹具补了 created_at 与 report_form（24 §8 形态判定必填），故这两项不再
+    // 报缺失；其余仍按契约必填面如实报出（object_id 与文件名身份不符、title 缺）。
     assert.deepEqual(issues.map((issue) => [issue.path, issue.reason]).sort(), [
-      ['created_at', 'missing'],
       ['object_id', 'identity_mismatch'],
-      ['research_purpose', 'missing'], ['research_question', 'missing'], ['title', 'missing'],
+      ['title', 'missing'],
     ]);
 
-    const missing = await showObject('research-9999', scope);
+    const missing = await showObject('report-9999', scope);
     if (!missing.ok) throw new Error(missing.error);
     assert.equal(missing.ok, true);
     assert.equal(missing.summary.read_status, 'unreadable');
     assert.equal(missing.data.fact_read_failure, true);
-    assert.equal(missing.data.canonical_path, 'ldvh-base/researches/research-9999.md');
+    assert.equal(missing.data.canonical_path, 'ldvh-base/reports/report-9999.md');
     assert.equal(missing.data.report_body, undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -196,9 +197,9 @@ test('list responses keep per-object read failures and collection coverage in th
     // `complete` + `items: []`；也就是说这条断言守的不是类型接入，而是**目录存在性**。
     // 判据见 `api/services/localFactReader.ts` 的 `emptyTypeDirectory` 注释。
     //
-    // 本用例的 research 目录根本没建，故正确结果就是「完整的空列表」：没有覆盖问题，
+    // 本用例的 report 目录根本没建，故正确结果就是「完整的空列表」：没有覆盖问题，
     // 也没有把「零对象」误报成阻塞级结论。
-    const emptyType = await listObjects('research', undefined, undefined, scope);
+    const emptyType = await listObjects('report', undefined, undefined, scope);
     if (!emptyType.ok) throw new Error(emptyType.error);
     assert.equal(emptyType.data.coverage_status, 'complete', '目录缺失按零对象处理，不再报 type_not_integrated');
     assert.deepEqual(emptyType.data.items, []);

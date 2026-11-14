@@ -134,11 +134,11 @@ test('field-level reader keeps recoverable field defects separate from unreadabl
 test('unclosed Markdown frontmatter is the only Study field-path failure that becomes unreadable', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const directory = path.join(root, 'ldvh-base', 'researches');
+  const directory = path.join(root, 'ldvh-base', 'reports');
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(path.join(directory, 'research-0001.md'), '---\nobject_id: research-0001\n', 'utf8');
-    const detail = await readLocalFact('research', 'research-0001', scope);
+    await writeFile(path.join(directory, 'report-0001.md'), '---\nobject_id: report-0001\n', 'utf8');
+    const detail = await readLocalFact('report', 'report-0001', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'unreadable');
@@ -387,7 +387,7 @@ test('change_log consumes the two-field signature contract and exposes incomplet
 test('yaml_source carries the verbatim YAML text — unknown fields, order and comments preserved', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const directory = path.join(root, 'ldvh-base', 'researches');
+  const directory = path.join(root, 'ldvh-base', 'reports');
   await mkdir(directory, { recursive: true });
   try {
     // 顺序非字母序、含注释、含契约外未知字段 tags —— yaml_source 必须逐字保留这三者。
@@ -403,11 +403,11 @@ test('yaml_source carries the verbatim YAML text — unknown fields, order and c
       'stopping_reason: sufficient',
     ].join('\n');
     await writeFile(
-      path.join(directory, 'research-0009.md'),
+      path.join(directory, 'report-0009.md'),
       `---\n${rawFrontmatter}\n---\n\n## 研究问题\n\n夹具问题？\n`,
       'utf8',
     );
-    const detail = await readLocalFact('research', 'research-0009', scope);
+    const detail = await readLocalFact('report', 'report-0009', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'readable');

@@ -905,7 +905,7 @@ export default function ObjectList() {
       );
     }
 
-    if (currentType === 'research') {
+    if (currentType === 'report') {
       return (
         <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
           <ResearchCardContent obj={obj} />

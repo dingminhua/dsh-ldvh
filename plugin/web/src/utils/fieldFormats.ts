@@ -59,5 +59,5 @@ export function isObjectRef(refId: string) {
   const match = refId.match(/^([a-z]+)-\d+$/);
   if (!match) return false;
   // 29 号 DevLog 已于 2026-11-14 撤除，不再认 devlog-N 形式。
-  return ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'].includes(match[1]);
+  return ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'].includes(match[1]);
 }

@@ -18,7 +18,7 @@ import { getGitCommit } from './git.js'
 // 'devlog' 退出类型值域；21 条存量载体已于同日删除批（91b3d727）物理移除，
 // 其逐字副本存于 docs/devlog-archive/（普通文档，非事实源）。
 // （原「列表次序排最后」的导航口径随之作废——本数组是类型值域，不是呈现次序。）
-export const ACTIVE_OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const
+export const ACTIVE_OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const
 export const OBJECT_TYPES = ACTIVE_OBJECT_TYPES
 export type ObjectType = (typeof OBJECT_TYPES)[number]
 
@@ -607,7 +607,7 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
   }
 }
 
-const OBJECT_ID_PATTERN = /^(adr|pitfall|spark|research|friction|norm|subgoal)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+const OBJECT_ID_PATTERN = /^(adr|pitfall|spark|report|friction|norm|subgoal)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function showObject(id: string, scope?: LocalFactScope): Promise<WebFactResult | WebFactError> {
   const match = OBJECT_ID_PATTERN.exec(id)

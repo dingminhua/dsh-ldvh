@@ -42,7 +42,10 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   // 20 §8：question/scope_boundary/intent/summary 必填（evolution/serves/
   // disposition/relations 条件出现）。
   spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'question', 'scope_boundary', 'intent', 'summary'],
-  research: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'research_question', 'research_purpose'],
+  // 24 §8（2026-11-14 三形态改造）：report_form 是唯一无条件必填的业务字段；
+  // research_question / research_purpose / urls 仅 report_form=research 时必填，
+  // 属条件必填、由 writer 按形态判，故不列在此（本表只登记无条件必填面）。
+  report: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'report_form'],
   // 26 §8：phenomenon 必填（attribution/relations 条件；原 impact 必填面随
   // 2026-11-02 撤销分级制度一并退出，26 §8 字段表）。
   friction: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'phenomenon'],
@@ -57,7 +60,7 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
 
 test('field contract is internally consistent for every fact type', () => {
   // 29 号 DevLog 已于 2026-11-14 撤除。
-  assert.deepEqual(FACT_TYPES, ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal']);
+  assert.deepEqual(FACT_TYPES, ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal']);
 
   for (const type of FACT_TYPES) {
     const contract = FACT_FIELD_CONTRACT[type];
@@ -85,13 +88,25 @@ test('field contract is internally consistent for every fact type', () => {
   }
 });
 
-test('research keeps report_body only in detail, never in list projection', () => {
+test('report keeps report_body only in detail, never in list projection', () => {
   // 详情消费 report_body（仍登记，避免被误判为 unconsumed_field）。
-  assert.equal(FACT_FIELD_CONTRACT.research.report_body.required, false);
+  assert.equal(FACT_FIELD_CONTRACT.report.report_body.required, false);
 
-  // 列表投影（FACT_LIST_FIELD_NAMES）不携带正文：research 列表不含 report_body。
-  assert.ok(!FACT_LIST_FIELD_NAMES.research.includes('report_body'));
-  assert.ok(FACT_LIST_FIELD_NAMES.research.includes('research_question'));
+  // 列表投影（FACT_LIST_FIELD_NAMES）不携带正文：report 列表不含 report_body。
+  assert.ok(!FACT_LIST_FIELD_NAMES.report.includes('report_body'));
+  assert.ok(FACT_LIST_FIELD_NAMES.report.includes('research_question'));
+});
+
+test('report: report_form is the only unconditionally required typed field (24 §8)', () => {
+  // 24 号 2026-11-14 改造：三形态共用一个类型，必填面按 report_form 分叉。
+  // 契约层取「最宽必填面」——只有 report_form 无条件必填；research_question /
+  // research_purpose / urls 仅 report_form=research 时必填，由 writer 判
+  // （条件必填下沉实现层，Web 不设第二权威）。
+  assert.equal(FACT_FIELD_CONTRACT.report.report_form.required, true);
+  assert.equal(FACT_FIELD_CONTRACT.report.research_question.required, false);
+  assert.equal(FACT_FIELD_CONTRACT.report.research_purpose.required, false);
+  // serves 是 28 §12.3 的目标锚定，三形态通用、可选。
+  assert.equal(FACT_FIELD_CONTRACT.report.serves.required, false);
 });
 
 test('spark carries the 20-spec field closure without v4 leftovers', () => {
@@ -117,7 +132,7 @@ test('spark carries the 20-spec field closure without v4 leftovers', () => {
 });
 
 test('list candidates are a declared subset of each type contract', () => {
-  for (const type of ['adr', 'pitfall', 'spark', 'research'] as const) {
+  for (const type of ['adr', 'pitfall', 'spark', 'report'] as const) {
     const names = FACT_LIST_FIELD_NAMES[type];
     assert.ok(names.length > 0, `${type} 列表投影不应为空`);
     assert.ok(names.every((name) => name in FACT_FIELD_CONTRACT[type]), `${type} 列表字段必须是契约已登记字段`);
@@ -135,7 +150,7 @@ test('terminal status closures are non-empty and cover each lifecycle', () => {
   assert.deepEqual(FACT_TERMINAL_STATUSES.adr, ['retired']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.pitfall, ['discarded']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.spark, ['implemented', 'discarded']);
-  assert.deepEqual(FACT_TERMINAL_STATUSES.research, ['retired']);
+  assert.deepEqual(FACT_TERMINAL_STATUSES.report, ['retired']);
   // 26 §9（2026-10 修订，Human 决定：观察不进事实源）：摩擦的状态闭集为三值
   // `open` / `resolved` / `voided`——原第四值 `observing` 已退出（观察材料改由
   // 11 §12bis.1 的摩擦观察缓冲承载，非事实对象）。故终态只有销账与废弃两值，

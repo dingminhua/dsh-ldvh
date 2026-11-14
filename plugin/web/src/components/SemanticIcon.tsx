@@ -81,7 +81,7 @@ export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   adr: FileSignature,
   pitfall: Lightbulb,
   spark: Sparkles,
-  research: FileSearchCornerIcon,
+  report: FileSearchCornerIcon,
   // 26 号 Friction：摩擦账本——待修阻碍的账目（蜗牛=摩擦的体感结果：
   // 系统性阻碍拖慢每一次工作；Human 定案 2026-09-12，取代 Flame）。
   friction: Snail,

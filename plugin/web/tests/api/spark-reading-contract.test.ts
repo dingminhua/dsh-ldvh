@@ -12,7 +12,7 @@ test('Spark association UI reads relations and refs as two separate sets', () =>
   assert.match(source, /<RefGroup refs=\{refs\}/);
   assert.doesNotMatch(source, /projectMaterials|evidenceMaterials|externalInputs/);
   assert.doesNotMatch(source, /getTypeLabel\(factTypeKey, locale\)/);
-  assert.match(source, /semanticRelationLabels=\{factTypeKey === 'research'\}/);
+  assert.match(source, /semanticRelationLabels=\{factTypeKey === 'report'\}/);
   assert.match(source, /getFieldLabel\(`relation_\$\{key\.replace/);
   // refs 不定义 relation key：RefGroup/RefTarget 渲染分支不得出现 relation key chip。
   const refGroupSource = source.slice(source.indexOf('function RefGroup'), source.indexOf('function RelationGroup'));

@@ -12,7 +12,7 @@ test('Research detail keeps the v5 reading layout: overview inline + fixed H2 bo
 
   // v5 阅读布局承载 24 号规范薄索引结构，替代 v4 三字段概览 + 单 Markdown 入口。
   assert.match(detail, /export function ResearchReadingLayout/);
-  assert.match(detail, /objType === 'research' \? \(\s*\n\s*<ResearchReadingLayout/);
+  assert.match(detail, /objType === 'report' \? \(\s*\n\s*<ResearchReadingLayout/);
   assert.doesNotMatch(detail, /StudyReadingLayout/);
   assert.doesNotMatch(detail, /StudyReportMetadata/);
   assert.doesNotMatch(detail, /StudyInputRefsNode/);
@@ -150,13 +150,13 @@ test('Research API contract carries the v5 thin-index and lifecycle fields', () 
   const reader = source('api/services/localFactReader.ts');
 
   // 契约字段面：三态 + 澄清 + 退出语义（24 §8 字段闭集）。
-  assert.match(contract, /clarification_log: field\('research-clarification-log', 'array', false\)/);
+  assert.match(contract, /clarification_log: field\('report-clarification-log', 'array', false\)/);
   assert.match(contract, /retirement_reason: field\('retirement-reason', 'string', false\)/);
   assert.match(contract, /retired_at: field\('retired-at', 'string', false\)/);
-  assert.match(contract, /research: \['retired'\]/);
+  assert.match(contract, /report: \['retired'\]/);
 
   // 数组成员消费检查：对象数组的字段登记（confirmed_statements 是字符串索引，不登记）。
-  assert.match(reader, /research: new Set\(\['uncertain', 'gaps', 'implications', 'clarification_log', 'change_log'\]\)/);
+  assert.match(reader, /report: new Set\(\['uncertain', 'gaps', 'implications', 'clarification_log', 'change_log'\]\)/);
 
   // markdown 正文仍以整体投影进入 report_body，分节解析由前端呈现层承担。
   assert.match(reader, /projectFields\(type, objectId, parsed\.metadata, \{ report_body: parsed\.body \}\)/);

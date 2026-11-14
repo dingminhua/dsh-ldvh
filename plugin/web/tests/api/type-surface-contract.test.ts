@@ -168,7 +168,7 @@ test('八类类型色 × 两主题的正文都过 4.5:1（混合比例由本判�
 
   // 事实类型八类（CATEGORY_COLORS 里还混着 conventional commit scope 色，不属于事实对象；
   // 29 号 DevLog 已于 2026-11-14 撤除）。
-  const factTypes = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'];
+  const factTypes = ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'];
 
   const failures: string[] = [];
   for (const mode of ['light', 'dark'] as const) {

@@ -33,5 +33,5 @@ test('non-active Spark, ADR, Pitfall, and Study cards share the terminal card gr
   // 意图不变：身份簇须收到**完整对象 id**（复制动作的入参）。
   assert.match(source, /<ObjectIdentityActions[\s\S]{0,700}target={obj\.id}/);
   assert.match(source, /copyLabel={t\('common\.copyObjectId'\)}/);
-  assert.match(source, /currentType === 'research'[\s\S]*showNonActiveReason={false}[\s\S]*ResearchCardContent/);
+  assert.match(source, /currentType === 'report'[\s\S]*showNonActiveReason={false}[\s\S]*ResearchCardContent/);
 });

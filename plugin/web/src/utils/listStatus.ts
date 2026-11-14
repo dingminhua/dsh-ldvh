@@ -3,7 +3,7 @@
 // 28 §9：subgoal 默认只列 active——已达成与已作废是历史，扫读当前目标结构时
 // 它们只会稀释注意力（需要看历史时显式选 achieved/retired 或「全部」）。
 // （29 号 DevLog 曾同例，已于 2026-11-14 撤除，随之退出本集合。）
-const DEFAULT_ACTIVE_TYPES = new Set(['adr', 'pitfall', 'research', 'norm', 'subgoal']);
+const DEFAULT_ACTIVE_TYPES = new Set(['adr', 'pitfall', 'report', 'norm', 'subgoal']);
 
 export const ALL_STATUS_PARAM = 'all';
 

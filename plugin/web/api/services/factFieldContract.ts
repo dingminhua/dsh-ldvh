@@ -7,7 +7,7 @@
  */
 // 29 号 DevLog 已于 2026-11-14 撤除（Human 根决定，01 §8 号位表 29 为空位）：
 // 'devlog' 随之退出本联合，四张 Record<FactType, ...> 表同步去掉该键。
-export const FACT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const
+export const FACT_TYPES = ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
@@ -159,26 +159,33 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     // 判为 unconsumed_field，且必须从列表投影排除。
     report_body: field('spark-report-body', 'string', false),
   },
-  // v5 Research（24 号规范薄索引）：frontmatter 字段面以调研对象为准——
-  // research_question/research_purpose 必填，stopping_reason（闭集 sufficient/
-  // no-gain/round-cap）/confirmed_statements（声明索引）/uncertain/gaps/
-  // implications/clarification_log 数组，retired 时 retirement_reason/retired_at；
-  // 正文承载研究主体（Web 呈现层按 H2 分节解析）。
-  research: {
+  // v5 Report（24 号，2026-11-14 由 Research-调研报告 改造为统一报告类型）：
+  // report_form（闭集 research/summary/audit）为形态判定字段，**必填**；三形态
+  // 共用一套字段面，差异在必填条件——research_question/research_purpose 与
+  // urls 仅 report_form=research 时必填（24 §8，本契约的 required 取「最宽必填
+  // 面」即 report_form，条件必填由 writer 按形态判，Web 不做第二权威）。
+  // stopping_reason（闭集 sufficient/no-gain/round-cap）/confirmed_statements
+  // （声明索引）/uncertain/gaps/implications/clarification_log 数组；
+  // serves 与 Spark 同一字段名与解析口径（28 §12.3），三类通用；
+  // retired 时 retirement_reason/retired_at；正文承载报告主体（按 H2 分节解析）。
+  report: {
     ...common,
-    research_question: field('research-question', 'string', true),
-    research_purpose: field('research-purpose', 'string', true),
-    stopping_reason: field('research-stopping-reason', 'string', false),
-    confirmed_statements: field('research-confirmed-statements', 'array', false),
-    uncertain: field('research-uncertain', 'array', false),
-    gaps: field('research-gaps', 'array', false),
-    implications: field('research-implications', 'array', false),
-    clarification_log: field('research-clarification-log', 'array', false),
+    report_form: field('report-form', 'string', true),
+    serves: field('report-serves-sg', 'string', false),
+    research_question: field('research-question', 'string', false),
+    research_purpose: field('research-purpose', 'string', false),
+    stopping_reason: field('report-stopping-reason', 'string', false),
+    confirmed_statements: field('report-confirmed-statements', 'array', false),
+    uncertain: field('report-uncertain', 'array', false),
+    gaps: field('report-gaps', 'array', false),
+    implications: field('report-implications', 'array', false),
+    clarification_log: field('report-clarification-log', 'array', false),
     retirement_reason: field('retirement-reason', 'string', false),
     retired_at: field('retired-at', 'string', false),
-    // 正文承载研究主体（24 §7 固定 H2/H3），由阅读布局按 H2 分节解析并呈现。
-    // 属已消费字段：不登记会被判为 unconsumed_field，误报为未解析结构。
-    report_body: field('research-report-body', 'string', false),
+    // 正文承载报告主体（24 §7 按 report_form 分叉的固定 H2/H3），由阅读布局按
+    // H2 分节解析并呈现。属已消费字段：不登记会被判为 unconsumed_field，
+    // 误报为未解析结构。
+    report_body: field('report-report-body', 'string', false),
     disposition_summary: field('disposition-summary', 'string', false),
   },
   // v5 Norm（27 号规范）：事实规范的字段闭集——direction_key（专属方向键，
@@ -232,7 +239,7 @@ export const FACT_LIST_FIELD_NAMES: Record<FactType, readonly string[]> = {
   adr: Object.keys(FACT_FIELD_CONTRACT.adr).filter((field) => field !== 'report_body' ),
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall).filter((field) => field !== 'report_body' ),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body' ),
-  research: Object.keys(FACT_FIELD_CONTRACT.research).filter((field) => field !== 'report_body' ),
+  report: Object.keys(FACT_FIELD_CONTRACT.report).filter((field) => field !== 'report_body' ),
   // friction（26 号）此前遗漏于本表，而 FACT_TERMINAL_STATUSES 已含 friction——
   // 列表投影缺 friction 会使其字段被判为未登记。此处补齐。
   friction: Object.keys(FACT_FIELD_CONTRACT.friction).filter((field) => field !== 'report_body' ),
@@ -252,7 +259,7 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   adr: ['retired'],
   pitfall: ['discarded'],
   spark: ['implemented', 'discarded'],
-  research: ['retired'],
+  report: ['retired'],
   // 26 §9：resolved 与 voided 为终态；open 非终态。
   // （2026-10 修订：原第四值 observing 已退出状态闭集，观察材料改由
   // 11 §12bis.1 的摩擦观察缓冲承载，非事实对象、不进事实源。）
@@ -272,7 +279,7 @@ export const FACT_TYPE_DIR_NAMES: Record<FactType, string> = {
   adr: 'adrs',
   pitfall: 'pitfalls',
   spark: 'sparks',
-  research: 'researches',
+  report: 'reports',
   friction: 'frictions',
   norm: 'norms',
   subgoal: 'subgoals',

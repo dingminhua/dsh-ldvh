@@ -29,7 +29,7 @@ import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors
 import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
 
 // 29 号 DevLog 已于 2026-11-14 撤除，退出联邦类型值域。
-const OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const;
+const OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const;
 
 /** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称 + 计数），单选。
  *
@@ -137,7 +137,7 @@ export default function FederationObjects() {
     if (currentType === 'adr') return <AdrCardContent obj={item} />;
     if (currentType === 'pitfall') return <PitfallCardContent obj={item} />;
     if (currentType === 'spark') return <SparkCardContent obj={item} />;
-    if (currentType === 'research') return <ResearchCardContent obj={item} />;
+    if (currentType === 'report') return <ResearchCardContent obj={item} />;
     if (currentType === 'friction') return <FrictionCardContent obj={item} />;
     if (currentType === 'norm') return <NormCardContent obj={item} />;
     if (currentType === 'subgoal') return <SubGoalCardContent obj={item} />;

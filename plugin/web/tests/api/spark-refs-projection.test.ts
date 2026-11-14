@@ -13,7 +13,7 @@ const MISSING_UID = '0198f1c7-8a2b-4c3d-9e4f-000000000000';
 const research = `---
 object_uid: ${SPARK_UID}
 fact_type_key: research
-title: Study fixture
+title: Report fixture
 status: active
 ---
 
@@ -56,11 +56,11 @@ test('refs project into factRefs without merging into relations', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-refs-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   try {
-    const researchDir = path.join(root, 'ldvh-base', 'researches');
+    const reportDir = path.join(root, 'ldvh-base', 'reports');
     const sparkDir = path.join(root, 'ldvh-base', 'sparks');
-    await mkdir(researchDir, { recursive: true });
+    await mkdir(reportDir, { recursive: true });
     await mkdir(sparkDir, { recursive: true });
-    await writeFile(path.join(researchDir, `research-${SPARK_UID}.md`), research, 'utf8');
+    await writeFile(path.join(reportDir, `report-${SPARK_UID}.md`), research, 'utf8');
     await writeFile(path.join(sparkDir, 'spark-0001.md'), spark, 'utf8');
 
     const result = await showObject('spark-0001', scope);
@@ -76,8 +76,8 @@ test('refs project into factRefs without merging into relations', async () => {
       objectUid: SPARK_UID,
       target: { objectUid: SPARK_UID },
       available: true,
-      resolvedTarget: { governedProjectId: 'fixture', factTypeKey: 'research', objectId: `research-${SPARK_UID}` },
-      title: 'Study fixture',
+      resolvedTarget: { governedProjectId: 'fixture', factTypeKey: 'report', objectId: `report-${SPARK_UID}` },
+      title: 'Report fixture',
       status: 'active',
     });
     // 不可解析目标同样携带 `target`——「没有目标」不再是一个合法状态。
@@ -126,11 +126,11 @@ test('list cards project factRefs with the same contract as the detail read', as
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-listrefs-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   try {
-    const researchDir = path.join(root, 'ldvh-base', 'researches');
+    const reportDir = path.join(root, 'ldvh-base', 'reports');
     const sparkDir = path.join(root, 'ldvh-base', 'sparks');
-    await mkdir(researchDir, { recursive: true });
+    await mkdir(reportDir, { recursive: true });
     await mkdir(sparkDir, { recursive: true });
-    await writeFile(path.join(researchDir, `research-${SPARK_UID}.md`), research, 'utf8');
+    await writeFile(path.join(reportDir, `report-${SPARK_UID}.md`), research, 'utf8');
     await writeFile(path.join(sparkDir, 'spark-0001.md'), spark, 'utf8');
 
     const listed = await listObjects('spark', undefined, undefined, scope);

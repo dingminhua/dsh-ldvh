@@ -16,7 +16,7 @@ export const FACT_TYPE_DIRS = {
   adr: 'adrs',
   pitfall: 'pitfalls',
   spark: 'sparks',
-  research: 'researches',
+  report: 'reports',
   friction: 'frictions',
   // v5 Norm（27 号 §7）：事实规范落 ldvh-base/norms/（目录名 = 类型短名复数，
   // 与既有五类同惯例）。注意不与仓库根 specs/（元规范）混同。
@@ -34,7 +34,7 @@ export const FACT_TYPE_CARRIERS = {
   pitfall: '.md',
   // v5 Spark（20 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 research 形态。
   spark: '.md',
-  research: '.md',
+  report: '.md',
   // v5 Friction（26 §7）：同上，frontmatter + markdown。
   friction: '.md',
   // v5 Norm（27 号 §7）：同上，frontmatter（机器权威）+ markdown 正文。
@@ -175,7 +175,7 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
  * （29 号 DevLog 已于 2026-11-14 撤除，随之退出本集合。）
  */
 const MARKDOWN_CARRIER_TYPES: ReadonlySet<LocalFactType> = new Set<LocalFactType>([
-  'research', 'spark', 'adr', 'pitfall', 'friction', 'norm', 'subgoal',
+  'report', 'spark', 'adr', 'pitfall', 'friction', 'norm', 'subgoal',
 ])
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
@@ -279,7 +279,7 @@ const RECORD_ARRAY_FIELDS: Partial<Record<LocalFactType, ReadonlySet<string>>> =
   adr: new Set(['change_log']),
   pitfall: new Set(['change_log']),
   // confirmed_statements 是字符串数组（声明句索引，24 §8），不进记录成员检查。
-  research: new Set(['uncertain', 'gaps', 'implications', 'clarification_log', 'change_log']),
+  report: new Set(['uncertain', 'gaps', 'implications', 'clarification_log', 'change_log']),
 }
 
 function isConsumableRecordMember(type: LocalFactType, field: string, member: Record<string, unknown>): boolean {
@@ -538,7 +538,7 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
 // 对象 ID 为 UUID（writer randomUUID 带 8-4-4-4-12 连字符段，22 §7 与
 // 20/24/26/27/28 同形态）；其余类型保留 v4 形态（纯序号或 ULID25）。
 // 29 号 DevLog 已于 2026-11-14 撤除：devlog-<uid> 形式不再可解析。
-const FACT_OBJECT_ID_PATTERN = /^(adr|pitfall|spark|research|friction|norm|subgoal)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+const FACT_OBJECT_ID_PATTERN = /^(adr|pitfall|spark|report|friction|norm|subgoal)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {
   const metadata = metadataFor(scope, type, objectId)

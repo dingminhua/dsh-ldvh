@@ -82,7 +82,7 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     active: { zh: '活跃', en: 'Active' },
     discarded: { zh: '已废弃', en: 'Discarded' },
   },
-  research: {
+  report: {
     active: { zh: '活跃', en: 'Active' },
     retired: { zh: '已废弃', en: 'Retired' },
   },
@@ -295,6 +295,10 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   recovery: { zh: '恢复定位', en: 'Recovery Locator' },
   commit: { zh: '提交', en: 'Commit' },
   blob_oid: { zh: 'Blob OID', en: 'Blob OID' },
+  // 24 §8（2026-11-14）：报告形态字段——三形态共用一个类型。与 v4 遗留的
+  // `report_kind`（external_research/internal_audit/...，见上）**同名不同义**，
+  // 故取不同字段名与不同标签，避免两代语义在呈现层串味。
+  report_form: { zh: '报告形态', en: 'Report Form' },
   research_question: { zh: '研究问题', en: 'Research Question' },
   research_purpose: { zh: '调研目的', en: 'Research Purpose' },
   // 20 §8：Spark 悬置问题字段——question（单句待答）/scope_boundary（何时停止）/
@@ -630,6 +634,12 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     technical_assessment: { zh: '技术评估', en: 'Technical Assessment' },
     comparison: { zh: '方案比较', en: 'Comparison' },
   },
+  // 24 §8（2026-11-14）：报告形态闭集三值——来源面决定形态，形态决定正文骨架。
+  report_form: {
+    research: { zh: '调研型', en: 'Research' },
+    summary: { zh: '总结型', en: 'Summary' },
+    audit: { zh: '审核型', en: 'Audit' },
+  },
 };
 
 export function getFieldValueLabel(fieldKey: string, value: string, locale: string): string {
@@ -743,7 +753,7 @@ const COMMIT_SCOPE_LOCALES: Record<string, { zh: string; en: string }> = {
   code: { zh: 'Code', en: 'Code' }, web: { zh: 'Web', en: 'Web' },
   tests: { zh: 'Tests', en: 'Tests' }, config: { zh: '配置', en: 'Config' },
   adr: { zh: '决策', en: 'ADR' },
-  spark: { zh: '火花', en: 'Spark' }, research: { zh: '调研', en: 'Research' },
+  spark: { zh: '火花', en: 'Spark' }, report: { zh: '报告', en: 'Report' },
   pitfall: { zh: '经验', en: 'Pitfall' },
   friction: { zh: '摩擦', en: 'Friction' },
   norm: { zh: '规范', en: 'Norm' },

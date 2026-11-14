@@ -27,7 +27,7 @@ test('friction and norm stay in the active backend type list and detail id patte
   const activeTypes = /ACTIVE_OBJECT_TYPES = \[([^\]]+)\]/.exec(facts);
   assert.ok(activeTypes, 'facts.ts 应导出 ACTIVE_OBJECT_TYPES');
   const activeMembers = [...activeTypes[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
-  for (const type of ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm']) {
+  for (const type of ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm']) {
     assert.ok(activeMembers.includes(type), `ACTIVE_OBJECT_TYPES 应含 ${type}（当前：${activeMembers.join(', ')}）`);
   }
   // 详情路由的 id 前缀模式须覆盖 friction 与 norm（可经 /api/objects/<type>/:id 读取）。
@@ -112,7 +112,7 @@ test('list defaults filter friction to open and norm to active', () => {
   const activeDefaults = /DEFAULT_ACTIVE_TYPES = new Set\(\[([^\]]+)\]\)/.exec(listStatus);
   assert.ok(activeDefaults, 'listStatus 应定义 DEFAULT_ACTIVE_TYPES');
   const defaultMembers = [...activeDefaults[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
-  for (const type of ['adr', 'pitfall', 'research', 'norm']) {
+  for (const type of ['adr', 'pitfall', 'report', 'norm']) {
     assert.ok(defaultMembers.includes(type), `DEFAULT_ACTIVE_TYPES 应含 ${type}`);
   }
 });

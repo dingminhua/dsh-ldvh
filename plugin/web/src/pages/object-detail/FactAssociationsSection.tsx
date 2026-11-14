@@ -60,7 +60,7 @@ export function FactAssociationsSection({
           currentProjectId={currentProjectId}
           locale={locale}
           showRelationKey={showRelationKey}
-          semanticRelationLabels={factTypeKey === 'research'}
+          semanticRelationLabels={factTypeKey === 'report'}
         />
         <RefGroup refs={refs} currentProjectId={currentProjectId} locale={locale} />
         <UnresolvedGroup items={associations.unresolved} locale={locale} />

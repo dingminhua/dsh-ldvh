@@ -12,5 +12,5 @@ export const LDVH_WORKSPACE_ROOT = process.env.LDVH_WORKSPACE_ROOT || path.dirna
 
 /** 当前工作对象类型（与 services/facts.ts ACTIVE_OBJECT_TYPES 同源；权威列表以 facts.ts 为准）
  * 29 号 DevLog 已于 2026-11-14 撤除，随之退出本值域。 */
-export const OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const
+export const OBJECT_TYPES = ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const
 export type ObjectType = (typeof OBJECT_TYPES)[number]

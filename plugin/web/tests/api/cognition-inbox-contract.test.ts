@@ -238,7 +238,7 @@ test('recent activity accepts only explicit windows and groups fact change-log e
     assert.ok(Number(recent.eventTotal) >= items.length)
     for (const item of items) {
       // 25 号 Goal：单例冻结锚的 change_log 修订史同样进近期动态（type='goal'）。
-      assert.ok(['adr', 'pitfall', 'spark', 'research', 'goal'].includes(String(item.type)))
+      assert.ok(['adr', 'pitfall', 'spark', 'report', 'goal'].includes(String(item.type)))
       assert.ok(['created', 'updated'].includes(String(item.activity)))
       assert.match(String(item.occurredAt), RFC3339)
       if (item.signature !== undefined) {
@@ -407,7 +407,7 @@ test('recent activity reads the v5 flat provider/model change_log shape with Dat
       { at: new Date('2026-09-07T18:53:00.235Z'), provider: 'zzztoken-glm', model: 'glm-5.3', summary: '更新' },
     ],
   }
-  const builds = buildFactActivityItems(raw, 'research', Date.parse('2026-09-06T00:00:00Z'), Date.parse('2026-09-08T00:00:00Z'))
+  const builds = buildFactActivityItems(raw, 'report', Date.parse('2026-09-06T00:00:00Z'), Date.parse('2026-09-08T00:00:00Z'))
   assert.deepEqual(builds.map((build) => `${build.activity}:${build.occurred_at}`), [
     'created:2026-09-06T07:48:23.255Z',
     'updated:2026-09-07T18:53:00.235Z',

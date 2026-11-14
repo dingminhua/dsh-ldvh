@@ -527,7 +527,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       listObjects('pitfall', undefined, undefined, factScope),
       listObjects('adr', undefined, undefined, factScope),
       listObjects('spark', undefined, undefined, factScope),
-      listObjects('research', undefined, undefined, factScope),
+      listObjects('report', undefined, undefined, factScope),
       // 26 号 Friction 与 27 号 Norm 是后加入 OBJECT_TYPES 的活跃类型，同样有
       // change_log 流水——此前遗漏在近期动态之外（Human 2026-11：「聚焦里的近期
       // 动态怎么没有摩擦的改动」）。二者与上面五类在动态里是同一等比对象。
@@ -593,7 +593,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       ['pitfall', pitfallResult],
       ['adr', adrResult],
       ['spark', sparkResult],
-      ['research', studyResult],
+      ['report', studyResult],
       ['friction', frictionResult],
       ['norm', normResult],
       ['subgoal', subGoalResult],

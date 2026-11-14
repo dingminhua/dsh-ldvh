@@ -278,7 +278,7 @@ export function FactReadingContent({
 
   return (
     <>
-      {objType === 'research' ? (
+      {objType === 'report' ? (
         <ResearchReadingLayout
           obj={obj}
           extraEntries={primaryEntries}
@@ -333,7 +333,7 @@ export function FactReadingContent({
           frontmatter 机器索引的解释性呈现（启发节点）已按 Human 划线标注移除
           ——机器索引只在此节点以原文形式呈现，不再被 web 解析渲染。 */}
       <YamlDataNode
-        yamlSource={objType === 'research'
+        yamlSource={objType === 'report'
           ? sortedResearchFrontmatterYaml(obj.yaml_source) ?? reconstructFactYaml(obj)
           : typeof obj.yaml_source === 'string' ? obj.yaml_source : reconstructFactYaml(obj)}
         title={t('objectDetail.yamlSource')}

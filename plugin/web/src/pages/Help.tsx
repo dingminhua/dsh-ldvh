@@ -103,7 +103,7 @@ const SPINE_STAGES: StageShape[] = [
   {
     title: 'help.spine.research.title',
     body: 'help.spine.research.body',
-    links: [{ to: '/objects/research', type: 'research' }],
+    links: [{ to: '/objects/report', type: 'report' }],
   },
   {
     title: 'help.spine.decision.title',
@@ -146,7 +146,7 @@ const START_BRANCHES: StageShape[] = [
     title: 'help.start.old.title',
     body: 'help.start.old.body',
     links: [
-      { to: '/objects/research', type: 'research' },
+      { to: '/objects/report', type: 'report' },
       { to: '/goal', type: 'goal' },
       { to: '/objects/subgoal', type: 'subgoal' },
     ],
@@ -166,7 +166,7 @@ const START_BRANCHES: StageShape[] = [
 const OBJECT_MAP: { type: string; to: string; what: LocaleKey; when: LocaleKey; look: LocaleKey }[] = [
   { type: 'subgoal', to: '/objects/subgoal', what: 'help.objects.subgoal.what', when: 'help.objects.subgoal.when', look: 'help.objects.subgoal.look' },
   { type: 'spark', to: '/objects/spark', what: 'help.objects.spark.what', when: 'help.objects.spark.when', look: 'help.objects.spark.look' },
-  { type: 'research', to: '/objects/research', what: 'help.objects.research.what', when: 'help.objects.research.when', look: 'help.objects.research.look' },
+  { type: 'report', to: '/objects/report', what: 'help.objects.research.what', when: 'help.objects.research.when', look: 'help.objects.research.look' },
   { type: 'adr', to: '/objects/adr', what: 'help.objects.adr.what', when: 'help.objects.adr.when', look: 'help.objects.adr.look' },
   { type: 'pitfall', to: '/objects/pitfall', what: 'help.objects.pitfall.what', when: 'help.objects.pitfall.when', look: 'help.objects.pitfall.look' },
   { type: 'friction', to: '/objects/friction', what: 'help.objects.friction.what', when: 'help.objects.friction.when', look: 'help.objects.friction.look' },
@@ -259,7 +259,7 @@ const SYSTEM_MAP: {
     duty: 'help.systems.researchAbsorb.duty',
     usage: 'help.systems.researchAbsorb.usage',
     limit: 'help.systems.researchAbsorb.limit',
-    objects: [{ to: '/objects/research', type: 'research' }],
+    objects: [{ to: '/objects/report', type: 'report' }],
   },
   {
     key: 'dualRecall',

@@ -44,7 +44,7 @@ test('recent activity includes the singleton goal change-log stream', () => {
   assert.match(cognition, /read_status: 'readable',\s*\n\s*field_issues: goalRecord\.fieldIssues,/);
   // 近期动态测试的类型白名单同步纳入 goal。
   const test = read('tests/api/cognition-inbox-contract.test.ts');
-  assert.match(test, /\['adr', 'pitfall', 'spark', 'research', 'goal'\]\.includes/);
+  assert.match(test, /\['adr', 'pitfall', 'spark', 'report', 'goal'\]\.includes/);
 });
 
 test('goal registers type semantics: label, status closure, icon, colors', () => {

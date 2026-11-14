@@ -8,7 +8,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
   adr: '#a855f7',     // purple
   pitfall: '#ef4444', // red
   spark: '#eab308',   // amber
-  research: '#14b8a6',   // teal
+  report: '#14b8a6',   // teal — 报告（24 号，2026-11-14 由 research 改名）
   friction: '#f97316',   // orange — 26 号摩擦账本
   norm: '#8b5cf6',       // violet — 27 号事实规范（与 ADR 的 purple 色相族相邻但不同值）
   goal: '#10b981',       // emerald — 25 号项目目标（achieved 达成=正向绿色语义）

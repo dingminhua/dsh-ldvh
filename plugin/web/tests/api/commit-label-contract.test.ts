@@ -34,8 +34,9 @@ test('current Web commit labels are a complete closed set with full locale mappi
   const scopes = [...CURRENT_COMMIT_SCOPES];
   assert.ok(scopes.length >= 8, 'commit scopes 闭集应覆盖核心范围集');
   assert.equal(new Set(scopes).size, scopes.length, 'commit scopes 不应有重复');
-  // v5 类型系统：research 取代 v4 的 study，作为提交范围承载。
-  assert.ok(scopes.includes('research'));
+  // v5 类型系统：报告（24 号，2026-11-14 由 research 改名）取代 v4 的 study，
+  // 作为提交范围承载。
+  assert.ok(scopes.includes('report'));
   assert.ok(!scopes.includes('study' as (typeof scopes)[number]), 'v5 不应再保留 study 范围');
 
   // 每个闭集成员都有中英文标签，且闭集与 locales 提供的标签对照一致。
