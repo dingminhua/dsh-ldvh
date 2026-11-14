@@ -75,15 +75,9 @@ export default function ReportFormFilter({
     <div className={`ldvh-tab-list ${className}`} aria-label={t('objectList.formFilter')}>
       {/* Human 2026-11-14：形态组也要有「全部」——本组是独立一行，
           与状态筛选那一行分开，不会再出现两个「全部」并排的观感。
-          位置在首位，与优先级筛选（`ObjectPriorityFilter`）一致。 */}
-      <button
-        type="button"
-        onClick={() => onChange(null)}
-        className={getButtonClass(activeForm === null)}
-      >
-        {t('objectList.all')}
-        <span className="ldvh-tab-count">{loading ? '·' : total}</span>
-      </button>
+          位置在**末位**（Human 2026-11-14 定案）：具体形态在前、兜底的「全部」
+          在后。与状态筛选条一致（那里「全部」也在末位）——具体项先给读者看到，
+          「不筛选」作为兜底不需要抢首位。 */}
       {forms.map(({ form, count }) => (
         <button
           key={form}
@@ -97,6 +91,14 @@ export default function ReportFormFilter({
           <span className="ldvh-tab-count">{loading ? '·' : count}</span>
         </button>
       ))}
+      <button
+        type="button"
+        onClick={() => onChange(null)}
+        className={getButtonClass(activeForm === null)}
+      >
+        {t('objectList.all')}
+        <span className="ldvh-tab-count">{loading ? '·' : total}</span>
+      </button>
     </div>
   );
 }
