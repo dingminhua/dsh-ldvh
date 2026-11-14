@@ -9,26 +9,28 @@ import { getFieldValueLabel } from '@/i18n/locales';
  * （调研型／总结型／审核型）共用一个 `report` 类型，靠 `report_form` 区分。
  * 类型筛选看不出形态差异，故本组件在报告列表上单独提供形态筛选。
  *
- * 与 `ObjectStatusFilter` 的分工：那个筛的是**状态**（活跃／已废弃），
- * 本组件筛的是**形态**（调研／总结／审核）。两者正交，可叠加：状态取当前池、
- * 形态也取当前池（后端 `formOptions` 与 `statusOptions` 同口径）。
+ * **样式参照 `ObjectPriorityFilter` 与 changelog 的 `CommitFilterGroup`**：
+ * 同一个 `ldvh-tab-list` 容器 + 同一组 `ldvh-tab-button` 类，**只有文字着色
+ * 区分选项**，不加背景与边框——大面积色块会让筛选条抢走列表内容的注意力，
+ * 与既有筛选条也不一致。
  *
- * 只有 `report` 类型有形态；其它类型 `formOptions` 为空，本组件整条不渲染。
+ * 与 `ObjectStatusFilter` 的分工：那个筛**状态**（活跃／已废弃），本组件筛
+ * **形态**（调研／总结／审核）。两者正交、可叠加。
  */
 export type ReportForm = 'research' | 'summary' | 'audit';
 
 /**
- * 三形态各自的强调色。
+ * 三形态的文字色。
  *
- * 取色依据（不与既有类型色冲突）：报告的类别色是 teal `#14b8a6`
- * （见 `categoryColors.ts`），三形态在其邻近色域内拉开明度与冷暖：
- * 调研型取 teal 本尊（对外取证，主用途）、总结型取其偏青的邻居、
- * 审核型取偏蓝的邻居——三者同族可辨，又不至于被误读成别的类型。
+ * 取报告类别色 teal `#14b8a6`（见 `categoryColors.ts`）的邻近色域：三者同族
+ * 可辨，不会被误读成三个不同的事实类型；又因色调有区分，扫读时不至于混成一片。
+ * （与 `CommitFilterGroup` 用的 `CATEGORY_COLORS[commitType]` 同一手法：
+ * 颜色只做文字色，不做底色。）
  */
-const FORM_COLORS: Record<ReportForm, { hue: string; bg: string; border: string }> = {
-  research: { hue: '#0f766e', bg: 'rgba(15,118,110,0.10)', border: 'rgba(15,118,110,0.45)' }, // teal-700
-  summary: { hue: '#0891b2', bg: 'rgba(8,145,178,0.10)', border: 'rgba(8,145,178,0.45)' },   // cyan-600
-  audit: { hue: '#4338ca', bg: 'rgba(67,56,202,0.10)', border: 'rgba(67,56,202,0.45)' },     // indigo-700
+const FORM_TEXT_COLOR: Record<ReportForm, string> = {
+  research: '#0f766e', // teal-700
+  summary: '#0891b2',  // cyan-600
+  audit: '#4338ca',    // indigo-700
 };
 
 const FORM_ORDER: ReportForm[] = ['research', 'summary', 'audit'];
@@ -45,14 +47,8 @@ interface ReportFormFilterProps {
   className?: string;
 }
 
-function CountPlaceholder() {
-  return (
-    <span aria-hidden="true" className="inline-flex items-center justify-center gap-0.5 align-middle opacity-40">
-      <span className="h-1 w-1 animate-pulse rounded-full bg-current" />
-      <span className="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:150ms]" />
-      <span className="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:300ms]" />
-    </span>
-  );
+function getButtonClass(active: boolean): string {
+  return `ldvh-tab-button ${active ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`;
 }
 
 export default function ReportFormFilter({
@@ -76,50 +72,33 @@ export default function ReportFormFilter({
   }, [options]);
 
   // 一个形态都没有时不渲染：此时筛选无可筛，占位只会误导。
-  if (forms.length === 0 && !loading) return null;
-
-  const items: Array<{ key: ReportForm | null; label: string; count: number }> = [
-    ...forms.map(({ form, count }) => ({
-      key: form,
-      label: getFieldValueLabel('report_form', form, locale),
-      count,
-    })),
-    // 「全部」放末位：与状态筛选条一致（那里「全部」也在末尾），
-    // 且它是不筛选的兜底项，不适合抢在具体形态之前。
-    { key: null, label: t('objectList.all'), count: total },
-  ];
+  if (forms.length === 0) return null;
 
   return (
-    <div
-      className={`flex min-w-0 flex-wrap items-center gap-1.5 ${className}`}
-      aria-label={t('objectList.formFilter')}
-      aria-busy={loading || undefined}
-    >
-      {items.map(({ key, label, count }) => {
-        const active = activeForm === key;
-        const palette = key === null ? null : FORM_COLORS[key];
-        // 三形态各用自己的色；「全部」用中性色——它是兜底项，不着形态色，
-        // 否则读者会把它当成第四种形态。
-        const style = active && palette
-          ? { backgroundColor: palette.bg, borderColor: palette.border, color: palette.hue }
-          : active
-            ? { backgroundColor: 'rgba(100,116,139,0.12)', borderColor: 'rgba(100,116,139,0.45)', color: '#475569' }
-            : undefined;
-        const idleStyle = !active && palette ? { borderColor: 'rgba(148,163,184,0.45)', color: palette.hue } : undefined;
-        return (
-          <button
-            key={key ?? 'all'}
-            type="button"
-            onClick={() => onChange(key)}
-            aria-pressed={active}
-            className={`ldvh-tab-button ${active ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`}
-            style={active ? style : idleStyle}
-          >
-            {label}
-            {loading ? <CountPlaceholder /> : <span className="ldvh-tab-count">{count}</span>}
-          </button>
-        );
-      })}
+    <div className={`ldvh-tab-list ${className}`} aria-label={t('objectList.formFilter')}>
+      {/* 「全部」在首位：与 `CommitFilterGroup` 一致（那里 allLabel 也排第一），
+          它是不筛选的兜底项，读者第一眼就该看到「不筛」这个默认态。 */}
+      <button
+        type="button"
+        onClick={() => onChange(null)}
+        className={getButtonClass(activeForm === null)}
+      >
+        {t('objectList.all')}
+        <span className="ldvh-tab-count">{loading ? '·' : total}</span>
+      </button>
+      {forms.map(({ form, count }) => (
+        <button
+          key={form}
+          type="button"
+          onClick={() => onChange(form)}
+          // 颜色只做文字色，与 `CommitFilterGroup` 的 getOptionColor 同一手法。
+          style={{ color: FORM_TEXT_COLOR[form] }}
+          className={getButtonClass(activeForm === form)}
+        >
+          {getFieldValueLabel('report_form', form, locale)}
+          <span className="ldvh-tab-count">{loading ? '·' : count}</span>
+        </button>
+      ))}
     </div>
   );
 }

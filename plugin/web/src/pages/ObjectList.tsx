@@ -983,6 +983,7 @@ export default function ObjectList() {
               activePriority={activePriority}
               onChange={handlePriorityChange}
               options={priorityOptions}
+              totalCount={items.length}
               loading={loading}
               coverageStatus={coverageStatus}
             />
