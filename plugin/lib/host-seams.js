@@ -174,6 +174,22 @@ const SPARK_CONSENT_LABEL = "确认";
 const ADR_CONSENT_QUESTION_ID = "ldvh-adr-consent";
 const ADR_CONSENT_LABEL = "确认";
 
+/** 27 §15 Norm Human Gate identity — 第 1 项（创建）与第 2 项（终态决定 retired）
+ * 共用同一询问 id：一次处置只问一次，两项的呈报内容不同故 question 文本分列。
+ * 与 Spark / ADR 同纪律：id 与肯定标签在「问」与「收」两处共用同一常量，解析
+ * 永远不会在从未提供过的标签上放行。
+ *
+ * **为什么它此前不存在**：27 §15 第 1、2 项一直要求 Human 决定，27 §7 也写明
+ * 「创建必须经 Human 决定」，但 27 号没有像 22 §16.2 那样规定「确认由什么承载」，
+ * 实现侧因此一次也没问过——`norm-write-object` 的 create 与 retire 都直接落盘。
+ * 这是**规范有义务、实现无承载**的缺口，不是规范许可不确认。
+ *
+ * **第 3 项（方向清单增减或重新分层）与第 4 项（类型取消或合并）不走本 seam**：
+ * 前者属对 27 号自身的修改（走规范修改程序），后者当前无实现入口。本 seam 不
+ * 承载它们，也不得据其存在声称已获承载。 */
+const NORM_CONSENT_QUESTION_ID = "ldvh-norm-consent";
+const NORM_CONSENT_LABEL = "确认";
+
 /**
  * Latest governance judgement per working directory.
  *
@@ -712,6 +728,70 @@ export function createHostSeams() {
     }
   }
 
+  /**
+   * Ask the Human to confirm one Norm action (27 §15 Human Gate).
+   *
+   * Carries the first two of the four 27 §15 items: 创建 (action=create) and
+   * 终态决定 retired (action=retire). Items 3 and 4 are deliberately NOT
+   * carried: item 3 is a modification of spec 27 itself (its own change
+   * procedure), item 4 has no implementation entry.
+   *
+   * Same discipline as `requestAdrConsent`: the Human's own answer is recorded
+   * by the host, not asserted by the AI. A missing answerer, a failed ask or an
+   * unchosen/declined answer all yield `granted: false` — silence is not
+   * consent, and this path must fail closed.
+   *
+   * `summary` is the 呈报内容 the Human must see to judge — create: the dedup
+   * conclusion + title/direction_key/scope; retire: retirement_reason + the
+   * change_log.summary evidence statement. A caller that supplies none is
+   * refused rather than asked a content-free question. It does NOT travel with
+   * the question (Human 2026-11-13: LDVH 提请一律简洁); 主控 presents it in
+   * the conversation body before calling. The seam therefore cannot prove the
+   * Human saw the report — that gap is registered in 27 §15.2.
+   */
+  async function requestNormConsent({ action, objectTitle, summary, agent, signal }) {
+    const ask = seams.ask;
+    if (typeof ask !== "function") {
+      return { granted: false, reason: "no human-answerer entry is available; 27 §15 requires an explicit Human confirmation, so consent cannot be assumed" };
+    }
+    const verb = action === "retire" ? "转入终态" : "创建";
+    const report = typeof summary === "string" && summary.trim().length > 0
+      ? summary.trim()
+      : null;
+    // A content-free ask would record consent to something the Human never saw.
+    if (report === null) {
+      return { granted: false, reason: "27 §15 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
+    }
+    const head = [`Norm ${verb}确认（27 §15）`];
+    if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
+    const composed = composeAskTitle({ head });
+    try {
+      const answer = await ask({
+        questions: [{
+          id: NORM_CONSENT_QUESTION_ID,
+          header: "Norm 授权",
+          question: composed.question,
+          options: [
+            { label: NORM_CONSENT_LABEL, description: `确认${verb}该 Norm 对象` },
+            { label: "取消", description: "不执行本次写入，保持现状" }
+          ]
+        }],
+        ...(signal === undefined ? {} : { signal })
+      }, agent);
+      // Accept ONLY the affirmative for THIS question — never fall back to
+      // `answers[0]`, which could grant Norm consent from an affirmative given
+      // to a different question in the same batch.
+      const answers = Array.isArray(answer?.answers) ? answer.answers : [];
+      const entry = answers.find((a) => a?.id === NORM_CONSENT_QUESTION_ID) ?? null;
+      const selected = selectedLabelOf(entry);
+      const customNote = customTextOf(entry);
+      if (selected === NORM_CONSENT_LABEL) return { granted: true, answer: selected, ...(customNote === null ? {} : { custom_note: customNote }) };
+      return { granted: false, ...(customNote === null ? {} : { custom_note: customNote }), reason: `human did not confirm the Norm ${verb} (answer: ${JSON.stringify(selected ?? null)})${customNote === null ? "" : `；Human 另写了自由文本（见 custom_note），不作为授权` }` };
+    } catch (error) {
+      return { granted: false, reason: `norm consent request failed: ${String(error?.message ?? error)}` };
+    }
+  }
+
     /**
      * 两处把关询问（2026-11-13 Human 决定：改问「要不要安排代理」）。
      *
@@ -957,6 +1037,8 @@ export function createHostSeams() {
     requestSparkConsent,
     /** 22 §16 ADR create/retire confirmation routed through ctx.userQuestions.ask. */
     requestAdrConsent,
+    /** 27 §15 consent request routed through ctx.userQuestions.ask. */
+    requestNormConsent,
     /** 两处把关询问（2026-11-13 Human 决定）：非 Gate——`skip` 是合法答复。 */
     requestReviewAsk,
     /**

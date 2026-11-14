@@ -54,6 +54,7 @@ import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
+import { sectionContent } from "./markdown-structure.js";
 
 const OPERATIONS = {
   "norm-read-object": {
@@ -69,7 +70,13 @@ const OPERATIONS = {
   "norm-write-object": {
     toolName: "ldvh_norm_write",
     writeShaped: true,
-    summary: "Controlled write of Norm fact objects: create (after Human-confirmed proposal; requires a direction_key with no existing active Norm, else ERR_DIRECTION_ALREADY_EXISTS) and CAS update with change_log; active→active holds direction_key fixed (27 §13.2), active→retired is terminal (specs/03 §9.4–§9.5, specs/27 §11)",
+    // **在真实组合里会阻塞在人上**（2026-11-15）：create 与 active→retired 现在
+    // 经 `requestNormConsent` 走 27 §15 第 1/2 项；其余更新不提问但共用同一描述符。
+    // 超时预算**逐工具**，故整个工具不声明墙钟期限——否则每次 CAS 更新都要为
+    // Human 的等待买单，而迟到的答复会被 30s 超时丢弃，门禁在真实组合里形同虚设。
+    // 与 `adr-tools.js`（22 §16）同一纪律与同一已知代价。
+    awaitsHumanDecision: true,
+    summary: "Controlled write of Norm fact objects: create (requires an explicit Human confirmation per 27 §15 item 1 and a recorded dedup conclusion; requires a direction_key with no existing active Norm, else ERR_DIRECTION_ALREADY_EXISTS) and CAS update with change_log; active→active holds direction_key fixed (27 §13.2), active→retired requires a Human confirmation per 27 §15 item 2 and is terminal (specs/03 §9.4–§9.5, specs/27 §11). IMPORTANT: the 呈报内容 (dedup conclusion, title, direction_key, and the 方向定位与适用范围 points) MUST be written into the conversation body BEFORE calling — the dialog carries only the action line, so the Human judges from what you wrote there (27 §15.2)",
     effect: "may_change_state"
   }
 };
@@ -235,6 +242,131 @@ async function executeListObject(args, exec, deps) {
   });
 }
 
+/**
+ * Route the two mechanically-carried 27 §15 Gates through the host question
+ * entry. Fail-closed on every path that is not an explicit affirmative: no
+ * answerer, a failed ask, or a declined/unchosen answer.
+ *
+ * 与 `adr-tools.js` 的 `requestAdrGate`（22 §16）同形。27 §15 第 3 项（方向清单
+ * 增减）属对 27 号自身的修改、第 4 项（类型取消或合并）无实现入口，二者**刻意
+ * 不在此**——本函数不承载它们，也不得据其存在声称已获承载。
+ */
+async function requestNormGate(deps, exec, { action, objectTitle, summary }) {
+  const gate = deps?.hostSeams;
+  if (gate === undefined || typeof gate.requestNormConsent !== "function") {
+    return {
+      ok: false,
+      envelope: envelope("norm-write-object", "unavailable", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [],
+        gaps: ["ctx.userQuestions.ask is not wired into this composition, so the 27 §15 Human Gate "
+          + "cannot be obtained. 27 §7/§15 require an explicit Human decision before this action; "
+          + "REPORT TO HUMAN — an unconfirmed Norm write must not silently become a stable direction."],
+        verification: { checks: ["governance-scope", "human-confirmation"], passed: false },
+        follow_up: ["human must confirm this Norm action through a session that provides an answerer, then retry"]
+      })
+    };
+  }
+  const consent = await gate.requestNormConsent({
+    action,
+    objectTitle,
+    summary,
+    // The host forwarder reaches the browser answerer only when the request
+    // carries the live agent — without it the waterfall exhausts to NO_PROVIDER.
+    agent: exec?.agent,
+    // This ask has no wall-clock deadline (`awaitsHumanDecision` in OPERATIONS):
+    // the caller's signal is the only release for an abandoned prompt.
+    signal: exec?.signal,
+  });
+  if (consent?.granted === true) return { ok: true };
+  return {
+    ok: false,
+    envelope: envelope("norm-write-object", "rejected", {
+      result: null,
+      scope: { requested: action, completed: [], not_completed: [action] },
+      sources: [],
+      gaps: [`27 §15 requires an explicit Human confirmation for this action: ${consent?.reason ?? "no confirmation obtained"}`],
+      verification: { checks: ["governance-scope", "human-confirmation"], passed: false },
+      follow_up: ["obtain the Human's explicit confirmation, then retry — do not proceed on an assumed consent"]
+    })
+  };
+}
+
+/**
+ * 呈报内容（27 §15.2）：创建给查重结论 + 方向定位；退役给理由与据实说明。
+ *
+ * **为什么创建侧读正文而不是 frontmatter**（2026-11-15 独立审查 MAJOR-1）：我第一版
+ * 照抄 `adrCreateReport`，读了 `draft.scope`——但 **Norm 的 frontmatter 闭集里没有
+ * `scope`**（27 §8；`VALID_FM_KEYS` 实测报 closed-set violation）。那一行是死代码：
+ * 真实组合里宿主 schema 先拒，Human 永远看不到「这份 Norm 管什么」。
+ *
+ * 本类型与之对应的不是任何 frontmatter 标量，而是正文「方向定位与适用范围」段
+ * （27 §7 载体内聚：规则散文整体住正文，frontmatter 只承载机器索引）。故从
+ * `body_markdown` 取该段，这才是 Human 判断方向划分所需的材料。
+ *
+ * 与 `adrCreateReport` 同的占位纪律：缺项输出「（缺失）」而不是静默省略——省略会让
+ * 报告看起来完整，而 Human 无从知道他少看了什么。
+ */
+function normReportFor(action, args) {
+  const lines = [];
+  if (action === "create") {
+    const draft = args?.frontmatter_draft ?? {};
+    const dedup = typeof args?.dedup_result === "string" ? args.dedup_result.trim() : "";
+    // 查重结论是 27 §6.2/§14 的创建提案必备项，缺失即不可提请（与 adr-tools 同）。
+    lines.push(`查重结论：${dedup.length > 0 ? dedup : "（缺失）"}`);
+    const title = typeof draft.title === "string" ? draft.title.trim() : "";
+    lines.push(`标题：${title.length > 0 ? title : "（缺失）"}`);
+    const directionKey = typeof draft.direction_key === "string" ? draft.direction_key.trim() : "";
+    lines.push(`方向键：${directionKey.length > 0 ? directionKey : "（缺失）"}`);
+    // 方向定位与适用范围：本类型的「scope」在正文首段，不在 frontmatter。
+    const body = typeof args?.body_markdown === "string" ? args.body_markdown : "";
+    const positioning = body.length > 0 ? sectionContent(body, "方向定位与适用范围").trim() : "";
+    const flat = positioning.replace(/\s+/g, " ").trim();
+    lines.push(`方向定位与适用范围：${flat.length > 0 ? flat : "（缺失）"}`);
+  } else {
+    if (typeof args?.change_summary === "string" && args.change_summary.trim().length > 0) {
+      lines.push(`据实说明：${args.change_summary.trim()}`);
+    }
+    const fm = args?.frontmatter_after;
+    if (fm !== null && typeof fm === "object") {
+      if (fm.status === "retired") lines.push("拟转状态：retired");
+      if (typeof fm.retirement_reason === "string") lines.push(`retirement_reason：${fm.retirement_reason}`);
+    }
+  }
+  // 空行分段（与 `adrCreateReport` 同形）：宿主按 Markdown 渲染，单个 \n 不产生段落。
+  return lines.join("\n\n");
+}
+
+/**
+ * 呈报里**真正必须由调用方提供**的部分（缺了就不该提请）。
+ *
+ * 与 `normReportFor` 分开：后者总是返回一段可渲染文本（含「（缺失）」占位），
+ * 故「报告是否为空」永远判不出问题。判「能不能问」要看这一份。
+ */
+function normReportGaps(action, args) {
+  const gaps = [];
+  if (action === "create") {
+    const draft = args?.frontmatter_draft ?? {};
+    if (typeof args?.dedup_result !== "string" || args.dedup_result.trim().length === 0) {
+      gaps.push("dedup_result（27 §6.2/§14 的创建提案必备项：对既有 active Norm 的语义查重结论）");
+    }
+    if (typeof draft.title !== "string" || draft.title.trim().length === 0) gaps.push("frontmatter_draft.title");
+    if (typeof draft.direction_key !== "string" || draft.direction_key.trim().length === 0) gaps.push("frontmatter_draft.direction_key");
+    const body = typeof args?.body_markdown === "string" ? args.body_markdown : "";
+    if (body.length === 0 || sectionContent(body, "方向定位与适用范围").trim().length === 0) {
+      gaps.push("body_markdown 的「方向定位与适用范围」段（本类型的适用范围在正文，不在 frontmatter）");
+    }
+  } else {
+    if (typeof args?.change_summary !== "string" || args.change_summary.trim().length === 0) gaps.push("change_summary（27 §15.2 要求的据实说明）");
+    const fm = args?.frontmatter_after;
+    if (fm === null || typeof fm !== "object" || typeof fm.retirement_reason !== "string" || fm.retirement_reason.trim().length === 0) {
+      gaps.push("frontmatter_after.retirement_reason");
+    }
+  }
+  return gaps;
+}
+
 async function executeWriteObject(args, exec, deps) {
   const action = args?.action;
   if (action !== "create" && action !== "update") {
@@ -273,6 +405,28 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("norm-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 方向定位与适用范围') are required for action=create", "create");
     }
+    // 27 §15 第 1 项：创建须经 Human 决定。**在落盘之前**取得，未取得即零写入。
+    //
+    // **呈报为空时在调用端就不问**（2026-11-15）：接缝内部也有这道拒绝，但把检查
+    // 放在调用端，是因为「不想问」和「问了被拒」在痕迹上不同——前者不惊动 Human，
+    // 后者会在 Human 侧弹一次空问题。27 §15.2 要求 Human 看到的是他要判断的东西。
+    // 27 §15.2 + 27 §6.2/§14：呈报缺项即不得提请。**查重结论缺失硬拒**——照
+    // `adr-tools.js` 的 22 §14.1 处置：语义查重本身不可机械判定，但「有没有记录」
+    // 可判定，未记录即不得提请（27 §17 同向）。此处若不硬拒，`title`+`direction_key`
+    // 就足以让报告非空，于是「查重没做」这件事在链条上完全不可见（独立审查实测）。
+    const createGaps = normReportGaps("create", args);
+    if (createGaps.length > 0) {
+      return invalidRequest("norm-write-object",
+        `27 §15.2 requires the 呈报内容 before the Human confirmation can be asked; missing: ${createGaps.join("、")}`,
+        "create");
+    }
+    const createReport = normReportFor("create", args);
+    const gate = await requestNormGate(deps, exec, {
+      action: "create",
+      objectTitle: typeof draft.title === "string" ? draft.title : "",
+      summary: createReport,
+    });
+    if (!gate.ok) return gate.envelope;
     const created = await createNormObject({
       factSourceRoot,
       frontmatterDraft: draft,
@@ -323,10 +477,28 @@ async function executeWriteObject(args, exec, deps) {
     return invalidRequest("norm-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
   }
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
-    return invalidRequest("norm-write-object", "body_markdown_after is required for action=update — the COMPLETE target body starting at \"## 方向定位与适用范围\" (the H1 is generated from title); a partial body, or a body read back with its H1, is refused", "update");
+    return invalidRequest("norm-write-object", "body_markdown_after is required for action=update — the COMPLETE target body INCLUDING the H1 line (pass back what a precise read returned); a partial body, or a body without its H1, is refused. (create 路径的 H1 才由 title 生成)", "update");
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return invalidRequest("norm-write-object", "change_summary is required for action=update (03 §9.5: exactly one change_log entry per actual modification)", "update");
+  }
+  // 27 §15 第 2 项：active → retired 是终态决定，须经 Human 决定。**只有这一种
+  // 迁移**要问——同状态更新（勘误级、补充级）不改变方向是否仍在生效，属 02 §10.5
+  // 的受控更新，不问。这也与 22 §16 把 Gate 限定在 create/retire 的形态一致。
+  if (frontmatterAfter.status === "retired") {
+    const retireGaps = normReportGaps("update", args);
+    if (retireGaps.length > 0) {
+      return invalidRequest("norm-write-object",
+        `27 §15.2 requires the 呈报内容 before the Human confirmation can be asked; missing: ${retireGaps.join("、")}`,
+        "update");
+    }
+    const retireReport = normReportFor("update", args);
+    const gate = await requestNormGate(deps, exec, {
+      action: "retire",
+      objectTitle: typeof frontmatterAfter.title === "string" ? frontmatterAfter.title : "",
+      summary: retireReport,
+    });
+    if (!gate.ok) return gate.envelope;
   }
   const updated = await updateNormObject({
     factSourceRoot,
@@ -569,7 +741,12 @@ function parameterSchemaFor(operationKey) {
       frontmatter_after: normFrontmatterAfter,
       frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
       body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown, INCLUDING the H1 line — pass back what a precise read returned)" },
-      change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }
+      change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" },
+      // **create 必填**（27 §6.2/§14/§15.2）：create 的 Human 确认必须让 Human 看到
+      // 查重结论，否则那个「确认」是对一个没人核过重的方向点头。本工具不做语义查重
+      // （27 §6.2 明禁机械相似度判定），故结论只能由调用方给；但「有没有记录」可判定，
+      // 未记录即硬拒、不发出提问（与 `adr-tools.js` 的 22 §14.1 同一处置）。
+      dedup_result: { type: "string", description: "create (REQUIRED): the semantic dedup conclusion against existing active Norms (27 §6.2/§14.1/§15.2) — state it as e.g. \"no same-topic Norm found\" or \"overlaps <uid> but the direction is materially different\". Dedup is not mechanically decidable, but an unrecorded one refuses the write and the Human ask is not sent." }
     },
     required: ["action"],
     additionalProperties: false
@@ -584,7 +761,12 @@ export function toolDescriptorFor(operationKey, operation, handler) {
     name: operation.toolName,
     description: operation.summary,
     parameters: toParameterSpec(parameterSchemaFor(operationKey)),
-    timeoutMs: 30000,
+    // **本字段是真接线，不是装饰**（2026-11-15）：`norm-write-object` 的 create 与
+    // active→retired 现在会阻塞在人的答复上（27 §15.2），而超时预算**逐工具**。
+    // 若照抄一个恒定 `timeoutMs: 30000`，Human 想两分钟就要被 30s 砍掉——那时
+    // 门禁在真实组合里等于不存在：答复迟到即被丢弃，写入被拒，而人以为自己答过。
+    // 与 `adr-tools.js:759`、`spark-tools.js:1025` 同一接线方式。
+    ...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 },
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);
