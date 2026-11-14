@@ -502,7 +502,7 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
     ["spark", SPARK_DIRECTORY],
     ["adr", "adrs"],
     ["pitfall", "pitfalls"],
-    ["research", "researches"],
+    ["report", "reports"],
     ["friction", "frictions"],
     ["norm", "norms"],
     ["subgoal", "subgoals"],

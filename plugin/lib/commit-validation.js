@@ -493,6 +493,23 @@ export function checkDocsReferences(carriers, { exists } = {}) {
     // freely among themselves, and implementation carriers are out of scope.
     if (!isSpecOrFactCarrierPath(carrier.path)) continue;
     if (typeof carrier.content !== "string" || carrier.content.length === 0) continue;
+    // `baseline === null` 是「血缘不可判定」的**显式信号**（重命名/复制但旧
+    // 路径读不到，见 git-gate-runner 的 collectChangedCarriers 与 precheck
+    // 的同构实现）。它不同于 `undefined`（纯新增：HEAD 本无此载体，其中每条
+    // 引用确实都是新的，故预存集为空是正确的）。
+    //
+    // 不可判定时**不得**退回「预存集为空」——那恰恰是本条要修的缺陷形态：
+    // 把一次读不到基线的失败静默当成「全是新引用」，既误报存量、又让
+    // 「读不到就放过」成为可被利用的绕过口。09 §5.3 非通过即阻断：这里
+    // 直接判未通过，不进入逐引用豁免。
+    if (carrier.baseline === null) {
+      issues.push(newFinding(
+        "validation/docs_reference_dangling",
+        `${carrier.path}: baseline could not be read for a renamed/copied carrier, so "no NEW docs/ reference" cannot be decided (09 §5.3 item 5 fails closed)`,
+        null
+      ));
+      continue;
+    }
     const preexisting = new Set(
       typeof carrier.baseline === "string" ? extractDocsReferences(carrier.baseline) : []
     );
@@ -972,7 +989,7 @@ const FACT_TYPE_PREFIXES = Object.freeze({
   "ldvh-base/frictions": "friction",
   "ldvh-base/norms": "norm",
   "ldvh-base/pitfalls": "pitfall",
-  "ldvh-base/researches": "research",
+  "ldvh-base/reports": "report",
   "ldvh-base/sparks": "spark",
   "ldvh-base/subgoals": "subgoal",
 });

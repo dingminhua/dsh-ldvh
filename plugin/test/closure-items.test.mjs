@@ -1032,7 +1032,7 @@ test("signature: updates land a signed change_log entry through the real writer"
 		// caller can pass a shape the writer silently ignores.
 		const { authoritativeSignature: brand, resolveAuthoritativeSignature: resolve } = await import("../lib/signature-channel.js");
 		const { readFile: rf } = await import("node:fs/promises");
-		for (const mod of ["spark-tools", "adr-tools", "friction-tools", "pitfall-tools", "research-tools"]) {
+		for (const mod of ["spark-tools", "adr-tools", "friction-tools", "pitfall-tools", "report-tools"]) {
 			const src = await rf(new URL(`../lib/${mod}.js`, import.meta.url), "utf8");
 			assert.match(
 				src,

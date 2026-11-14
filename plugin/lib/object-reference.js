@@ -28,7 +28,7 @@ const FACT_TYPE_KEYS = new Set([
   "adr",
   "pitfall",
   "friction",
-  "research",
+  "report",
   "norm",
   "goal",
   "subgoal",

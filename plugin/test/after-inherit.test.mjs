@@ -32,7 +32,7 @@ import {
 import { GOAL_REMOVABLE_FIELDS } from "../lib/goal-writer.js";
 import { NORM_REMOVABLE_FIELDS } from "../lib/norm-writer.js";
 import { PITFALL_REMOVABLE_FIELDS } from "../lib/pitfall-writer.js";
-import { RESEARCH_REMOVABLE_FIELDS } from "../lib/research-writer.js";
+import { REPORT_REMOVABLE_FIELDS } from "../lib/report-writer.js";
 import { SPARK_REMOVABLE_FIELDS } from "../lib/spark-writer.js";
 
 import { stripLeadingH1 } from "../lib/friction-discovery.js";
@@ -62,12 +62,13 @@ const VALID_FM_KEYS_BY_TYPE = {
     "object_uid", "fact_type_key", "title", "created_at", "status",
     "scope", "trigger_signal", "urls", "disposition", "change_log",
   ]),
-  research: new Set([
-    "object_uid", "fact_type_key", "title", "created_at", "status",
+  report: new Set([
+    "object_uid", "fact_type_key", "title", "created_at", "status", "report_form",
     "urls", "relations", "change_log",
     "research_question", "research_purpose", "stopping_reason",
     "confirmed_statements", "uncertain", "gaps",
     "implications", "clarification_log",
+    "serves",
     "retirement_reason", "retired_at",
   ]),
   norm: new Set([
@@ -82,7 +83,7 @@ const REMOVABLE_BY_TYPE = {
   friction: FRICTION_REMOVABLE_FIELDS,
   adr: ADR_REMOVABLE_FIELDS,
   pitfall: PITFALL_REMOVABLE_FIELDS,
-  research: RESEARCH_REMOVABLE_FIELDS,
+  report: REPORT_REMOVABLE_FIELDS,
   norm: NORM_REMOVABLE_FIELDS,
   goal: GOAL_REMOVABLE_FIELDS,
 };
@@ -105,7 +106,7 @@ const REQUIRED_BY_TYPE = {
   friction: ["object_uid", "fact_type_key", "title", "created_at", "status", "phenomenon", "occurrence"],
   adr: ["object_uid", "fact_type_key", "title", "created_at", "status", "decision", "scope"],
   pitfall: ["object_uid", "fact_type_key", "title", "created_at", "status", "scope"],
-  research: ["object_uid", "fact_type_key", "title", "created_at", "status", "research_question", "research_purpose", "stopping_reason"],
+  report: ["object_uid", "fact_type_key", "title", "created_at", "status", "report_form"],
   norm: ["object_uid", "fact_type_key", "title", "created_at", "status", "direction_key"],
   goal: ["goal_key", "title", "status", "created_at"],
 };
@@ -298,7 +299,7 @@ test("after-inherit: 删除携带嵌套结构的条件字段整体生效", () =>
     currentFrontmatter: baseline,
     frontmatterAfter: null,
     frontmatterRemovals: ["gaps", "uncertain"],
-    removableFields: RESEARCH_REMOVABLE_FIELDS,
+    removableFields: REPORT_REMOVABLE_FIELDS,
     typeLabel: "research",
     validFields: VALID_FM_KEYS_BY_TYPE.research,
   });

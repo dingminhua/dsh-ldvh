@@ -1148,9 +1148,9 @@ test("body structure: H1 scan follows CommonMark ATX semantics (20 §8)", () => 
 /** A minimal other-type fact object whose object_uid refs can target. */
 async function seedResearch(root, uid, title = "目标调研对象") {
   const { mkdir } = await import("node:fs/promises");
-  await mkdir(join(root, "researches"), { recursive: true });
+  await mkdir(join(root, "reports"), { recursive: true });
   await writeFile(
-    join(root, "researches", `research-${uid}.md`),
+    join(root, "reports", `report-${uid}.md`),
     `---\nobject_uid: ${uid}\ntitle: ${title}\nstatus: active\n---\n\n## 研究问题\nfixture\n`,
     "utf8",
   );
@@ -1293,7 +1293,7 @@ test("refs: a closed (discarded) target stays a legal reference (20 §8 — stat
     // is a fact about the past and does not expire when the target closes.
     await seedResearch(root, REF_UID);
     await writeFile(
-      join(root, "researches", `research-${REF_UID}.md`),
+      join(root, "reports", `report-${REF_UID}.md`),
       `---\nobject_uid: ${REF_UID}\ntitle: 已废弃的目标\nstatus: retired\n---\n\n## 研究问题\nfixture\n`,
       "utf8",
     );
@@ -1360,7 +1360,7 @@ test("refs: F1 list projection carries refs for the Human card (20 §12)", async
     // 对同一目标必须给出同一指称，否则列表行渲染成裸 8hex 而读路径渲染成
     // `pitfall-8hex`。原断言只允许 {object_uid}，与本文件上文 writer 注释里早已
     // 写明的「Targets are enriched with type/title」互相矛盾。
-    assert.deepEqual(item.refs, [{ object_uid: REF_UID, fact_type_key: "research" }]);
+    assert.deepEqual(item.refs, [{ object_uid: REF_UID, fact_type_key: "report" }]);
   });
 });
 
@@ -1369,7 +1369,7 @@ test("refs: resolution reports the target type and title for projection (不做�
     await seedResearch(root, REF_UID, "蓝图业界调研");
     const resolved = await resolveRefsTargets(root, [{ object_uid: REF_UID }]);
     assert.ok(resolved.ok, JSON.stringify(resolved));
-    assert.equal(resolved.resolved.get(REF_UID).type, "research");
+    assert.equal(resolved.resolved.get(REF_UID).type, "report");
     assert.equal(resolved.resolved.get(REF_UID).title, "蓝图业界调研");
   });
 });

@@ -154,7 +154,8 @@ async function collectChangedCarriers(worktree, message, diff, indexFile) {
     // Only spec/fact carriers are governed by 09 §5.3 item 5; the checker
     // applies the same filter, so skip early to avoid pointless Git reads.
     if (!isSpecOrFactCarrierPath(path)) continue;
-    const status = changed.get(path);
+    const entry = changed.get(path);
+    const status = entry?.letter;
     // A (added), M (modified), and their staged rename/copy forms only.
     if (status !== undefined && !["A", "M", "R", "C", "T"].includes(status)) continue;
     let content;
@@ -165,11 +166,21 @@ async function collectChangedCarriers(worktree, message, diff, indexFile) {
       // so it carries no reference obligation. Skip rather than fail.
       continue;
     }
+    // 基线按**载体血缘**取，不按路径取（09 §5.3 第 5 项「只阻止新增引用」）：
+    // 重命名/复制的载体，其「存量引用」在旧路径的 HEAD 内容里，不在新路径
+    // （新路径在 HEAD 中不存在）。取新路径必然失败 → baseline 为空 →
+    // preexisting 豁免整体失效。
+    const baselinePath = entry?.oldPath ?? path;
     let baseline;
     try {
-      baseline = await git(worktree, ["show", `HEAD:${path}`], indexFile);
+      baseline = await git(worktree, ["show", `HEAD:${baselinePath}`], indexFile);
     } catch {
-      baseline = void 0; // newly added: every reference in it is new
+      // 取不到基线时**不得静默当成「全新文件」**（那会把存量引用全判成
+      // 新增）。区分两种情形：
+      //   · 纯新增（A）：HEAD 里本无此载体，其中每条引用确实都是新的；
+      //   · 重命名/复制（R/C）但旧路径读不到：血缘不可判定 → fail-closed，
+      //     该载体交给检查器按「不可判定」阻断，不豁免任何引用。
+      baseline = status === "A" ? void 0 : null;
     }
     carriers.push({ path, content, baseline });
   }
@@ -318,6 +329,11 @@ async function candidateTreePaths(worktree, indexFile) {
 
 /** Map of repo-relative path → staged status letter (from `--name-status`). */
 async function changedPathStatuses(worktree, indexFile) {
+  // Map 的值由 `letter` 升级为 `{ letter, oldPath }`：重命名/复制的**旧路径**
+  // 是 09 §5.3 第 5 项判定「是否本批新增引用」的唯一正确血缘依据（见
+  // collectChangedCarriers 里 baseline 的取法）。旧实现只留新路径、丢弃旧
+  // 路径，于是 R 行取 `HEAD:<新路径>` 必然失败、baseline 为空，preexisting
+  // 豁免整体失效——把存量引用全判成新引入（2026-11-14 独立复核定位）。
   const statuses = new Map();
   let raw = "";
   try {
@@ -332,13 +348,16 @@ async function changedPathStatuses(worktree, indexFile) {
     const letter = status[0];
     if (letter === "R" || letter === "C") {
       // rename/copy: status, old path, new path
+      const oldPath = fields[index + 1];
       const newPath = fields[index + 2];
-      if (typeof newPath === "string") statuses.set(newPath, letter);
+      if (typeof newPath === "string") {
+        statuses.set(newPath, { letter, oldPath: typeof oldPath === "string" ? oldPath : null });
+      }
       index += 2;
       continue;
     }
     const path = fields[index + 1];
-    if (typeof path === "string") statuses.set(path, letter);
+    if (typeof path === "string") statuses.set(path, { letter, oldPath: null });
     index += 1;
   }
   return statuses;

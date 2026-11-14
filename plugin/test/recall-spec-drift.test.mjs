@@ -48,7 +48,7 @@ const TYPE_SPEC_FILES = Object.freeze({
 	spark: "20-Spark-火花.md",
 	adr: "22-ADR-决策.md",
 	pitfall: "23-Pitfall-踩坑经验.md",
-	research: "24-Research-调研报告.md",
+	report: "24-Report-报告.md",
 	goal: "25-Goal-项目目标.md",
 	friction: "26-Friction-摩擦账本.md",
 	norm: "27-Norm-事实规范.md",
@@ -217,7 +217,7 @@ test("⑤ 未登记类型目录不得被静默忽略（须进 gaps）", async ()
 	// **目录名是复数**（adrs/pitfalls/…），类型名是单数（adr/pitfall/…）。
 	// 直接比目录名会把全部已知类型误判为「未登记」。已实测踩过此坑。
 	const knownDirs = new Set(REGISTERED_FACT_TYPES.map((t) => `${t}s`));
-	knownDirs.add("researches"); // research 的复数是不规则形式
+	knownDirs.add("reports"); // research 的复数是不规则形式
 	knownDirs.add("goal.md");    // 单例，不是目录
 	const unknown = dirs.filter((d) => !knownDirs.has(d) && !knownDirs.has(`${d}s`) && d !== "observation-buffer");
 

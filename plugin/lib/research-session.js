@@ -22,7 +22,7 @@
 // 发现单元的解析是正文结构层的东西，由 writer 的单一实现承载（03 §9.2 单一权威：
 // 同一「发现单元」判定不得有两份实现）。research-writer 不 import 本模块，
 // 故此依赖是单向的，不构成循环。
-import { extractFindingUnits } from "./research-writer.js";
+import { extractFindingUnits } from "./report-writer.js";
 
 // ---------------------------------------------------------------------------
 // §5 入口澄清 (clarification)

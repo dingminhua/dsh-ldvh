@@ -139,7 +139,7 @@ for (const c of CASES) {
 // ---------------------------------------------------------------------------
 
 test("research：question-coherence 同样给出两侧（24 §8 invariant 10）", async () => {
-  const mod = await import(new URL("../lib/research-writer.js", import.meta.url).href);
+  const mod = await import(new URL("../lib/report-writer.js", import.meta.url).href);
   const question = LONG;
   const frontmatter = {
     research_question: question,
@@ -187,7 +187,7 @@ test("norm：正文不声明 direction_key 时不报内聚错（本类型不要�
 
 test("research 的 research_question 参数描述含逐字要求（24 §8 invariant 10）", async () => {
   const { readFileSync } = await import("node:fs");
-  const source = readFileSync(new URL("../lib/research-tools.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../lib/report-tools.js", import.meta.url), "utf8");
   const line = source.split("\n").find((l) => l.includes("research_question: { type: \"string\""));
   assert.ok(line !== undefined, "research_question 字段应存在");
   assert.ok(

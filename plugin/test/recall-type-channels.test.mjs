@@ -246,7 +246,7 @@ test("⑥ 分节名额：按次序分节、每类限额、总名额从末尾裁�
 	const hits = [
 		hit("adr", 0), hit("adr", 1), hit("adr", 2),
 		hit("pitfall", 0), hit("pitfall", 1), hit("pitfall", 2),
-		hit("research", 0), hit("research", 1),
+		hit("report", 0), hit("report", 1),
 	];
 	const plan = { order: FACT_SECTION_ORDER, quotaByType: QUOTA_BY_TYPE, total: 3 };
 	const result = selectFactsBySection(hits, plan);
@@ -255,12 +255,12 @@ test("⑥ 分节名额：按次序分节、每类限额、总名额从末尾裁�
 	assert.deepEqual(result.droppedByQuota, [
 		{ type: "adr", count: 1 },
 		{ type: "pitfall", count: 1 },
-		{ type: "research", count: 1 },
+		{ type: "report", count: 1 },
 	]);
-	// 总名额耗尽后，research 的名额份额也被挡下——两笔都如实记账。
+	// 总名额耗尽后，report 的名额份额也被挡下——两笔都如实记账。
 	assert.deepEqual(result.droppedByTotal, [
 		{ type: "pitfall", count: 1 },
-		{ type: "research", count: 1 },
+		{ type: "report", count: 1 },
 	]);
 	assert.equal(result.unassigned, 0);
 	// 名额不改变名次：选中项保持传入次序。
@@ -314,7 +314,7 @@ test("⑥ 渲染：按类型分节、名额披露具名来源；关系展开单�
 		}],
 		sectioning: {
 			order: FACT_SECTION_ORDER, total: 3,
-			droppedByQuota: [{ type: "research", count: 4 }],
+			droppedByQuota: [{ type: "report", count: 4 }],
 			droppedByTotal: [],
 		},
 		truncated: false,
@@ -324,7 +324,7 @@ test("⑥ 渲染：按类型分节、名额披露具名来源；关系展开单�
 	assert.ok(text.includes(`事实源 · ${FACT_SECTION_LABELS.pitfall}：`), "Pitfall 分节标题须带类型名");
 	assert.ok(text.indexOf(FACT_SECTION_LABELS.adr) < text.indexOf(FACT_SECTION_LABELS.pitfall), "分节须按次序");
 	assert.match(text, /分节名额省略/, "名额裁剪须披露");
-	assert.match(text, /research 4/, "披露须点名被裁类型与条数（34 §12 标明截断来源）");
+	assert.match(text, /report 4/, "披露须点名被裁类型与条数（34 §12 标明截断来源）");
 	assert.match(text, /关系展开（精确引用派生；不占候选名额）：/, "派生条目须单独归类");
 	assert.ok(text.indexOf("关系展开（精确引用派生") > text.indexOf(FACT_SECTION_LABELS.pitfall), "派生组在事实分节之后");
 });

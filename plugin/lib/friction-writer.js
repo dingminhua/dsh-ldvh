@@ -225,7 +225,7 @@ const ATTRIBUTION_REF_DIRS = [
   ["spark", "sparks"],
   ["adr", "adrs"],
   ["pitfall", "pitfalls"],
-  ["research", "researches"],
+  ["report", "reports"],
   ["friction", "frictions"],
   ["norm", "norms"],
 ];

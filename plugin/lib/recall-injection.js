@@ -198,7 +198,7 @@ export const RECALL_BYTE_BUDGET = 2400;
  * 不是新的排序键。
  */
 export const FACT_SECTION_ORDER = Object.freeze([
-  "adr", "norm", "pitfall", "friction", "research",
+  "adr", "norm", "pitfall", "friction", "report",
 ]);
 
 /** 分节标题里的类型标签（只用于渲染，不参与判定）。 */
@@ -207,7 +207,7 @@ export const FACT_SECTION_LABELS = Object.freeze({
   norm: "Norm（事实规范）",
   pitfall: "Pitfall（踩坑经验）",
   friction: "Friction（摩擦账本）",
-  research: "Research（调研报告）",
+  report: "报告（调研／总结／审核）",
 });
 
 /**
@@ -221,7 +221,7 @@ export const QUOTA_BY_TYPE = Object.freeze({
   norm: 1,
   pitfall: 2,
   friction: 1,
-  research: 1,
+  report: 1,
 });
 
 /** 单次注入交付的事实候选总名额（= 既有注入 limit 默认值，未扩大）。 */

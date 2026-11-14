@@ -783,6 +783,50 @@ test("checkDocsReferences does NOT flag a PRE-EXISTING dangling reference (gradu
 	assert.equal(result.ok, true);
 });
 
+test("checkDocsReferences does NOT flag a PRE-EXISTING reference on a RENAMED carrier (baseline by lineage)", () => {
+	// 2026-11-14 回归：重命名载体的基线来自**旧路径**。此前实现按新路径取
+	// HEAD，新路径在 HEAD 中不存在 → baseline 为空 → preexisting 豁免整体
+	// 失效，把改名载体里的存量 docs/ 引用全判成「本批新增」。实测形态：
+	// 50 份调研对象由 researches/ 改名为 reports/ 后一次性报出 50 条。
+	const text = "`docs/persistence-schema.json` 的 ±1,600 行不代表格式升级。";
+	const result = checkDocsReferences(
+		[{ path: "ldvh-base/reports/report-x.md", content: text, baseline: text }],
+		{ exists: () => false }
+	);
+	assert.deepEqual(result.issues, []);
+	assert.equal(result.ok, true);
+});
+
+test("checkDocsReferences still flags a genuinely NEW reference added during a rename", () => {
+	// 改名同时新增引用：新增者不在旧基线里，仍须被拦住（甲案不得 fail-open）。
+	const result = checkDocsReferences(
+		[{
+			path: "ldvh-base/reports/report-x.md",
+			content: "存量 `docs/old.md`，新增 `docs/brand-new.md`。",
+			baseline: "存量 `docs/old.md`。",
+		}],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, false);
+	assert.equal(result.issues.length, 1, "only the new reference may be flagged");
+	assert.ok(result.issues[0].message.includes("docs/brand-new.md"));
+	assert.ok(!result.issues[0].message.includes("docs/old.md"));
+});
+
+test("checkDocsReferences FAILS CLOSED when a renamed carrier's baseline is unreadable", () => {
+	// baseline === null 是「血缘不可判定」的显式信号（R/C 但旧路径读不到）。
+	// 不得退回「预存集为空」——那正是要被修的缺陷形态：读不到当全新增，且
+	// 让「读不到就放过」成为绕过口。09 §5.3 非通过即阻断。
+	const text = "`docs/whatever.md` 的描述。";
+	const result = checkDocsReferences(
+		[{ path: "ldvh-base/reports/report-x.md", content: text, baseline: null }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, false);
+	assert.equal(result.issues.length, 1);
+	assert.ok(result.issues[0].message.includes("baseline could not be read"));
+});
+
 test("checkDocsReferences does NOT flag a NEW reference whose target exists", () => {
 	const result = checkDocsReferences(
 		[{ path: "specs/27-x.md", content: "见 `docs/live.md`。", baseline: "" }],
@@ -1234,7 +1278,7 @@ test("carrier identity: two carriers declaring one uid are refused (02 §5 item 
 
 test("carrier identity: an unreadable carrier fails closed rather than passing unverified", () => {
 	const result = checkFactCarrierIdentity([
-		{ path: `ldvh-base/researches/research-${UID_A}.md`, content: "" },
+		{ path: `ldvh-base/reports/research-${UID_A}.md`, content: "" },
 	]);
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((i) => i.rule), ["facts/carrier_uid_unverifiable"]);

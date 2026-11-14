@@ -124,12 +124,12 @@ export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   // **`friction` 于 2026-10-26 修订**：`observing` 已退出 26 §9 状态闭集（观察
   // 材料改由 11 §12bis.1 的本地缓冲承载，不进事实源），故默认候选只含 `open`。
   friction: ["open"],
-  // **`research` 须显式声明**（2026-10-24 修）：`24` 原文「默认状态范围
+  // **`report` 须显式声明**（2026-10-24 修，2026-11-14 随类型改名）：`24` 原文「默认状态范围
   // `status=active`，`retired` 只在精确引用、调研历史或来源追溯时进入候选」。
   // 此前它在白名单里却**缺这一项**，靠 `?? ["active"]` 的回退值碰巧对了——
-  // 但那是巧合而非声明：一旦回退默认值改动，research 会静默改变候选范围，
+  // 但那是巧合而非声明：一旦回退默认值改动，report 会静默改变候选范围，
   // 且无任何测试报错。漂移检查用例发现此缺项。
-  research: ["active"],
+  report: ["active"],
   adr: ["active"],
   norm: ["active"],
   pitfall: ["active"],
@@ -205,7 +205,7 @@ export function recallStatusPolicyOf(criteria, type) {
  * 召回不到——故 `source-recall.test.mjs` 有一条用例直接比对 specs 目录与本表。
  */
 export const REGISTERED_FACT_TYPES = Object.freeze([
-  "spark", "adr", "pitfall", "research", "goal", "friction", "norm", "subgoal",
+  "spark", "adr", "pitfall", "report", "goal", "friction", "norm", "subgoal",
 ]);
 
 /**

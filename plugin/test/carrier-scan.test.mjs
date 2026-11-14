@@ -36,7 +36,7 @@ import {
 import { listSparkObjects, SPARK_DIRECTORY } from "../lib/spark-writer.js";
 import { listAdrObjects, ADR_DIRECTORY } from "../lib/adr-writer.js";
 import { listPitfallObjects, PITFALL_DIRECTORY } from "../lib/pitfall-writer.js";
-import { listResearchObjects, RESEARCH_DIRECTORY } from "../lib/research-writer.js";
+import { listResearchObjects, REPORT_DIRECTORY } from "../lib/report-writer.js";
 import { listFrictionObjects, FRICTION_DIRECTORY } from "../lib/friction-writer.js";
 
 /** A canonical v4 uid (the shape writers mint). */
@@ -183,7 +183,7 @@ const LISTS = [
   ["spark", SPARK_DIRECTORY, listSparkObjects, { includeTerminal: true }],
   ["adr", ADR_DIRECTORY, listAdrObjects, { includeTerminal: true }],
   ["pitfall", PITFALL_DIRECTORY, listPitfallObjects, { includeTerminal: true }],
-  ["research", RESEARCH_DIRECTORY, listResearchObjects, { includeTerminal: true }],
+  ["report", REPORT_DIRECTORY, listResearchObjects, { includeTerminal: true }],
   ["friction", FRICTION_DIRECTORY, listFrictionObjects, { includeResolved: true }],
 ];
 
@@ -192,10 +192,10 @@ const BODIES = {
   spark: "## 当前理解\nx\n\n## 调查问题\ny\n\n## 调查边界\nz\n",
   adr: "## 决策背景\nx\n",
   pitfall: "## 症状\nx\n",
-  research: "## 研究问题\nx\n",
+  report: "## 研究问题\nx\n",
   friction: "## 现象\nx\n",
 };
-const STATUS = { spark: "open", adr: "active", pitfall: "active", research: "active", friction: "open" };
+const STATUS = { spark: "open", adr: "active", pitfall: "active", report: "active", friction: "open" };
 
 for (const [type, directory, listFn, options] of LISTS) {
   test(`${type} list: a mismatched filename is reported, never dropped`, async () => {

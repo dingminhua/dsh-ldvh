@@ -14,7 +14,7 @@ const REGISTRATION_RELATIVE_PATH = ["ldvh", "governed-projects.yaml"];
 // 25 Goal 为单例，落 ldvh-base/goal.md，不占目录。
 // 注：frictions 与 norms 曾漏于本清单（friction-writer.js 会写 frictions/，27 号定义 norms/），
 // 已按类型短名复数惯例补齐。
-const FACT_DIRECTORIES = ["sparks", "adrs", "pitfalls", "researches", "frictions", "norms"];
+const FACT_DIRECTORIES = ["sparks", "adrs", "pitfalls", "reports", "frictions", "norms"];
 
 /**
  * 07 §5.4 precondition vocabulary. The registration entries are enabled only

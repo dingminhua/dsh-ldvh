@@ -2,7 +2,7 @@
 // mechanical layer (specs/20 §13 受控操作 + specs/03 §9) into the governed
 // ldvh_* tool surface.
 //
-// Coverage follows the sibling research-tools.test.mjs pattern: handlers are
+// Coverage follows the sibling report-tools.test.mjs pattern: handlers are
 // driven through registerSparkTools's descriptors with a mock ctx.tools
 // registry, a real governed-project fixture (tmp repo + registration), and
 // the full 05 §8 envelope shape is asserted, not just the result.

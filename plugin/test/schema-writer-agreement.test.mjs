@@ -88,11 +88,11 @@ const TYPES = [
 		operationKey: "norm-write-object",
 	},
 	{
-		name: "research",
+		name: "report",
 		writerKeys: null, // read from source: the module exports no key set
-		load: () => import("../lib/research-tools.js"),
+		load: () => import("../lib/report-tools.js"),
 		operationKey: "research-write-object",
-		writerFile: "research-writer.js",
+		writerFile: "report-writer.js",
 	},
 	{
 		name: "subgoal",
@@ -529,7 +529,7 @@ async function retirementSetFromBullets(specFile) {
 const RETIREMENT_OWNERS = [
 	{ name: "adr", spec: "22 §9.2", specFile: "22-ADR-决策.md", loadWriter: () => import("../lib/adr-writer.js"), loadTools: () => import("../lib/adr-tools.js"), operationKey: "adr-write-object" },
 	{ name: "norm", spec: "27 §8.1", specFile: "27-Norm-事实规范.md", loadWriter: () => import("../lib/norm-writer.js"), loadTools: () => import("../lib/norm-tools.js"), operationKey: "norm-write-object" },
-	{ name: "research", spec: "24 §8", specFile: "24-Research-调研报告.md", source: "research-writer.js", loadTools: () => import("../lib/research-tools.js"), operationKey: "research-write-object" },
+	{ name: "report", spec: "24 §8", specFile: "24-Report-报告.md", source: "report-writer.js", loadTools: () => import("../lib/report-tools.js"), operationKey: "research-write-object" },
 ];
 
 for (const owner of RETIREMENT_OWNERS) {

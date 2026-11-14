@@ -178,7 +178,7 @@ test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜
 	assert.ok(facts.length > 0, "事实源不得为空（否则后续断言全部失去前提）");
 	const types = new Set(facts.map((f) => f.type));
 	// 七类，单数形；曾因从目录名猜单复数得 "researche"/"workca"。
-	for (const expected of ["adr", "friction", "norm", "pitfall", "research", "spark"]) {
+	for (const expected of ["adr", "friction", "norm", "pitfall", "report", "spark"]) {
 		assert.ok(types.has(expected), `应含类型 ${expected}，实际 ${[...types].join(",")}`);
 	}
 	for (const t of types) {
@@ -1202,16 +1202,18 @@ test("类型点名层：点名某事实类型时，该类型自己的规范须�
 		{ q: "记一条 Spark", want: "Spark" },
 		{ q: "新增一条 Pitfall", want: "Pitfall" },
 		{ q: "处理一个 Friction", want: "Friction" },
-		{ q: "写一份 Research", want: "Research" },
+		{ q: "写一份报告", want: "报告", reason: /适用范围命中|类型点名命中/ },
 	];
-	for (const { q, want } of cases) {
+	for (const { q, want, reason } of cases) {
 		const r = await recallForAction({ action: q, root: ROOT, limit: 3, budgetBytes: 20000 });
 		assert.ok(r.specs.length > 0, `「${q}」应命中规范`);
 		assert.ok(
 			r.specs[0].title.includes(want),
 			`「${q}」首位应为含「${want}」的规范，实际：${r.specs[0].title}（${r.specs[0].hitReason}）`,
 		);
-		assert.match(r.specs[0].hitReason, /类型点名命中/, `「${q}」应靠类型点名层命中`);
+		// 2026-11-14：24 号改为 Report-报告 后，「报告」同时命中标题词与适用范围，
+		// 两条通路都指向同一份规范，故两种理由均可接受（首位仍须是目标规范）。
+		assert.match(r.specs[0].hitReason, reason ?? /类型点名命中/, `「${q}」应靠类型点名或适用范围命中`);
 	}
 });
 

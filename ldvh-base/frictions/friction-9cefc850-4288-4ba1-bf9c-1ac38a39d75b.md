@@ -15,10 +15,14 @@ change_log:
     provider: qoder-global
     model: qmodel_38max
     summary: 补充级更新（保持 open）：DevLog/internal_evidence 半边随类型撤除消失（specs/29 删 aeb5cb7b、devlog-writer/tools 删 6c1b15e3、internal_evidence 全库零命中）；Research/serves 半边实测仍活——24 §8 字段表与 ADR af38533d 均在、research-writer VALID_FM_KEYS 与工具 schema（additionalProperties:false）均不含 serves，按规范构造写入仍被拒；出路为补闭集+解析校验+一致性用例，待并行线收口后单批实施
+  - at: 2026-11-14T07:41:07.739Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 补充观察：count 3 → 4（11 §9 第 2 项）
 occurrence:
-  count: 3
+  count: 4
   first_at: 2026-11-12T23:45:47.367Z
-  last_at: 2026-11-13T16:29:05.440Z
+  last_at: 2026-11-14T07:06:13.530Z
 ---
 
 # 规范已批字段在写入器闭集缺位
@@ -44,3 +48,7 @@ specs/29 §8 的 internal_evidence 与 specs/24 §8 的 serves 已由规范与 A
 **② Research 半边仍活（实测，本次核验三处）。** (a) 声明侧在：specs/24 §8 字段表仍列 `serves`（可选、须解析到 active/achieved SubGoal、24 §8.1/不变量 11），其依据 ADR「Research 增设 serves 目标锚定字段」（af38533d）仍 active，24 §8:196 且已把采用面收窄记载为「原另一采用方 DevLog 已于 2026-11-14 撤除」——即规范侧在 DevLog 撤除后**明确保留了 Research 的 serves 契约**；(b) 实现侧缺：research-writer.js:57 的 `VALID_FM_KEYS` 仍不含 `serves`（全文件该词零命中），research-tools.js 的参数 schema（frontmatter_draft/frontmatter_after 均 `additionalProperties: false`）也不声明 `serves`；(c) 后果不变：今天按 24 §8 构造一次带 `serves` 的 Research 创建，仍会在 schema 层或 closed-set 校验被拒——观察 1/2 的失效形态逐字可复现。
 
 **③ 不销账的理由与出路。** 不标 resolved：无可指解药，落差半边存活。不标 voided：Research 侧承载面（24 §8 字段表、ADR、writer 闭集、工具 schema）全部在位，阻碍随时可复现。出路即入账依据原句：把 `serves` 补进 research-writer 的 `VALID_FM_KEYS` 与工具 schema（含 24 §8 要求的 UUID 形态校验与 resolveSubGoal 目标解析，参照 devlog-writer 撤除前的 serves 实现与 spark/subgoal 两侧同口径），并补 schema–writer 一致性用例。本轮不动代码的如实理由：并行工作线正在改同一测试面（schema-writer-agreement.test.mjs 在途未提交），共享工作树下同时改同域文件有在途冲突风险（既有账目 d7e0a3d3/68e6f33e 的教训），修复应待该线收口后单批实施。
+
+补充观察（2026-11-14T07:06:13.530Z）：引证出自 turn 37 助手在「现状核准完毕」后对 24 号现状的复核：规范侧 specs/24 §8 的 serves 仍在，而写入器侧 VALID_FM_KEYS 仍不含它，同一段「实现批」又写明「上轮实测：规范有 serves、白名单没有，按规范建对象会被拒」。这与既有 open 账目 friction-9cefc850（规范已批字段在写入器闭集缺位）的归因落点完全一致——同为「类型规范的字段表 ↔ 受控写入器字段闭集」之间的承载接缝，现象同为按规范构造的写入被闭集拒收，机制模式相同（两侧各自维护字段清单、无一致性用例），故按同一阻碍报 same-obstacle 并给出其 uid，由机械层对该账目做补充级更新。另如实说明：本次交付的 Pitfall 侧候选不完整（已交付 40 / 74，跨类型查重不完整），已交付的 40 条中未见与该 schema–writer 接缝同源者，但这
+逐字引证：24 号的 serves 字段仍在规范里（7 处），且实现侧 VALID_FM_KEYS 仍缺它——旧阻断还在。
+（来源：37）

@@ -35,7 +35,7 @@ import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_F
 import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { REVIEW_ASK_OPERATION, reviewAskParameterSchema, executeReviewAsk } from "./review-ask-tool.js";
-import { registerResearchTools } from "./research-tools.js";
+import { registerReportTools } from "./report-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
 import { registerAdrTools } from "./adr-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
@@ -953,13 +953,20 @@ function makeExecute(deps) {
         if (!/^[A-Z]/.test(status)) continue;
         const letter = status[0];
         if (letter === "R" || letter === "C") {
+          // 旧路径是判定「是否本批新增引用」的血缘依据；丢弃它会令 R 行
+          // 取 HEAD:<新路径> 必然失败、baseline 为空、preexisting 豁免整体
+          // 失效（与 git-gate-runner.changedPathStatuses 同构，09 §5.5 要求
+          // 两入口同一 validator，故此处必须同步）。
+          const oldPath = fields[index + 1];
           const newPath = fields[index + 2];
-          if (typeof newPath === "string") statuses.set(newPath, letter);
+          if (typeof newPath === "string") {
+            statuses.set(newPath, { letter, oldPath: typeof oldPath === "string" ? oldPath : null });
+          }
           index += 2;
           continue;
         }
         const path = fields[index + 1];
-        if (typeof path === "string") statuses.set(path, letter);
+        if (typeof path === "string") statuses.set(path, { letter, oldPath: null });
         index += 1;
       }
     } catch {
@@ -977,7 +984,8 @@ function makeExecute(deps) {
       // Governed class only (09 §5.3 item 5): spec and fact carriers. The
       // checker re-applies the same filter, so the two entries cannot diverge.
       if (!isSpecOrFactCarrierPath(path)) continue;
-      const status = statuses.get(path);
+      const entry = statuses.get(path);
+      const status = entry?.letter;
       if (status !== undefined && !["A", "M", "R", "C", "T"].includes(status)) continue;
       let content;
       try {
@@ -985,11 +993,14 @@ function makeExecute(deps) {
       } catch {
         continue;
       }
+      // 同 git-gate-runner：基线按载体血缘取（R/C 用旧路径）；取不到时
+      // 纯新增(A) 记 undefined，R/C 记 null 交检查器 fail-closed。
+      const baselinePath = entry?.oldPath ?? path;
       let baseline;
       try {
-        baseline = await runGit(["show", `HEAD:${path}`]);
+        baseline = await runGit(["show", `HEAD:${baselinePath}`]);
       } catch {
-        baseline = void 0;
+        baseline = status === "A" ? void 0 : null;
       }
       carriers.push({ path, content, baseline });
     }
@@ -1946,7 +1957,7 @@ export function registerLdvhTools(ctx, deps) {
   }
   // Research mechanical layer (specs/33 state machine + specs/24 writer),
   // same registration surface: governed sessions only.
-  disposers.push(registerResearchTools(ctx, deps));
+  disposers.push(registerReportTools(ctx, deps));
   // Spark mechanical layer (specs/20 writer), same registration surface.
   disposers.push(registerSparkTools(ctx, deps));
   // ADR mechanical layer (specs/22 writer), same registration surface.

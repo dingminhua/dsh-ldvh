@@ -22,7 +22,7 @@ const WRITE_MODULES = [
   "pitfall",
   "friction",
   "norm",
-  "research",
+  "report",
 ];
 
 async function writeDescriptors() {

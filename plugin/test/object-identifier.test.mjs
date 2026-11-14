@@ -167,7 +167,7 @@ test("FACT_TYPE_DIRECTORIES 与七个 writer 的 *_DIRECTORY 常量一致", asyn
     friction: ["friction-writer.js", "FRICTION_DIRECTORY"],
     norm: ["norm-writer.js", "NORM_DIRECTORY"],
     pitfall: ["pitfall-writer.js", "PITFALL_DIRECTORY"],
-    research: ["research-writer.js", "RESEARCH_DIRECTORY"],
+    report: ["report-writer.js", "REPORT_DIRECTORY"],
     spark: ["spark-writer.js", "SPARK_DIRECTORY"],
     subgoal: ["subgoal-writer.js", "SUBGOAL_DIRECTORY"],
   };
@@ -240,7 +240,7 @@ test("读取入口：类型前缀与实际类型不符时给出 type_prefix_mism
 // ---------------------------------------------------------------------------
 
 test("其余七个 writer 的写路径仍各自持有 canonical-only 门", () => {
-  const writers = ["adr", "friction", "norm", "pitfall", "research", "spark", "subgoal"];
+  const writers = ["adr", "friction", "norm", "pitfall", "report", "spark", "subgoal"];
   for (const type of writers) {
     const source = readFileSync(new URL(`../lib/${type}-writer.js`, import.meta.url), "utf8");
     const uses = source.split("assertValidUid(").length - 1;

@@ -21,7 +21,7 @@ import test from "node:test";
 import * as adr from "../lib/adr-tools.js";
 import * as friction from "../lib/friction-tools.js";
 import * as pitfall from "../lib/pitfall-tools.js";
-import * as research from "../lib/research-tools.js";
+import * as research from "../lib/report-tools.js";
 import * as spark from "../lib/spark-tools.js";
 import * as norm from "../lib/norm-tools.js";
 import * as subgoal from "../lib/subgoal-tools.js";

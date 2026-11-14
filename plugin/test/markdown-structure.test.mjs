@@ -148,7 +148,7 @@ test("结构守卫: 消费方 writer 均已引用共享实现", async () => {
     "friction-writer.js",
     "norm-writer.js",
     "pitfall-writer.js",
-    "research-writer.js",
+    "report-writer.js",
     "spark-writer.js",
   ];
   for (const name of consumers) {

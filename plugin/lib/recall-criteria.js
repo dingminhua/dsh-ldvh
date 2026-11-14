@@ -67,7 +67,7 @@ export const FACT_TYPE_BY_SPEC_ID = Object.freeze({
   "20": "spark",
   "22": "adr",
   "23": "pitfall",
-  "24": "research",
+  "24": "report",
   "25": "goal",
   "26": "friction",
   "27": "norm",

@@ -266,7 +266,7 @@ test("快照：各类型别名集合恰为规范所载（25 goal 为「不采用
 	assert.deepEqual(aliasesOf("spark"), new Set(["火花"]));
 	assert.deepEqual(aliasesOf("adr"), new Set(["决策记录"]));
 	assert.deepEqual(aliasesOf("pitfall"), new Set(["踩坑经验"]));
-	assert.deepEqual(aliasesOf("research"), new Set(["调研报告"]));
+	assert.deepEqual(aliasesOf("report"), new Set(["报告", "调研报告", "总结报告", "审核报告"]));
 	assert.deepEqual(aliasesOf("friction"), new Set(["摩擦账本", "摩擦"]));
 	assert.deepEqual(aliasesOf("norm"), new Set(["事实规范"]));
 	// 28：补上映射前这张表根本没被读入，别名通道对它完全失效。
@@ -305,8 +305,8 @@ test("快照：20–29 的默认候选状态与核心语义字段与规范机械
 	assert.deepEqual(valuesOf("adr").coreFields, ["decision", "scope"]);
 	assert.deepEqual(valuesOf("pitfall").coreFields, ["title", "scope"]);
 	assert.equal(valuesOf("pitfall").notApplicable["关系展开"], true);
-	assert.deepEqual(valuesOf("research").coreFields, ["research_question", "research_purpose"]);
-	assert.deepEqual(valuesOf("research").relations.find((r) => r.relationKey === "inspired-by").targets, ["spark", "adr"]);
+	assert.deepEqual(valuesOf("report").coreFields, ["title", "report_form", "research_question", "research_purpose"]);
+	assert.deepEqual(valuesOf("report").relations.find((r) => r.relationKey === "inspired-by").targets, ["spark", "adr"]);
 	assert.deepEqual(valuesOf("friction").coreFields, ["title", "phenomenon", "attribution"]);
 	assert.deepEqual(valuesOf("friction").relations.find((r) => r.relationKey === "informs").targets, ["adr"]);
 	assert.deepEqual(valuesOf("norm").coreFields, ["direction_key", "title"]);

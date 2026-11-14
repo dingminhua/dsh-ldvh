@@ -160,7 +160,7 @@ export const FACT_TYPE_DIRECTORIES = Object.freeze({
   friction: "frictions",
   norm: "norms",
   pitfall: "pitfalls",
-  research: "researches",
+  report: "reports",
   spark: "sparks",
   subgoal: "subgoals",
 });
