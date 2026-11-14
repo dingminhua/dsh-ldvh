@@ -184,6 +184,12 @@ export function ObjectCardFrame({
             style={{ backgroundColor: `${typeColor}18`, borderColor: `${typeColor}55`, color: typeColor }}
           >
             {getTypeLabel(obj.type, locale)}
+            {/* 24 §5（2026-11-14）：报告三形态共用一个类型，只显示「报告」无法区分
+                调研型／总结型／审核型。形态由 report_form 机械固化，此处按形态细分；
+                其它类型不显示后缀（report_form 只属 report）。 */}
+            {obj.type === 'report' && typeof obj.report_form === 'string' && obj.report_form.length > 0
+              ? `· ${getFieldValueLabel('report_form', obj.report_form, locale)}`
+              : ''}
           </span>
           {/* Human 定案：卡头标签序 = 类型 → 优先级 → 修改次数；不设关联
               chip（条件字段有值才显示，20 §8 priority 仅 open 时出现）。

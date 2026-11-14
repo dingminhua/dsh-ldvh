@@ -134,7 +134,12 @@ export interface ObjectItem {
   change_log?: unknown;
   disposition_summary?: string;
   relations?: Array<Record<string, unknown>>;
-  /** v4 Study 专属（v4 归档模式下仍可见）；v5 Research 无此字段，卡片摘要由 research_question 承担（24 §12）。 */
+  /** 24 §8（2026-11-14）：报告来源形态——调研型／总结型／审核型。三形态共用一个
+   * `report` 类型，靠本字段区分；创建后不可变更。**与下方 v4 遗留的 `report_kind`
+   * 同名不同义**：那个是 v4 Study 的分类标签（external_research 等），本字段是 v5
+   * 报告类型的形态判定，两者不得互相当作对方使用。 */
+  report_form?: 'research' | 'summary' | 'audit';
+  /** v4 Study 专属（v4 归档模式下仍可见）；v5 report 无此字段，卡片摘要由 research_question 承担（24 §12）。 */
   report_kind?: 'external_research' | 'internal_audit' | 'technical_assessment' | 'comparison';
   input_refs?: Array<Record<string, unknown>>;
   /** 跨工作区合并元数据 */

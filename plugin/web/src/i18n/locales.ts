@@ -184,7 +184,7 @@ export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
   adr: { zh: '决策', en: 'ADR' },
   pitfall: { zh: '经验', en: 'Pitfall' },
   spark: { zh: '火花', en: 'Spark' },
-  research: { zh: '调研', en: 'Research' },
+  report: { zh: '报告', en: 'Report' },
   friction: { zh: '摩擦', en: 'Friction' },
   norm: { zh: '规范', en: 'Norm' },
   goal: { zh: '目标', en: 'Goal' },
@@ -913,7 +913,7 @@ export const UI_LOCALES = {
     'nav.adrs': '决策',
     'nav.pitfalls': '经验',
     'nav.sparks': '火花',
-    'nav.studies': '调研',
+    'nav.studies': '报告',
     'nav.frictions': '摩擦',
     'nav.norms': '规范',
     // 2026-11-13：侧栏不设子目标入口，'nav.subgoals' 随之撤除（子目标在聚焦页目标区）。
@@ -1784,7 +1784,7 @@ export const UI_LOCALES = {
     'nav.adrs': 'ADRs',
     'nav.pitfalls': 'Pitfalls',
     'nav.sparks': 'Sparks',
-    'nav.studies': 'Research',
+    'nav.studies': 'Reports',
     'nav.frictions': 'Frictions',
     'nav.norms': 'Norms',
     // 2026-11-13: the sidebar has no sub-goal entry; 'nav.subgoals' is withdrawn with it.
