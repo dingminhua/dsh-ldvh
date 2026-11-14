@@ -83,7 +83,7 @@ export function reviewAskParameterSchema() {
       point: {
         type: "string",
         enum: ["pre-action", "post-work"],
-        description: "pre-action = 动手前的审查询问；post-work = 收口前的复核询问",
+        description: "pre-action = 行动前的审查询问（时点是「方案已有候选、尚未产生副作用」，不是「任务的第一个动作之前」）；post-work = 收口前的复核询问",
       },
       task: {
         type: "string",
@@ -124,7 +124,7 @@ export async function executeReviewAsk(args, exec, deps) {
       sources: [],
       gaps: [`point must be "pre-action" or "post-work", got ${JSON.stringify(point ?? null)}`],
       verification: { checks: ["point-closed-set"], passed: false },
-      follow_up: ["pass point=\"pre-action\" (动手前的审查) or point=\"post-work\" (收口前的复核)"],
+      follow_up: ["pass point=\"pre-action\" (行动前的审查，时点是方案已有候选、尚未产生副作用) or point=\"post-work\" (收口前的复核)"],
     });
   }
   const task = typeof args?.task === "string" && args.task.trim().length > 0 ? args.task.trim() : null;

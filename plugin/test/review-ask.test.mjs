@@ -185,6 +185,47 @@ test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原�
   assert.deepEqual(drifted, [], `点位排除常量与规范原文漂移（01 §11.4 禁第二规则源）：\n${drifted.join("\n")}`);
 });
 
+test("设置页 hint 与工具参数说明：须写明行动前那处的时点，且不得承诺「答复后才动手」", async () => {
+  // 2026-11-14 Human 指出「主控还没有自己意见的时候，怎么会有审查这个说法」。
+  // 根因不止注入行：面向 Human 的设置页 hint、面向模型的参数 description 都只写
+  // 「动手前」，读起来就是「任务第一秒」；而规范的进入信号是 32 §6.1「尚未开始
+  // 产生副作用」。这两面各自是独立的措辞面，改一处不漏另一处才是本条要守的。
+  //
+  // **本条刻意分两个文件各取一次**：它们不由同一常量渲染（那不是单一来源，
+  // 是两份副本），所以任一侧回退都须单独红一次。
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const lib = join(import.meta.dirname, "..", "lib");
+
+  const client = await readFile(join(lib, "client.js"), "utf8");
+  const tool = await readFile(join(lib, "review-ask-tool.js"), "utf8");
+
+  const failures = [];
+
+  // ① 设置页中文 hint：须说清「还没方案时不问」，且须说清答复不拦行动。
+  const zhStart = client.indexOf('"row.reviewAskPreHint": "');
+  const zhEnd = client.indexOf('"', zhStart + '"row.reviewAskPreHint": "'.length);
+  const zh = client.slice(zhStart, zhEnd);
+  if (!/候选方案/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未写「已形成候选方案」这个时点条件");
+  if (!/还没有任何方案时不会问|没有可核对的对象/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未说明还没有方案时不问");
+  if (!/答与不答都不拦住/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未说明答复不拦行动（00 §2.5）");
+  if (/取得明确答复后才/.test(zh)) failures.push("row.reviewAskPreHint 中文侧出现了「取得明确答复后才」（00 §2.5 明禁）");
+
+  // ② 设置页英文 hint：同一口径，英文侧不得落后。
+  const enStart = client.indexOf('"row.reviewAskPreHint": "', zhEnd);
+  const enEnd = client.indexOf('"', enStart + '"row.reviewAskPreHint": "'.length);
+  const en = client.slice(enStart, enEnd);
+  if (enStart === -1 || !/candidate plan/.test(en)) failures.push("row.reviewAskPreHint 英文侧未写 candidate plan 这个时点条件");
+  if (!/does not hold it back/.test(en)) failures.push("row.reviewAskPreHint 英文侧未说明答复不拦行动");
+
+  // ③ 工具参数说明：这是模型决定传什么参数时读到的最近一行，最容易被漏改。
+  const pointDesc = /point: \{[^}]*?description: "([^"]*)"/s.exec(tool)?.[1] ?? "";
+  if (!/方案已有候选/.test(pointDesc)) failures.push("point 参数 description 未写明「方案已有候选」这个时点");
+  if (/动手前的审查询问/.test(pointDesc)) failures.push("point 参数 description 仍是旧口径「动手前的审查询问」");
+
+  assert.deepEqual(failures, [], `时点措辞未补全：\n${failures.join("\n")}`);
+});
+
 test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2 的复发面）", async () => {
   // 中文补了、英文漏了——这是 2026-11-14 行动后复核抓到的真实失真。纯文本面，
   // 没有任何既有测试覆盖。转红判据：删掉任一侧的排除句，本用例红。

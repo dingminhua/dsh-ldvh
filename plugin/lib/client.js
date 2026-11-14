@@ -536,9 +536,9 @@ window.__ModuleLoader__.load({
       "row.idleAssistHint": "会话空闲时由宜主派发辅助任务；两项开关分别管发现层与审核层，关掉哪个就少跑哪一层。",
       "row.reviewAsk": "把关请示",
       "row.reviewAskPre": "行动前：询问是否安排代理审查",
-      "row.reviewAskPreHint": "打开后，AI 判定当次任务属「复杂任务」时，会在动手前问你要不要先让一个独立子代理挑错。**三类情况不问**（specs/32 §4.2，2026-11-14 决定）：整件只是调研取证与报告、整件只是提交推送已形成的改动、整件只是用受控工具转换既有事实对象的状态——它们的核对分别已由 33 号审计、Git Gate、受控写入回读承担。判错了或没判，机械层不会拦——这是按开关执行的自律，不是机械保障。",
+      "row.reviewAskPreHint": "打开后，AI 判定当次任务属「复杂任务」、**且已形成候选方案时**，会在动手改动之前问你要不要先让一个独立子代理挑错。判定为复杂但还没有任何方案时不会问——那没有可核对的对象（specs/32 §6.4）；**你答与不答都不拦住它动手**（00 §2.5），请示只决定要不要多一双眼睛。**三类情况不问**（specs/32 §4.2，2026-11-14 决定）：整件只是调研取证与报告、整件只是提交推送已形成的改动、整件只是用受控工具转换既有事实对象的状态——它们的核对分别已由 33 号审计、Git Gate、受控写入回读承担。判错了或没判，机械层不会拦——这是按开关执行的自律，不是机械保障。",
       "row.reviewAskPost": "行动后：询问是否安排代理复核",
-      "row.reviewAskPostHint": "打开后，一件复杂任务做完、准备收口时，AI 会问你要不要让独立子代理逐条核对已发生的工作。与上面那个开关相互独立：只开这个就只在收口前问。上面那三类点位排除在这里同样生效——命中时 AI 须在结论里写明命中哪一类与判定理由，不写就按没问过处理。",
+      "row.reviewAskPostHint": "打开后，一件复杂任务做完、准备收口时，AI 会问你要不要让独立子代理逐条核对已发生的工作。与上面那个开关相互独立：只开这个就只在收口前问。同样**你答与不答都不拦住它收口**（00 §2.5）。上面那三类点位排除在这里同样生效——命中时 AI 须在结论里写明命中哪一类与判定理由，不写就按没问过处理。",
       "row.reviewAskSilent": "静默执行：不问，直接安排",
       "row.reviewAskSilentBadge": "静默",
       "row.reviewAskSilentHint": "打开后，AI 判定当次属「复杂任务」时不再问你，直接派一个独立子代理做那次审查／复核，做完在结论里留一行「静默执行」的痕迹。**它只免掉询问，不免掉核对**，也只作用于上面两项；上面那三类点位排除命中时，两处都不派发（免的是询问，前提是该问的那一次）。ADR、火花、管辖项目这些真正要你点头的事照旧请示。上面两项都没开时，这项不起作用。",
@@ -629,9 +629,9 @@ window.__ModuleLoader__.load({
       "row.idleAssistHint": "The assistant dispatches auxiliary tasks while the session is idle; the two switches cover the discovery layer and the review layer respectively.",
       "row.reviewAsk": "Review checkpoints",
       "row.reviewAskPre": "Before acting: ask whether to arrange an agent review",
-      "row.reviewAskPreHint": "When on, and the AI judges the task to be a complex task, it will ask you whether an independent subagent should look for problems first. **Three cases are not asked** (specs/32 §4.2, Human decision 2026-11-14): when the whole piece of work is only research evidence-gathering and reporting, only committing and pushing changes already made, or only a controlled-tool operation on an existing fact object — their checking is already carried by spec 33's citation audit, the Git Gate, and controlled-write read-back. If it judges wrongly or not at all, nothing blocks it — this is self-discipline driven by a switch, not a mechanical guarantee.",
+      "row.reviewAskPreHint": "When on, and the AI judges the task to be a complex task **and a candidate plan has taken shape**, it will ask you — before it starts changing anything — whether an independent subagent should look for problems first. It does not ask while it is still judging and no plan exists yet: there would be nothing to check (specs/32 §6.4). **Whether you answer or not does not hold it back** (00 §2.5); the ask only decides whether a second pair of eyes is added. **Three cases are not asked** (specs/32 §4.2, Human decision 2026-11-14): when the whole piece of work is only research evidence-gathering and reporting, only committing and pushing changes already made, or only a controlled-tool operation on an existing fact object — their checking is already carried by spec 33's citation audit, the Git Gate, and controlled-write read-back. If it judges wrongly or not at all, nothing blocks it — this is self-discipline driven by a switch, not a mechanical guarantee.",
       "row.reviewAskPost": "After the work: ask whether to arrange an agent re-check",
-      "row.reviewAskPostHint": "When on, and a complex task is done and about to be closed out, the AI will ask whether an independent subagent should check the work item by item. Independent of the switch above: enabling only this one asks only before closing out. The same three point-level exclusions apply here — when one is hit, the AI must name which one and why in the handover; without that line it counts as not having asked.",
+      "row.reviewAskPostHint": "When on, and a complex task is done and about to be closed out, the AI will ask whether an independent subagent should check the work item by item. Independent of the switch above: enabling only this one asks only before closing out. Here too **whether you answer or not does not hold the close-out back** (00 §2.5). The same three point-level exclusions apply here — when one is hit, the AI must name which one and why in the handover; without that line it counts as not having asked.",
       "row.reviewAskSilent": "Silent run: skip the question, arrange it directly",
       "row.reviewAskSilentBadge": "silent",
       "row.reviewAskSilentHint": "When on, and the AI judges the task to be a complex task, it no longer asks you: it dispatches an independent subagent for that review directly and leaves a one-line “silent run” trace in the result. **It removes the question, not the check**, and applies only to the two items above — ADRs, Sparks and project registration, which genuinely need your yes, are still asked. When one of the three point-level exclusions above is hit, neither item dispatches an agent: the exclusion governs whether that check happens at all, and it takes precedence over this setting. With both items above off, this switch has nothing to act on.",
@@ -1753,12 +1753,12 @@ window.__ModuleLoader__.load({
         ),
         // ── 把关请示（2026-11-13 Human 决定；同日晚改标题与删说明）────────
         //
-        // 保留两项把关，落到两处询问上：动手前问「要不要安排代理
-        // 审查」、收口前问「要不要安排代理复核」。**两个独立开关、缺省都关**
-        // ——Human 原话「打开才有，否则就是不安排审核与复核」。
+        // 保留两项把关，落到两处询问上：行动前（方案已有候选时）问「要不要
+        // 安排代理审查」、收口前问「要不要安排代理复核」。**两个独立开关、
+        // 缺省都关**——Human 原话「打开才有，否则就是不安排审核与复核」。
         //
         // 为什么不做成「总开关 + 子项」：两处询问在时点与语义上都独立（一个管
-        // 动手前、一个管收口前），只想要事前把关的人不该被迫连事后复核一起开。
+        // 行动前、一个管收口前），只想要事前把关的人不该被迫连事后复核一起开。
         // 这与闲时辅助那一块**不同**——那块管同一次派发，拆开会产生半套材料。
         //
         // **2026-11-13 晚（Human 指示）**：组名由「两处把关询问」改为

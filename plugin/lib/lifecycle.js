@@ -1150,7 +1150,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // **它只提示、不代问**：询问本身必须由主控经 `ldvh_review_ask` 发起
         // （或模型面直接调宿主 ask_user_question），因为「这次任务算不算复杂」
         // 是 AI 语义判断，机械层判不了（本行注释与 review-ask.js 头注同一口径）。
-        // 本行做的是让主控**在动手前看得见**「开关开着、该判一次复杂度」这件事
+        // 本行做的是让主控**在形成方案的那一步**看得见「开关开着、该判一次
+        // 复杂度」这件事
         // ——这正是 21 §14 那次「闸只拒绝、不推动」教训的推广：没有提示行，
         // 开关即使打开也会被静默跳过。
         //
