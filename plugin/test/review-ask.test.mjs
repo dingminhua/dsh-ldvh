@@ -247,14 +247,21 @@ test("GATE_POINT_EXCLUSIONS：label 的语义限定须回指规范里的分段�
     { marker: "先决条件", section: "三", keyword: "先决条件" },
     { marker: "计量口径", section: "八", keyword: "计量口径" },
   ];
+  // **marker 与段号必须绑在一起**（2026-11-14 复核 MINOR-4）：上一版是两个独立断言
+  // ——「marker 出现过」+「某个（N）出现过」，把「规则单位见（二），先决条件见（三）」
+  // 互换（二）（三）之后仍然全绿。成对校验才是这里要的：关键词与其**紧邻**的段号
+  // 须同时出现在同一个小句里。
   const failures = [];
   for (const { marker, section, keyword } of expectations) {
     if (!target.label.includes(marker)) {
       failures.push(`label 未提及「${marker}」——该限定被删掉了，读的人就不知道去规范哪一段`);
       continue;
     }
-    if (!target.label.includes(`（${section}）`)) {
-      failures.push(`label 的「${marker}」未回指（${section}），实际 label：${target.label}`);
+    // 同一小句内：marker 在前、段号在后；允许中间有「按点位分别成立」这类插入语，
+    // 但不允许跨越「；」（跨句就说明段号挂到别的 marker 上了）。
+    const bound = new RegExp(`${marker}[^；]{0,20}（${section}）`);
+    if (!bound.test(target.label)) {
+      failures.push(`label 的「${marker}」未与（${section}）绑定在同一小句里，实际 label：${target.label}`);
       continue;
     }
     if (!spec.includes(`**（${section}）${keyword}`)) {
@@ -311,6 +318,35 @@ test("GATE_POINT_EXCLUSIONS：notExcluded 也须逐字回指原文（此前无�
   assert.deepEqual(
     missing, [],
     `第 4 类的 notExcluded 与 specs/32 §4.2 原文不一致（01 §11.4 禁第二规则源）：\n${missing.join("\n")}`,
+  );
+
+  // **反方向：规范（七）列的每一条边界，常量里都须有对应片段**（2026-11-14 复核 MAJOR-2）。
+  // 上面那段只查「常量里的片段在规范中存在」，即**常量→规范**方向；而这一条真正的
+  // 复发面是 MAJOR-5 的形状——**规范里有、常量里漏**（规范→常量）。复核实测：
+  // 把「一份 Norm 承接多份 ADR」整段从常量删掉，98 条测试全绿。没有这一段，
+  // 上一条用例的标题「MAJOR-5 的复发面」就是一句空话。
+  //
+  // 取法：截出（七）段，按「- 」切条目，每条取其主干（去掉括注与「：」前的标题以外的
+  // 修饰），断言常量 notExcluded 里存在一个片段包含该主干的关键词。**不追求逐字**
+  // ——那要解析规范的括注结构，越出机械层边界；这里守的是「每一条都被提到了」。
+  const start = spec.indexOf("**（七）额外边界**");
+  const end = spec.indexOf("**（八）计量口径**");
+  assert.ok(start !== -1 && end !== -1 && end > start, "须能定位 §4.2（七）与（八）两段");
+  const boundaryBlock = spec.slice(start, end);
+  const bullets = boundaryBlock
+    .split("\n")
+    .filter((line) => line.trim().startsWith("- "))
+    .map((line) => line.trim().slice(2));
+  assert.ok(bullets.length >= 5, `（七）应有若干条边界，实际解析到 ${bullets.length} 条`);
+  const uncovered = bullets.filter((b) => {
+    // 主干 = 到第一个「：」或「（」为止的那截；太短（<4 字）就不作为判据，避免恒真
+    const head = b.split(/[：（]/)[0].trim();
+    if (head.length < 4) return false;
+    return !target.notExcluded.includes(head);
+  });
+  assert.deepEqual(
+    uncovered, [],
+    `规范 §4.2（七）的下列边界在 notExcluded 里没有对应片段（规范→常量方向漏失）：\n${uncovered.join("\n")}`,
   );
 });
 
