@@ -163,9 +163,9 @@ export async function executeReviewAsk(args, exec, deps) {
       result: { point, task, decision: null, asked: false, switch_enabled: null },
       scope: { requested: point, completed: [], not_completed: [point] },
       sources: [],
-      gaps: [settingsGap, "no prompt was issued because the switch state could not be determined — report this to Human (00 §4.7); do not treat it as a configured skip"],
+      gaps: [settingsGap, "no prompt was issued because the switch state could not be determined — report this to Human (00 §4.6 据实声明; this is not a 00 §4.7 stop, since the two review asks are 征询 outside any Human Gate per 00 §2.5); do not treat it as a configured skip"],
       verification: { checks: ["point-closed-set", "switch-read"], passed: false },
-      follow_up: ["report the unavailable switch state to Human; do not claim the review was skipped by configuration"],
+      follow_up: ["report the unavailable switch state to Human; do not claim the review was skipped by configuration; do NOT pause the work over this — 00 §2.5 says the ask neither grants nor suspends"],
     });
   }
   // 开关分派**走 askEnabledFor**（2026-11-13 独立审核 MINOR #7）：此前此处另写
@@ -195,10 +195,10 @@ export async function executeReviewAsk(args, exec, deps) {
       sources: [],
       gaps: [
         ...(settingsGap === null ? [] : [settingsGap]),
-        "the switch state is not set in the configuration — it is **not** the same as the switch being off, so no prompt was issued; report this to Human (00 §4.7)",
+        "the switch state is not set in the configuration — it is **not** the same as the switch being off, so no prompt was issued; report this to Human (00 §4.6 据实声明; not a 00 §4.7 stop — the two review asks are 征询 outside any Human Gate per 00 §2.5)",
       ],
       verification: { checks: ["point-closed-set", "switch-read"], passed: false },
-      follow_up: ["report the unset switch state to Human; do not claim the review was skipped by configuration"],
+      follow_up: ["report the unset switch state to Human; do not claim the review was skipped by configuration; do NOT pause the work over this — 00 §2.5 says the ask neither grants nor suspends"],
     });
   }
 
@@ -365,9 +365,13 @@ export async function executeReviewAsk(args, exec, deps) {
         ? ["Human 明确选择不安排独立把关；直接推进，主控自查仍在（04 §6.1）"]
         : outcome?.custom_note !== undefined
           ? [
-            "未取得明确答复（按 00 §4.7 不得把沉默当作许可）；但 Human 在自由输入框写了字，见 result.custom_note —— 逐字读它并纳入本轮判断，不要当成跳过",
+            "未取得答复（32 §9.1：答复只表明「被问过并给出安排／不安排」，没有答复即没有决定，不得读成 skip）；但 Human 在自由输入框写了字，见 result.custom_note —— 逐字读它并纳入本轮判断，不要当成跳过",
             "该自由文本不是 review/skip 答复，不改变 decision=null；如需明确决定请重新提请",
+            // **不暂停**：旧文案写「按 00 §4.7」，而两处请示是 00 §2.5 明定的
+            // 「Human Gate 之外的征询」，§4.7 的必停情形不适用；32 §3.4 更明禁把
+            // 「未取得答复」处置为「必须暂停」。
+            "未取得答复**不放行也不暂停**（00 §2.5、32 §3.4、32 §9.1）：按既有路径继续，并在交付说明中如实写明「未取得该处答复」；不得把沉默当作 skip，也不得据此停下整件工作",
           ]
-          : ["未取得明确答复：按 00 §4.7 不得把沉默当作许可；向 Human 报告并等待"],
+          : ["未取得答复：按 32 §9.1 不得把沉默当作 skip（没有答复即没有决定）；也**不得据此暂停**——两处请示是 00 §2.5 明定的 Human Gate 之外征询，答复不是行动放行的前提；按既有路径继续，并在交付说明中如实写明「未取得该处答复」"],
   });
 }

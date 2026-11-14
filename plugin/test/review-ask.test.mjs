@@ -164,7 +164,14 @@ test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原�
     if (!spec.includes("### 4.2 明确排除与证明边界")) drifted.push(`${item.key}: 32 §4.2 节标题`);
     // 承接面里的条文号须能在原文找到（只查 §编号串，不查散文）
     for (const sec of item.carried.match(/(?:09|02|33) §[0-9.]+[a-z]?/g) ?? []) {
-      const [specNo, secNo] = [sec.slice(0, 2), sec.slice(3)];
+      // **slice(4) 不是 slice(3)**（2026-11-14 修，独立复核 MINOR-4 抓出）。
+      // 匹配串形如 `"33 §10.3"`：下标 0-1 是编号、2 是空格、**3 是 § 号本身**，
+      // 故 sec.slice(3) 得到 `"§10.3"`，拼进正则变成 `^#+\s+§10\.3\s`——永远匹配
+      // 不到原文的 `### 10.3 程序化审计`。后果：`01 §11.4` 的漂移守卫**从加入那天
+      // 起就是死的**，而连续两次提交把它当作「已知无关失败」固化下来，归因也写错
+      // 成「承接条文在规范里无同名标题」——三个标题其实逐字都在。
+      // 正确取法是 sec.slice(4)，或下面这行等价地把 § 从 head 里清掉。
+      const [specNo, secNo] = [sec.slice(0, 2), sec.slice(4)];
       const file = { "09": "09", "02": "02", "33": "33" }[specNo];
       if (!file) continue;
       // 33 号交付合同的编号在本仓原文里是 §14（正文编号）；此处只验 §编号在
@@ -176,7 +183,13 @@ test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原�
         "33": "调研吸收系统规范.md",
       }[specNo]), "utf8").catch(() => null);
       if (text === null) { drifted.push(`${item.key}: 语料不可读 specs/${file}`); continue; }
-      const head = secNo.split("/")[0];
+      // 兜底：即使上游取法再变，head 里也不得残留 § 号（否则正则必然恒假，
+      // 守卫静默失效而不报错——这正是本条原先的形状）。
+      const head = secNo.split("/")[0].replace(/^§/, "");
+      if (head.length === 0 || !/^[0-9]/.test(head)) {
+        drifted.push(`${item.key}: 承接条文 ${sec} 的编号解析为空或非数字（解析逻辑失效，非规范漂移）`);
+        continue;
+      }
       if (!new RegExp(`^#+\\s+${head.replace(".", "\\.")}\\s`, "m").test(text)) {
         drifted.push(`${item.key}: 承接条文 ${sec} 在 specs/${file} 无对应标题`);
       }
@@ -222,6 +235,36 @@ test("设置页 hint 与工具参数说明：须写明行动前那处的时点�
   const pointDesc = /point: \{[^}]*?description: "([^"]*)"/s.exec(tool)?.[1] ?? "";
   if (!/方案已有候选/.test(pointDesc)) failures.push("point 参数 description 未写明「方案已有候选」这个时点");
   if (/动手前的审查询问/.test(pointDesc)) failures.push("point 参数 description 仍是旧口径「动手前的审查询问」");
+
+  // ④ 收口前的 hint（中英）：同一批改动却曾无断言覆盖——回退后测试照样全绿
+  //（独立复核 MINOR-3 用变异实测出这一点）。
+  const postStart = client.indexOf('"row.reviewAskPostHint": "');
+  const postEnd = client.indexOf('"', postStart + '"row.reviewAskPostHint": "'.length);
+  const postZh = client.slice(postStart, postEnd);
+  if (!/答与不答都不拦住/.test(postZh)) failures.push("row.reviewAskPostHint 中文侧未说明答复不拦收口（00 §2.5）");
+  const postEnStart = client.indexOf('"row.reviewAskPostHint": "', postEnd);
+  const postEnEnd = client.indexOf('"', postEnStart + '"row.reviewAskPostHint": "'.length);
+  const postEn = client.slice(postEnStart, postEnEnd);
+  if (postEnStart === -1 || !/does not hold the close-out back/.test(postEn)) failures.push("row.reviewAskPostHint 英文侧未说明答复不拦收口");
+
+  // ⑤ 静默 hint（中英）：静默只免掉征询，不免掉「有对象才能核对」这个前提
+  //（独立复核 MINOR-5）。两侧同一口径，任一侧回退须单独红。
+  const silentStart = client.indexOf('"row.reviewAskSilentHint": "');
+  const silentEnd = client.indexOf('"', silentStart + '"row.reviewAskSilentHint": "'.length);
+  const silentZh = client.slice(silentStart, silentEnd);
+  if (!/等方案成形才安排/.test(silentZh)) failures.push("row.reviewAskSilentHint 中文侧未写「等方案成形才安排」这个前提");
+  const silentEnStart = client.indexOf('"row.reviewAskSilentHint": "', silentEnd);
+  const silentEnEnd = client.indexOf('"', silentEnStart + '"row.reviewAskSilentHint": "'.length);
+  const silentEn = client.slice(silentEnStart, silentEnEnd);
+  if (silentEnStart === -1 || !/waits until a plan has taken shape/.test(silentEn)) failures.push("row.reviewAskSilentHint 英文侧未写 waits until a plan has taken shape");
+
+  // ⑥ 未取得答复时的 follow_up：旧文案写「向 Human 报告并等待」并引 00 §4.7，
+  // 两处都错——两处请示是 00 §2.5 明定的 Gate 之外征询，§4.7 不适用；且
+  //「并等待」正是 32 §3.4 明禁的「把未取得答复处置为必须暂停」。
+  // 这是独立复核的 MAJOR-1：最靠后生效的一处，模型拿到工具结果就读到它。
+  if (/向 Human 报告并等待/.test(tool)) failures.push("review-ask-tool.js 仍出现「向 Human 报告并等待」（32 §3.4 明禁暂停）");
+  if (/按 00 §4\.7 不得把沉默当作许可/.test(tool)) failures.push("review-ask-tool.js 仍把两处请示的错误归到 00 §4.7（应引 32 §9.1）");
+  if (!/不放行也不暂停|也不得据此暂停/.test(tool)) failures.push("review-ask-tool.js 未写明未取得答复「不暂停」这一边界");
 
   assert.deepEqual(failures, [], `时点措辞未补全：\n${failures.join("\n")}`);
 });

@@ -1622,7 +1622,7 @@ export const UI_LOCALES = {
     'help.spine.decision.title': '决定',
     'help.spine.decision.body': '把一次取舍固定成可回溯的记录：当时选了什么、依据是什么、代价是什么。',
     'help.spine.execution.title': '执行',
-    'help.spine.execution.body': '动手之前它问你要不要安排一次审查，收口之前再问一次要不要复核；你答跳过也照常往下走——它不拦你，只把「要不要多一双眼」这个决定交到你手上。',
+    'help.spine.execution.body': '方案成形、还没动手改动时，它问你要不要安排一次审查；收口之前再问一次要不要复核。还没有任何方案时不会问——那时没有可核对的对象。你答不答都不拦它推进；它只是把「要不要多一双眼」这个决定交到你手上。',
     'help.spine.learning.title': '积累',
     'help.spine.learning.body': '踩过的坑写成经验，待修的系统性阻碍记成摩擦账，成体系的方向写成规范，对外部对象的调研沉淀成报告——下次能直接复用。',
     'help.spine.recallTitle': '动手前它还会做一次双源召回：',
@@ -1731,7 +1731,7 @@ export const UI_LOCALES = {
 
     'help.systems.workOrder.title': '把关请示',
     'help.systems.workOrder.duty': '在行动前与收口前两处向你请示是否安排一次核对，并把请示与答复留痕；工作包生命周期中「批准」「复核」两环的业务面由它承接。',
-    'help.systems.workOrder.usage': '动手之前它问你要不要安排一次审查，收口之前再问一次要不要复核。你答跳过也照常往下走——它不拦你，只是把「要不要多一双眼」这个决定交到你手上。',
+    'help.systems.workOrder.usage': '方案成形、还没动手改动时，它问你要不要安排一次审查；收口之前再问一次要不要复核。还没有任何方案时不会问——那时没有可核对的对象。你答不答都不拦它推进，只是把「要不要多一双眼」这个决定交到你手上。',
     'help.systems.workOrder.limit': '请示的答复不构成授权凭据，请示本身也不是行动放行的前提；它不执行工作、不关闭工作、不承担交还的执行。',
 
     'help.systems.researchAbsorb.title': '调研吸收',
@@ -2447,7 +2447,7 @@ export const UI_LOCALES = {
     'help.spine.decision.title': 'Decision',
     'help.spine.decision.body': 'Fix one trade-off as a record you can look back on: what was chosen, on what grounds, and at what cost.',
     'help.spine.execution.title': 'Execution',
-    'help.spine.execution.body': 'Before acting it asks whether to arrange a review, and again before closing out whether to arrange a re-check; answering skip moves on as usual — it does not block you, it only hands you the choice of a second pair of eyes. a terminal state only after review and closure judgment.',
+    'help.spine.execution.body': 'Once a plan has taken shape and before it starts changing anything, it asks whether to arrange a review, and again before closing out whether to arrange a re-check. It does not ask while no plan exists yet — there would be nothing to check. Whether you answer or not does not hold it back; it only hands you the choice of a second pair of eyes.',
     'help.spine.learning.title': 'Accumulation',
     'help.spine.learning.body': 'Pitfalls become lessons, systemic blockers become entries in the friction ledger, settled directions become norms, and research on external objects becomes reports — all reusable the next time round.',
     'help.spine.recallTitle': 'Before acting it also runs one dual-source recall:',
@@ -2557,7 +2557,7 @@ export const UI_LOCALES = {
 
     'help.systems.workOrder.title': 'Work order execution',
     'help.systems.workOrder.duty': 'Executes work orders that have already been approved, and carries the whole work-package lifecycle: approved → executed → reviewed → closed → handed back.',
-    'help.systems.workOrder.usage': 'It only moves once you approve it. There is a gate on each side of the work — one before it starts, one where you accept the result and take it back. If it is interrupted, it resumes from the current state rather than starting over.',
+    'help.systems.workOrder.usage': 'Once a plan has taken shape and before it starts changing anything, it asks whether to arrange a review, and again before closing out whether to arrange a re-check. It does not ask while no plan exists yet — there would be nothing to check. Whether you answer or not does not hold it back; it only hands you the choice of a second pair of eyes.',
     'help.systems.workOrder.limit': 'It does not widen its own authorization; a sub-task finishing is not the whole thing finishing, and execution done is not review passed.',
 
     'help.systems.researchAbsorb.title': 'Research absorption',
