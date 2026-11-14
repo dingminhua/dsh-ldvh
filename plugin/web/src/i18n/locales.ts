@@ -635,10 +635,13 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     comparison: { zh: '方案比较', en: 'Comparison' },
   },
   // 24 §8（2026-11-14）：报告形态闭集三值——来源面决定形态，形态决定正文骨架。
+  // Human 2026-11-14：值标签不带「型」——筛选条与卡头徽章都是窄空间，
+  // 「调研型」比「调研」多一个字却不多一分信息（同一个筛选组里当然是形态）。
+  // 英文已是 Research/Summary/Audit，本就不带 Form 后缀，中英保持一致。
   report_form: {
-    research: { zh: '调研型', en: 'Research' },
-    summary: { zh: '总结型', en: 'Summary' },
-    audit: { zh: '审核型', en: 'Audit' },
+    research: { zh: '调研', en: 'Research' },
+    summary: { zh: '总结', en: 'Summary' },
+    audit: { zh: '审核', en: 'Audit' },
   },
 };
 

@@ -39,8 +39,10 @@ interface ReportFormFilterProps {
   /** 当前选中的形态；null 表示「全部」（不过滤）。 */
   activeForm: ReportForm | null;
   onChange: (form: ReportForm | null) => void;
-  /** 后端 `formOptions`：只含实际出现的形态。 */
+  /** 后端 `formOptions`：只含实际出现的形态。未出现的形态按 0 显示。 */
   options?: Array<{ status: string; count: number }>;
+  /** 「全部」的计数（当前池的对象总数，含未分档/未归类者）。 */
+  total?: number;
   loading?: boolean;
   className?: string;
 }
@@ -53,38 +55,40 @@ export default function ReportFormFilter({
   activeForm,
   onChange,
   options = [],
+  total = 0,
   loading = false,
   className = '',
 }: ReportFormFilterProps) {
   const { t, locale } = useI18n();
 
-  // 只保留闭集内的形态并固定次序——形态是分类不是排序项，
-  // 按计数排会让读者每次都在不同位置找同一形态。
+  // **三个形态一律显示，没有的显示 0**（Human 2026-11-14）：
+  // 先前只列实际出现的形态，于是「总结」「审核」两条在库里暂时为空时整体消失，
+  // 读者看不出这三类形态是这个类型的一部分，也看不出当前没有该类报告。
+  // 全列出来才回答得了「有没有总结型/审核型」这个问题——隐藏它等于让读者
+  // 以为这类形态不存在。（次序固定为闭集次序：分类项不按计数排序。）
   const forms = useMemo(() => {
     const countOf = new Map(options.map((option) => [option.status, option.count]));
-    return FORM_ORDER.filter((form) => countOf.has(form)).map((form) => ({
-      form,
-      count: countOf.get(form) ?? 0,
-    }));
+    return FORM_ORDER.map((form) => ({ form, count: countOf.get(form) ?? 0 }));
   }, [options]);
-
-  // 一个形态都没有时不渲染：此时筛选无可筛，占位只会误导。
-  if (forms.length === 0) return null;
 
   return (
     <div className={`ldvh-tab-list ${className}`} aria-label={t('objectList.formFilter')}>
-      {/* **本组不设「全部」**：状态筛选行已有「全部 50」，两组紧邻时会出现
-          两个「全部」并排，读者分不清归哪一组、也不当它是重复渲染才怪。
-          取消选中的通道仍在——点击已选中的形态即取消（见下方 onClick 的三元）；
-          与 `SegmentedControl` 的「再点一次取消」同一交互直觉。
-          （参考样式里 `CommitFilterGroup` 有「全部」，那是该页唯一的筛选组，
-          没有重复问题；本页有两组，故不照搬。） */}
+      {/* Human 2026-11-14：形态组也要有「全部」——本组是独立一行，
+          与状态筛选那一行分开，不会再出现两个「全部」并排的观感。
+          位置在首位，与优先级筛选（`ObjectPriorityFilter`）一致。 */}
+      <button
+        type="button"
+        onClick={() => onChange(null)}
+        className={getButtonClass(activeForm === null)}
+      >
+        {t('objectList.all')}
+        <span className="ldvh-tab-count">{loading ? '·' : total}</span>
+      </button>
       {forms.map(({ form, count }) => (
         <button
           key={form}
           type="button"
-          // 再点已选中的形态即取消筛选（回到不过滤），补上「全部」缺席的那条通道。
-          onClick={() => onChange(activeForm === form ? null : form)}
+          onClick={() => onChange(form)}
           // 颜色只做文字色，与 `CommitFilterGroup` 的 getOptionColor 同一手法。
           style={{ color: FORM_TEXT_COLOR[form] }}
           className={getButtonClass(activeForm === form)}

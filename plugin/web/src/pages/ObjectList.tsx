@@ -184,13 +184,20 @@ export function ObjectCardFrame({
             style={{ backgroundColor: `${typeColor}18`, borderColor: `${typeColor}55`, color: typeColor }}
           >
             {getTypeLabel(obj.type, locale)}
-            {/* 24 §5（2026-11-14）：报告三形态共用一个类型，只显示「报告」无法区分
-                调研型／总结型／审核型。形态由 report_form 机械固化，此处按形态细分；
-                其它类型不显示后缀（report_form 只属 report）。 */}
-            {obj.type === 'report' && typeof obj.report_form === 'string' && obj.report_form.length > 0
-              ? `· ${getFieldValueLabel('report_form', obj.report_form, locale)}`
-              : ''}
           </span>
+          {/* 24 §5（2026-11-14）：报告三形态共用一个类型，只显示「报告」看不出形态。
+              Human 2026-11-14 定案：**拆成两个独立按钮**，不写成「报告·调研」——
+              一个胶囊里塞两段身份读起来是一个复合词，读者会以为「报告·调研」是
+              某种类型名；拆开后「报告」是类型、「调研」是形态，各自可辨、也可分别
+              扫读。仅 report 类型有第二枚（其它类型无 report_form）。 */}
+          {obj.type === 'report' && typeof obj.report_form === 'string' && obj.report_form.length > 0 && (
+            <span
+              className="ldvh-chip-sm"
+              style={{ backgroundColor: `${typeColor}12`, borderColor: `${typeColor}44`, color: typeColor }}
+            >
+              {getFieldValueLabel('report_form', obj.report_form, locale)}
+            </span>
+          )}
           {/* Human 定案：卡头标签序 = 类型 → 优先级 → 修改次数；不设关联
               chip（条件字段有值才显示，20 §8 priority 仅 open 时出现）。
 
@@ -987,6 +994,7 @@ export default function ObjectList() {
               activeForm={activeForm}
               onChange={handleFormChange}
               options={formOptions}
+              total={statusTotal}
               loading={loading}
             />
           </div>
