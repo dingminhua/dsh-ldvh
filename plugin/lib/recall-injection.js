@@ -696,7 +696,7 @@ export function renderBaselineOnlyRow({ baseline, l0Enumeration = null, why, lim
   lines.push("【双源召回 · 行动前候选】");
   // **候选区缺席的原因必须写清**：否则读者会把「只有索引」读成「已查过、无相关」。
   // 34 §6 排除与 no_tokens 是两种不同归因，分别措辞（归因不得混同）。
-  lines.push(`（本轮无词法候选：${why}。以下为 **F1 常驻索引**——ADR 与事实规范属义务召回、不受该条件影响；经验为按需入口。索引只证明「有这些」，不证明适用。）`);
+  lines.push(`（本轮无词法候选：${why}。以下为 **ADR 决策基线与经验按需入口**——事实规范的常驻目录**独立成行注入**（标签「事实规范目录」），不在本行内，故本行不重复它。索引只证明「有这些」，不证明适用。）`);
   if (items.length === 0) {
     if (baseline?.sourceUnreadable === true) {
       lines.push("（决策基线：事实源不可读，基线未取得——**不表示本项目没有 ADR**（34 §12）。）");
@@ -1985,7 +1985,13 @@ async function baselineOnlyInjection({ projectRoot, why, cause, limitBytes = nul
   const l0Shown = Array.isArray(l0?.segments)
     ? l0.segments.some((segment) => segment?.yielded !== true && Array.isArray(segment?.lines) && segment.lines.length > 0)
     : false;
-  const hasContent = (data?.items?.length ?? 0) > 0 || data?.sourceUnreadable === true || l0Shown;
+  // **经验按需入口也计入「有内容」**（2026-11-15）：事实规范的常驻目录迁到独立
+  // 一行注入后，本行的 l0 段恒空（只剩 ADR 决策基线与经验按需入口）。若判据仍
+  // 只数 ADR 与 l0 段，「无 active ADR 但有经验」的纯读取回合会**整行不进**——
+  // 经验按需入口随之消失，正是 2026-11-04 那次扩判据要避免的形态。
+  const pitfallTotal = l0?.pitfallTotal;
+  const hasPitfall = Number.isInteger(pitfallTotal) && pitfallTotal > 0;
+  const hasContent = (data?.items?.length ?? 0) > 0 || data?.sourceUnreadable === true || l0Shown || hasPitfall;
   // 无内容可披露 → 不进（与主路径同判据：不注入不等于「无相关」）。
   if (!hasContent) return { inject: false, reason: "no-hits" };
   const text = renderBaselineOnlyRow({ baseline: data, l0Enumeration: l0, why, limitBytes });

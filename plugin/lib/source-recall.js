@@ -3121,8 +3121,13 @@ export async function baselineOnlyForAction(input = {}) {
     path: fact.path,
   }));
   // Norm 段与经验段：与完整路径同一规划函数（份额与让位阈值同源）。
+  //
+  // **Norm 段同样不进本路径**（2026-11-15，Human 决定）：规范目录独立成一行注入
+  // （`norm-directory.js`），两条召回路径（行动前候选／纯读取基线）都不得并列同一
+  // 份目录——漏掉一条就会出现「行动前回合没有、纯读取回合有」的不一致，读者会
+  // 读成「有时注入有时不注入」。
   const l0Plan = planL0Enumeration(
-    enumeration.filter((segment) => segment.type !== "adr"),
+    enumeration.filter((segment) => segment.type !== "adr" && segment.type !== "norm"),
     budgetBytes,
     RENDER_FIXED_OVERHEAD_BYTES,
   );

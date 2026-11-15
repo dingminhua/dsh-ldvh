@@ -1888,18 +1888,24 @@ test("L0 全量段尾不得长于通用段尾（份额守卫）", () => {
 });
 
 
-test("L0 常驻：单纯读取回合也须带出 ADR／事实规范与经验按需行（不依赖词法命中）", async () => {
-	// 这是本节决定的实质：常驻段的可见性不得取决于当回合用词。旧实现里 Norm 与
+test("L0 常驻：单纯读取回合也须带出 ADR 基线与经验按需行，且不并列事实规范段（不依赖词法命中）", async () => {
+	// 这是本节决定的实质：常驻内容的可见性不得取决于当回合用词。旧实现里 Norm 与
 	// 经验只靠词法候选出现，于是「继续」「看看这个文件」这类回合里它们整类不可见。
 	// 2026-11-11 起经验改为按需行——**它同样不得依赖词法命中**：那一行是常驻的，
 	// 不论当回合问什么都要在（否则「有多少条经验」又取决于用词了）。
+	//
+	// **2026-11-15 载体迁移**：事实规范的常驻目录**独立成一行注入**（标签「事实规范
+	// 目录」，见 `norm-directory.js` 与 lifecycle 行注入用例），因此纯读取行**不再
+	// 并列**它——两份目录＝第二权威，且这一份还带候选区的措辞。两条召回路径
+	// （行动前候选／纯读取基线）都不得再带 Norm 段，否则读者会读成「有时注入有时
+	// 不注入」。目录的可见性由那条独立行保证（每回合都在，与用词无关）。
 	for (const q of ["继续", "看看这个文件"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT, budgetBytes: 10240 });
 		assert.equal(r.inject, true, `「${q}」：须注入`);
 		assert.equal(r.result?.baselineOnly, true, `「${q}」：须标记为只带索引`);
-		assert.match(r.text, /【事实规范 · active Norm/, `「${q}」：事实规范段须在`);
+		assert.doesNotMatch(r.text, /【事实规范 · active Norm/, `「${q}」：纯读取行不得再并列事实规范段`);
 		assert.match(r.text, /【经验 · active Pitfall（23 §12 按需索引）/, `「${q}」：经验按需行须在`);
-		assert.ok((r.result?.l0Enumeration?.segments?.length ?? 0) > 0, `「${q}」：数据层须承载 L0 枚举`);
+		assert.match(r.text, /决策基线/, `「${q}」：ADR 决策基线须如实披露（无 active ADR 时如实写明）`);
 	}
 });
 
