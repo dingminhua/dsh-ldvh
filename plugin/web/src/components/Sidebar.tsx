@@ -24,8 +24,9 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
   // 28 号 SubGoal：**侧栏不设子目标入口**（Human 定案 2026-11-13）。
   // 此前（2026-11-01）子目标紧接「聚焦」单列一个入口；此后聚焦页目标区已能直接
-  // 呈现并下钻子目标（2026-11-03 改版），单列入口是同一条信息的第二个入口——
-  // 删的是**导航入口**，不是子目标这个事实类型（28 号载体、详情页、下钻路径都在）。
+  // 呈现子目标（2026-11-03 改版，点击标题展开/收起，2026-11-15 起不再下钻进详情），
+  // 单列入口是同一条信息的第二个入口——删的是**导航入口**，不是子目标这个事实类型
+  // （28 号载体、详情页、列表/联邦/帮助页入口都在）。
   { to: '/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
   // ADR 事实类型已于 2026-11-15 撤除（Human 根决定）；决策侧栏入口随之删除。
   // 现行次序：规范 → 报告（规范定规则，报告承载取证与结论）。
@@ -45,7 +46,8 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
 
 /** 联邦作用域导航（全部管辖计划 Step 4）：
  * 聚焦→联邦聚焦页；六类对象→联邦聚合列表（**子目标不设联邦入口**，
- * 与项目态同一条理由：它由聚焦页目标区承载，2026-11-13 撤除；DevLog
+ * 与项目态同一条理由：它由聚焦页目标区承载（标题展开/收起，不再下钻），
+ * 2026-11-13 撤除；DevLog
  * 已于 2026-11-14 随类型撤除退出联邦）；目录/变更/提交是
  * 单项目专属页，联邦态灰显。 */
 const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [

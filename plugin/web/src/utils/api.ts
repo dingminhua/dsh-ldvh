@@ -962,6 +962,8 @@ export interface DiagnosticsScope {
   queueFileExists?: boolean;
   runsFileExists?: boolean;
   limits?: string[];
+  /** 命中 /gate 缓存时的生成时刻（RFC3339）；缺席 = 本次实时计算。 */
+  cachedAt?: string;
 }
 
 export interface GateToolRow {
@@ -984,7 +986,10 @@ export interface GateReport {
   ok: boolean;
   generatedAt: string;
   scope: DiagnosticsScope;
+  /** failed = 所有非 completed 的调用，不等于「被拒」；各结局见 byStatus。 */
   totals: { calls: number; completed: number; failed: number };
+  /** 全部调用按结果头里的 outcome 分布（含 completed），把 failed 拆回多种结局。 */
+  byStatus: { status: string; count: number }[];
   byTool: GateToolRow[];
   byCategory: { category: string; count: number }[];
   byCode: { code: string; count: number }[];

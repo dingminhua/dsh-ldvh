@@ -161,3 +161,181 @@ test('多帧 zstd 日志须整份解出——只解第一帧会把「读不全�
   // 帧边界不得把两段内容粘成一行坏 JSON——故失败明细须正常解析出来。
   assert.match(report.recentFailures[0]?.detail ?? '', /coherence_invalid/);
 });
+
+/**
+ * 结局分布（2026-11-16 补）：顶部「未完成调用」是一个聚合数，历史上被界面
+ * 直接标成「被拒次数」。这个用例钉住它被 `byStatus` 拆回多种真实结局——
+ * 尤其 `partial`（部分结果）与 `unknown`（无 LDVH 结果头）不得被算成 completed，
+ * 也不得在分布里消失。
+ */
+test('未完成结局分布：partial / unknown / invalid_request 不得被当作 completed 或被拒', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'ldvh-diag-status-'));
+  const workspaceRoot = path.join(home, 'project');
+  const pair = (callId: string, tool: string, text: string): string => [
+    eventLine({ type: 'tool/call', time: 1_700_000_000_000, data: { name: tool, callId } }),
+    eventLine({
+      type: 'tool/result', time: 1_700_000_001_000,
+      data: { toolCallId: callId, message: { content: [{ type: 'text', text }] } },
+    }),
+  ].join('');
+  const body = [
+    pair('c1', 'ldvh_spark_read', 'LDVH spark-read-object: completed\n'),
+    pair('c2', 'ldvh_adr_write', 'LDVH adr-write-object: rejected\ngap: 22 §16 requires an explicit Human confirmation for this action: human did not confirm'),
+    // partial：分页截断被如实披露，不是失败、更不是拒绝
+    pair('c3', 'ldvh_pitfall_list', 'LDVH pitfall-list-objects: partial\ngap: projection truncated at limit=1 of 74 matching objects'),
+    // 无 LDVH 结果头 → statusOf 落 unknown（宿主直接拦下/工具未知）
+    pair('c4', 'ldvh_research_session', 'Error: invalid arguments: missing required property "findings[5].statement"'),
+    pair('c5', 'ldvh_norm_write', 'LDVH norm-write-object: invalid_request\ngap: frontmatter_after (object) is required for action=update'),
+  ].join('');
+  await writeSession(home, workspaceRoot, 'session-a', body);
+
+  const report = await buildGateReport({ workspaceRoot, dshHome: home });
+
+  assert.equal(report.totals.calls, 5);
+  assert.equal(report.totals.completed, 1);
+  assert.equal(report.totals.failed, 4, '只有 completed 算成功，其余四种结局都计入未完成');
+  const byStatus = new Map(report.byStatus.map((row) => [row.status, row.count]));
+  assert.equal(byStatus.get('completed'), 1, '分布含 completed，便于对照总量');
+  assert.equal(byStatus.get('rejected'), 1);
+  assert.equal(byStatus.get('partial'), 1, 'partial 必须作为独立结局出现，不能被吞掉');
+  assert.equal(byStatus.get('unknown'), 1, 'unknown 必须作为独立结局出现');
+  assert.equal(byStatus.get('invalid_request'), 1);
+  assert.equal(report.byStatus.reduce((sum, row) => sum + row.count, 0), report.totals.calls, '分布之和等于总调用数');
+});
+
+/**
+ * 分类表补类（2026-11-16）：原表只认 5 类，实测大部分未完成调用落进 `other`。
+ * 本用例用每类的逐字代表文本钉住新增的五类都能被识别，`other` 不再吞掉它们。
+ */
+test('补类后的分类表覆盖五类高频未完成形态，other 不再吞掉它们', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'ldvh-diag-categories-'));
+  const workspaceRoot = path.join(home, 'project');
+  const cases: { callId: string; tool: string; text: string; category: string }[] = [
+    { callId: 'k1', tool: 'ldvh_read_specification_content',
+      text: 'LDVH read-specification-content: rejected\ngap: content/heading_not_found: no H2 heading matches "3. Human 权利"',
+      category: 'spec_lookup_miss' },
+    { callId: 'k2', tool: 'ldvh_friction_read',
+      text: 'Error: unknown tool "ldvh_friction_read"',
+      category: 'host_param_validation' },
+    { callId: 'k3', tool: 'ldvh_spark_write',
+      text: 'LDVH spark-write-object: rejected\ngap: 20 §16 requires an explicit Human confirmation for this action: human did not confirm the Spark 创建',
+      category: 'human_gate_pending' },
+    { callId: 'k4', tool: 'ldvh_friction_list',
+      text: 'LDVH friction-list-objects: partial\ngap: projection truncated at limit=50 of 66 matching objects — narrow the filter or raise the limit',
+      category: 'partial_result' },
+    { callId: 'k5', tool: 'ldvh_workcase_write',
+      text: 'LDVH workcase-write-object: rejected\ngap: workcase/goals_conflict: the session\'s current goal points at another object',
+      category: 'business_precondition' },
+  ];
+  const body = cases.flatMap(({ callId, tool, text }) => [
+    eventLine({ type: 'tool/call', time: 1_700_000_000_000, data: { name: tool, callId } }),
+    eventLine({
+      type: 'tool/result', time: 1_700_000_001_000,
+      data: { toolCallId: callId, message: { content: [{ type: 'text', text }] } },
+    }),
+  ]).join('');
+  await writeSession(home, workspaceRoot, 'session-a', body);
+
+  const report = await buildGateReport({ workspaceRoot, dshHome: home });
+
+  const byCategory = new Map(report.byCategory.map((row) => [row.category, row.count]));
+  for (const { category } of cases) {
+    assert.equal(byCategory.get(category), 1, `${category} 必须被识别为独立类别，不得落进 other`);
+  }
+  assert.equal(byCategory.get('other'), undefined, '这五类代表文本不应有任何一条落进 other');
+});
+
+/**
+ * 缓存新鲜度披露（2026-11-16 补）：TTL 由 5 分钟延长到 30 分钟，命中缓存必须
+ * 带 `scope.cachedAt`（生成时刻），实时计算则不带——否则延长 TTL 会把旧数字
+ * 呈现成此刻的实况。前端 scope 框据此显示「实时 / 命中缓存」。
+ */
+test('命中缓存必须带 cachedAt，实时计算不带', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'ldvh-diag-cache-'));
+  const workspaceRoot = path.join(home, 'project');
+  await writeSession(home, workspaceRoot, 'session-a', [
+    eventLine({ type: 'tool/call', time: 1_700_000_000_000, data: { name: 'ldvh_spark_read', callId: 'c1' } }),
+    eventLine({
+      type: 'tool/result', time: 1_700_000_001_000,
+      data: { toolCallId: 'c1', message: { content: [{ type: 'text', text: 'LDVH spark-read-object: completed\n' }] } },
+    }),
+  ].join(''));
+
+  const fresh = await buildGateReport({ workspaceRoot, dshHome: home, noCache: true });
+  assert.equal(fresh.scope.cachedAt, undefined, '实时计算不得冒充缓存，也不带 cachedAt');
+
+  const cached = await buildGateReport({ workspaceRoot, dshHome: home });
+  assert.ok(cached.scope.cachedAt, 'TTL 内二次读取命中缓存，须如实标注生成时刻');
+  assert.equal(cached.totals.calls, fresh.totals.calls, '缓存复用不改变统计数字');
+  assert.equal(cached.generatedAt, fresh.generatedAt, '命中缓存时 generatedAt 仍是原始生成时刻');
+});
+
+/**
+ * 空目录预筛（2026-11-16 补）：实测 52.6% 的会话目录没有任何日志文件。本用例
+ * 钉住「预筛只改调度、不改口径」——空目录仍计入 `sessionsScanned`，且不产生
+ * 任何 outcomes；有日志的目录照常统计。
+ *
+ * 与既有「按体积预筛已放弃」的区别：那条会静默少统计（小会话也可能有调用），
+ * 本处判的是「目录里是否存在日志文件」，不存在的目录本来就贡献 0 条调用。
+ */
+test('空目录预筛不改变统计口径：sessionsScanned 仍报总数，有日志目录照常统计', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'ldvh-diag-emptydirs-'));
+  const workspaceRoot = path.join(home, 'project');
+  const sessionDir = path.join(home, 'sessions', sessionDirNameFor(workspaceRoot));
+  await mkdir(path.join(sessionDir, 'empty-a'), { recursive: true });
+  await mkdir(path.join(sessionDir, 'empty-b'), { recursive: true });
+  await writeSession(home, workspaceRoot, 'with-log', [
+    eventLine({ type: 'tool/call', time: 1_700_000_000_000, data: { name: 'ldvh_spark_read', callId: 'c1' } }),
+    eventLine({
+      type: 'tool/result', time: 1_700_000_001_000,
+      data: { toolCallId: 'c1', message: { content: [{ type: 'text', text: 'LDVH spark-read-object: completed\n' }] } },
+    }),
+  ].join(''));
+
+  const report = await buildGateReport({ workspaceRoot, dshHome: home, noCache: true });
+
+  assert.equal(report.scope.sessionsScanned, 3, '两个空目录仍计入已扫描会话总数');
+  assert.equal(report.totals.calls, 1, '只有有日志的目录贡献调用，空目录不产生也不吞掉调用');
+  assert.equal(report.totals.completed, 1);
+  assert.equal(report.totals.failed, 0);
+});
+
+/**
+ * 先粗筛再 parse（2026-11-16，P3）：实测 69% 的行不是工具事件，全量逐行
+ * `JSON.parse` 是冷路径最大单项。本用例钉住「粗筛只改性能、不改口径」——
+ * 无关行被跳过不丢统计、不同 `type` 写法仍命中、伪子串不产生假 outcome。
+ */
+test('目标事件行粗筛不改统计口径：无关行跳过、不同写法保留、伪子串不误判', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'ldvh-diag-prescan-'));
+  const workspaceRoot = path.join(home, 'project');
+  const body = [
+    // 大量无关事件行：粗筛应跳过它们，不进 JSON.parse
+    eventLine({ type: 'session', version: 4, id: 'fixture' }),
+    eventLine({ type: 'user', text: '一段与工具无关的用户文本' }),
+    eventLine({ type: 'assistant', text: '另一段无关文本' }),
+    eventLine({ type: 'message', content: [{ type: 'text', text: '…' }] }),
+    // 伪子串：无关行里恰好含 tool/call 字面，粗筛会保留它 parse，但 event.type
+    // 不是 'tool/call'/'tool/result'，不得产生任何 outcome。
+    eventLine({ type: 'note', text: 'the tool/call surface is documented here' }),
+    // 目标行 A：标准 eventLine 写法（JSON.stringify 无空格）
+    eventLine({ type: 'tool/call', time: 1_700_000_000_000, data: { name: 'ldvh_spark_read', callId: 'c1' } }),
+    eventLine({
+      type: 'tool/result', time: 1_700_000_001_000,
+      data: { toolCallId: 'c1', message: { content: [{ type: 'text', text: 'LDVH spark-read-object: completed\n' }] } },
+    }),
+    // 目标行 B：带空格的 type 写法（手工拼 JSON），粗筛按字面保留、parse 后照常命中。
+    // 手工行须自带换行，否则 join('') 会把相邻两行粘成一条坏 JSON（本用例踩过）。
+    '{ "type": "tool/call", "time": 1700000002000, "data": { "name": "ldvh_adr_write", "callId": "c2" } }\n',
+    '{ "type": "tool/result", "time": 1700000003000, "data": { "toolCallId": "c2", "message": { "content": [{ "type": "text", "text": "LDVH adr-write-object: rejected\\ngap: 22 §16 requires an explicit Human confirmation" }] } } }\n',
+  ].join('');
+  await writeSession(home, workspaceRoot, 'session-a', body);
+
+  const report = await buildGateReport({ workspaceRoot, dshHome: home, noCache: true });
+
+  assert.equal(report.totals.calls, 2, '两条成对的 LDVH 调用都须统计，无关行与伪子串不产生 outcome');
+  assert.equal(report.totals.completed, 1);
+  assert.equal(report.totals.failed, 1);
+  const byTool = new Map(report.byTool.map((row) => [row.tool, row]));
+  assert.equal(byTool.get('ldvh_spark_read')?.completed, 1, '标准写法的调用仍统计');
+  assert.equal(byTool.get('ldvh_adr_write')?.failed, 1, '带空格 type 写法的调用仍统计（粗筛按字面保留）');
+});

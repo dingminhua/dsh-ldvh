@@ -754,6 +754,11 @@ export function renderRecallRow(result) {
   const usageIndex = usageLine === "" ? -1 : lines.push(usageLine) - 1;
   // 用法行是否因「让到只剩一条候选仍放不下」而撤下——必须进入披露，不得静默。
   let usageYielded = false;
+  // **规范侧 L3 取址消费引导**（2026-11-16）：与 `usageLine` 同属「消费方法」
+  // 家族，故受同一条纪律约束——有候选才可见、零候选不付字节。它是披露行、
+  // 永不参与裁剪循环，故须在下方 `usageIndex` 段按最终候选数一并撤下。
+  // 完整措辞在规范候选区（909 行附近）按预算退化后 push，此处只登记其文本。
+  let specGuideLine = null;
   // **能力边界须让读者看见**：词法匹配只能对上「字面相近」的东西。
   // 实测（2026-10-24 复测）：用 Pitfall 自己的「症状段」去召回它自己，23/23 = 100%
   // （22 条靠 tier 1 适用范围、1 条靠 tier 4 正文）。旧值 43%（13/30）是第 46 轮
@@ -922,6 +927,39 @@ export function renderRecallRow(result) {
     } else {
       lines.push("规范源：");
     }
+    // **L3 精确章节的消费引导（2026-11-16 补）**：上面每条候选只给 `spec_key`
+    // +「L4 全文入口」，按 34 §8.2 第 4 项不得暗示已定位到具体章节。但实测
+    // 模型仍会凭记忆猜 `heading_path`（如 `"3. Human 权利"` 差一个「的」、
+    // 或带 `##`/`§` 前缀），连续触发 `content/heading_not_found`——诊断页
+    // 里最高频的未完成形态正是这一类只读取址失配。
+    //
+    // 解法不是放宽 `01 §10.3` 的严格逐字相等（那是 fail-closed 契约，别动），
+    // 而是把**现成的取字通路**写进模型可见面：`ldvh_read_specification_candidates`
+    // 的 L2 返回自带 `section_outline`（该载体全部 H2/H3 的**逐字**标题），
+    // 取来后原样作 `heading_path` 即可直达 L3。这也补齐 34 §8.2 第 3 项
+    // 「消费方法须与候选同时可见」——此前只给了「可读什么」，没给「怎么读」。
+    //
+    // 只在此处出现一次，不在每条候选行重复（12 条候选各带一句会吃掉字节预算）。
+    //
+    // **本行必须按预算退化**（与下方 scopeExcluded 段同一形态）：它是披露行、
+    // 永不参与渲染层裁剪，长度直接决定极小预算档（实测 800）的地板。上文 1283
+    // 行已有先例——长句会把 800 档顶破并连带触发「超出预算」归因行。故两级：
+    // 完整版给出 L2→L3 的完整步骤；紧凑版只留「别猜标题 + 去 L2 取逐字标题」，
+    // 这是 36 次取址失配的根因，不能在压缩时丢掉。
+    const fullGuide =
+      "（spec_key 是 L4 全文入口，未定位章节；需 L3 时先调 ldvh_read_specification_candidates(layer=L2) " +
+      "取 section_outline 的逐字 H2/H3，原样作 heading_path 调 ldvh_read_specification_content——勿猜标题。）";
+    const compactGuide = "（spec_key 为 L4 入口；需 L3 章节先取 L2 的 section_outline 逐字标题作 heading_path，勿猜标题。）";
+    // 前向估算：本行之后还有三态行与截断说明等固定披露（沿用同段 300 字节预留）。
+    const guideBudget = typeof result?.budget?.limitBytes === "number" && result.budget.limitBytes > 0
+      ? result.budget.limitBytes
+      : null;
+    const guideWouldOverflow = (candidate) => {
+      if (guideBudget === null) return false;
+      return Buffer.byteLength([...lines, candidate].join("\n"), "utf8") + 300 > guideBudget;
+    };
+    specGuideLine = guideWouldOverflow(fullGuide) ? compactGuide : fullGuide;
+    lines.push(specGuideLine);
     // **路径须可直接读取**（2026-10-24 修）：语料来自回退来源时，`path` 是相对
     // **源仓库**的相对路径，按本项目根去读会失败（实测回退到源仓库时
     // `specs/34-…md` 在项目根下不存在）。此时显示 `absolutePath`。
@@ -1437,10 +1475,23 @@ export function renderRecallRow(result) {
   // `事实源：`／`事实源 · X：` 表头，既白占预算又会让读者以为「这一类为空」。
   // **2026-11-03 扩到规范侧**：`规范源：`／`规范源（语料来自…）：` 同一问题——
   // 实测 800 档规范候选被裁光后仍留 12 字节表头，正是那档顶破预算的那 11 字节。
-  // 判据同一条：表头下一行不是候选行（`- `）即为空表头。
+  // 判据：表头之后能否找到候选行（`- `）。
+  //
+  // **2026-11-16 放宽：允许表头与首条候选之间夹「说明行」**（以 `（` 开头、
+  // 非候选行）。规范侧的 L3 取址消费引导插在 `规范源：` 表头之后，旧判据
+  // 「下一行不是候选行即空表头」会把来源披露表头连引导句一起误删——实测
+  // `source-recall.test.mjs` 两条「非本项目自著」用例因此转红。判据改为向下
+  // 跳过说明行再找候选，既保住「候选裁光后删空表头」的原意，也不误伤新插入
+  // 的引导行。说明行之后的下一行仍是候选时表头保留，否则（真裁光）照删。
   for (let i = trimmed.length - 1; i >= 0; i -= 1) {
     if (!/^(?:事实源(?: · .+)?|规范源(?:（.*）)?)：$/.test(trimmed[i])) continue;
-    if (trimmed[i + 1] !== undefined && trimmed[i + 1].startsWith("- ")) continue;
+    let hasCandidateBelow = false;
+    for (let j = i + 1; j < trimmed.length; j += 1) {
+      if (trimmed[j].startsWith("- ")) { hasCandidateBelow = true; break; }
+      // 说明行（含引导句）可跳过；遇到其它表头或普通正文即停止下探。
+      if (!trimmed[j].startsWith("（")) break;
+    }
+    if (hasCandidateBelow) continue;
     trimmed.splice(i, 1);
   }
   // ── **消费用法行：有候选必有，零候选不占字节**（`34 §8.2` 第 3 项）──────
@@ -1464,6 +1515,10 @@ export function renderRecallRow(result) {
       // 无候选可判：撤下（没有对象时「逐条判适用」只是噪声并白占字节）。
       const at = trimmed.indexOf(usageLine);
       if (at !== -1) trimmed.splice(at, 1);
+      // **规范侧 L3 取址引导同属「消费方法」**：零候选时它同样用不上，一并
+      // 撤下，不为一句无对象的话付字节（34 §8.2 第 3 项同一纪律）。
+      const guideAt = specGuideLine === null ? -1 : trimmed.indexOf(specGuideLine);
+      if (guideAt !== -1) trimmed.splice(guideAt, 1);
     } else {
       // 让位次序：先删尾部候选（证据最弱者），至少留一条。
       while (overNow() && candidateCount() > 1) {
@@ -1477,6 +1532,9 @@ export function renderRecallRow(result) {
         // 让到只剩一条仍放不下：撤下用法行，并把这件事记入披露（不静默）。
         const at = trimmed.indexOf(usageLine);
         if (at !== -1) trimmed.splice(at, 1);
+        // 规范侧 L3 引导与用法行同族，同一让位次序一并撤下（不另立判据）。
+        const guideAt = specGuideLine === null ? -1 : trimmed.indexOf(specGuideLine);
+        if (guideAt !== -1) trimmed.splice(guideAt, 1);
         usageYielded = true;
       }
     }

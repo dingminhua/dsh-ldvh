@@ -44,6 +44,13 @@ const CATEGORY_LABEL_KEYS = {
   object_not_found: 'diagnostics.category.objectNotFound',
   shape_and_concurrency: 'diagnostics.category.shapeAndConcurrency',
   other: 'diagnostics.category.other',
+  // 2026-11-16 补类：与 runtimeDiagnostics.FAILURE_CATEGORIES 一一对应，
+  // 缺一条就会在界面上回落成英文原值（此前 partial/unavailable 正是如此）。
+  spec_lookup_miss: 'diagnostics.category.specLookupMiss',
+  host_param_validation: 'diagnostics.category.hostParamValidation',
+  human_gate_pending: 'diagnostics.category.humanGatePending',
+  partial_result: 'diagnostics.category.partialResult',
+  business_precondition: 'diagnostics.category.businessPrecondition',
   subagent_stopped: 'diagnostics.category.subagentStopped',
   observation_gap: 'diagnostics.category.observationGap',
   quote_not_in_window: 'diagnostics.category.quoteNotInWindow',
@@ -53,11 +60,14 @@ const CATEGORY_LABEL_KEYS = {
   dispatch_unavailable: 'diagnostics.category.dispatchUnavailable',
 } as const satisfies Record<string, LocaleKey>;
 
-const FAILURE_STATUS_LABEL_KEYS = {
+const STATUS_LABEL_KEYS = {
   rejected: 'diagnostics.status.rejected',
   invalid_request: 'diagnostics.status.invalidRequest',
   completed: 'diagnostics.status.completed',
   unknown: 'diagnostics.status.unknown',
+  partial: 'diagnostics.status.partial',
+  unavailable: 'diagnostics.status.unavailable',
+  execution_error: 'diagnostics.status.executionError',
 } as const satisfies Record<string, LocaleKey>;
 
 function categoryLabel(t: Translation, category: string): string {
@@ -66,7 +76,7 @@ function categoryLabel(t: Translation, category: string): string {
 }
 
 function statusLabel(t: Translation, status: string): string {
-  const key = (FAILURE_STATUS_LABEL_KEYS as Record<string, LocaleKey | undefined>)[status];
+  const key = (STATUS_LABEL_KEYS as Record<string, LocaleKey | undefined>)[status];
   return key ? t(key) : status;
 }
 
@@ -89,26 +99,49 @@ function ShareBar({ value, total }: { value: number; total: number }) {
   );
 }
 
-function MetricCard({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'error' | 'warning' }) {
+/**
+ * 指标卡。`wrap` 让长值（如 `ldvh_read_specification_content`）断行显示而不是
+ * 被 truncate 成 `ldvh_read_specification_c…`；`title` 始终给出完整值，便于悬停核对。
+ * 默认行为与其它面板一致，只有显式传 wrap 的最差工具卡改变排版。
+ */
+function MetricCard({ label, value, hint, tone, wrap }: { label: string; value: string; hint?: string; tone?: 'error' | 'warning'; wrap?: boolean }) {
   const toneClass = tone === 'error' ? LDVH_ERROR_TEXT_CLASS : tone === 'warning' ? LDVH_WARN_TITLE_CLASS : 'text-ldvh-text-primary';
   return (
     <div className="min-w-0 rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
       <p className="ldvh-meta-muted">{label}</p>
-      <p className={`mt-1 text-xl font-semibold ${toneClass}`}>{value}</p>
+      <p
+        className={`mt-1 font-semibold ${toneClass} ${wrap ? 'break-all text-base' : 'text-xl'}`}
+        title={value}
+      >
+        {value}
+      </p>
       {hint && <p className="ldvh-meta-muted mt-1">{hint}</p>}
     </div>
   );
 }
 
-/** 数据边界声明：页面存在的意义就是区分「没看到」与「没有」，所以这段必须常驻。 */
-function ScopeNotice({ limits }: { limits: string[] }) {
-  if (limits.length === 0) return null;
+/**
+ * 数据边界声明：页面存在的意义就是区分「没看到」与「没有」，所以这段必须常驻。
+ *
+ * `generatedAt` / `cachedAt` 是 /gate 专属的新鲜度披露（2026-11-16 补）：TTL 延长到
+ * 30 分钟后，不写明「这是缓存生成于何时的数字」就会把旧数据呈现成此刻的实况。
+ * 其余面板不传这两个参数，行为逐字不变。
+ */
+function ScopeNotice({ limits, generatedAt, cachedAt, t }: { limits: string[]; generatedAt?: string; cachedAt?: string; t?: Translation }) {
+  if (limits.length === 0 && !generatedAt) return null;
   return (
     <div className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
       <div className="flex items-start gap-2">
         <AlertTriangle size={15} className={`mt-0.5 shrink-0 ${LDVH_WARN_TITLE_CLASS}`} />
         <div className="min-w-0">
           <p className="ldvh-meta font-medium text-ldvh-text-primary">scope</p>
+          {generatedAt && t ? (
+            <p className="ldvh-meta-muted mt-1">
+              {cachedAt
+                ? t('diagnostics.gate.cachedAt', { at: formatTime(cachedAt) })
+                : t('diagnostics.gate.freshAt', { at: formatTime(generatedAt) })}
+            </p>
+          ) : null}
           <ul className="mt-1 space-y-1">
             {limits.map((limit) => (
               <li key={limit} className="ldvh-meta-muted">{limit}</li>
@@ -138,11 +171,38 @@ function GatePanel({ report, t }: { report: GateReport; t: Translation }) {
           value={worstTool ? worstTool.tool : '—'}
           hint={worstTool ? `${worstTool.failed}/${worstTool.calls}` : undefined}
           tone="warning"
+          wrap
         />
         <MetricCard label={t('diagnostics.gate.sessions')} value={String(report.scope.sessionsScanned ?? 0)} />
       </div>
 
-      <ScopeNotice limits={report.scope.limits ?? []} />
+      <ScopeNotice
+        limits={report.scope.limits ?? []}
+        generatedAt={report.generatedAt}
+        cachedAt={report.scope.cachedAt}
+        t={t}
+      />
+
+      {/*
+        未完成结局分布：把顶部那个「未完成调用」数字拆回它实际包含的多种结局。
+        没有这一块时，读者只能看到「被拒 99」，把部分结果/宿主拦下也当成拒绝——
+        正是 2026-11-16 复核指出的口径缺陷。分布含 completed，便于对照总调用数。
+      */}
+      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
+        <h2 className="ldvh-card-title">{t('diagnostics.gate.byStatus')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.gate.byStatusHint')}</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {(report.byStatus ?? []).length === 0 ? (
+            <p className="ldvh-body-muted">{t('diagnostics.gate.empty')}</p>
+          ) : (report.byStatus ?? []).map((row) => (
+            <div key={row.status} className="grid grid-cols-[minmax(0,10rem)_1fr_2.5rem] items-center gap-2">
+              <span className="ldvh-meta truncate text-ldvh-text-primary">{statusLabel(t, row.status)}</span>
+              <ShareBar value={row.count} total={report.totals.calls} />
+              <span className="ldvh-meta font-mono text-right text-ldvh-text-secondary">{row.count}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
         <h2 className="ldvh-card-title">{t('diagnostics.gate.byCategory')}</h2>

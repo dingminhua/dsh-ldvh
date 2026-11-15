@@ -794,7 +794,11 @@ type GoalSubGoal = {
    * 兑现的承诺。
    */
   criterion?: string
-  /** SubGoal `object_uid` — the stable identity the Web drill-down needs.
+  /** SubGoal `object_uid` — the stable identity for serving-work derivation and
+   *  the detail routes (list/federation cards still navigate to `/objects/subgoal/:id`).
+   *  The focus-page goal section NO LONGER drills into detail from the title
+   *  (2026-11-15: title toggles expand/collapse), but it still needs the uid to
+   *  decide whether progress bars and the serving-work zone can be derived.
    *  Since 2026-11-01 this is ALSO what `id` carries on object rows (28 §7): the
    *  human-readable `SG-n` label is gone, so `id` is no longer a display string. */
   object_uid?: string
@@ -892,7 +896,8 @@ async function readSubGoalProjection(
         order: typeof parsed.order === 'number' ? parsed.order : undefined,
         created_at: typeof parsed.created_at === 'string' ? parsed.created_at : undefined,
         // The short title is what a scanning reader needs; the full criterion is
-        // the drill-down's job, so the list stays scannable.
+        // carried by the same row's expandable surface / the detail layout, so
+        // the list stays scannable.
         text: typeof parsed.title === 'string' && parsed.title.trim() !== ''
           ? parsed.title.trim()
           : (typeof parsed.criterion === 'string' ? parsed.criterion.trim() : ''),

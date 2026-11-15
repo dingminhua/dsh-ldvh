@@ -1744,6 +1744,29 @@ test("34 §8.2 第 2、4 项：规范候选行须带 spec_key 并明示 L4（不
 	}
 });
 
+test("L3 精确章节消费引导：模型可见面须给出「L2 取逐字标题 → 原样作 heading_path」的通路", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
+	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
+	// 前提：本回合确有规范候选，引导句才应出现。
+	assert.ok(r.text.includes("L4 全文入口"), "前提：须有规范候选行（带 L4 标注）");
+	// 引导句只出现一次（不逐条重复吃预算），且要点齐全。它按字节预算退化成
+	// 完整版/紧凑版两种措辞，故断言只核**语义要点**，不锁死某一版的逐字文本：
+	// ① 明说 L4 入口未定位到具体章节——不违反 34 §8.2 第 4 项；
+	// ② 指向 L2 与 section_outline（逐字标题来源）；
+	// ③ 明说 heading_path 的用法、且明禁凭记忆猜标题（36 次失配的根因）。
+	const guide = r.text.split("\n").filter((l) => l.startsWith("（spec_key"));
+	assert.equal(guide.length, 1, `消费引导须恰好出现一次，实际 ${guide.length} 次`);
+	assert.match(guide[0], /L4.*(全文入口|入口).*(未定位章节|未定位)/, "须明说 L4 入口未定位到具体章节");
+	assert.match(guide[0], /L2/, "须指向 L2 读取层级");
+	assert.match(guide[0], /section_outline/, "须点名逐字标题的载体字段");
+	assert.match(guide[0], /heading_path/, "须给出 heading_path 的用法");
+	assert.match(guide[0], /勿猜标题/, "须明禁凭记忆猜标题（这是 36 次取址失配的根因）");
+	// 与既有守卫同向：候选行本身仍不得暗示已定位（引导句不是候选行，不以「- 」开头）。
+	const specRows = r.text.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- ["));
+	assert.deepEqual(specRows.filter((l) => /heading_path|章节已定位|L3 章节/.test(l)), [],
+		"候选行自身仍不得暗示已定位章节；引导只放在独立说明行");
+});
+
 test("34 §12：渲染层裁掉候选时，完整度不得仍报 complete", async () => {
 	// 数据层 `complete` = 它没裁；渲染层另有字符上限与字节预算。两者可以不一致，
 	// 但**交付给读者的结论必须只有一个**：只要渲染层裁了候选，交付范围就不完整。

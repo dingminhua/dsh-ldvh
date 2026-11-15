@@ -153,11 +153,13 @@ const START_BRANCHES: StageShape[] = [
  * **次序与左侧导航的对象族一致，子目标列在首位**——它是目标层的下级锚点。
  *
  * **子目标不在侧栏导航里**（Human 定案 2026-11-13：侧栏不设子目标入口），
- * 但它**仍是事实对象、仍是地图上的一类**：它由聚焦页目标区承载并下钻进入，
- * 列表页 `/objects/subgoal` 也仍可达（本卡就是它的落点）。撤的是**导航入口**，
- * 不是这个事实类型。若连本卡一并撤掉，子目标就成了「Web 上无处可寻」的类型。
+ * 且自 2026-11-15 起聚焦页目标区点击子目标标题也**不再下钻进详情**（改展开/收起），
+ * 但它**仍是事实对象、仍是地图上的一类**：详情页仍由本卡的落点（列表页
+ * `/objects/subgoal`）、联邦卡与直接 URL 进入。两次撤的都是**进入通道**，不是这个
+ * 事实类型。若连本卡一并撤掉，子目标就成了「Web 上无处可寻」的类型。
  * 故本表的守卫（`help-presentation-contract` 第 4 条）比对的是
- * 「导航对象族 ∪ 聚焦页可下钻的对象类型」，而不是单看导航。 */
+ * 「活跃事实对象类型全集」（`api/services/facts.ts` 的 `ACTIVE_OBJECT_TYPES`），
+ * 而不是「有导航入口的那些」——值域变了守卫跟着变，页面必须同步变。 */
 const OBJECT_MAP: { type: string; to: string; what: LocaleKey; when: LocaleKey; look: LocaleKey }[] = [
   { type: 'subgoal', to: '/objects/subgoal', what: 'help.objects.subgoal.what', when: 'help.objects.subgoal.when', look: 'help.objects.subgoal.look' },
   { type: 'spark', to: '/objects/spark', what: 'help.objects.spark.what', when: 'help.objects.spark.when', look: 'help.objects.spark.look' },

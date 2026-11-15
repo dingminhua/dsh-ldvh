@@ -195,23 +195,33 @@ test('达成态不得由「名下工作全部关闭」推出（28 §18 红线 3�
   assert.match(objectList, /SubGoalTerminalCardContent/, '达成/作废态应有终态面板');
 });
 
-test('目标页子目标行可下钻到对象详情，legacy 行不可（28 §14.2）', () => {
+test('目标区子目标标题点击＝展开/收起，不再下钻详情页（2026-11-15 Human 定案）', () => {
   const goalSection = read('src/components/GoalSection.tsx');
 
-  // 2026-11-03 改版：行拆成 `SubGoalRow` 组件后，可点性由「有 object_uid」决定
-  // ——标题按钮在 `hasObject` 为假时禁用（legacy 行没有可下钻的对象，点进去是 404）。
-  // 整行**不**可点：行内还有展开按钮，整行可点会让「展开」与「进详情」抢同一个点击。
-  assert.match(goalSection, /const hasObject = Boolean\(subGoal\.object_uid\)/, '仅带 object_uid 的行可点');
-  assert.match(goalSection, /disabled=\{!hasObject\}/, 'legacy 行须不可下钻');
-  assert.match(goalSection, /hasObject \? 'cursor-pointer hover:text-ldvh-accent' : 'cursor-default'/, '仅带 object_uid 的行显可点');
-  // 详情路由的 id 段是 `subgoal-<uid>`（带类型前缀，与列表 obj.id 同形）；
-  // 只给裸 uid 会 404，故断言前缀在位。
-  assert.match(
-    goalSection,
-    /navigate\(`\/objects\/subgoal\/subgoal-\$\{sg\.object_uid\}`\)/,
-    '应下钻到 subgoal 详情路由（带类型前缀）',
+  // Human 2026-11-15：「详细页面要取消，这里点击标题就是展开收缩即可」——范围经
+  // 确认只改聚焦页目标区：详情页、路由、阅读布局与列表/联邦/帮助页入口全部保留，
+  // 只是**不再从目标区这一点下钻**。
+  //
+  // 判据：标题按钮与右侧箭头调同一个 `toggleExpanded`；标题不再带下钻路由、不再
+  // 按 `hasObject` 禁用（legacy 行也要能展开/收起，四条行点击语义一致）。
+  assert.match(goalSection, /const toggleExpanded = \(\) => setExpanded\(\(current\) => !current\)/,
+    '展开/收起取单一 toggleExpanded（标题与箭头同源）');
+  assert.equal(
+    (goalSection.match(/onClick=\{toggleExpanded\}/g) ?? []).length,
+    2,
+    '标题与右侧箭头两枚控件都调 toggleExpanded',
   );
+  assert.doesNotMatch(goalSection, /navigate\(`\/objects\/subgoal/, '目标区不得再下钻到子目标详情路由');
+  assert.doesNotMatch(goalSection, /disabled=\{!hasObject\}/, '标题不得再按 hasObject 禁用');
+  assert.doesNotMatch(goalSection, /onOpen=/, 'SubGoalRow 不再接下钻回调');
+
+  // `hasObject` 仍只管进度条与名下工作区（不因撤下钻而连带删掉派生数据）。
+  assert.match(goalSection, /const hasObject = Boolean\(subGoal\.object_uid\)/, 'hasObject 仍派生自身份');
+  assert.match(goalSection, /\{hasObject && \(/, '进度组与名下工作区仍只对有对象的行给出');
   assert.match(goalSection, /subGoal\.legacy &&/, 'legacy 行仍须显式标出');
+
+  // 反向断言：目标**本身**的详情入口不受影响（区头标题仍进 `/goal`）。
+  assert.match(goalSection, /navigate\('\/goal'\)/, '目标区头标题仍可进 /goal 详情页');
 });
 
 test('聚焦目标区不呈现作废子目标，但详情与投影仍保留（28 §9 终态可查）', () => {

@@ -101,16 +101,95 @@ export type GateReport = {
   totals: {
     calls: number
     completed: number
+    /**
+     * 除 `completed` 外的调用数。历史上界面叫「被拒次数」，但它把这些结局
+     * 全算进来：`rejected` / `invalid_request` / `partial` / `unknown` /
+     * `unavailable` / `execution_error`。其中 `partial` 是如实披露的部分结果、
+     * `unknown` 多是无 LDVH 结果头而被宿主直接拦下的请求，二者都不是「被拒」。
+     * 字段名保留以兼容既有契约，语义以本注释与 `byStatus` 为准。
+     */
     failed: number
   }
   byTool: { tool: string; calls: number; completed: number; failed: number }[]
+  /**
+   * 全部调用按结果头里的 outcome 分布（含 `completed`）。它把上面那一个
+   * 「非 completed」数字拆回它实际包含的多种结局，读者才能分辨「真的被拒」
+   * 与「部分结果 / 宿主拦下 / 服务不可用」——不再把前者当成全部。
+   */
+  byStatus: { status: string; count: number }[]
   byCategory: { category: string; count: number }[]
   byCode: { code: string; count: number }[]
   recentFailures: ToolCallOutcome[]
 }
 
-/** 失败按**性质**归类——比逐个错误码更能回答「该修哪一类」。 */
+/**
+ * 未完成调用按**性质**归类——比逐个错误码更能回答「该修哪一类」。
+ *
+ * ## 2026-11-16 补类（不是新增判据，是补覆盖）
+ *
+ * 原表只认 5 类，实测 500 份会话里 100 次非 completed 调用有 66 次落进
+ * `other`——它们不是「说不清的毛病」，而是分类表没覆盖住的几种高频且**性质
+ * 清楚**的形态。逐条 dump 全部明细复核后补了下面 5 类，并把几条边缘形态并入
+ * 既有类别。判据是逐字报错文本（正则），不是相似度；`other` 只留给真正未被
+ * 识别的文本。
+ *
+ * 两类最容易误读的形态在此显式分开：
+ * - `spec_lookup_miss`：规范/能力**取址失配**，全为只读调用，fail-closed 正确
+ *   拒绝，不是数据损坏（如 `content/heading_not_found`）；
+ * - `partial_result`：**部分结果**而非失败（分页截断、Human 未决策、坏行如实
+ *   披露），它们只是 outcome 不是 `completed`，不该被当成「被拒」。
+ *
+ * 顺序有意义：`classifyFailure` 取第一个命中的类别。新类放在既有类之前，
+ * 但每条正则都按逐字文本设计，不与既有类别的已命中项争抢。
+ */
 const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
+  {
+    category: 'spec_lookup_miss',
+    patterns: [
+      /heading_not_found/i,
+      /no H[23] heading matches/i,
+      /no member candidate carries/i,
+      /no public operation declares operation_key/i,
+    ],
+  },
+  {
+    category: 'host_param_validation',
+    patterns: [
+      /^Error: invalid arguments/i,
+      /^Error: unknown tool/i,
+      /Error: tool call aborted/i,
+      /is not a declared property/i,
+      /additionalProperties: false/i,
+    ],
+  },
+  {
+    category: 'human_gate_pending',
+    patterns: [
+      /requires an explicit Human confirmation/i,
+      /human did not confirm/i,
+      /human did not choose an option/i,
+      /未决策不是答复/i,
+      /requires an explicit Human routing decision/i,
+    ],
+  },
+  {
+    category: 'partial_result',
+    patterns: [
+      /projection truncated at limit/i,
+      /do not treat this page as the full set/i,
+      /defect line\(s\) in the buffer carrier/i,
+      /the read is partial and must not be treated as a complete inventory/i,
+    ],
+  },
+  {
+    category: 'business_precondition',
+    patterns: [
+      /goals_conflict/i,
+      /checklist_form_invalid/i,
+      /checklist form:/i,
+      /failed form checks/i,
+    ],
+  },
   {
     category: 'missing_arguments',
     patterns: [
@@ -138,6 +217,10 @@ const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
       /body_invalid/,
       /frontmatter_invalid/,
       /stopping consistency/i,
+      // 书写结构/正文形态：性质同属「正文与载体校验未过」，不是新类。
+      /must NOT carry the generated H1/i,
+      /must open with a fixed head/i,
+      /block #\d+ starts with/i,
     ],
   },
   {
@@ -149,6 +232,9 @@ const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
       /cannot read object file/,
       /not a subagent registered/i,
       /no candidate carries/i,
+      // 短 id / 类型键查不到：同一性质（查不到对象或键）。
+      /no carrier in this project matches/i,
+      /not a registered fact_type_key/i,
     ],
   },
   {
@@ -156,6 +242,7 @@ const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
     patterns: [
       /missing a line holding exactly/i,
       /must be a valid UUID/i,
+      /canonical UUIDv4/i,
       /cas_conflict/,
       /c2_fingerprint_invalidated/,
     ],
@@ -192,13 +279,28 @@ function eventTime(event: RawEvent): string | null {
   return null
 }
 
-/** 从一条会话日志里抽出 LDVH 工具的成对 (调用, 结果)。 */
+/**
+ * 从一条会话日志里抽出 LDVH 工具的成对 (调用, 结果)。
+ *
+ * **先粗筛再 parse（2026-11-16）**：实测 94,202 行会话日志里只有 29,169 行
+ * （31.0%）是 `tool/call` / `tool/result`；全量逐行 `JSON.parse` 耗时 1250ms，
+ * 是冷路径 2.4s 的最大单项。粗筛 `indexOf` 把明显无关的行挡在 parse 之前，
+ * 实测降到 773ms（省约 480ms）。
+ *
+ * **粗筛只做「不可能命中则跳过」，宁可多留不漏**：判据是「整行不含
+ * `tool/call` 且不含 `tool/result` 字面」才跳过。它不看 `type` 字段的具体
+ * 位置或引号空格形态——`{"type":"tool/call"}`、`{"type": "tool/call"}`、
+ * 乃至嵌套对象里出现该字面都会保留。因此任何可能的目标行都会照常进入
+ * 下面的 `JSON.parse` 与 `event.type` 精确判定，**统计口径逐字不变**。
+ * 反过来，某条无关行恰好含这两个字面之一时也只是多 parse 一行，不误伤。
+ */
 function extractToolOutcomes(raw: string, sessionId: string): ToolCallOutcome[] {
   const pending = new Map<string, ToolCallEvent>()
   const outcomes: ToolCallOutcome[] = []
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
+    if (trimmed.indexOf('tool/call') === -1 && trimmed.indexOf('tool/result') === -1) continue
     let event: RawEvent
     try {
       event = JSON.parse(trimmed) as RawEvent
@@ -363,15 +465,24 @@ function isCompressedLog(fileName: string): boolean {
  * `/gate` 报告的 TTL 缓存。
  *
  * **为什么加**：进一次页面就全量扫 725 个会话 / 158MB，实测 5.8 秒。而诊断页是
- * 「看一眼现状」的用途——5 分钟前的数字与此刻没有区别，因为它回答的是「机制在
+ * 「看一眼现状」的用途——旧几分钟的数字与此刻没有区别，因为它回答的是「机制在
  * 实际使用中哪里在失效」，不是实时行情。
+ *
+ * **为什么 2026-11-16 由 5 分钟改为 30 分钟**：实测冷路径 2.4 秒（523 个会话
+ * 目录 / 119MB / 38432 帧），而 5 分钟 TTL 使「隔一段时间再打开」（Human 反馈
+ * 「打开比较慢」）几乎必然落在冷路径上。诊断页不是实时行情，30 分钟内的旧数字
+ * 不改变任何判断。
+ *
+ * **TTL 延长的前提是新鲜度可见**：命中缓存时响应带 `scope.cachedAt`（生成时刻），
+ * 前端 scope 框须显示「实时计算 / 命中缓存 + 生成时刻」——否则延长 TTL 会把旧
+ * 数字变成谎报。这两处是同一项改动的两半，不得只改 TTL 不补披露。
  *
  * **为什么必须可主动失效**：清理日志之后如果还显示清理前的数字，页面会自相矛盾。
  * 故 `invalidateGateReportCache()` 由清理路径调用（见 logsCleanup service）。
  *
  * **为什么键里带 sessionDir**：不同项目根对应不同会话目录，缓存不能跨项目串。
  */
-const GATE_CACHE_TTL_MS = 5 * 60 * 1000
+const GATE_CACHE_TTL_MS = 30 * 60 * 1000
 const gateReportCache = new Map<string, { at: number; value: GateReport }>()
 
 /** 清空 `/gate` 缓存（清理日志后必须调用，否则页面会显示旧数字）。 */
@@ -438,7 +549,8 @@ export async function buildGateReport(options: {
     if (cached && Date.now() - cached.at < GATE_CACHE_TTL_MS) {
       return {
         ...cached.value,
-        // 命中缓存须**如实标注**：否则读者会把 5 分钟前的数字当成此刻的。
+        // 命中缓存须**如实标注**：否则读者会把缓存生成时刻的数字当成此刻的。
+        // TTL 已延长到 30 分钟，这一行是「延长不谎报」的唯一保障。
         scope: { ...cached.value.scope, cachedAt: new Date(cached.at).toISOString() },
       }
     }
@@ -467,8 +579,9 @@ export async function buildGateReport(options: {
   //
   // 三处浪费，逐条对应下面的三个修法：
   //   ① **串行** —— 每个会话都要起一个 zstd 子进程，725 次串行排队。改成有界并发。
-  //   ② **每次都全量重扫** —— 进一次页面扫一遍。加 TTL 缓存（默认 5 分钟）：
-  //      诊断页是「看一眼现状」的用途，5 分钟内的旧数据不改变任何判断。
+  //   ② **每次都全量重扫** —— 进一次页面扫一遍。加 TTL 缓存（2026-11-16 由
+  //      5 分钟延长到 30 分钟，配套 cachedAt 披露）：诊断页是「看一眼现状」的
+  //      用途，旧几十分钟的数据不改变任何判断。
   //   ③ **（已放弃）按体积预筛** —— 曾想「小于 8KB 的会话直接跳过」，但实测会
   //      误伤：小会话也可能含 LDVH 调用（既有测试造的就是几行事件）。体积不是
   //      「有无调用」的可靠判据，跳过它会**静默少统计**——那比慢更糟，故撤回。
@@ -477,7 +590,23 @@ export async function buildGateReport(options: {
   // 边界：剩下两项都**不改统计口径**——并发只改调度顺序，缓存只改复用。
   const outcomes: ToolCallOutcome[] = []
   if (hasZstd && sessionDirExists) {
-    const collected = await mapWithConcurrency(sessions, SESSION_SCAN_CONCURRENCY, async (session) => {
+    // ── 空目录预筛（2026-11-16）──────────────────────────────────────────
+    //
+    // 实测 523 个会话目录里 275 个（52.6%）**没有任何日志文件**。原实现把它们
+    // 全部送进并发队列，每个都要走一遍 6 个候选文件名的 existsSync。
+    //
+    // 与上面「按体积预筛已放弃」不是同一件事：那条放弃的是「文件小于 8KB 就
+    // 跳过」——体积不是「有无调用」的可靠判据，会**静默少统计**。本处判的是
+    // 「目录里是否存在任一候选日志文件」，不存在的目录本来就贡献 0 条调用；
+    // `sessionsScanned` 仍报 `sessions.length`（目录总数），故统计口径不变。
+    //
+    // 不计入扫描结果 ≠ 不告知：`sessionsScanned` 与 limits 已把覆盖范围说清，
+    // 空目录不产生任何 outcomes，不属「少统计」。
+    const sessionsWithLog = sessions.filter((session) => {
+      const dir = path.join(sessionDir, session)
+      return SESSION_LOG_CANDIDATES.some((name) => existsSync(path.join(dir, name)))
+    })
+    const collected = await mapWithConcurrency(sessionsWithLog, SESSION_SCAN_CONCURRENCY, async (session) => {
       const dir = path.join(sessionDir, session)
       try {
         const raw = await readSessionLog(dir)
@@ -496,6 +625,13 @@ export async function buildGateReport(options: {
 
   const completed = outcomes.filter((item) => item.status === 'completed')
   const failed = outcomes.filter((item) => item.status !== 'completed')
+
+  // 所有调用按 outcome 分布（含 completed）：把「非 completed」这一个数字拆回它
+  // 实际包含的多种结局，读者才不会把 partial / unknown 也当成「被拒」。
+  const statusCounts = new Map<string, number>()
+  for (const item of outcomes) {
+    statusCounts.set(item.status, (statusCounts.get(item.status) ?? 0) + 1)
+  }
 
   const toolCounts = new Map<string, { calls: number; completed: number; failed: number }>()
   for (const item of outcomes) {
@@ -530,6 +666,8 @@ export async function buildGateReport(options: {
       limits,
     },
     totals: { calls: outcomes.length, completed: completed.length, failed: failed.length },
+    byStatus: Array.from(statusCounts, ([status, count]) => ({ status, count }))
+      .sort((a, b) => b.count - a.count || a.status.localeCompare(b.status)),
     byTool: Array.from(toolCounts, ([tool, counts]) => ({ tool, ...counts }))
       .sort((a, b) => b.failed - a.failed || b.calls - a.calls),
     byCategory: Array.from(categoryCounts, ([category, count]) => ({ category, count }))

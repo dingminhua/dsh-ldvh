@@ -233,23 +233,25 @@ test('对象类型图标与导航入口图标必须走集中映射', () => {
   );
 });
 
-test('帮助页的对象地图必须覆盖左侧导航的对象族与聚焦页可下钻的对象类型', () => {
-  // 左侧导航里指向**事实对象**的入口（`/objects/:type`）。`/changelog` 提交记录不
-  // 计入——它不是事实对象，帮助页把它放在「入口地图」而非「对象地图」里。
-  const navTypes = [...new Set([...sidebar.matchAll(/to: '\/objects\/(\w+)'/g)].map((m) => m[1]))].sort();
-  assert.ok(navTypes.length > 0, '须能从 Sidebar 读出导航中的事实对象类型集合');
-
-  // **聚焦页可下钻的对象类型**：2026-11-13 起侧栏不设子目标入口（Human 定案），
-  // 子目标改由聚焦页目标区承载并下钻。它仍是事实对象、仍需在地图上被解释，
-  // 故本守卫比对的是「导航对象族 ∪ 聚焦下钻类型」，而不是单看导航。
+test('帮助页的对象地图必须覆盖活跃事实对象类型全集', () => {
+  // 2026-11-15 改版：聚焦页目标区**撤掉子目标标题的详情下钻**（改展开/收起），
+  // 子目标详情页、路由、阅读布局、列表/联邦/帮助页入口都保留，但「从聚焦页下钻」
+  // 这条通道已不存在。此前本守卫从 `GoalSection.tsx` 的 `navigate('/objects/...')`
+  // 读出「可下钻类型」，再与导航对象族取并集——下钻撤掉后该集合会缩成空，
+  // 子目标会从期望集合里凭空消失，守卫反而把仍在的类型判成「不该解释」。
   //
-  // 下钻类型从**实现**读出（聚焦页目标区的下钻路径），而不是写死一份名单：
-  // 名单写死，日后新增一种下钻类型时会静默漏掉地图上应解释的那一类。
-  const goalSection = read('src/components/GoalSection.tsx');
-  const drillDownTypes = [...new Set(
-    [...goalSection.matchAll(/navigate\(`\/objects\/(\w+)\//g)].map((m) => m[1]),
+  // 故比对对象改为**后端活跃事实对象类型全集**（`api/services/facts.ts` 的
+  // `ACTIVE_OBJECT_TYPES`）——它是类型值域的单一权威，不随任何一处导航/下钻的
+  // 增删漂移。对象地图的职责本就是「有哪些事实对象、各自是什么」，该等于值域全集，
+  // 而不是「有入口的那些」：一个类型即使暂时没有导航入口，也仍须被解释，否则
+  // 就成了「Web 上无处可寻」的类型（28 号载体仍在、仍可读）。名单从实现读出，
+  // 不写死——类型值域变了，守卫跟着变，页面必须同步变。
+  const facts = read('api/services/facts.ts');
+  const registryBlock = facts.slice(facts.indexOf('export const ACTIVE_OBJECT_TYPES'), facts.indexOf('export type ObjectType'));
+  const expectedTypes = [...new Set(
+    [...registryBlock.matchAll(/'(\w+)'/g)].map((m) => m[1]),
   )].sort();
-  const expectedTypes = [...new Set([...navTypes, ...drillDownTypes])].sort();
+  assert.ok(expectedTypes.length > 0, '须能从 facts.ts 读出活跃事实对象类型全集');
 
   const mapBlock = help.slice(help.indexOf('const OBJECT_MAP'), help.indexOf('const GATES'));
   const mapTypes = [...mapBlock.matchAll(/type: '(\w+)'/g)].map((m) => m[1]).sort();
@@ -257,14 +259,16 @@ test('帮助页的对象地图必须覆盖左侧导航的对象族与聚焦页�
   assert.deepEqual(
     mapTypes,
     expectedTypes,
-    '帮助页对象地图的类型集合必须等于「左侧导航的事实对象族 ∪ 聚焦页可下钻的对象类型」——' +
-      '少一类等于有一个入口没被解释，多一类等于在讲不存在的东西',
+    '帮助页对象地图的类型集合必须等于活跃事实对象类型全集——' +
+      '少一类等于有一个事实对象没被解释，多一类等于在讲不存在的东西',
   );
 
-  // 反向断言：子目标确实走的是「聚焦下钻」这条通道（2026-11-13 定案），
-  // 且它**仍在地图上**——撤的是导航入口，不是这个事实类型。
-  assert.ok(drillDownTypes.includes('subgoal'), '子目标应仍是聚焦页可下钻的对象类型');
-  assert.ok(mapTypes.includes('subgoal'), '子目标应仍在帮助页对象地图上');
+  // 反向断言：子目标仍是事实对象、仍在地图上。撤的是「聚焦页标题下钻」这一条
+  // 进入通道（2026-11-15），不是这个类型本身（28 号载体、列表页、详情页都在）。
+  assert.ok(expectedTypes.includes('subgoal'), 'subgoal 仍须在活跃事实对象类型全集里');
+  assert.ok(mapTypes.includes('subgoal'), '子目标仍须在帮助页对象地图上');
+  // 导航仍不得凭空长出一个子目标入口（2026-11-13 定案不撤回）。
+  assert.doesNotMatch(sidebar, /to: '\/objects\/subgoal'/, '侧栏仍不设子目标入口');
 });
 
 test('帮助页的中英文案必须一一对应，且旧流程词条不得复活', async () => {

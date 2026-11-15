@@ -68,16 +68,34 @@ type SubGoalRowData = {
  * 展开区**不重复给进度**：比值常显在标题行上，同一条子目标不出现第二个比值
  * （`docs/10` §5.5「同类信息只有一处」）。两档明细仍在子目标卡与详情页可读。
  *
+ * ## 标题点击＝展开/收起（Human 2026-11-15 定案）
+ *
+ * 此前标题是「进子目标详情页」的下钻入口（28 号 §1 的 V1），行右侧另有一枚箭头
+ * 按钮负责本行展开——同一条行上两枚控件各管一件事。本定案撤掉**标题的下钻**：
+ * 点击标题与右侧箭头一样，只切本行的展开/收起，不再跳 `/objects/subgoal/...`。
+ * 子目标详情页、路由、阅读布局与列表/联邦/帮助页入口**全部保留**，只是不再从
+ * 聚焦页目标区这一点进入（Human 明确「详细页面要取消，这里点击标题就是展开收缩
+ * 即可」，范围经确认只改目标区）。
+ *
+ * 两枚控件同义后仍**各留一枚**：标题是可读文本且占满行宽，给「点标题」一个明确的
+ * 命中面；右侧箭头是折叠状态的既有符号（ChevronDown/ChevronUp，`docs/09` §5），
+ * 带 `aria-expanded` 与可读名。二者调同一个 `toggleExpanded`，不会各管一份状态。
+ *
  * 进度组同样复用子目标卡的 `ServingSparkProgressBar`（行内形态），不在此处另写
  * 一份：比值的**口径**是单点派生（`utils/servingSparkProgress.ts`），连**呈现**也
  * 只应有一处。
  */
-function SubGoalRow({ subGoal, onOpen }: { subGoal: SubGoalRowData; onOpen: () => void }) {
+function SubGoalRow({ subGoal }: { subGoal: SubGoalRowData }) {
   const { t, locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
+  const toggleExpanded = () => setExpanded((current) => !current);
 
   // legacy 行（旧段遗留、尚无对象）没有 object_uid，也就没有可反查的身份：
   // 给它画条等于把「还没有对象」说成「没有火花」（docs/02 §4.0）。
+  // 注意：撤掉标题下钻后，`hasObject` **只**管进度条与名下工作区，不再管
+  // 「这行能不能点」——legacy 行的标题同样可展开收起（它没有详情页可进，
+  // 但也没有判据/名下工作可呈现，展开区自然为空；不禁用标题是为了让四条
+  // 子目标行的点击语义一致，不给读者一个「这条坏了吧」的死按钮）。
   const hasObject = Boolean(subGoal.object_uid);
 
   return (
@@ -108,13 +126,15 @@ function SubGoalRow({ subGoal, onOpen }: { subGoal: SubGoalRowData; onOpen: () =
         <span className="flex h-6 shrink-0 items-center">
           <SubGoalOrderBadge value={subGoal.order} />
         </span>
-        {/* 标题可点下钻（28 号 §1 的 V1：从目标下钻到子目标）。整行**不**可点——
-            行内还有展开按钮，整行可点会让「展开」与「进详情」抢同一个点击。 */}
+        {/* 标题点击＝展开/收起（Human 2026-11-15 定案）：撤掉进详情页的下钻，
+            改调与右侧箭头同一个 `toggleExpanded`。标题仍是一枚按钮而非整行可点
+            ——行内还有状态 chip、进度组与箭头按钮，整行可点会让「点进度数字」
+            也误触展开。带 `aria-expanded`，读屏能读出这一行的折叠状态。 */}
         <button
           type="button"
-          onClick={onOpen}
-          disabled={!hasObject}
-          className={`ldvh-body min-w-0 flex-1 break-words text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50 ${hasObject ? 'cursor-pointer hover:text-ldvh-accent' : 'cursor-default'}`}
+          aria-expanded={expanded}
+          onClick={toggleExpanded}
+          className="ldvh-body min-w-0 flex-1 break-words cursor-pointer text-left hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
         >
           {subGoal.text}
         </button>
@@ -201,7 +221,7 @@ function SubGoalRow({ subGoal, onOpen }: { subGoal: SubGoalRowData; onOpen: () =
           aria-expanded={expanded}
           aria-label={t(expanded ? 'focusV2.subGoalCollapse' : 'focusV2.subGoalExpand')}
           title={t(expanded ? 'focusV2.subGoalCollapse' : 'focusV2.subGoalExpand')}
-          onClick={() => setExpanded((current) => !current)}
+          onClick={toggleExpanded}
           className="flex h-6 min-w-0 shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 ldvh-meta text-ldvh-text-secondary/85 transition-colors hover:bg-ldvh-border/25 hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
         >
           {expanded
@@ -455,15 +475,13 @@ export default function GoalSection() {
             // 把「待决定事项」这类**需要立即行动**的模块压到下面——而聚焦页的首要
             // 职责是让人知道「现在该动什么」，不是「长期意图的完整档案」。
             //
-            // 收起不等于删：判据与名下工作一行不少地在那里，点开即得。子目标的完整
-            // 档案仍在 `/objects/subgoal/<uid>` 详情页，聚焦页这条展开只是省一次跳转。
+            // 收起不等于删：判据与名下工作一行不少地在那里，点**标题**或右侧箭头
+            // 即得（Human 2026-11-15 定案：标题不再跳详情页，改展开/收起）。
+            // 子目标的完整档案仍在 `/objects/subgoal/<uid>` 详情页，仍由列表卡、
+            // 联邦卡与帮助页对象地图进入——只是不再从聚焦页目标区这一点下钻。
             <ul className="mt-3 min-w-0 divide-y divide-ldvh-border/70">
               {visibleSubGoals.map((sg) => (
-                <SubGoalRow
-                  key={sg.id}
-                  subGoal={sg}
-                  onOpen={() => navigate(`/objects/subgoal/subgoal-${sg.object_uid}`)}
-                />
+                <SubGoalRow key={sg.id} subGoal={sg} />
               ))}
             </ul>
           )}
