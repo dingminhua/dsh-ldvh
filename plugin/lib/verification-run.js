@@ -113,19 +113,17 @@ export const DEFERRED_ROWS = Object.freeze({
   "摩擦观察条目的写入合法": strictReason("同上（§12bis.1 十四字段闭集与写后回读）"),
   "摩擦观察条目到期淘汰的登记": strictReason("需在淘汰发生的那一刻核对登记与查重；读时惰性结算不留现场"),
   "摩擦缓冲的准入合法性": strictReason("需在任何读写之前回读管辖状态与分区自洽；痕迹未记录该前置读取"),
-  "单条目不成文两次": strictReason("需在创建前按当下重读 pending 状态并用 wx 原子创建；痕迹无认领文件当前状态的记录"),
   "水位推进": strictReason("需在运行结束时回读水位取值并与推进结果比对；该取值未被记录"),
   "交还的接受": strictReason("需等被下一个主控或 Human 接受；接受发生在本轮之后，本轮无从判定"),
   // 该行本身可机械核对（七段即 pitfall-writer 的 BODY_H2_REQUIRED），但
   // reviewOutcome.formed 只带 {entry_id, object_uid, file}，不含 body_valid
   // 回读结果，故运行结束时无证据（第三轮复核发现）。要真核它须让生产者把
   // 回读结论带出来。
-  "经验对象的七段完整": strictReason("该行可机械核对（七段即 pitfall-writer 的 BODY_H2_REQUIRED），但 formed 只带 entry_id/object_uid/file，不含 body_valid 回读结果；须由生产者把回读结论带出后才能核"),
   "运行完成": strictReason("本行是本模块自身的核对结论（自证）；它由调用方按 trace 填入，本模块不给自己判 pass"),
 });
 
 /**
- * §18 的**可机械核对行**清单（20 行）。
+ * §18 的**可机械核对行**清单（16 行；原 20 行中 4 行随经验侧删除，2026-11-16）。
  *
  * 与 `NOT_CHECKABLE_ROWS` 合起来共 22 行 = §18 数据行数。三者构成闭集：
  * 新增 §18 行而本模块不同步时，`verifyRunIds` 的集合相等测试会失败——这是
@@ -143,10 +141,6 @@ export const MECHANICAL_ROWS = Object.freeze([
   "摩擦观察条目到期淘汰的登记",
   "摩擦缓冲的准入合法性",
   "缓冲条目不可写／不可回读",
-  "转写条目的合法性",
-  "经验对象的七段完整",
-  "单条目不成文两次",
-  "派发条目的判定完备",
   "fail-closed 处置",
   "水位推进",
   "路径约定落实",

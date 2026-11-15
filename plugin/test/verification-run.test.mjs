@@ -58,11 +58,11 @@ test("id 派生：中段括注属行名本身，不剥", () => {
 // 与规范的一致性：22 行、无碰撞、集合相等
 // ---------------------------------------------------------------------------
 
-test("§18 解析出 23 行且 id 无碰撞（2026-11-03 增「运行完成」后 22→23）", async () => {
+test("§18 解析出 19 行且 id 无碰撞（2026-11-16 经验侧四行删除后 23→19）", async () => {
   const read = await readVerificationRowIds(REPO_ROOT);
   assert.equal(read.ok, true, read.ok ? "" : JSON.stringify(read.error));
   const ids = read.value.ids;
-  assert.equal(ids.length, 23, `§18 数据行应为 23 行，实测 ${ids.length}`);
+  assert.equal(ids.length, 19, `§18 数据行应为 19 行，实测 ${ids.length}`);
   assert.equal(new Set(ids).size, ids.length, "去括注后 id 出现碰撞");
 });
 
@@ -78,12 +78,12 @@ test("模块声明的 id 集合与 §18 实测集合相等（规范加行而模�
   assert.deepEqual(extraInModule, [], `模块声明了 §18 里不存在的行：${extraInModule.join("、")}`);
 });
 
-test("机械行与不可判行不重叠，且合计 23", () => {
+test("机械行与不可判行不重叠，且合计 19", () => {
   const mechanical = new Set(MECHANICAL_ROWS);
   const notCheckable = new Set(Object.keys(NOT_CHECKABLE_ROWS));
   const overlap = [...mechanical].filter((id) => notCheckable.has(id));
   assert.deepEqual(overlap, [], `同一行不能既机械可核对又不可判：${overlap.join("、")}`);
-  assert.equal(mechanical.size + notCheckable.size, 23);
+  assert.equal(mechanical.size + notCheckable.size, 19);
 });
 
 test("四道机械可核对行不得登记为 not-checkable", () => {
