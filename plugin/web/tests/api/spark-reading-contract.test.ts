@@ -124,7 +124,7 @@ test('Spark terminal headings distinguish implemented and discarded with a legac
   assert.match(source, /getObjectStatusLocale\('spark', String\(obj\.status\), locale\)/);
   assert.match(list, /tone=\{obj\.status === 'implemented' \? 'implemented' : 'retired'\}/);
   assert.match(badge, /objectType === 'spark' && status === 'discarded'/);
-  assert.match(badge, /objectType === 'adr' && status === 'retired'/);
+  assert.match(badge, /objectType === 'norm' && status === 'retired'/);
 });
 
 test('Spark reading layout parses fixed H2 body sections with frontmatter fallback', () => {
@@ -141,7 +141,7 @@ test('Spark reading layout parses fixed H2 body sections with frontmatter fallba
   assert.match(source, /getFieldLabel\('question', locale\)[\s\S]*?getFieldLabel\('scope_boundary', locale\)[\s\S]*?getFieldLabel\('intent', locale\)[\s\S]*?getFieldLabel\('current_understanding', locale\)/);
   // 20 §8：终态去向由 disposition 承载（implemented/discarded 时必填，
   // 缺失时如实标注，不以空占位代替判断）。spark 阅读面不再读 v4 的
-  // disposition_summary/updated_at（ADR/Pitfall 节点仍合法使用前者）。
+  // disposition_summary/updated_at（Pitfall 节点仍合法使用前者）。
   assert.match(source, /obj\.disposition/);
   assert.doesNotMatch(source, /obj\.disposition_summary/);
   assert.doesNotMatch(source, /obj\.updated_at/);

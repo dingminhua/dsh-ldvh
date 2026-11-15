@@ -27,11 +27,8 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   // 呈现并下钻子目标（2026-11-03 改版），单列入口是同一条信息的第二个入口——
   // 删的是**导航入口**，不是子目标这个事实类型（28 号载体、详情页、下钻路径都在）。
   { to: '/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
-  // 2026-11-14 Human 定案：**决策 → 规范 → 报告**。三者是一条认识链——
-  // 决策定方向、规范定规则、报告承载取证与结论；报告排在二者之后，是因为
-  // 它读的是「已定的方向与规则」下的证据，位置在链尾才不打断这条语义。
-  // （此前报告排在决策之前，是 24 号还叫 Research 时的次序，未随改名重排。）
-  { to: '/objects/adr', labelKey: 'nav.adrs', icon: OBJECT_TYPE_ICONS.adr },
+  // ADR 事实类型已于 2026-11-15 撤除（Human 根决定）；决策侧栏入口随之删除。
+  // 现行次序：规范 → 报告（规范定规则，报告承载取证与结论）。
   { to: '/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
   { to: '/objects/report', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.report },
   { to: '/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
@@ -54,8 +51,7 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
 const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [
   { to: '/federation', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
   { to: '/federation/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
-  // 次序与项目态一致（决策 → 规范 → 报告，见 NAV_ITEMS 处说明）。
-  { to: '/federation/objects/adr', labelKey: 'nav.adrs', icon: OBJECT_TYPE_ICONS.adr },
+  // 次序与项目态一致（规范 → 报告，见 NAV_ITEMS 处说明）。
   { to: '/federation/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
   { to: '/federation/objects/report', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.report },
   { to: '/federation/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },

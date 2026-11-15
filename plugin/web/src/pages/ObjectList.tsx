@@ -79,7 +79,7 @@ function isDeprecatedListCard(obj: ObjectItem): boolean {
 function getNonActiveReason(obj: ObjectItem, t: Translate): StatusReason | null {
   if (!statusRequiresDisposition(obj)) return null;
   // 与各类型终态卡同源取 `disposition`（v5 闭集字段，见 factFieldContract：
-  // adr/pitfall/spark/friction 的终态理由都由它承载）。此处此前读 v4 的
+  // pitfall/spark/friction 的终态理由都由它承载）。此处此前读 v4 的
   // `disposition_summary`——该字段已随 23 号移出闭集，读它恒为 undefined，
   // 于是**状态说明条**对每一条终态对象都退到「缺失理由」文案，与卡体显示的
   // 完整理由自相矛盾（同一张卡上卡体写「理由全文」、说明条写「缺失」）。
@@ -475,27 +475,6 @@ export function PitfallCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-function AdrTerminalCardContent({ obj }: { obj: ObjectItem }) {
-  const { t, locale } = useI18n();
-  // 22 §9：ADR 终态原因由 retirement_reason 承载（闭集 superseded/absorbed/
-  // outdated/out-of-scope/abolished）；v4 disposition_summary 已不属 ADR 字段闭集。
-  const rawReason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
-    ? obj.retirement_reason.trim()
-    : '';
-  const reason = rawReason
-    ? getFieldValueLabel('retirement_reason', rawReason, locale)
-    : t('objectList.dispositionMissing');
-
-  return (
-    <TerminalFactPanel tone="retired" content={formatReasonText(reason)} />
-  );
-}
-
-export function AdrCardContent({ obj }: { obj: ObjectItem }) {
-  if (obj.status === 'retired') return <AdrTerminalCardContent obj={obj} />;
-  return null;
-}
-
 function ResearchTerminalCardContent({ obj }: { obj: ObjectItem }) {
   const { t, locale } = useI18n();
   // 24 §9：Research 终态原因由 retirement_reason 承载（闭集含 rejected）；
@@ -522,7 +501,7 @@ export function ResearchCardContent({ obj }: { obj: ObjectItem }) {
 
 /** 26 §12 F1 投影要素的列表承载：phenomenon（现象单句）+ attribution（归因，
  * 条件出现）。卡片正文段复用 pitfall
- * 活跃决策块的 amber 表面语法，但语义归账本（待修的账）。 */
+ * 卡片正文段沿用既有表面语法，但语义归账本（待修的账）。 */
 /** 26 §8/§9.1：voided / accepted 的终态卡——照 Spark 的终态形态（TerminalFactPanel），
  * 读 `disposition`（终态去向说明）呈现。该字段于 2026-11 进入 §8 闭集、2026-10 扩为
  * 「voided 的废弃理由或 accepted 的不可清偿理由」，正是为了让列表卡能直接读到去向，
@@ -586,7 +565,7 @@ function NormTerminalCardContent({ obj }: { obj: ObjectItem }) {
  *    而它当初能存活，是因为它与 ① 同处一个壳里，被当作「这个块的说明」而非「类型的
  *    说明」。壳一撤，它的真实身份（第二处类型定义）就露出来了。
  *
- * 撤后本组件与 `AdrCardContent` 同形：活跃态返回 `null`，只剩终态卡。这不是「忘了
+ * 撤后本组件与既有终态卡同形：活跃态返回 `null`，只剩终态卡。这不是「忘了
  * 写卡体」，而是本类型的正文四段（方向定位/核心规则体系/约束与反模式/验证与遵从性
  * 检查）本来就是**成体系的长文**，列表格子里读不成体系——它住在详情页阅读布局。
  *
@@ -924,14 +903,6 @@ export default function ObjectList() {
   );
 
   const renderObjectCard = (obj: ObjectItem) => {
-
-    if (currentType === 'adr') {
-      return (
-        <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
-          <AdrCardContent obj={obj} />
-        </ObjectCardFrame>
-      );
-    }
 
     if (currentType === 'pitfall') {
       return (

@@ -852,7 +852,7 @@ input::-moz-focus-inner {
  * 撤销理由是其**作用面与动机不匹配**：
  *
  *   1. 该选择器挂在**六类阅读面共用的壳**（.ldvh-research-node-content）上——
- *      ADR/Pitfall/Spark/Research/Friction/Norm 全部走它，而当初的动机只是某一类型的
+ *      Pitfall/Spark/Research/Friction/Norm 全部走它，而当初的动机只是某一类型的
  *      长摘要；等于给所有类型一并收窄（Human 实测发现 Spark 亦受影响）。
  *   2. 壳内文本列宽约 792px，40em（14px 字号）≈ 560px，**右侧留出约 29% 空白**。
  *      阅读节点里大多是**短字段**（几行即尽），对短字段收窄不产生任何可读性收益，

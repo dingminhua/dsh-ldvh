@@ -7,7 +7,7 @@
  */
 // 29 号 DevLog 已于 2026-11-14 撤除（Human 根决定，01 §8 号位表 29 为空位）：
 // 'devlog' 随之退出本联合，四张 Record<FactType, ...> 表同步去掉该键。
-export const FACT_TYPES = ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const
+export const FACT_TYPES = ['pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
@@ -62,23 +62,7 @@ const common = {
 
 
 export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
-  // v5 ADR（22 §8 薄索引）：decision/scope 必填（正文对应段逐字包含）、
-  // trigger_signal 条件出现（遵守预检消费）、终态字段随 status 约束
-  // （retirement_reason/retired_at 仅 retired，§9）；正文「决策背景/决定/
-  // 备选与理由/后果/适用范围/证据」由 report_body 承载。v4 的
-  // decision_question/applicability/rationale/consequences/disposition_summary
-  // 已随 22 号移除（分析性长文本住正文，不留 frontmatter 字段）。
-  adr: {
-    ...common,
-    decision: field('adr-decision', 'string', true),
-    scope: field('adr-scope', 'string', true),
-    trigger_signal: field('adr-trigger-signal', 'string', false),
-    retirement_reason: field('adr-retirement-reason', 'string', false),
-    retired_at: field('adr-retired-at', 'string', false),
-    // 正文承载（22 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
-    // 判为 unconsumed_field，且必须从列表投影排除。
-    report_body: field('adr-report-body', 'string', false),
-  },
+  // ADR 事实类型已于 2026-11-15 撤除（Human 根决定），其字段契约块随类型删除。
   // v5 Pitfall（23 §8 薄索引）：scope 必填（正文「影响与适用范围」段逐字
   // 包含）、trigger_signal 条件出现（依赖版本/环境变化时重审）、终态
   // disposition 仅 discarded（§9）；正文「症状/触发条件/根因/解决/规避/
@@ -236,7 +220,6 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
  * 这一步——排除一个不存在的键只会让人以为它还在。
  */
 export const FACT_LIST_FIELD_NAMES: Record<FactType, readonly string[]> = {
-  adr: Object.keys(FACT_FIELD_CONTRACT.adr).filter((field) => field !== 'report_body' ),
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall).filter((field) => field !== 'report_body' ),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body' ),
   report: Object.keys(FACT_FIELD_CONTRACT.report).filter((field) => field !== 'report_body' ),
@@ -256,7 +239,6 @@ export const FACT_LIST_FIELD_NAMES: Record<FactType, readonly string[]> = {
  * (specs/20–24); changing any set requires updating the type spec first.
  */
 export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
-  adr: ['retired'],
   pitfall: ['discarded'],
   spark: ['implemented', 'discarded'],
   report: ['retired'],
@@ -276,7 +258,6 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
  * 25 Goal 为单例（ldvh-base/goal.md），不占目录，故不在本表。
  */
 export const FACT_TYPE_DIR_NAMES: Record<FactType, string> = {
-  adr: 'adrs',
   pitfall: 'pitfalls',
   spark: 'sparks',
   report: 'reports',

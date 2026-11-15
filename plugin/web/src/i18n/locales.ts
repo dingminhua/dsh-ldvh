@@ -3,7 +3,7 @@
 // 类型来源定义了不同语义时，必须通过 OBJECT_STATUS_LOCALES 覆盖本表。
 // ============================================================
 export const STATUS_LOCALES: Record<string, { zh: string; en: string }> = {
-  // 类型专属状态词 / ADR
+  // 类型专属状态词
   draft: { zh: '草稿', en: 'Draft' },
   proposed: { zh: '已提议', en: 'Proposed' },
   accepted: { zh: '已采纳', en: 'Accepted' },
@@ -66,9 +66,6 @@ export function getStatusLocale(status: string, locale: string): string {
 // 列表卡、详情身份头部、联邦与热点图都经 getObjectStatusLocale 取词条。筛选器的
 // 不得在 UI_LOCALES 里再登记一份同义词条——两处登记必然漂移。
 const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
-  adr: {
-    retired: { zh: '已废弃', en: 'Retired' },
-  },
   spark: {
     // 20 §9 状态闭集：open（待处理——尚待召回、判断、拆分或分流；Human 定案
     // 2026-09-13 改称，原「悬置中」）/ implemented（落实或交接，只结束入口
@@ -94,7 +91,7 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     // 摩擦观察缓冲承载（非事实对象、不进事实源），故此处不再有留观词条。
     open: { zh: '待修', en: 'Open' },
     resolved: { zh: '已销账', en: 'Resolved' },
-    // 与其余事实对象（Pitfall/Spark 的 discarded、ADR/Research 的 retired）统一
+    // 与其余事实对象（Pitfall/Spark 的 discarded、Report 的 retired）统一
     // 用「已废弃」，Human 扫读不必记忆类型专属词（2026-11 Human 裁定）。
     voided: { zh: '已废弃', en: 'Voided' },
     // accepted 是「记对了但清偿不了」，与 voided（记错了）是不同结论，故不复用
@@ -181,7 +178,6 @@ export function getObjectStatusDisplayLabel(
 
 /** 对象类型中英映射 */
 export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
-  adr: { zh: '决策', en: 'ADR' },
   pitfall: { zh: '经验', en: 'Pitfall' },
   spark: { zh: '火花', en: 'Spark' },
   report: { zh: '报告', en: 'Report' },
@@ -446,7 +442,6 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   options: { zh: '选项', en: 'Options' },
   decision: { zh: '决策', en: 'Decision' },
   scope: { zh: '范围', en: 'Scope' },
-  // v5 ADR（22 号）正文五段 + 证据条件段的阅读布局标题。
   decision_context: { zh: '决策背景', en: 'Decision Context' },
   alternatives: { zh: '备选与理由', en: 'Alternatives & Rationale' },
   decision_consequences: { zh: '后果', en: 'Consequences' },
@@ -614,7 +609,7 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     'no-gain': { zh: '零增益收敛', en: 'No Gain' },
     'round-cap': { zh: '轮次上限收敛', en: 'Round Cap' },
   },
-  // 24 §8 退出原因闭集（与 plugin/lib/research-writer.js RETIREMENT_REASONS 同源；ADR 复用本表，另含 absorbed / abolished —
+  // 24 §8 退出原因闭集（与 plugin/lib/research-writer.js RETIREMENT_REASONS 同源）—
   // 见 22 §9.2，二者在 Research 侧不可出现）。abolished 是「记录不再保留、已产生的影响保留」，与「内容作废」不同形。
   retirement_reason: {
     outdated: { zh: '已过时', en: 'Outdated' },
@@ -741,7 +736,7 @@ const CATEGORY_LABEL_LOCALES: Record<string, { zh: string; en: string }> = {
   merge: { zh: '合并', en: 'Merge' }, release: { zh: '发布', en: 'Release' },
   ci: { zh: 'CI', en: 'CI' }, build: { zh: '构建', en: 'Build' },
   spec: { zh: '规范', en: 'Spec' }, rule: { zh: '规则', en: 'Rule' },
-  adr: { zh: '决策', en: 'ADR' }, other: { zh: '其他', en: 'Other' },
+  other: { zh: '其他', en: 'Other' },
 };
 
 const COMMIT_TYPE_ZH: Record<string, string> = {
@@ -755,7 +750,6 @@ const COMMIT_SCOPE_LOCALES: Record<string, { zh: string; en: string }> = {
   rules: { zh: '规则', en: 'Rules' }, runtime: { zh: '运行时', en: 'Runtime' },
   code: { zh: 'Code', en: 'Code' }, web: { zh: 'Web', en: 'Web' },
   tests: { zh: 'Tests', en: 'Tests' }, config: { zh: '配置', en: 'Config' },
-  adr: { zh: '决策', en: 'ADR' },
   spark: { zh: '火花', en: 'Spark' }, report: { zh: '报告', en: 'Report' },
   pitfall: { zh: '经验', en: 'Pitfall' },
   friction: { zh: '摩擦', en: 'Friction' },
@@ -807,11 +801,6 @@ export function getStatusHint(status: string, locale: string): string {
 }
 
 export function getObjectStatusHint(type: string, status: string, locale: string): string {
-  if (type === 'adr' && status === 'active') {
-    return locale === 'en'
-      ? 'Current effective decision'
-      : '当前有效决策';
-  }
   // 20 §1/§9：implemented 只结束 Spark 入口职责，不代表下游完成——终态语义
   // 在提示层显式限定，防「交了就当完成」的自欺。
   if (type === 'spark') {
@@ -858,7 +847,7 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '已接受（不可清偿）：阻碍真实但消除途径不存在或不在可动范围；记录一次，不再重复报告';
     }
   }
-  // 27 号 §9：active 是当前生效规则（同 ADR active 语义限定）；retired 终态不重开。
+  // 27 号 §9：active 是当前生效规则；retired 终态不重开。
   if (type === 'norm') {
     if (status === 'active') {
       return locale === 'en'
@@ -913,7 +902,6 @@ export const UI_LOCALES = {
     'logo.tagline': '让 Vibe Coding 更高效、更稳定、更可控',
 
     'nav.cognition': '聚焦',    'nav.projectFiles': '目录',
-    'nav.adrs': '决策',
     'nav.pitfalls': '经验',
     'nav.sparks': '火花',
     'nav.studies': '报告',
@@ -1594,7 +1582,7 @@ export const UI_LOCALES = {
     'help.start.old.title': '老项目：先把现有文档吸收掉',
     'help.start.old.body': '它还不掌握你的项目。先让它把现有文档调研成一份调研对象，产出已证实、未证实与缺口三态证据；再基于这份认识收敛目标、展开子目标。跳过这一步，子目标就会按它自己的猜测写。',
     'help.start.nextTitle': '立起来之后',
-    'help.start.next': '目标定下来，主线才开始——想法、调研和决策都挂在目标下面。想看九类对象各是什么，切到「有哪些东西」；想知道事情怎么往下走，切到「事情怎么推进」；想知道它什么时候会停下来问你，切到「什么时候该你出面」。',
+    'help.start.next': '目标定下来，主线才开始——想法、调研和决策都挂在目标下面。想看各类对象各是什么，切到「有哪些东西」；想知道事情怎么往下走，切到「事情怎么推进」；想知道它什么时候会停下来问你，切到「什么时候该你出面」。',
 
     'help.overview.title': '这套系统解决什么',
     'help.overview.lead': 'AI 和人各有一半的短板：单独看都还能对付，凑在一起就互相放大。LDVH 的每一项机制都对应其中一个缺口。',
@@ -1606,7 +1594,7 @@ export const UI_LOCALES = {
     'help.overview.ai.answer': '所以规则要有源、事实要有锚、动作要有校验——规范源给边界，事实源给依据，主控自查、代理审核和机械校验三层兜底。',
     'help.overview.human.title': '人接不住也留不住',
     'help.overview.human.symptom': '长期规划越做越模糊，临时想法转头就忘，多个任务并行就接不上，做过的决定和踩过的坑随对话一起散掉。',
-    'help.overview.human.answer': '所以每样东西都有一个对象——目标、想法、调研、决策、经验和摩擦各有承载，打开看得见，回来接得上。',
+    'help.overview.human.answer': '所以每样东西都有一个对象——目标、想法、调研、经验和摩擦各有承载，打开看得见，回来接得上。',
     'help.overview.friction.title': '双方互相放大误差',
     'help.overview.friction.symptom': 'AI 的笃定人接不住，人含糊的意思 AI 又猜不准；它不会停在「我没懂」的地方，会先把空缺补全，再卖力执行到底。',
     'help.overview.friction.answer': '所以该你定的必须问你——你的决定权不能被 AI、规范、事实或工具替代；依据不足时它会停下来，而不是硬答。',
@@ -1619,8 +1607,6 @@ export const UI_LOCALES = {
     'help.spine.idea.body': '任何值得跨行动推进的事——一个想法、一个方向、一个还没收敛的问题——都从火花出生；火花同时是方向主线。',
     'help.spine.research.title': '调研',
     'help.spine.research.body': '围绕还没掌握的问题搜证据，直到不再产生新的确认认识；结论按发现单元组织，每条都带溯源锚点。',
-    'help.spine.decision.title': '决定',
-    'help.spine.decision.body': '把一次取舍固定成可回溯的记录：当时选了什么、依据是什么、代价是什么。',
     'help.spine.execution.title': '执行',
     'help.spine.execution.body': '方案成形、还没动手改动时，它问你要不要安排一次审查；收口之前再问一次要不要复核。还没有任何方案时不会问——那时没有可核对的对象。你答不答都不拦它推进；它只是把「要不要多一双眼」这个决定交到你手上。',
     'help.spine.learning.title': '积累',
@@ -1658,9 +1644,6 @@ export const UI_LOCALES = {
     'help.objects.research.what': '外部对象的深度调研产物，调查与分析一体；每个发现单元独立可讨论，并带溯源锚点。',
     'help.objects.research.when': '缺证据，或者结论必须落到具体来源上时。',
     'help.objects.research.look': '每个发现单元的声明、观察事实、对项目的价值判断和溯源锚点。',
-    'help.objects.adr.what': '已定决策的回溯记录：选了什么、依据、代价、影响范围。',
-    'help.objects.adr.when': '一次取舍被定下来，而且以后会被反复引用时。',
-    'help.objects.adr.look': '决定本身、当时的备选与理由，以及它关联的目标。',
     'help.objects.pitfall.what': '已验证踩坑经验的回溯记录：失败机制与规避办法。',
     'help.objects.pitfall.when': '同一个坑第二次出现，或教训已经被验证可用时。',
     'help.objects.pitfall.look': '失败机制、触发条件、规避做法，以及它已被哪些工作复用。',
@@ -1785,7 +1768,6 @@ export const UI_LOCALES = {
     'logo.tagline': 'Making Vibe Coding more efficient, stable, and controllable',
 
     'nav.cognition': 'Focus',    'nav.projectFiles': 'Directory',
-    'nav.adrs': 'ADRs',
     'nav.pitfalls': 'Pitfalls',
     'nav.sparks': 'Sparks',
     'nav.studies': 'Reports',
@@ -2444,8 +2426,6 @@ export const UI_LOCALES = {
     'help.spine.idea.body': 'Anything worth carrying across actions — an idea, a direction, a question that has not converged — is born as a Spark; the Spark is also the main thread of the direction.',
     'help.spine.research.title': 'Research',
     'help.spine.research.body': 'Gather evidence around what is not yet known, until no new confirming understanding appears; findings are organised as independent units, each carrying a traceability anchor.',
-    'help.spine.decision.title': 'Decision',
-    'help.spine.decision.body': 'Fix one trade-off as a record you can look back on: what was chosen, on what grounds, and at what cost.',
     'help.spine.execution.title': 'Execution',
     'help.spine.execution.body': 'Once a plan has taken shape and before it starts changing anything, it asks whether to arrange a review, and again before closing out whether to arrange a re-check. It does not ask while no plan exists yet — there would be nothing to check. Whether you answer or not does not hold it back; it only hands you the choice of a second pair of eyes.',
     'help.spine.learning.title': 'Accumulation',
@@ -2483,9 +2463,6 @@ export const UI_LOCALES = {
     'help.objects.research.what': 'A deep research product about an external subject, investigation and analysis in one; each finding unit stands on its own and carries a traceability anchor.',
     'help.objects.research.when': 'When evidence is missing, or a conclusion has to land on specific sources.',
     'help.objects.research.look': 'Each finding unit: its claim, the observed facts, the value judgment for the project, and the traceability anchor.',
-    'help.objects.adr.what': 'A look-back record of a settled decision: what was chosen, the grounds, the cost, the reach.',
-    'help.objects.adr.when': 'When a trade-off is settled and will be cited over and over afterwards.',
-    'help.objects.adr.look': 'The decision itself, the alternatives and the reasoning at the time, plus the goals it relates to.',
     'help.objects.pitfall.what': 'A look-back record of a verified lesson: the failure mechanism and the way to avoid it.',
     'help.objects.pitfall.when': 'When the same pitfall shows up a second time, or a lesson has been verified as usable.',
     'help.objects.pitfall.look': 'The failure mechanism, its trigger conditions, the workaround, and which work has already reused it.',

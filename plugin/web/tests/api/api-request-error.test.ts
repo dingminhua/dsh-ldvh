@@ -15,7 +15,7 @@ test('fact list transport failure preserves the safe error reason and code', asy
     headers: { 'content-type': 'application/json' },
   });
   try {
-    await assert.rejects(fetchObjects('adr'), (error: unknown) => {
+    await assert.rejects(fetchObjects('pitfall'), (error: unknown) => {
       assert.ok(error instanceof ApiRequestError);
       assert.equal(error.status, 503);
       assert.equal(error.code, 'fact_service_unavailable');

@@ -238,7 +238,7 @@ test('recent activity accepts only explicit windows and groups fact change-log e
     assert.ok(Number(recent.eventTotal) >= items.length)
     for (const item of items) {
       // 25 号 Goal：单例冻结锚的 change_log 修订史同样进近期动态（type='goal'）。
-      assert.ok(['adr', 'pitfall', 'spark', 'report', 'goal'].includes(String(item.type)))
+      assert.ok(['pitfall', 'spark', 'report', 'goal'].includes(String(item.type)))
       assert.ok(['created', 'updated'].includes(String(item.activity)))
       assert.match(String(item.occurredAt), RFC3339)
       if (item.signature !== undefined) {
@@ -275,14 +275,14 @@ test('recent activity aggregation retains the newest fact event and counts compl
       signature: { productName: 'cindy', modelName: 'gpt-5.6-luna' },
     },
     {
-      type: 'adr', object_id: 'adr-0001', title: 'B', activity: 'updated', occurred_at: '2026-08-01T01:00:00Z',
+      type: 'norm', object_id: 'norm-0001', title: 'B', activity: 'updated', occurred_at: '2026-08-01T01:00:00Z',
       status: 'active', read_status: 'readable', field_issues: [], unparsed_structures: [],
       signature: { productName: 'ci', modelName: 'reviewer-model' },
     },
   ])
   assert.deepEqual(view.items.map((item) => `${item.object_id}:${item.activity_count}:${item.occurred_at}`), [
     'spark-0001:2:2026-08-01T02:00:00Z',
-    'adr-0001:1:2026-08-01T01:00:00Z',
+    'norm-0001:1:2026-08-01T01:00:00Z',
   ])
   assert.deepEqual(view.modelUsage, [{ value: 'gpt-5.6-luna', count: 2 }, { value: 'reviewer-model', count: 1 }])
   assert.deepEqual(view.environmentUsage, [{ value: 'Cindy', count: 2 }, { value: 'Ci', count: 1 }])
@@ -652,7 +652,7 @@ test('近期动态覆盖全部活跃事实类型（26/27 号加入 OBJECT_TYPES 
     .split(',')
     .map((part) => part.trim().replace(/^['"]|['"]$/g, ''))
     .filter(Boolean)
-  assert.ok(activeTypes.length >= 7, `活跃类型数应覆盖 26/27 号：实际 ${activeTypes.length}`)
+  assert.ok(activeTypes.length >= 6, `活跃类型数应覆盖现存六类：实际 ${activeTypes.length}`)
 
   const sourcesMatch = cognition.match(/const recentSources[\s\S]*?\]\n/)
   assert.ok(sourcesMatch, '近期动态的类型源表必须可解析')

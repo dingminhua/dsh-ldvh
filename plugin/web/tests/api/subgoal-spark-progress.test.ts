@@ -25,7 +25,7 @@ function read(relativePath: string): string {
 }
 
 const spark = (status: string) => ({ type: 'spark', status });
-const otherType = (status: string) => ({ type: 'adr', status });
+const otherType = (status: string) => ({ type: 'pitfall', status });
 
 test('分母只含待处理与已落实，分子是已落实（Human 定案口径）', () => {
   const progress = summarizeServingSparkProgress([

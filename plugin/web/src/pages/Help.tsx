@@ -106,11 +106,6 @@ const SPINE_STAGES: StageShape[] = [
     links: [{ to: '/objects/report', type: 'report' }],
   },
   {
-    title: 'help.spine.decision.title',
-    body: 'help.spine.decision.body',
-    links: [{ to: '/objects/adr', type: 'adr' }],
-  },
-  {
     title: 'help.spine.execution.title',
     body: 'help.spine.execution.body',
     links: [],
@@ -130,7 +125,7 @@ const SPINE_STAGES: StageShape[] = [
  * 「如何开始」的两条起点：新项目与老项目。
  *
  * **为什么是形态卡**：起点也是一种形态——它有承载对象（卡头图标即这些对象的类型
- * 图标），有说明，也有落到哪些对象上的去路。与主线六段共用同一套卡壳，是「同一类
+ * 图标），有说明，也有落到哪些对象上的去路。与主线五段共用同一套卡壳，是「同一类
  * 东西只有一种写法」的直接后果，而不是又一套写法。
  */
 const START_BRANCHES: StageShape[] = [
@@ -167,7 +162,6 @@ const OBJECT_MAP: { type: string; to: string; what: LocaleKey; when: LocaleKey; 
   { type: 'subgoal', to: '/objects/subgoal', what: 'help.objects.subgoal.what', when: 'help.objects.subgoal.when', look: 'help.objects.subgoal.look' },
   { type: 'spark', to: '/objects/spark', what: 'help.objects.spark.what', when: 'help.objects.spark.when', look: 'help.objects.spark.look' },
   { type: 'report', to: '/objects/report', what: 'help.objects.research.what', when: 'help.objects.research.when', look: 'help.objects.research.look' },
-  { type: 'adr', to: '/objects/adr', what: 'help.objects.adr.what', when: 'help.objects.adr.when', look: 'help.objects.adr.look' },
   { type: 'pitfall', to: '/objects/pitfall', what: 'help.objects.pitfall.what', when: 'help.objects.pitfall.when', look: 'help.objects.pitfall.look' },
   { type: 'friction', to: '/objects/friction', what: 'help.objects.friction.what', when: 'help.objects.friction.when', look: 'help.objects.friction.look' },
   { type: 'norm', to: '/objects/norm', what: 'help.objects.norm.what', when: 'help.objects.norm.when', look: 'help.objects.norm.look' },

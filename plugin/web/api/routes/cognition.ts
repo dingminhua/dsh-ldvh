@@ -523,9 +523,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const project = await requestProject(req)
     const factScope = { worktreeLocator: project.path, governedProjectId: project.id }
 
-    const [pitfallResult, adrResult, sparkResult, studyResult, frictionResult, normResult, subGoalResult] = await Promise.all([
+    const [pitfallResult, sparkResult, studyResult, frictionResult, normResult, subGoalResult] = await Promise.all([
       listObjects('pitfall', undefined, undefined, factScope),
-      listObjects('adr', undefined, undefined, factScope),
       listObjects('spark', undefined, undefined, factScope),
       listObjects('report', undefined, undefined, factScope),
       // 26 号 Friction 与 27 号 Norm 是后加入 OBJECT_TYPES 的活跃类型，同样有
@@ -591,7 +590,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     // 这里只读 change_log 流水，不做状态筛选）。
     const recentSources: Array<[ObjectType, typeof pitfallResult]> = [
       ['pitfall', pitfallResult],
-      ['adr', adrResult],
       ['spark', sparkResult],
       ['report', studyResult],
       ['friction', frictionResult],

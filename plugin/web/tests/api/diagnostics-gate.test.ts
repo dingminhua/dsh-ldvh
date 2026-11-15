@@ -64,7 +64,7 @@ test('只统计成对的 LDVH 工具调用，未配对的结果与无关工具�
       time: 1_700_000_003_000,
       data: {
         toolCallId: 'c2',
-        message: { content: [{ type: 'text', text: 'LDVH adr-write-object: invalid_request\ngap: frontmatter_after (object) is required for action=update' }] },
+        message: { content: [{ type: 'text', text: 'LDVH norm-write-object: invalid_request\ngap: frontmatter_after (object) is required for action=update' }] },
       },
     }),
     // 非 LDVH 工具：与本题无关，不得计入

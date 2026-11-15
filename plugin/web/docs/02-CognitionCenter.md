@@ -252,7 +252,7 @@ Helper 成功写入并回读后，浏览器没有可被 Helper 直接调用的�
 `GET /api/cognition?locale=&window=1d|3d|7d` 聚合返回（类型命名仅为契约描述，实现以 TS 类型为准）：
 
 ```typescript
-type CognitionObjectType = 'adr' | 'pitfall' | 'spark' | 'study' | 'friction';
+type CognitionObjectType = 'pitfall' | 'spark' | 'study' | 'friction';
 type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'blocked_resolution' | 'pitfall_confirmation' | 'friction_repair';
 
 interface CognitionInboxItemBase {

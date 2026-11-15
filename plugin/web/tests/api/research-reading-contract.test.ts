@@ -87,7 +87,7 @@ test('Research keeps the YAML source node with display-time ordering; the implic
   // 全部事实类型在详情页底部一律呈现；research 的排序特例保持。
   assert.match(detail, /<YamlDataNode/);
   assert.match(detail, /sortedResearchFrontmatterYaml/);
-  // 白名单已撤销：该节点不得再被任何条件门控（否则 adr/pitfall/
+  // 白名单已撤销：该节点不得再被任何条件门控（否则 pitfall/
   // friction/norm/goal 详情页会退回无 YAML 节点的状态）。断言直接锁定不变量
   // 「<YamlDataNode 之前不得出现 && ( 或 {…&& 形式的门控」，而非枚举旧写法——
   // 单条件改写（如 carrier === 'yaml' &&）同样被拦。
@@ -138,7 +138,7 @@ test('Research projection order and i18n labels cover the v5 thin-index fields',
 
   // 列表卡片：活跃调研不渲染内容块（Human 2026-09-09 定——研究问题/目的/
   // 停止原因在详情页呈现，卡片保持克制）；v4 report_kind chip 移除。
-  // ADR 复用同一张 retirement_reason 标签表（22 §9.2 的 absorbed 与 abolished 在 Research 侧不出现）。
+  // Research 复用同一张 retirement_reason 标签表（absorbed 与 abolished 在 Research 侧不出现）。
   assert.match(locales, /retirement_reason: \{\s*\n\s*outdated: \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*superseded: \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*'out-of-scope': \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*absorbed: \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*abolished: \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*rejected: \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*\},/);
   assert.match(list, /export function ResearchCardContent/);
   assert.doesNotMatch(list, /obj\.research_question\?\.trim\(\)/);

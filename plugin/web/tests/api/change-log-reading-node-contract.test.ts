@@ -17,7 +17,7 @@ test('every specialised fact layout gives the consumed change_log field a Human 
   assert.match(layouts, /ldvh-meta flex min-w-0 flex-wrap items-center gap-x-1\.5 gap-y-0\.5 font-medium text-ldvh-text-primary\/80/);
   assert.match(layouts, /h-1 w-1 shrink-0 self-center rounded-full bg-ldvh-text-primary\/55/);
   assert.match(layouts, /mt-1 ldvh-meta text-ldvh-text-secondary\/80/);
-  for (const layoutName of ['AdrReadingLayout', 'PitfallReadingLayout', 'SparkReadingLayout']) {
+  for (const layoutName of ['PitfallReadingLayout', 'SparkReadingLayout']) {
     const start = layouts.indexOf(`export function ${layoutName}`);
     assert.ok(start >= 0, `missing ${layoutName}`);
     const next = layouts.indexOf('\nexport function ', start + 1);

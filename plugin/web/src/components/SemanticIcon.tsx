@@ -78,7 +78,6 @@ function FileSearchCornerIcon({ size = 16, className, strokeWidth = 2, ...props 
 
 // eslint-disable-next-line react-refresh/only-export-components -- Sidebar 等 3 处消费；契约测试按本文件路径读取该常量，拆文件即打断共置断言。
 export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
-  adr: FileSignature,
   pitfall: Lightbulb,
   spark: Sparkles,
   report: FileSearchCornerIcon,

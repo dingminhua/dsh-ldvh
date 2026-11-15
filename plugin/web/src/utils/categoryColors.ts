@@ -5,12 +5,11 @@ import { getCategoryLabel } from '../i18n/locales.ts';
  * Conventional commit 分类沿用下方的独立映射，不参与事实对象配色。
  */
 export const CATEGORY_COLORS: Record<string, string> = {
-  adr: '#a855f7',     // purple
   pitfall: '#ef4444', // red
   spark: '#eab308',   // amber
   report: '#14b8a6',   // teal — 报告（24 号，2026-11-14 由 research 改名）
   friction: '#f97316',   // orange — 26 号摩擦账本
-  norm: '#8b5cf6',       // violet — 27 号事实规范（与 ADR 的 purple 色相族相邻但不同值）
+  norm: '#8b5cf6',       // violet — 27 号事实规范
   goal: '#10b981',       // emerald — 25 号项目目标（achieved 达成=正向绿色语义）
   subgoal: '#84cc16',    // lime — 28 号子目标（目标层下级锚点：green 族相邻 goal 以示从属，值不同以免混读）
   // devlog 色（原 #2c9e43）已随 29 号类型于 2026-11-14 撤除；本表 Record<string,string>

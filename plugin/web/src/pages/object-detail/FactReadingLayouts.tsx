@@ -173,127 +173,9 @@ function parseChangeLogEntries(value: unknown): ChangeLogEntry[] {
   }).reverse();
 }
 
-/** 22 号规范 §8 的正文固定 H2（「证据」条件出现——urls 非空时必在）。 */
-const ADR_BODY_SECTION_ORDER = ['决策背景', '决定', '备选与理由', '后果', '适用范围', '证据'] as const;
-
-type AdrBodySection = { title: string; body: string };
-
-/** 正文按固定 H2 分节（前端解析，跟随 spark 的 parseSparkBodySections 先例）。 */
-function parseAdrBodySections(body: string): AdrBodySection[] {
-  const lines = body.split('\n');
-  const sections: Array<{ title: string; body: string[] }> = [];
-  let current: { title: string; body: string[] } | null = null;
-  for (const line of lines) {
-    const heading = line.match(/^##\s+(.+?)\s*$/);
-    if (heading) {
-      current = { title: heading[1].trim(), body: [] };
-      sections.push(current);
-      continue;
-    }
-    current?.body.push(line);
-  }
-  return sections
-    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
-    .filter((section) => section.body.length > 0 && section.title.length > 0)
-    .sort((a, b) => {
-      const aIndex = ADR_BODY_SECTION_ORDER.indexOf(a.title as (typeof ADR_BODY_SECTION_ORDER)[number]);
-      const bIndex = ADR_BODY_SECTION_ORDER.indexOf(b.title as (typeof ADR_BODY_SECTION_ORDER)[number]);
-      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-      if (aIndex !== -1) return -1;
-      if (bIndex !== -1) return 1;
-      return 0;
-    });
-}
-
-/** v5 ADR 阅读布局（22 §8）：正文固定 H2 五段（+条件证据）分节优先、
- * frontmatter 字段兜底，节序跟随字段契约（决策背景 → 决定 → 备选与理由
- * → 后果 → 适用范围 → 证据 → trigger_signal → 终态去向）。 */
-export function AdrReadingLayout({
-  obj,
-  relatedEntries,
-  locale,
-}: {
-  obj: Record<string, unknown>;
-  relatedEntries: RelatedContentEntry[];
-  locale: string;
-}) {
-  const bodySections = parseAdrBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
-  const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
-  // 22 §8：正文是 decision/scope 的自然语言承载——正文节优先，缺失时以
-  // frontmatter 字段兜底（同 spark 的先例）。
-  const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
-    const body = sectionOf(sectionTitle)?.body;
-    if (body) return body;
-    return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue.trim() : '';
-  };
-
-  const context = sectionOf('决策背景')?.body ?? '';
-  const decision = proseFrom('决定', obj.decision);
-  const alternatives = sectionOf('备选与理由')?.body ?? '';
-  const consequences = sectionOf('后果')?.body ?? '';
-  const scopeProse = proseFrom('适用范围', obj.scope);
-  const evidence = sectionOf('证据')?.body ?? '';
-  const triggerSignal = typeof obj.trigger_signal === 'string' && obj.trigger_signal.trim() ? obj.trigger_signal.trim() : '';
-
-  return (
-    <div className="mb-6 flex flex-col gap-5">
-      <AdrProseNode title={getFieldLabel('decision_context', locale)} value={context} locale={locale} />
-      <AdrProseNode title={getFieldLabel('decision', locale)} value={decision} locale={locale} issue={fieldIssue(obj, 'decision')} />
-      <AdrProseNode title={getFieldLabel('alternatives', locale)} value={alternatives} locale={locale} />
-      <AdrProseNode title={getFieldLabel('decision_consequences', locale)} value={consequences} locale={locale} />
-      <AdrProseNode title={getFieldLabel('scope', locale)} value={scopeProse} locale={locale} issue={fieldIssue(obj, 'scope')} />
-      <AdrProseNode title={getFieldLabel('evidence', locale)} value={evidence} locale={locale} />
-      <AdrProseNode title={getFieldLabel('trigger_signal', locale)} value={triggerSignal} locale={locale} issue={fieldIssue(obj, 'trigger_signal')} />
-      <AdrTerminalReadingNode obj={obj} locale={locale} />
-      <FactAssociationsSection obj={obj} locale={locale} />
-      <RelatedContentSection entries={relatedEntries} locale={locale} />
-      <ChangeLogReadingNode
-        value={obj.change_log}
-        issue={fieldIssue(obj, 'change_log')}
-        locale={locale}
-      />
-    </div>
-  );
-}
-
-/** 22 §9 终态去向：retired 的 reason（本地化闭集）+ 退出时间 + 被谁替代。 */
-function AdrTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
-  const { t } = useI18n();
-  const [state, setState] = useState<ReadingNodeState>('expanded');
-  const isRetired = obj.status === 'retired';
-  if (!isRetired) return null;
-
-  const reason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
-    ? obj.retirement_reason.trim()
-    : null;
-  const supersededBy = Array.isArray(obj.relations)
-    ? obj.relations.find((rel) => (rel as { relation_key?: string }).relation_key === 'superseded-by')
-    : null;
-  const supersededByUid = typeof supersededBy === 'object' && supersededBy !== null
-    ? String((supersededBy as { target?: { object_uid?: string } }).target?.object_uid ?? '')
-    : '';
-
-  const reasonText = reason ? getFieldValueLabel('retirement_reason', reason, locale) || reason : t('objectList.dispositionMissing');
-  const retiredAt = typeof obj.retired_at === 'string' && obj.retired_at ? formatDateTime(obj.retired_at) : '';
-  const content = [
-    `${getFieldLabel('retirement_reason', locale)}：${reasonText}`,
-    retiredAt ? `${getFieldLabel('retired_at', locale)}：${retiredAt}` : '',
-    supersededByUid ? `superseded-by → ${supersededByUid}` : '',
-  ].filter(Boolean).join('\n');
-
-  return (
-    <ReadingNodeSection
-      title={getObjectStatusLocale('adr', 'retired', locale)}
-      state={state}
-      locale={locale}
-      onToggle={() => setState((current) => getReadingNodeNextState(current))}
-    >
-      <ResearchTextNodeContent value={content} compact />
-    </ReadingNodeSection>
-  );
-}
-
-function AdrProseNode({
+/** 通用正文节点：Pitfall / Friction / Norm / Spark / SubGoal / Goal 六类布局复用。
+ *  ADR 阅读布局随类型于 2026-11-15 撤除后，本函数由 ADR 专属名改为中性名。 */
+function ProseNode({
   title,
   value,
   locale,
@@ -326,7 +208,7 @@ const PITFALL_BODY_SECTION_ORDER = ['症状', '触发条件', '根因', '解决'
 
 type PitfallBodySection = { title: string; body: string };
 
-/** 正文按固定 H2 分节（前端解析，跟随 spark/adr 的分节先例）。 */
+/** 正文按固定 H2 分节（前端解析，沿用既有分节先例）。 */
 function parsePitfallBodySections(body: string): PitfallBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -368,7 +250,7 @@ export function PitfallReadingLayout({
   const bodySections = parsePitfallBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
   // 23 §8：正文是 scope 的自然语言承载——正文节优先，缺失时以
-  // frontmatter 字段兜底（同 spark/adr 先例）。
+  // frontmatter 字段兜底（沿用既有先例）。
   const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
     const body = sectionOf(sectionTitle)?.body;
     if (body) return body;
@@ -387,15 +269,15 @@ export function PitfallReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      <AdrProseNode title={getFieldLabel('pitfall_symptoms', locale)} value={symptoms} locale={locale} />
-      <AdrProseNode title={getFieldLabel('pitfall_triggers', locale)} value={triggers} locale={locale} />
-      <AdrProseNode title={getFieldLabel('root_cause', locale)} value={rootCause} locale={locale} />
-      <AdrProseNode title={getFieldLabel('pitfall_resolution', locale)} value={resolutionApplied} locale={locale} />
-      <AdrProseNode title={getFieldLabel('avoidance', locale)} value={avoidance} locale={locale} />
-      <AdrProseNode title={getFieldLabel('validation_summary', locale)} value={validation} locale={locale} />
-      <AdrProseNode title={getFieldLabel('pitfall_scope_section', locale)} value={scopeProse} locale={locale} issue={fieldIssue(obj, 'scope')} />
-      <AdrProseNode title={getFieldLabel('evidence', locale)} value={evidence} locale={locale} />
-      <AdrProseNode title={getFieldLabel('trigger_signal', locale)} value={triggerSignal} locale={locale} issue={fieldIssue(obj, 'trigger_signal')} />
+      <ProseNode title={getFieldLabel('pitfall_symptoms', locale)} value={symptoms} locale={locale} />
+      <ProseNode title={getFieldLabel('pitfall_triggers', locale)} value={triggers} locale={locale} />
+      <ProseNode title={getFieldLabel('root_cause', locale)} value={rootCause} locale={locale} />
+      <ProseNode title={getFieldLabel('pitfall_resolution', locale)} value={resolutionApplied} locale={locale} />
+      <ProseNode title={getFieldLabel('avoidance', locale)} value={avoidance} locale={locale} />
+      <ProseNode title={getFieldLabel('validation_summary', locale)} value={validation} locale={locale} />
+      <ProseNode title={getFieldLabel('pitfall_scope_section', locale)} value={scopeProse} locale={locale} issue={fieldIssue(obj, 'scope')} />
+      <ProseNode title={getFieldLabel('evidence', locale)} value={evidence} locale={locale} />
+      <ProseNode title={getFieldLabel('trigger_signal', locale)} value={triggerSignal} locale={locale} issue={fieldIssue(obj, 'trigger_signal')} />
       <PitfallTerminalReadingNode obj={obj} locale={locale} />
       <FactAssociationsSection obj={obj} locale={locale} />
       <RelatedContentSection entries={sortRelatedContentEntries(relatedEntries)} locale={locale} />
@@ -668,7 +550,7 @@ const FRICTION_BODY_SECTION_ORDER = ['现象', '入账依据', '处置'] as cons
 
 type FrictionBodySection = { title: string; body: string };
 
-/** 正文按固定 H2 分节（前端解析，跟随 spark/adr/pitfall 的分节先例）。 */
+/** 正文按固定 H2 分节（前端解析，沿用既有分节先例）。 */
 function parseFrictionBodySections(body: string): FrictionBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -714,7 +596,7 @@ export function FrictionReadingLayout({
   const bodySections = parseFrictionBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
   // 26 §8：正文是 phenomenon 的自然语言承载——正文节优先，缺失时以
-  // frontmatter 字段兜底（同 spark/adr/pitfall 先例）。
+  // frontmatter 字段兜底（沿用既有先例）。
   const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
     const body = sectionOf(sectionTitle)?.body;
     if (body) return body;
@@ -734,12 +616,12 @@ export function FrictionReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      <AdrProseNode title={getFieldLabel('phenomenon', locale)} value={phenomenon} locale={locale} issue={fieldIssue(obj, 'phenomenon')} />
-      <AdrProseNode title={getFieldLabel('attribution', locale)} value={attribution} locale={locale} issue={fieldIssue(obj, 'attribution')} />
-      <AdrProseNode title={getFieldLabel('friction_basis', locale)} value={basis} locale={locale} />
-      <AdrProseNode title={getFieldLabel('friction_disposition', locale)} value={disposition} locale={locale} />
+      <ProseNode title={getFieldLabel('phenomenon', locale)} value={phenomenon} locale={locale} issue={fieldIssue(obj, 'phenomenon')} />
+      <ProseNode title={getFieldLabel('attribution', locale)} value={attribution} locale={locale} issue={fieldIssue(obj, 'attribution')} />
+      <ProseNode title={getFieldLabel('friction_basis', locale)} value={basis} locale={locale} />
+      <ProseNode title={getFieldLabel('friction_disposition', locale)} value={disposition} locale={locale} />
       {informsText ? (
-        <AdrProseNode title={getFieldLabel('relation_informs', locale)} value={`informs → ${informsText}`} locale={locale} />
+        <ProseNode title={getFieldLabel('relation_informs', locale)} value={`informs → ${informsText}`} locale={locale} />
       ) : null}
       <FactAssociationsSection obj={obj} locale={locale} />
       <RelatedContentSection entries={sortRelatedContentEntries(relatedEntries)} locale={locale} />
@@ -758,7 +640,7 @@ const NORM_BODY_SECTION_ORDER = ['方向定位与适用范围', '核心规则体
 
 type NormBodySection = { title: string; body: string };
 
-/** 正文按固定 H2 分节（前端解析，跟随 spark/adr/pitfall/friction 的分节先例）。 */
+/** 正文按固定 H2 分节（前端解析，沿用既有分节先例）。 */
 function parseNormBodySections(body: string): NormBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -816,10 +698,10 @@ export function NormReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      <AdrProseNode title={getFieldLabel('norm_positioning', locale)} value={positioning} locale={locale} />
-      <AdrProseNode title={getFieldLabel('norm_rules', locale)} value={rules} locale={locale} />
-      <AdrProseNode title={getFieldLabel('norm_constraints', locale)} value={constraints} locale={locale} />
-      <AdrProseNode title={getFieldLabel('norm_compliance', locale)} value={compliance} locale={locale} />
+      <ProseNode title={getFieldLabel('norm_positioning', locale)} value={positioning} locale={locale} />
+      <ProseNode title={getFieldLabel('norm_rules', locale)} value={rules} locale={locale} />
+      <ProseNode title={getFieldLabel('norm_constraints', locale)} value={constraints} locale={locale} />
+      <ProseNode title={getFieldLabel('norm_compliance', locale)} value={compliance} locale={locale} />
       <NormTerminalReadingNode obj={obj} locale={locale} />
       <ChangeLogReadingNode
         value={obj.change_log}
@@ -984,26 +866,26 @@ export function SubGoalReadingLayout({
           正文缺失时才回落显示字段——那是载体不合规的形态，字段仍是唯一权威文本，
           不能因为正文没写就让读者看不到判据。 */}
       {sectionOf('达成条件') ? (
-        <AdrProseNode
+        <ProseNode
           title={getFieldLabel('subgoal_criterion', locale)}
           value={sectionOf('达成条件')}
           locale={locale}
         />
       ) : criterion ? (
-        <AdrProseNode
+        <ProseNode
           title={getFieldLabel('subgoal_criterion', locale)}
           value={criterion}
           locale={locale}
         />
       ) : null}
       {sectionOf('对齐说明') ? (
-        <AdrProseNode
+        <ProseNode
           title={getFieldLabel('subgoal_alignment', locale)}
           value={sectionOf('对齐说明')}
           locale={locale}
         />
       ) : alignment ? (
-        <AdrProseNode
+        <ProseNode
           title={getFieldLabel('subgoal_alignment', locale)}
           value={alignment}
           locale={locale}
@@ -1021,7 +903,7 @@ export function SubGoalReadingLayout({
           闭集外的 `criterion_kind` 没有判法可给：不渲染本节点，也不退而显示分类名
           （28 §18 红线：不以类推定替代）。不合法本身由字段问题区如实报出。 */}
       {kindHint && (
-        <AdrProseNode
+        <ProseNode
           title={getFieldLabel('subgoal_kind_hint', locale)}
           value={kindHint}
           locale={locale}
@@ -1122,7 +1004,7 @@ function SubGoalTerminalReadingNode({ obj, locale }: { obj: Record<string, unkno
     ? obj.disposition.trim()
     : '';
   return (
-    <AdrProseNode
+    <ProseNode
       title={getFieldLabel('subgoal_disposition', locale) || t('objectList.dispositionMissing')}
       value={disposition || t('objectList.dispositionMissing')}
       locale={locale}
@@ -1167,7 +1049,7 @@ export function GoalReadingLayout({
   return (
     <div className="mb-6 flex flex-col gap-5">
       {/* 目标陈述（冻结区）：一段话，写给未来会话与新读者。 */}
-      <AdrProseNode title={getFieldLabel('goal_statement', locale)} value={statement} locale={locale} />
+      <ProseNode title={getFieldLabel('goal_statement', locale)} value={statement} locale={locale} />
       {/* 子目标：按 `parent_goal` 反查派生（28 §8.1，不在本载体存储）——
           与认知中心目标区同渲染语法（chip + 文本行）。次序取 `order`，
           缺失即「未定次序」；身份是 object_uid，读者在这一屏不需要它。 */}

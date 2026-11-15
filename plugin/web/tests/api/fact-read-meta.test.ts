@@ -46,7 +46,7 @@ test('a route target, ID, or expected path alone never becomes a source path', (
 
 test('every current fact type uses the same readable state', () => {
   const meta = getFactReadMeta({
-    canonical_path: 'ldvh-base/adrs/adr-0010.yaml',
+    canonical_path: 'ldvh-base/pitfalls/pitfall-0010.md',
     carrier: 'yaml',
     read_status: 'readable',
   });
@@ -57,12 +57,12 @@ test('every current fact type uses the same readable state', () => {
 
 test('reconstructed carrier data excludes exact-read metadata without dropping fact identity', () => {
   const fact = projectFactObjectFields({
-    object_id: 'adr-0010',
-    fact_type_key: 'adr',
+    object_id: 'pitfall-0010',
+    fact_type_key: 'pitfall',
     title: '当前事实',
     status: 'open',
     object_ref: { governed_project_id: 'project-current' },
-    canonical_path: 'ldvh-base/adrs/adr-0010.yaml',
+    canonical_path: 'ldvh-base/pitfalls/pitfall-0010.md',
     carrier: 'yaml',
     read_status: 'readable',
     content_fingerprint: 'a'.repeat(64),
@@ -72,8 +72,8 @@ test('reconstructed carrier data excludes exact-read metadata without dropping f
   });
 
   assert.deepEqual(fact, {
-    object_id: 'adr-0010',
-    fact_type_key: 'adr',
+    object_id: 'pitfall-0010',
+    fact_type_key: 'pitfall',
     title: '当前事实',
     status: 'open',
   });
@@ -104,18 +104,18 @@ test('YAML 源视图不含 report_body——markdown 正文不是 frontmatter �
 
 test('reconstructed YAML preserves strings that resemble YAML scalars', () => {
   const source = {
-    object_id: 'adr-0010',
+    object_id: 'pitfall-0010',
     string_true: 'true',
     string_number: '123',
     empty_string: '',
     actual_boolean: true,
     actual_number: 123,
-    canonical_path: 'ldvh-base/adrs/adr-0010.yaml',
+    canonical_path: 'ldvh-base/pitfalls/pitfall-0010.md',
   };
 
   const reconstructed = reconstructFactYaml(source);
   assert.deepEqual(loadYaml(reconstructed), {
-    object_id: 'adr-0010',
+    object_id: 'pitfall-0010',
     string_true: 'true',
     string_number: '123',
     empty_string: '',

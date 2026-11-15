@@ -12,7 +12,6 @@ function source(relativePath: string): string {
 test('V4 fact lists keep every declared lifecycle status tab even when its count is zero', () => {
   const filter = source('src/components/ObjectStatusFilter.tsx')
 
-  assert.match(filter, /adr: \['active', 'retired'\]/)
   // 23 §9 状态闭集两值（2026-11-03 Human 决定取消 `draft` 待确认态）。
   assert.match(filter, /pitfall: \['active', 'discarded'\]/)
   assert.match(filter, /research: \['active', 'retired'\]/)
@@ -47,7 +46,7 @@ test('Spark list carries three filters (priority/serves/lifecycle)', () => {
   // 语义不随视觉精简一起丢）。断言随之从「含标签」翻为「不含可见标签」。
   //
   // **授权状态如实登记**：该方向来自当次对话，但截至本注释写就时在规范源与事实源
-  // 中均无稳定承载（specs/ 与 ldvh-base/adrs/ 均查无此项）。按 00 §3.4「仅存在于
+  // 中均无稳定承载（specs/ 与事实源目录均查无此项）。按 00 §3.4「仅存在于
   // 对话中的决定不产生复用效力」，此处只主张**实现层的呈现取舍**，不主张裁定已成立。
   assert.doesNotMatch(list, /objectList\.lifecycleFilter/)
   // 20 §8（2026-09-13 Human 裁定）：Spark 有 priority，列表提供三联过滤

@@ -21,7 +21,6 @@
 返回按钮
 统一对象身份头部：类型标签 + ID + 优先级字符徽标 + 状态标签 + 标题 + 更新时间（可带更新流水署名）+ 复制对象路径图标
 内容区：
-  ADR：问题 / 决策 / 范围 / 理由 / 影响 / 处置（终态时）/ 关联（存在时）
   Pitfall：现象 / 触发 / 范围 / 验证 / 根因 / 方案 / 规避 / 处置（终态时）/ 关联（存在时）
   Study：研究意图 / 摘要 / 建议摘要 / 正文进入扩展阅读 / 处置（终态且存在时）/ 关联
   Spark：意图 / 摘要 / 演变 / 落实或废弃（终态时）/ 关联（存在时）
@@ -53,7 +52,6 @@ YAML 数据折叠区：由精确读取后的事实对象字段重建（Markdown 
 当前已进入五个基准模块的非工作主线对象专用阅读方案为：
 
 1. Pitfall / 踩坑经验：作为“可复用经验阅读页”展示；
-2. ADR / 决策：作为“当前决策阅读页”展示；
 3. Study / 外部内容调研：作为“外部调研报告阅读界面”展示。摘要层依次读取研究意图、摘要、建议摘要；研究问题留在唯一 Markdown 报告，完整正文和外部资料按需展开；
 4. Spark / 火花：作为“待处理信息阅读页”展示。
 
@@ -63,18 +61,17 @@ YAML 数据折叠区：由精确读取后的事实对象字段重建（Markdown 
 
 | 对象 | 阅读顺序 | 终态呈现 | 不得回退为 |
 |---|---|---|---|
-| ADR | 问题 `decision_question` → 决策 `decision` → 范围 `applicability` → 理由 `rationale` → 影响 `consequences` → 关联 | `retired` 时在“影响”后显示处置 `disposition_summary` | “背景”“选择”“备选”“承接”或旧生命周期节点 |
 | Pitfall | 现象 `symptoms` → 触发 `trigger_conditions` → 范围 `applicability` → 验证 `validation_summary` → 根因 `root_cause` → 方案 `resolution` → 规避 `avoidance` → 关联 | `discarded` 时在“规避”后显示处置 `disposition_summary` | 把没有日志等观察写成已经证明的运行时机制，或把经验做成缺陷状态卡 |
 | Study | 研究意图 `research_intent` → 摘要 `abstract` → 建议 `recommendation_summary` → 正文入口 `report_body` → 关联 | 终态存在 `disposition_summary` 时按同一阅读顺序作为补充说明显示 | 在主详情重组第二份 Markdown 正文，或用摘要替代报告原文 |
 | Spark | 意图 `intent` → 摘要 `summary` → 演变 `evolution` → 关联 | `implemented` 显示“落实”、`discarded` 显示“废弃”；两者内容均只读 `disposition_summary` 与 `updated_at`。历史 `routed` 只作只读兼容，不参与当前终态投影 | 用旧 `source_detail`、`description`、`resolved_to`、`resolved_at`、`discard_reason` 字段，或在 `open` 状态制造终态占位 |
 
-- ADR 的 `retired` 中文状态显示为”已废弃”；Study 的 `retired` 中文状态显示为”已废弃”；Pitfall 状态显示 `draft / active / discarded`，分别使用“待确认 / 活跃 / 已废弃”。Pitfall 的 draft、discarded 仍使用与 active 相同的完整正文阅读形状；discarded 的处置说明 Human 未接受 draft，或曾经 active 的经验已不再适用及其去向，不生成额外时间字段。详情页不提供 promote、discard、批量审核或自动过期控件。
+- Study 的 `retired` 中文状态显示为”已废弃”；Pitfall 状态显示 `draft / active / discarded`，分别使用“待确认 / 活跃 / 已废弃”。Pitfall 的 draft、discarded 仍使用与 active 相同的完整正文阅读形状；discarded 的处置说明 Human 未接受 draft，或曾经 active 的经验已不再适用及其去向，不生成额外时间字段。详情页不提供 promote、discard、批量审核或自动过期控件。
 - Spark 的 `evolution` 以最近条目优先的短卡片呈现，每项只显示事实中的 `at` 和 `summary`。Spark 终态只说明该信息对象的处置类别与事实正文；不能由终态处置推导目标对象已经完成。
 - Study 正文入口仅在精确读取是 Markdown carrier 时可打开；`research_question` 留在该正文内部。外部资料和正式关系进入同一“关联”阅读区，不被解释为研究结论或规则。
 - Pitfall 的验证、根因、方案和规避必须保留正文中的已确认、未确认与不适用边界；Markdown 列表按正常条目阅读，不用状态徽标替代原意。
 - 未定义专用语义布局的对象使用普通字段卡片兜底；每个字段一个轻量卡片，字段标题用 `ldvh-caption-strong`。
 - 普通字段卡片中的关联类字段可折叠；默认折叠长关联集合，避免压过主阅读路径。
-- Pitfall、ADR、Spark 等长文本字段必须按 Markdown 渲染。
+- Pitfall、Spark 等长文本字段必须按 Markdown 渲染。
 - **Norm / 规范（27 号）阅读布局**：正文按固定四段骨架分节呈现——方向定位与适用范围 →
   核心规则体系（可含 H3 子节，按 Markdown 原样渲染）→ 约束与反模式 → 验证与遵从性检查；
   其后是终态去向节点（`retired` 的 `retirement_reason` + `retired_at`）与修改流水。
@@ -123,9 +120,9 @@ V4 Study 详情页不按普通字段卡片表达主内容。报告正文节点�
 
 Spark 不使用普通字段卡片堆叠。Spark 是“待处理信息对象”，页面目标是说明当前信息如何继续被理解或已经如何处置，而不是证明结论、沉淀经验或呈现报告。意图读取 `intent`，摘要读取 `summary`，演变读取 `evolution` 并以倒序的 `at + summary` 短卡片显示。`open` 不显示终态节点；`implemented`、`discarded` 分别显示“落实”“废弃”，都只读取 `disposition_summary` 和对象 `updated_at`。历史 `routed` 只可按历史基线读取，不提供为当前终态的展示、筛选或操作。Web 只读展示，不提供状态修改、落实或废弃按钮，也不从终态处置推断被关联对象的完成状态。
 
-Spark 节点标题栏应与 ADR / Pitfall / Study 保持一致：整行可点击，默认全部打开，折叠图标使用 `ChevronDown` / `ChevronUp`。详情页和右侧扩展阅读区必须复用同一套 Spark 阅读布局。
+Spark 节点标题栏应与 Pitfall / Study 保持一致：整行可点击，默认全部打开，折叠图标使用 `ChevronDown` / `ChevronUp`。详情页和右侧扩展阅读区必须复用同一套 Spark 阅读布局。
 
-Pitfall、ADR、Study 和 Spark 等非工作主线对象的长文本阅读组织应向固定主节点思路靠拢：优先依据 05.01 字段语义和 05.02 内容格式形成稳定阅读节点，而不是把 YAML 字段原样散成难以扫描的卡片。`verification` 等证据字段的节点顺序由 05.02 定义；具体对象页面只决定这些节点在对象详情中的位置和折叠行为。已定义专用阅读布局的对象必须在详情页和右侧扩展阅读区共用同一套节点、顺序、折叠行为和关联渲染。
+Pitfall、Study 和 Spark 等非工作主线对象的长文本阅读组织应向固定主节点思路靠拢：优先依据 05.01 字段语义和 05.02 内容格式形成稳定阅读节点，而不是把 YAML 字段原样散成难以扫描的卡片。`verification` 等证据字段的节点顺序由 05.02 定义；具体对象页面只决定这些节点在对象详情中的位置和折叠行为。已定义专用阅读布局的对象必须在详情页和右侧扩展阅读区共用同一套节点、顺序、折叠行为和关联渲染。
 
 ## 7. 右侧扩展阅读区
 
@@ -136,8 +133,8 @@ Pitfall、ADR、Study 和 Spark 等非工作主线对象的长文本阅读组织
 - 不展示对象列表式导航。
 - 同一对象或文档入口再次点击关闭扩展阅读区；点击不同入口才切换右侧预览内容。
 - 对象预览不是“摘要卡片”，而是对象详情页阅读内容的右侧视口；同一个对象在详情页和扩展阅读区必须使用同一套字段顺序、字段标签、字段过滤和字段渲染。
-- Pitfall、ADR、Study 和 Spark 必须复用详情页导出的专用阅读布局。
-- Pitfall、ADR、Study 和 Spark 的扩展阅读头部复用详情页身份区，清楚展示 `类型 + 类型状态词 + ID + 标题 + 更新时间 + 可用时的更新流水署名`；读取失败时不显示领域状态，而显示实际读取状态与未读取范围。
+- Pitfall、Study 和 Spark 必须复用详情页导出的专用阅读布局。
+- Pitfall、Study 和 Spark 的扩展阅读头部复用详情页身份区，清楚展示 `类型 + 类型状态词 + ID + 标题 + 更新时间 + 可用时的更新流水署名`；读取失败时不显示领域状态，而显示实际读取状态与未读取范围。
 - Spark 必须复用详情页专用 Spark 阅读布局，不得在 `ReadingPanel` 中维护另一套 `PREVIEW_FIELD_ORDER`、字段 label map、关联分组或独立字段渲染器。
 - 对象预览头部只在该类型的字段级直读返回 `read_status: readable` 与 `canonical_path` 时提供复制对象路径图标；所有当前类型使用同一可消费状态。`target` 仅用于导航，绝不作为路径回退。
 - Markdown 文档预览使用 `MarkdownPreview` + `github-markdown-css`，不是手写 Markdown 标签样式。

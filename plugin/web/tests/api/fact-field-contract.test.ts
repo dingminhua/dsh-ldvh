@@ -36,7 +36,6 @@ const COMMON_FIELD_EXEMPTIONS: Record<string, readonly string[]> = {
 // 每类型固定的必填面：这些字段被当前阅读面无条件消费。
 const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   // 22 §8：decision/scope 必填（trigger_signal/retirement_reason/retired_at 条件）。
-  adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision', 'scope'],
   // 23 §8：scope 必填（trigger_signal/disposition 条件；六要素住正文）。
   pitfall: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'scope'],
   // 20 §8：question/scope_boundary/intent/summary 必填（evolution/serves/
@@ -60,7 +59,7 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
 
 test('field contract is internally consistent for every fact type', () => {
   // 29 号 DevLog 已于 2026-11-14 撤除。
-  assert.deepEqual(FACT_TYPES, ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal']);
+  assert.deepEqual(FACT_TYPES, ['pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal']);
 
   for (const type of FACT_TYPES) {
     const contract = FACT_FIELD_CONTRACT[type];
@@ -132,7 +131,7 @@ test('spark carries the 20-spec field closure without v4 leftovers', () => {
 });
 
 test('list candidates are a declared subset of each type contract', () => {
-  for (const type of ['adr', 'pitfall', 'spark', 'report'] as const) {
+  for (const type of ['pitfall', 'spark', 'report'] as const) {
     const names = FACT_LIST_FIELD_NAMES[type];
     assert.ok(names.length > 0, `${type} 列表投影不应为空`);
     assert.ok(names.every((name) => name in FACT_FIELD_CONTRACT[type]), `${type} 列表字段必须是契约已登记字段`);
@@ -145,9 +144,8 @@ test('terminal status closures are non-empty and cover each lifecycle', () => {
     assert.ok(terminals.length > 0, `${type} 终态闭集不能为空`);
     assert.equal(new Set(terminals).size, terminals.length, `${type} 终态闭集不应有重复`);
   }
-  // 各类型的终态语义：决策退休、经验废弃、火花落实/废弃（20 §9
+  // 各类型的终态语义：经验废弃、火花落实/废弃（20 §9
   // 状态闭集 open/implemented/discarded，implemented 与 discarded 均为终态）、调研退休。
-  assert.deepEqual(FACT_TERMINAL_STATUSES.adr, ['retired']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.pitfall, ['discarded']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.spark, ['implemented', 'discarded']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.report, ['retired']);

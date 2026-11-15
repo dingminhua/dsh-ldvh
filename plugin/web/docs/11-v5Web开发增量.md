@@ -46,7 +46,7 @@
 | 认知中心 | `/` | 五个只读模块；近期动态不显示 research_question |
 | 研究/调研列表 | `/objects/research` | F1 投影字段；活跃卡克制 |
 | 研究/调研详情 | `/objects/research/:id` | 24 号薄索引阅读布局、YAML 源节点 |
-| 决策/火花/经验列表 | `/objects/{adr,spark}` | 保留 v4 语言 |
+| 火花/经验列表 | `/objects/{spark,pitfall}` | 保留 v4 语言（ADR 类型已撤除） |
 | 子目标列表 | `/objects/subgoal` | 28 号 F1：卡头 chip（类型 → 优先级 → **次序** → 修改次数）＋判据面一句 `criterion`＋名下工作区；默认只列 active |
 | 子目标详情 | `/objects/subgoal/:id` | 28 号阅读布局：身份头 chip（类型 → 优先级 → **次序** → 修改次数，次序与列表卡卡头同一枚组件）＋ 达成条件 → 对齐说明 → **判法** → 名下工作（serves 反查派生）→ 修订史；`parent_goal` **不呈现**（2026-11-02 定案，见 §4quindecies） |
 | 开发日志列表 | `/objects/devlog` | 29 号 F1：卡头 chip（类型 → **发生时间** → 修改次数）＋ `summary` 一句（折叠阈值 420）；默认只列 active，三枚终态各自成筛选项 |
@@ -617,7 +617,7 @@ tooltip）与「只接受正整数」的闭集处置就会分叉。
 
 ### 判法：自成一个正文节点，与达成条件同形
 
-原来那行判法说明是锚点块里的一条 `ldvh-meta` 小字，现在改成 `AdrProseNode` 承载的独立
+原来那行判法说明是锚点块里的一条 `ldvh-meta` 小字，现在改成 `ProseNode` 承载的独立
 阅读节点（`ReadingNodeSection` + 正文 markdown），**与「达成条件」「对齐说明」完全同形**
 ——同一种节点卡片、同一档字号、同样可折叠。
 
@@ -666,7 +666,7 @@ tooltip）与「只接受正整数」的闭集处置就会分叉。
 
 `subgoal-presentation-contract` 新增一项（详情身份头有次序 icon、且与修改次数同序；布局
 不得再用黄绿锚点块、不得读 `order` / `parent_goal`、不得再拼判据类型的词；判法须经
-`AdrProseNode` 且排在「名下的工作」之前；`parent_goal` 须登记为辅助元信息——**这一条
+`ProseNode` 且排在「名下的工作」之前；`parent_goal` 须登记为辅助元信息——**这一条
 已被 §4quindecies 反向改写为「不得再登记」**）；
 「order 取代 anchor」一条改指身份头；`structure-single-source-contract` 删去 lime 详情壳
 登记、白名单 8 → 6。
@@ -806,10 +806,10 @@ Human 定案 2026-11-02（附两图：图一是规范列表卡，图二是该卡
 列表里挑条目、或在详情里判断「这份规范管哪个方向」的依据。后者由标题与正文首段「方向
 定位与适用范围」的散文回答——那是一句人话，`local-dev-workflow` 不是。
 
-### 卡面：卡体撤空，回到 ADR 同形
+### 卡面：卡体撤空，回到既有终态卡同形
 
 活跃规范卡此后**不承载任何卡体内容**，只剩卡头（类型 / 标题 / 状态 / 修改次数）与标题。
-`NormCardContent` 与 `AdrCardContent` 同形：活跃态返回 `null`，只留终态卡。这不是漏写
+`NormCardContent` 与 既有终态卡 同形：活跃态返回 `null`，只留终态卡。这不是漏写
 卡体——本类型的正文是四段成体系长文（方向定位与适用范围／核心规则体系／约束与反模式／
 验证与遵从性检查），列表格子里读不成体系，它住在详情页阅读布局。
 

@@ -38,7 +38,7 @@ test('UID relation targets remain visible as stable references', () => {
 
 test('a uniquely resolved UID relation keeps UID authority and a separate detail locator', () => {
   const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
-  const resolvedTarget = { governedProjectId: 'sample', factTypeKey: 'adr', objectId: 'adr-0002' };
+  const resolvedTarget = { governedProjectId: 'sample', factTypeKey: 'pitfall', objectId: 'pitfall-0002' };
   const projected = projectFactReadingAssociations({
     relations: [{ relation_key: 'related-to', target: { object_uid: objectUid } }],
     factAssociations: [{ target: { objectUid }, resolvedTarget, available: true }],
@@ -47,7 +47,7 @@ test('a uniquely resolved UID relation keeps UID authority and a separate detail
     originPath: 'relations[0]', relationKey: 'related-to', target: { objectUid }, resolvedTarget,
   }]);
   assert.deepEqual(groupRelationsByTargetType(projected.relations), [{
-    factTypeKey: 'adr', relations: projected.relations,
+    factTypeKey: 'pitfall', relations: projected.relations,
   }]);
 });
 

@@ -7,10 +7,10 @@ import { listObjects, showObject } from '../../api/services/facts.ts';
 import { type LocalFactScope } from '../../api/services/localFactReader.ts';
 
 const fixtures = [
-  // 22 §7：v5 ADR 为 markdown 载体（frontmatter + 正文）；文件名编码 UID。
+  // 23 §7：v5 Pitfall 为 markdown 载体（frontmatter + 正文）；文件名编码 UID。
   {
-    type: 'adr', id: 'adr-4f6c1d2e-9a3b-4c8d-8e7f-2b1c3d4e5f6a', directory: 'adrs', carrier: 'markdown',
-    body: '---\nfact_type_key: adr\ntitle: ADR fixture\nstatus: active\ndecision: Use the current option\nscope: Applies to this fixture\ncreated_at: "2026-01-01"\n---\n\n# ADR fixture\n\n## 决定\n\nUse the current option\n',
+    type: 'pitfall', id: 'pitfall-4f6c1d2e-9a3b-4c8d-8e7f-2b1c3d4e5f6a', directory: 'pitfalls', carrier: 'markdown',
+    body: '---\nfact_type_key: pitfall\ntitle: Pitfall fixture\nstatus: active\nscope: Applies to this fixture\ncreated_at: "2026-01-01"\n---\n\n# Pitfall fixture\n\n## 症状\n\nSymptom text\n',
   },
   // 23 §7：v5 Pitfall 为 markdown 载体（frontmatter + 正文）；文件名编码 UID。
   {
@@ -63,15 +63,15 @@ test('local exact reads carry source metadata for each local carrier, while list
 test('fact list projections preserve full UID authority without derived identity fields', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-facts-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const adrUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
+  const normUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
   const pitfallUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abd';
   try {
-    await mkdir(path.join(root, 'ldvh-base', 'adrs'), { recursive: true });
+    await mkdir(path.join(root, 'ldvh-base', 'norms'), { recursive: true });
     await mkdir(path.join(root, 'ldvh-base', 'pitfalls'), { recursive: true });
-    // 22 §7：ADR markdown 载体，文件名编码 UID。
+    // 23/27 §7：markdown 载体，文件名编码 UID。ADR 类型撤除后以 Norm + Pitfall 两类验证同型能力。
     await writeFile(
-      path.join(root, 'ldvh-base', 'adrs', `adr-${adrUid}.md`),
-      `---\nobject_uid: ${adrUid}\nfact_type_key: adr\ntitle: UID ADR\nstatus: active\ndecision: Use option A\nscope: Fixture scope\ncreated_at: "2026-01-01"\n---\n\n# UID ADR\n`,
+      path.join(root, 'ldvh-base', 'norms', `norm-${normUid}.md`),
+      `---\nobject_uid: ${normUid}\nfact_type_key: norm\ntitle: UID Norm\nstatus: active\ndirection_key: uid-authority\ncreated_at: "2026-01-01"\n---\n\n# UID Norm\n`,
       'utf8',
     );
     await writeFile(
@@ -80,14 +80,14 @@ test('fact list projections preserve full UID authority without derived identity
       'utf8',
     );
 
-    const adrList = await listObjects('adr', undefined, undefined, scope);
+    const normList = await listObjects('norm', undefined, undefined, scope);
     const pitfallList = await listObjects('pitfall', undefined, undefined, scope);
-    if (!adrList.ok || !pitfallList.ok) throw new Error('fact list unavailable');
-    const adr = (adrList.data.items as Array<Record<string, unknown>>)[0];
+    if (!normList.ok || !pitfallList.ok) throw new Error('fact list unavailable');
+    const normItem = (normList.data.items as Array<Record<string, unknown>>)[0];
     const pitfallItem = (pitfallList.data.items as Array<Record<string, unknown>>)[0];
     const retiredField = ['short', 'ref'].join('_');
-    assert.equal(adr?.[retiredField], undefined);
-    assert.equal(adr?.object_uid, adrUid);
+    assert.equal(normItem?.[retiredField], undefined);
+    assert.equal(normItem?.object_uid, normUid);
     assert.equal(pitfallItem?.[retiredField], undefined);
     assert.equal(pitfallItem?.object_uid, pitfallUid);
   } finally {
@@ -177,12 +177,12 @@ test('identity and required-field problems remain readable field-level results',
 test('list responses keep per-object read failures and collection coverage in their declared channels', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-facts-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const adrDir = path.join(root, 'ldvh-base', 'adrs');
-  await mkdir(adrDir, { recursive: true });
-  // 22 §7：ADR markdown 载体——未闭合 frontmatter 是 unreadable 形态。
-  await writeFile(path.join(adrDir, 'adr-0001.md'), '---\nobject_id: [unterminated\n', 'utf8');
+  const pitfallDir = path.join(root, 'ldvh-base', 'pitfalls');
+  await mkdir(pitfallDir, { recursive: true });
+  // 23 §7：Pitfall markdown 载体——未闭合 frontmatter 是 unreadable 形态。
+  await writeFile(path.join(pitfallDir, 'pitfall-0001.md'), '---\nobject_id: [unterminated\n', 'utf8');
   try {
-    const listed = await listObjects('adr', undefined, undefined, scope);
+    const listed = await listObjects('pitfall', undefined, undefined, scope);
     if (!listed.ok) throw new Error(listed.error);
     const candidate = (listed.data.items as Array<Record<string, unknown>>)[0];
     assert.equal(candidate?.read_status, 'unreadable');
@@ -214,10 +214,10 @@ test('fact list cards project every formal association through exact readable ta
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   try {
     await mkdir(path.join(root, 'ldvh-base', 'sparks'), { recursive: true });
-    await mkdir(path.join(root, 'ldvh-base', 'adrs'), { recursive: true });
+    await mkdir(path.join(root, 'ldvh-base', 'pitfalls'), { recursive: true });
     await writeFile(
-      path.join(root, 'ldvh-base', 'adrs', 'adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc.md'),
-      '---\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc\nfact_type_key: adr\ntitle: Target title\ntitle_zh: 关联目标\nstatus: active\ndecision: 采用 A 方案。\nscope: 做什么：被引用；不做什么：其它。\ncreated_at: "2026-01-01"\n---\n\n# Target title\n\n## 决策背景\n\n关联目标。\n',
+      path.join(root, 'ldvh-base', 'pitfalls', 'pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc.md'),
+      '---\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc\nfact_type_key: pitfall\ntitle: Target title\ntitle_zh: 关联目标\nstatus: active\nscope: 做什么：被引用；不做什么：其它。\ncreated_at: "2026-01-01"\n---\n\n# Target title\n\n## 症状\n\n关联目标。\n',
       'utf8',
     );
     await writeFile(
@@ -230,12 +230,12 @@ test('fact list cards project every formal association through exact readable ta
         'intent: 关联目标解析回归。',
         'summary: Spark source',
         'relations:',
-        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: adr', '      object_id: adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
-        '  - relation_key: informs', '    target:', '      governed_project_id: fixture', '      fact_type_key: adr', '      object_id: adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
+        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: pitfall', '      object_id: pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
+        '  - relation_key: informs', '    target:', '      governed_project_id: fixture', '      fact_type_key: pitfall', '      object_id: pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: research', '      object_id: research-9999',
         '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc',
-        '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc', '      governed_project_id: fixture', '      fact_type_key: adr', '      object_id: adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
-        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: adr', '      object_id: adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc', '      copied_title: Bad target',
+        '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc', '      governed_project_id: fixture', '      fact_type_key: pitfall', '      object_id: pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
+        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: pitfall', '      object_id: pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc', '      copied_title: Bad target',
         '  - malformed relation',
         '---',
         '',
@@ -251,7 +251,7 @@ test('fact list cards project every formal association through exact readable ta
     assert.deepEqual(item?.factAssociations, [
       {
         relationKey: 'related-to',
-        target: { governedProjectId: 'fixture', factTypeKey: 'adr', objectId: 'adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
+        target: { governedProjectId: 'fixture', factTypeKey: 'pitfall', objectId: 'pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
         available: true,
         title: 'Target title',
         status: 'active',
@@ -264,7 +264,7 @@ test('fact list cards project every formal association through exact readable ta
       {
         relationKey: 'related-to',
         target: { objectUid: '0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
-        resolvedTarget: { governedProjectId: 'fixture', factTypeKey: 'adr', objectId: 'adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
+        resolvedTarget: { governedProjectId: 'fixture', factTypeKey: 'pitfall', objectId: 'pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
         available: true,
         title: 'Target title',
         status: 'active',

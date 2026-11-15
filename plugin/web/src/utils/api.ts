@@ -43,7 +43,6 @@ export interface ObjectItem {
   updated: string;
   priority?: string;
   independentSubagentUnavailable?: boolean;
-  /** ADR-specific（22 §8：decision 必填；scope 见上公共段；trigger_signal/终态字段条件） */
   decision?: string;
   trigger_signal?: string;
   retirement_reason?: string;

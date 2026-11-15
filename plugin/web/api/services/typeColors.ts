@@ -3,7 +3,6 @@
  */
 
 export const TYPE_COLORS: Record<string, string> = {
-  adr: '#a855f7',       // purple
   pitfall: '#ef4444',   // red
   spark: '#eab308',      // yellow
   research: '#14b8a6',   // teal —— 与前端 CATEGORY_COLORS.research 一致（认知页类型图标用后端色）

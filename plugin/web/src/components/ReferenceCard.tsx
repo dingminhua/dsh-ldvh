@@ -12,7 +12,7 @@ import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 
-/** 从引用 ID 解析对象类型（如 adr-0001 → adr） */
+/** 从引用 ID 解析对象类型（如 pitfall-0001 → pitfall） */
 function parseRefType(refId: string): string | null {
   if (!isObjectRef(refId)) return null;
   const m = refId.match(/^([a-z]+)-\d+$/);

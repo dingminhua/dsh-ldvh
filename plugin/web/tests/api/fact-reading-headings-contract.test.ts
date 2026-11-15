@@ -4,7 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 /**
- * ADR/Pitfall 详情区段标题的唯一语义来源是 `src/i18n/locales.ts` 的字段标签映射
+ * Pitfall 详情区段标题的唯一语义来源是 `src/i18n/locales.ts` 的字段标签映射
  * （经 getFieldLabel 消费）。v4 归档由 specs/22、23 号规范的投影标题承载，v5 已把
  * 权威载体收敛到 locales.ts（见 docs/11-v5Web开发增量）：任何改标题都必须先改
  * locales.ts，详情布局经 getFieldLabel 原样消费，不维护第二份标题词表。
@@ -23,14 +23,7 @@ function assertFieldLocalized(field: string): void {
   assert.ok(m[2].length > 0, `字段 ${field} 英文标题不能为空`);
 }
 
-test('ADR and Pitfall detail headings all resolve through locales.ts field labels', () => {
-  // v5 ADR（22 §8）布局不再使用 READING_NODES 数组——正文固定 H2 六段由
-  // ADR_BODY_SECTION_ORDER 分节呈现，frontmatter 兜底标题经 getFieldLabel 消费。
-  const adrSectionOrder = LAYOUT.match(/const ADR_BODY_SECTION_ORDER = \[([^\]]+)\]/);
-  assert.ok(adrSectionOrder, 'ADR 正文固定节序应可定位');
-  const adrTitles = (adrSectionOrder[1].match(/'([^']+)'/g) ?? []).map((token) => token.slice(1, -1));
-  assert.deepEqual(adrTitles, ['决策背景', '决定', '备选与理由', '后果', '适用范围', '证据']);
-
+test('Pitfall detail headings all resolve through locales.ts field labels', () => {
   // v5 Pitfall（23 §8）同构：正文固定 H2 七段（+条件证据）由
   // PITFALL_BODY_SECTION_ORDER 分节呈现，frontmatter 兜底标题经 getFieldLabel 消费。
   const pitfallSectionOrder = LAYOUT.match(/const PITFALL_BODY_SECTION_ORDER = \[([^\]]+)\]/);
@@ -38,15 +31,6 @@ test('ADR and Pitfall detail headings all resolve through locales.ts field label
   const pitfallTitles = (pitfallSectionOrder[1].match(/'([^']+)'/g) ?? []).map((token) => token.slice(1, -1));
   assert.deepEqual(pitfallTitles, ['症状', '触发条件', '根因', '解决', '规避', '验证', '影响与适用范围', '证据']);
 
-  // ADR 布局的 frontmatter 兜底标题必须经 getFieldLabel 消费且 locales 有登记。
-  const adrLabelFields = ['decision_context', 'decision', 'alternatives', 'decision_consequences', 'scope', 'evidence', 'trigger_signal'];
-  for (const field of adrLabelFields) {
-    assert.ok(
-      LAYOUT.includes(`getFieldLabel('${field}', locale)`),
-      `ADR 布局必须经 getFieldLabel 消费 ${field}`,
-    );
-    assertFieldLocalized(field);
-  }
   // Pitfall 布局的正文段/frontmatter 兜底标题必须经 getFieldLabel 消费且 locales 有登记。
   const pitfallLabelFields = ['pitfall_symptoms', 'pitfall_triggers', 'root_cause', 'pitfall_resolution', 'avoidance', 'validation_summary', 'pitfall_scope_section', 'evidence', 'trigger_signal'];
   for (const field of pitfallLabelFields) {

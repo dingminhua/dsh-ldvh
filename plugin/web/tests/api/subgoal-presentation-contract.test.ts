@@ -524,8 +524,8 @@ test('详情身份头有次序 icon，阅读面只留判法（Human 定案 2026-
   // 「这个地方只保留判法即可，样式和达成条件一样，放到名下工作上面」：
   assert.match(layout, /title=\{getFieldLabel\('subgoal_kind_hint'/,
     '判法须自成阅读节点，标题取「判法」词条');
-  // 样式与达成条件一样：两者都经 AdrProseNode 渲染（ReadingNodeSection + 正文 markdown）。
-  assert.match(layout, /<AdrProseNode[\s\S]{0,200}?value=\{kindHint\}/,
+  // 样式与达成条件一样：两者都经 ProseNode 渲染（ReadingNodeSection + 正文 markdown）。
+  assert.match(layout, /<ProseNode[\s\S]{0,200}?value=\{kindHint\}/,
     '判法须与达成条件同一正文节点承载（样式一致）');
   // 位置在「名下的工作」**之前**。
   const hintIndex = layout.indexOf('value={kindHint}');

@@ -5,35 +5,33 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { listLocalFacts, readLocalFact, type LocalFactScope } from '../../api/services/localFactReader.ts';
 
-// v5 ADR 载体（22 §7）：.md + frontmatter + 正文；字段面按 22 §8 闭集——
-// decision/scope 必填，trigger_signal 条件；v4 的 decision_question/applicability/
-// rationale/consequences 已随 22 号移除。文件名编码 UID（兼容纯序号/ULID 段）。
+// v5 Pitfall 载体（23 §7）：.md + frontmatter + 正文；文件名编码 UID（兼容纯序号/ULID 段）。
+// ADR 事实类型已于 2026-11-15 撤除，本组通用能力改以 Pitfall 夹具验证。
 const base = [
-  'fact_type_key: adr',
+  'fact_type_key: pitfall',
   'status: active',
   'created_at: "2026-01-01"',
-  'decision: Use the current option',
   'scope: Applies to this fixture',
 ].join('\n');
 
-/** 组装 v5 ADR markdown 载体正文（frontmatter + H1 + 决定段）。 */
-function adrMarkdownCarrier(objectUid: string, extraFrontmatter = ''): string {
+/** 组装 v5 Pitfall markdown 载体正文（frontmatter + H1 + 症状段）。 */
+function pitfallMarkdownCarrier(objectUid: string, extraFrontmatter = ''): string {
   const frontmatterLines = ['---', `object_uid: ${objectUid}`, 'title: UID projection'];
   if (extraFrontmatter.trim()) frontmatterLines.push(extraFrontmatter);
   frontmatterLines.push(...base.split('\n'), '---');
-  return [...frontmatterLines, '', '# UID projection', '', '## 决定', '', 'Use the current option', ''].join('\n');
+  return [...frontmatterLines, '', '# UID projection', '', '## 症状', '', 'Scope text', ''].join('\n');
 }
 
 test('field-level reader preserves canonical UID authority without adding a derived identity field', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const directory = path.join(root, 'ldvh-base', 'adrs');
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
   try {
-    // 22 §7：文件名编码 UID（adr-<uid>.md），frontmatter 携带 object_uid。
+    // 23 §7：文件名编码 UID（pitfall-<uid>.md），frontmatter 携带 object_uid。
     const uid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
-    await writeFile(path.join(directory, `adr-${uid}.md`), adrMarkdownCarrier(uid), 'utf8');
-    const listed = await listLocalFacts('adr', scope);
+    await writeFile(path.join(directory, `pitfall-${uid}.md`), pitfallMarkdownCarrier(uid), 'utf8');
+    const listed = await listLocalFacts('pitfall', scope);
     assert.equal(listed.items[0]?.fact_object?.object_uid, uid);
     const retiredField = ['short', 'ref'].join('_');
     assert.equal(listed.items[0]?.fact_object?.[retiredField], undefined);
@@ -47,17 +45,17 @@ test('field-level reader preserves canonical UID authority without adding a deri
 test('field-level reader discovers a UID-native Crockford carrier name', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const directory = path.join(root, 'ldvh-base', 'adrs');
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
-  // 22 §7 兼容段：ULID25 文件名在 ADR 预期载体名闭集内（.md 载体）。
-  const objectId = 'adr-01KZXN5TXNEBSRC6HHGTBQKAJ4';
+  // 23 §7 兼容段：ULID25 文件名在 Pitfall 预期载体名闭集内（.md 载体）。
+  const objectId = 'pitfall-01KZXN5TXNEBSRC6HHGTBQKAJ4';
   try {
     await writeFile(
       path.join(directory, `${objectId}.md`),
-      adrMarkdownCarrier('019ffb52-ebb5-42f3-861a-31869779aa44'),
+      pitfallMarkdownCarrier('019ffb52-ebb5-42f3-861a-31869779aa44'),
       'utf8',
     );
-    const listed = await listLocalFacts('adr', scope);
+    const listed = await listLocalFacts('pitfall', scope);
     assert.equal(listed.items.length, 1);
     assert.equal(listed.items[0]?.object_ref.object_id, objectId);
     assert.equal(listed.items[0]?.fact_object?.object_uid, '019ffb52-ebb5-42f3-861a-31869779aa44');
@@ -69,9 +67,9 @@ test('field-level reader discovers a UID-native Crockford carrier name', async (
 test('field-level reader keeps recoverable field defects separate from unreadable carriers', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const directory = path.join(root, 'ldvh-base', 'adrs');
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
-  /** 组装 ADR markdown 载体：frontmatterExtra 覆盖默认 title 行以构造字段缺陷。 */
+  /** 组装 Pitfall markdown 载体：frontmatterExtra 覆盖默认 title 行以构造字段缺陷。 */
   const carrierWith = (frontmatterLines: string[]) => [
     '---',
     ...frontmatterLines,
@@ -80,50 +78,50 @@ test('field-level reader keeps recoverable field defects separate from unreadabl
     '',
     '# Field defects',
     '',
-    '## 决定',
+    '## 症状',
     '',
     'Use the current option',
     '',
   ].join('\n');
   try {
-    // adr-0001：缺 title（field_issues 可恢复缺陷）。
-    await writeFile(path.join(directory, 'adr-0001.md'), carrierWith([
+    // pitfall-0001：缺 title（field_issues 可恢复缺陷）。
+    await writeFile(path.join(directory, 'pitfall-0001.md'), carrierWith([
       'object_uid: 11111111-2222-4333-8444-555555555555',
     ]), 'utf8');
-    // adr-0002：title 类型不匹配。
-    await writeFile(path.join(directory, 'adr-0002.md'), carrierWith([
+    // pitfall-0002：title 类型不匹配。
+    await writeFile(path.join(directory, 'pitfall-0002.md'), carrierWith([
       'object_uid: 11111111-2222-4333-8444-555555555556',
       'title: [not, text]',
     ]), 'utf8');
-    // adr-0003：契约外未知字段（unconsumed_field）。
-    await writeFile(path.join(directory, 'adr-0003.md'), carrierWith([
+    // pitfall-0003：契约外未知字段（unconsumed_field）。
+    await writeFile(path.join(directory, 'pitfall-0003.md'), carrierWith([
       'object_uid: 11111111-2222-4333-8444-555555555557',
       'title: Legacy',
       'legacy_owner: old',
     ]), 'utf8');
-    // adr-0004：契约外嵌套未知结构。
-    await writeFile(path.join(directory, 'adr-0004.md'), carrierWith([
+    // pitfall-0004：契约外嵌套未知结构。
+    await writeFile(path.join(directory, 'pitfall-0004.md'), carrierWith([
       'object_uid: 11111111-2222-4333-8444-555555555558',
       'title: Nested',
       'unknown_tree:',
       '  before: after',
     ]), 'utf8');
-    // adr-0005：frontmatter 未闭合（markdown 载体的 unreadable 形态）。
-    await writeFile(path.join(directory, 'adr-0005.md'), '---\nobject_id: [unterminated\n', 'utf8');
+    // pitfall-0005：frontmatter 未闭合（markdown 载体的 unreadable 形态）。
+    await writeFile(path.join(directory, 'pitfall-0005.md'), '---\nobject_id: [unterminated\n', 'utf8');
 
-    const listed = await listLocalFacts('adr', scope);
+    const listed = await listLocalFacts('pitfall', scope);
     assert.equal(listed.status, 'complete');
     assert.equal(listed.items.length, 5);
     const byId = new Map(listed.items.map((item) => [item.object_ref.object_id, item]));
-    assert.deepEqual(byId.get('adr-0001')?.field_issues.map((issue) => issue.path), ['title']);
-    assert.equal(byId.get('adr-0002')?.fact_object?.title, undefined);
-    assert.deepEqual(byId.get('adr-0002')?.field_issues.map((issue) => issue.reason), ['type_mismatch']);
-    assert.deepEqual(byId.get('adr-0003')?.unparsed_structures, [{ path: 'legacy_owner', reason: 'unconsumed_field', raw_value: 'old' }]);
-    assert.deepEqual(byId.get('adr-0004')?.unparsed_structures, [{ path: 'unknown_tree', reason: 'unconsumed_field', raw_value: { before: 'after' } }]);
-    assert.equal(byId.get('adr-0005')?.read_status, 'unreadable');
-    assert.equal(byId.get('adr-0005')?.issues[0]?.code, 'frontmatter_unclosed');
+    assert.deepEqual(byId.get('pitfall-0001')?.field_issues.map((issue) => issue.path), ['title']);
+    assert.equal(byId.get('pitfall-0002')?.fact_object?.title, undefined);
+    assert.deepEqual(byId.get('pitfall-0002')?.field_issues.map((issue) => issue.reason), ['type_mismatch']);
+    assert.deepEqual(byId.get('pitfall-0003')?.unparsed_structures, [{ path: 'legacy_owner', reason: 'unconsumed_field', raw_value: 'old' }]);
+    assert.deepEqual(byId.get('pitfall-0004')?.unparsed_structures, [{ path: 'unknown_tree', reason: 'unconsumed_field', raw_value: { before: 'after' } }]);
+    assert.equal(byId.get('pitfall-0005')?.read_status, 'unreadable');
+    assert.equal(byId.get('pitfall-0005')?.issues[0]?.code, 'frontmatter_unclosed');
 
-    const detail = await readLocalFact('adr', 'adr-0003', scope);
+    const detail = await readLocalFact('pitfall', 'pitfall-0003', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') assert.equal(detail.item.read_status, 'readable');
   } finally {
@@ -430,12 +428,12 @@ test('markdown carriers carry their frontmatter verbatim as yaml_source', async 
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   // 全部 v5 类型已是 markdown 载体——yaml_source 承载 frontmatter
   // 逐字原文（含注释、原顺序、原引号风格），正文由 report_body 承载。
-  const directory = path.join(root, 'ldvh-base', 'adrs');
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
   try {
-    const frontmatter = '# frontmatter 级注释\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc\nfact_type_key: adr\ntitle: Markdown carrier\nstatus: open\ncreated_at: "2026-01-01"\nsummary: 验证 frontmatter 直显。\nscope: 做什么：yaml_source 逐字；不做什么：正文。\nplan:\n  - step: one\n    done_criteria: two';
-    await writeFile(path.join(directory, 'adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc.md'), `---\n${frontmatter}\n---\n\n# Markdown carrier\n\n## 摘要\n\n验证 frontmatter 直显。\n`, 'utf8');
-    const detail = await readLocalFact('adr', 'adr-0198f1c7-8a2b-4c3d-9e4f-123456789abc', scope);
+    const frontmatter = '# frontmatter 级注释\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc\nfact_type_key: pitfall\ntitle: Markdown carrier\nstatus: open\ncreated_at: "2026-01-01"\nsummary: 验证 frontmatter 直显。\nscope: 做什么：yaml_source 逐字；不做什么：正文。\nplan:\n  - step: one\n    done_criteria: two';
+    await writeFile(path.join(directory, 'pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc.md'), `---\n${frontmatter}\n---\n\n# Markdown carrier\n\n## 摘要\n\n验证 frontmatter 直显。\n`, 'utf8');
+    const detail = await readLocalFact('pitfall', 'pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'readable');

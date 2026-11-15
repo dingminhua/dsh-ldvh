@@ -37,7 +37,7 @@ test('终结理由读取 v5 闭集字段 disposition，不再读 v4 disposition_
   const contract = fs.readFileSync(path.resolve('api/services/factFieldContract.ts'), 'utf8');
 
   // 上位事实：v5 闭集里根本没有 disposition_summary 这个键。契约层只登记
-  // `disposition`（且仅 pitfall.adr.spark.friction 有），故任何消费方读
+  // `disposition`（且仅 pitfall.spark.friction 有），故任何消费方读
   // disposition_summary 都必然拿到 undefined。
   const pitfallBlock = contract.slice(contract.indexOf('  pitfall: {'))
   assert.match(pitfallBlock.slice(0, 600), /disposition: field\('pitfall-disposition'/, '① 闭集用 disposition');

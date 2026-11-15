@@ -23,9 +23,9 @@ const STATUS_FILTER_ORDER = [
   // 26 §9：Friction 已废弃（记错了的账目）——排在 resolved 后，属终态族。
   'voided',
   // 29 号 DevLog 的三个终态（absorbed/superseded/dropped）已随该类型于
-  // 2026-11-14 撤除出本序。注意 `superseded` 仍是 ADR/Norm/Research 的
+  // 2026-11-14 撤除出本序。注意 `superseded` 仍是 Norm/Research 的
   // retirement_reason 取值（那是原因不是状态，经 FIELD_VALUE_LOCALES 另表
-  // 呈现，与本序无关），absorbed 同属 ADR 的 retirement_reason 闭集（22 §9.2）。
+  // 呈现，与本序无关）；ADR 类型已随 2026-11-15 撤除。
   'discarded',
   'archived',
   'retired',
@@ -37,7 +37,6 @@ const STATUS_FILTER_ORDER = [
 const statusOrderIndex = new Map(STATUS_FILTER_ORDER.map((status, index) => [status, index]));
 
 const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
-  adr: ['active', 'retired'],
   // 23 §9 状态闭集两值（2026-11-03 Human 决定取消 `draft` 待确认态）：
   // active（默认候选）→ discarded（终态）。
   pitfall: ['active', 'discarded'],

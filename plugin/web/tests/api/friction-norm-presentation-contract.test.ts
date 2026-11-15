@@ -27,7 +27,7 @@ test('friction and norm stay in the active backend type list and detail id patte
   const activeTypes = /ACTIVE_OBJECT_TYPES = \[([^\]]+)\]/.exec(facts);
   assert.ok(activeTypes, 'facts.ts 应导出 ACTIVE_OBJECT_TYPES');
   const activeMembers = [...activeTypes[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
-  for (const type of ['adr', 'pitfall', 'spark', 'report', 'friction', 'norm']) {
+  for (const type of ['pitfall', 'spark', 'report', 'friction', 'norm']) {
     assert.ok(activeMembers.includes(type), `ACTIVE_OBJECT_TYPES 应含 ${type}（当前：${activeMembers.join(', ')}）`);
   }
   // 详情路由的 id 前缀模式须覆盖 friction 与 norm（可经 /api/objects/<type>/:id 读取）。
@@ -112,7 +112,7 @@ test('list defaults filter friction to open and norm to active', () => {
   const activeDefaults = /DEFAULT_ACTIVE_TYPES = new Set\(\[([^\]]+)\]\)/.exec(listStatus);
   assert.ok(activeDefaults, 'listStatus 应定义 DEFAULT_ACTIVE_TYPES');
   const defaultMembers = [...activeDefaults[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
-  for (const type of ['adr', 'pitfall', 'report', 'norm']) {
+  for (const type of ['pitfall', 'report', 'norm']) {
     assert.ok(defaultMembers.includes(type), `DEFAULT_ACTIVE_TYPES 应含 ${type}`);
   }
 });
@@ -181,7 +181,7 @@ test('norm list cards carry direction_key and retired terminal reason', () => {
   assert.doesNotMatch(normCard, /direction_key/, '活跃规范卡体不得再读 direction_key');
   assert.doesNotMatch(normCard, /DECISION_CARD_SHELL_CLASS/, '活跃规范卡体不再使用决策块壳');
   assert.doesNotMatch(normCard, /TYPE_DESCRIPTION|getTypeDescription/, '类型说明行已撤，不得回归');
-  // 活跃态与 ADR 同形：返回 null，只留终态卡。写死 null 而不是「空 fragment」——
+  // 活跃态与既有终态卡同形：返回 null，只留终态卡。写死 null 而不是「空 fragment」——
   // 空 fragment 会让「本类型卡体就该为空」这个决定在读代码时看不出来。
   assert.match(normCard, /if \(obj\.status === 'retired'\) return <NormTerminalCardContent obj=\{obj\} \/>;\s*\n\s*return null;/);
 });
@@ -217,7 +217,7 @@ test('object detail routes norm through a dedicated reading layout', () => {
   assert.doesNotMatch(normLayout, /DECISION_DETAIL_NEUTRAL_SHELL_CLASS/, '方向键节点壳已撤，布局不再使用详情面决策壳');
   assert.doesNotMatch(normLayout, /DECISION_TITLE_HUE_CLASS\.violet/, 'violet 标题色相已随方向键退场，不得在 norm 布局回归');
   // 正常路径的第一个节点就是正文首段「方向定位与适用范围」——方向键撤除后不得留空位。
-  assert.match(normLayout, /return \(\s*\n\s*<div className="mb-6 flex flex-col gap-5">\s*\n\s*<AdrProseNode title=\{getFieldLabel\('norm_positioning'/);
+  assert.match(normLayout, /return \(\s*\n\s*<div className="mb-6 flex flex-col gap-5">\s*\n\s*<ProseNode title=\{getFieldLabel\('norm_positioning'/);
 });
 
 test('identity copy and association rows treat both types as first-class facts', () => {
