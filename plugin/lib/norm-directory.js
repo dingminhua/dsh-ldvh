@@ -28,12 +28,33 @@
 // `ok:false` 必停——不是警告。故目录按**剩余额度**装填：放不下的规范**不静默
 // 丢弃**，而是截断并披露条数与全量入口。
 
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import { l0EnumerationOf, loadFacts } from "./source-recall.js";
 
 /** 引导层里承载目录的段名（渲染层据此识别，不依赖文本匹配）。 */
 export const NORM_DIRECTORY_SECTION_NAME = "事实规范目录";
+
+/**
+ * 目录行的**体量上限**（字符）。
+ *
+ * 目录行是**独立的一行注入**（不进召回块、不占召回预算、不在系统提示段内），
+ * 它的体量因此不随引导层预算走，须自带上限：超限则**截断并披露**（不得静默丢
+ * 规范），也不得撑爆对话。取值与引导层体量常量同量级（`guidance-budget.js` 的
+ * `GUIDANCE_CHAR_BUDGET.governed` 为 4096），但**两者互不占用**。
+ */
+export const NORM_DIRECTORY_BUDGET_CHARS = 4096;
+
+/**
+ * 目录内容的内容指纹（用于「内容版本」判定：同版本不重复注入、内容变了刷新旧行）。
+ *
+ * @param {string} text 目录文本
+ * @returns {string} 32 位十六进制摘要
+ */
+export function normDirectoryDigest(text) {
+  return createHash("sha256").update(String(text ?? ""), "utf8").digest("hex").slice(0, 32);
+}
 
 /** 目录段头。 */
 const DIRECTORY_HEADER = "【事实规范目录 · active Norm（27 §10）】";

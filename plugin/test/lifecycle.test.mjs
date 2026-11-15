@@ -1926,3 +1926,52 @@ test("把关提示行：答复不构成动手／收口前提（不得把请示�
 	assert.match(asked, /未取得答复时按既有路径继续/, "须给出未取得答复时的处置方向");
 	assert.match(asked, /\*\*答复不构成收口前提\*\*/, "收口处同理");
 });
+
+// ---------------------------------------------------------------------------
+// pre-step: 事实规范目录行（2026-11-15，Human 决定：独立成一行，不走召回机制）
+// ---------------------------------------------------------------------------
+
+test("pre-step 规范目录: 独立成一行注入（标签「事实规范目录」），不混进召回行", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		noticeText: () => "管辖判定块",
+		noticeSummary: () => "本会话受 LDVH 管辖",
+		recallRow: async () => ({ inject: true, text: "【双源召回】候选…", digest: "d1" }),
+		recallSummary: () => "双源召回 · 行动前候选",
+		normDirectoryRow: async () => ({
+			inject: true,
+			text: "【事实规范目录 · active Norm（27 §10）】\n· 合成方向甲（fixture-direction-alpha）",
+			digest: "nd1",
+		}),
+	});
+	const enter = { kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "改点什么" }] }] };
+	const r = await channel.handler({ agent, step: 1, signal: {} }, async () => enter);
+	const labels = r.messages.map((m) => m.source?.summary ?? null);
+	assert.ok(labels.includes("事实规范目录"), "目录须独立成一行（有自己的标签）");
+	const texts = r.messages.map((m) => m.content?.[0]?.text ?? "");
+	assert.ok(texts.some((t) => t.includes("【事实规范目录")), "目录正文须在场");
+	assert.ok(!texts.some((t) => t.includes("双源召回") && t.includes("事实规范目录")), "目录不得混进召回行");
+});
+
+test("pre-step 规范目录: 内容版本未变不重复注入；内容变了刷新旧行而非追加", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	let digest = "nd-same";
+	let text = "【事实规范目录 · active Norm（27 §10）】\n· 甲（a）";
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		normDirectoryRow: async () => ({ inject: true, text, digest }),
+	});
+	const mk = () => ({ kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "改点什么" }] }] });
+	const r1 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
+	const n1 = r1.messages.length;
+	const r2 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
+	assert.ok(r2.messages.length <= n1, `内容版本未变不得重复注入：${n1} → ${r2.messages.length}`);
+	// 内容变了 ⇒ 刷新旧行（同一标签），不追加第二份目录。
+	digest = "nd-next";
+	text = "【事实规范目录 · active Norm（27 §10）】\n· 甲（a）\n· 乙（b）";
+	const r3 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
+	const directoryRows = r3.messages.filter((m) => (m?.source?.summary ?? null) === "事实规范目录");
+	assert.equal(directoryRows.length, 1, "内容变了刷新旧行，不得追加第二份目录");
+	assert.ok((directoryRows[0].content?.[0]?.text ?? "").includes("乙（b）"), "旧行须刷新为新内容");
+});

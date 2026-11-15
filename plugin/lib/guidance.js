@@ -32,8 +32,8 @@
 //      gate, reject/abort pass-through and ownRequest stub are all in place
 //      and tested before content ever flows.
 
-import { buildGuidance, guidanceSizeAlerts, reportGuidanceSize, GUIDANCE_CHAR_BUDGET } from "./guidance-budget.js";
-import { buildNormDirectoryForRoot } from "./norm-directory.js";
+import { buildGuidance, guidanceSizeAlerts, reportGuidanceSize } from "./guidance-budget.js";
+import { NORM_DIRECTORY_SECTION_NAME } from "./norm-directory.js";
 import { currentUserText } from "./recall-injection.js";
 import { GUIDANCE_SECTION_NAME, migrationLineFor, noticeTextFor } from "./guidance-text.js";
 import { REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
@@ -120,32 +120,6 @@ export function createAssembleHandler(agent, { resolve, syncTools, recordScope }
       const migrationLine = migrationLineFor(lastState, scope.state);
       text = `${migrationLine}\n${text}`;
       noticeText = `${migrationLine}\n${noticeText}`;
-    }
-    // **事实规范目录**（2026-11-15，Human 决定）：目录从召回注入块搬到**引导层**
-    // （宿主框架层，每回合组装、不受召回预算约束、措辞由本插件负责）。原来它在
-    // 召回块里与候选区共用一套「命中不等于适用」的免责声明，而目录是按类型枚举
-    // 的、不是候选——那套措辞把「每回合在场」读成了「列着但未必适用」。
-    //
-    // **体量口径**：引导层有硬预算（`GUIDANCE_CHAR_BUDGET`），超限是必停而非
-    // 警告，故目录按**剩余额度**装填；放不下的规范**不静默丢弃**（目录尾注
-    // 披露条数与全量入口）。
-    //
-    // **不进 notice 行**：notice 是给 Human 看的可见行，目录是给模型读的框架层
-    // 内容，两者受众不同。
-    if (scope.state === "governed") {
-      const budgetChars = GUIDANCE_CHAR_BUDGET.governed;
-      const remaining = budgetChars - text.length - 1;
-      const projectRoot = scope.project?.path ?? cwd;
-      const directory = await buildNormDirectoryForRoot({ root: projectRoot, budgetChars: remaining });
-      if (directory.text !== "") {
-        text = `${text}\n${directory.text}`;
-        scope.normDirectory = {
-          shown: directory.shown,
-          total: directory.total,
-          truncated: directory.truncated,
-          unavailable: directory.unavailable,
-        };
-      }
     }
     if (lastState === null) lastState = scope.state;
     else if (lastState !== scope.state) lastState = scope.state;
@@ -290,11 +264,13 @@ function createPluginMessage(text, summary) {
   };
 }
 
-export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, suppressUngovernedRow, onTurnStart, recallRow, recallSummary, reviewAskRow, reviewAskSummary } = {}) {
+export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, suppressUngovernedRow, onTurnStart, recallRow, recallSummary, reviewAskRow, reviewAskSummary, normDirectoryRow, normDirectorySummary } = {}) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
   // Channel state lives on the AgentLifecycle object (single per-agent
   // home); fall back to a local state for direct/test usage without one.
   const state = channel ?? { primePending: false, lastDigest: null };
+  const getNormDirectoryRow = typeof normDirectoryRow === "function" ? normDirectoryRow : null;
+  const normDirectoryLabel = typeof normDirectorySummary === "string" && normDirectorySummary !== "" ? normDirectorySummary : null;
   // noticeText(): the current judgment notice (set by lifecycle.js from the
   // assemble handler's recordScope). Injected as a visible row when it
   // differs from the last injected digest.
@@ -590,6 +566,47 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
             const prior = batch.find((m) => isOwnMessage(m) && (m?.source?.summary ?? null) === label);
             if (prior !== undefined) {
               prior.content = [{ type: "text", text: askRow.text }];
+            }
+          }
+        }
+      }
+      // **事实规范目录行**（2026-11-15，Human 决定）：规范目录**独立成一行**注入，
+      // 不在召回块内、不在系统提示段内——它有自己的行、自己的标签、自己的措辞。
+      //
+      // 为什么独立成行（Human 原话：「给规范做一个独立的上下文档……不走召回机制」）：
+      // 召回行与候选区共用一套「命中不等于适用」的免责声明，而目录是按类型枚举的、
+      // 不是候选；独立成行后，目录的措辞由它自己负责（「凡『何时查阅』时机成立即须
+      // 读全文」），不再被候选区的措辞稀释，也不再占召回预算。
+      //
+      // 注入规则与**把关询问行同款**：内容稳定则按内容版本注一次（不每回合重复
+      // 注入同一份目录），内容变了则刷新旧行——避免每回合多一份 700 字符的重复
+      // 目录把对话撑爆。
+      if (getNormDirectoryRow !== null) {
+        let directoryRow = null;
+        try {
+          directoryRow = await getNormDirectoryRow({ userText: currentUserText(batch, isOwnMessage) });
+        } catch (error) {
+          agent?.ctx?.logger?.warn?.(`ldvh: norm-directory injection failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (directoryRow !== null && directoryRow?.inject === true && typeof directoryRow.text === "string" && directoryRow.text !== "") {
+          const label = normDirectoryLabel ?? NORM_DIRECTORY_SECTION_NAME;
+          const directoryAlreadyInBatch = batch.some((message) => {
+            if (!isOwnMessage(message)) return false;
+            if ((message?.source?.summary ?? null) !== label) return false;
+            const existing = Array.isArray(message.content)
+              ? message.content.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("")
+              : "";
+            return existing === directoryRow.text;
+          });
+          if (directoryRow.digest !== state.lastNormDirectoryDigest) {
+            state.lastNormDirectoryDigest = directoryRow.digest;
+            if (!directoryAlreadyInBatch) {
+              extras.push(createPluginMessage(directoryRow.text, label));
+            }
+          } else {
+            const prior = batch.find((message) => isOwnMessage(message) && (message?.source?.summary ?? null) === label);
+            if (prior !== undefined) {
+              prior.content = [{ type: "text", text: directoryRow.text }];
             }
           }
         }

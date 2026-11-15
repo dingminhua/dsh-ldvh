@@ -33,6 +33,7 @@
 import { join } from "node:path";
 
 import { resolveGovernanceScope } from "./governance-scope.js";
+import { buildNormDirectoryForRoot, normDirectoryDigest, NORM_DIRECTORY_BUDGET_CHARS, NORM_DIRECTORY_SECTION_NAME } from "./norm-directory.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { runReviewStage } from "./experience-review-stage.js";
 import { runReviewExclusive } from "./experience-review-trigger.js";
@@ -1156,6 +1157,20 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // 开关即使打开也会被静默跳过。
         //
         // 开关未开、或取不到项目时返回 inject:false；不产生必停。
+        // **事实规范目录行**（2026-11-15，Human 决定）：独立成一行注入，不在召回块内。
+        // 目录来源仍是既有枚举权威（norm-directory.js → l0EnumerationOf），此处只负责
+        // 取项目根、算体量与内容指纹。
+        normDirectoryRow: async () => {
+          const projectPath = lifecycle.lastScope?.project?.path ?? agent?.session?.header?.cwd;
+          if (typeof projectPath !== "string" || projectPath === "") return null;
+          const directory = await buildNormDirectoryForRoot({
+            root: projectPath,
+            budgetChars: NORM_DIRECTORY_BUDGET_CHARS,
+          });
+          if (directory.text === "") return null;
+          return { inject: true, text: directory.text, digest: normDirectoryDigest(directory.text) };
+        },
+        normDirectorySummary: NORM_DIRECTORY_SECTION_NAME,
         reviewAskRow: async () => {
           try {
             // **管辖判定在前**（2026-11-13 修，Human 指出）。
