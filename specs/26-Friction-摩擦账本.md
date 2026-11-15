@@ -295,7 +295,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 | 默认候选状态 | 默认候选（F2）只含 open；resolved/voided/accepted 仅在精确引用或历史追溯时展开；accepted 另经 F1 枚举 + status 过滤供查重——「不进默认候选」不等于「不可交付」 | open | 本文召回分层段 |
 | 核心语义字段 | phenomenon（现象单句）与 attribution（归因）是召回匹配与聚合的核心字段 | title, phenomenon, attribution | 本文消费点表（迭代决策按归因聚合）与正文与字段一致性的差异报告（phenomenon 与「现象」段的差异**只报告不阻断**，02 §7.1、Human 2026-11-10 取消逐字义务） |
 | 类型词别名 | 类型点名白名单 | 摩擦账本, 摩擦 | 「摩擦账本」为类型中文名；「摩擦」在本项目是类型专名用法（摩擦销账系统名），「摩擦账本怎么销账」类查询需要点名本类型；`friction` 由 `fact_type_key` 值域（02 §7.1）派生自动覆盖 |
-| 关系展开 | 仅跟随对象上实际存在的边：informs 仅 resolved 承载（1..n，目标为现存事实对象）；paired-with 任何状态可承载（目标同项目 Pitfall） | informs->现存事实对象, paired-with->pitfall | 本文 §11 关系闭集与 §14.1 状态-关系不变量 |
+| 关系展开 | 仅跟随对象上实际存在的边：informs 仅 resolved 承载（1..n，目标为现存事实对象）；paired-with 任何状态可承载（目标同项目 Pitfall） | informs->spark\|norm\|pitfall\|report\|friction\|subgoal, paired-with->pitfall | 本文 §11 关系闭集与 §14.1 状态-关系不变量 |
 | F3/F4 展开 | F3/F4 按需展开；resolved/voided/accepted 仅在精确引用或历史追溯时展开 | | 本文召回分层段 |
 | 条数上限归属 | 本类型条数上限的归属与裁剪规则由本类型来源给出；名额之和超预算时按分节次序从后往前裁剪并标明截断来源；数值以实现具名常量承载 | | 34 §11「条数上限的归属」；10 §5.3 名额归属与裁剪 |
 

@@ -118,6 +118,11 @@ const INFORMS_TARGET_DIRS = [
   ["report", "reports"],
   ["friction", "frictions"],
   ["norm", "norms"],
+  // 2026-11-16：规范 `26:298` 的「关系展开」机械值已把 `informs` 目标落成六类型枚举
+  // （`spark|norm|pitfall|report|friction|subgoal`，与 `02 §7.1` 值域同集）。本表原缺
+  // `subgoals`——即「机械值宣告可展开、受控写入却直接判不可解析」的 Code 窄于规范
+  // （`01 §11.4`）。同型先例见 spark-writer 的 refs 目标表曾漏该目录。
+  ["subgoal", "subgoals"],
 ];
 
 /** paired-with targets resolve inside the Pitfall directory (26 §11 / 23 §11). */

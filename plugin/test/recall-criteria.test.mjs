@@ -242,42 +242,29 @@ test("loadRecallCriteria：跨类型别名冲突使冲突类型停用并报错",
 // 真实规范快照：specs/20–29 八张表（21、29 号空位；29 号 DevLog 于 2026-11-14 撤除。适用面见 02:498）
 // ---------------------------------------------------------------------------
 
-test("快照：真实 specs 六张判据表可解析，friction 表按 G2 遗留漂移 fail-closed", async () => {
-	// **已查明的既存缺口**（2026-11-16，不冒充已修）：`specs/26-Friction-摩擦账本.md:298`
-	// 的「关系展开」机械值被写成中文 `informs->现存事实对象`。`02 §12.4` 规定该格形态为
-	// `<relation_key>-><目标 fact_type_key，多个用 | 分隔>`，而 `fact_type_key` 是 `02 §7.1`
-	// 的小写 ASCII 值域——中文不是合法机械值。Code 的 `TARGET_TYPE_RE` 与契约一致，
-	// fail-closed 是正确行为；改规范那一格属规范正文修改，归规范层另批（Human 已裁定
-	// 本批不动规范，01 §11.4 禁止让 Code 去迁就规范错写）。
+test("快照：真实 specs 七张判据表全部可解析（含 friction 六类型关系展开）", async () => {
+	// **已修复**（2026-11-16）：`specs/26-Friction-摩擦账本.md:298` 的「关系展开」机械值
+	// 原被写成中文 `informs->现存事实对象`，违反 `02 §12.4` 的 `<relation_key>-><目标
+	// fact_type_key，多个用 | 分隔>` 形态（`fact_type_key` 是 `02 §7.1` 的小写 ASCII 值域），
+	// 导致 friction 表整张停用。现按 G2 裁定（Human 2026-11-15「任一现存对象 + commit」）
+	// 落成六类型枚举，与 `02 §7.1` 值域同集。**书写形态用 `\|` 转义**——Markdown 表格的
+	// 裸 `|` 会被切成列分隔符，实测报 `recall-criteria/bad_columns`（比原缺陷更早失败）。
 	const result = await loadRecallCriteria(join(ROOT, "specs"));
 	assert.equal(result.unreadable, false);
-	assert.equal(result.ok, false, "friction 表的机械值非法，整体必须 fail-closed");
-	const frictionIssue = result.errors.find((e) => e.type === "friction");
-	assert.ok(frictionIssue !== undefined, `须给出 friction 表的结构化错误：${JSON.stringify(result.errors)}`);
-	assert.equal(frictionIssue.code, "recall-criteria/bad_machine_value");
-	assert.equal(frictionIssue.item, "关系展开");
-	assert.equal(frictionIssue.line, 298);
-	assert.ok(frictionIssue.file.endsWith("26-Friction-摩擦账本.md"), `须点名载体，实际 ${frictionIssue.file}`);
-	// 其余六张表仍须可解析：21/22/29 号空位，friction 表因漂移停用。
-	assert.equal(result.byType.size, 6, `期望 6 个已解析类型，实得 ${result.byType.size}`);
+	assert.equal(result.ok, true, `七张表须全部可解析，errors=${JSON.stringify(result.errors)}`);
+	assert.equal(result.byType.size, 7, `期望 7 个已解析类型，实得 ${result.byType.size}`);
 	for (const [specId, typeKey] of Object.entries(FACT_TYPE_BY_SPEC_ID)) {
-		if (typeKey === "friction") {
-			assert.equal(result.byType.has("friction"), false, "friction 表停用后不得进入 byType");
-			continue;
-		}
 		assert.ok(result.byType.has(typeKey), `spec ${specId}（${typeKey}）的判据表未解析成功`);
 	}
 	for (const table of result.tables) {
-		if (table.type === "friction") {
-			assert.equal(table.ok, false, "friction 表须如实失败");
-			continue;
-		}
 		assert.equal(table.ok, true, `${table.file}: ${JSON.stringify(table.errors)}`);
 	}
-	// **规范层修好之后的目标态**（本批不生效）：把 26:298 改成六类型枚举后，此处应恢复
-	// 「七张表全部可解析」断言，并恢复下方别名／默认状态／关系目标三组断言：
-	//   friction 别名 = {摩擦账本, 摩擦}；coreFields = [title, phenomenon, attribution]；
-	//   informs targets = [spark, pitfall, report, friction, norm, subgoal]。
+	// friction 的六类型关系展开须与规范机械值逐字一致（顺序即规范落盘顺序）。
+	const friction = result.byType.get("friction");
+	assert.deepEqual(friction.values.relations, [
+		{ relationKey: "informs", targets: ["spark", "norm", "pitfall", "report", "friction", "subgoal"] },
+		{ relationKey: "paired-with", targets: ["pitfall"] },
+	]);
 });
 
 test("快照：各类型别名集合恰为规范所载（25 goal 为「不采用」）", async () => {
@@ -291,7 +278,7 @@ test("快照：各类型别名集合恰为规范所载（25 goal 为「不采用
 	assert.deepEqual(aliasesOf("spark"), new Set(["火花"]));
 	assert.deepEqual(aliasesOf("pitfall"), new Set(["踩坑经验"]));
 	assert.deepEqual(aliasesOf("report"), new Set(["报告", "调研报告", "总结报告", "审核报告"]));
-	// friction 表当前因 26:298 机械值漂移停用，别名断言待规范层修好后恢复（见上条）。
+	assert.deepEqual(aliasesOf("friction"), new Set(["摩擦账本", "摩擦"]));
 	assert.deepEqual(aliasesOf("norm"), new Set(["事实规范"]));
 	// 28：补上映射前这张表根本没被读入，别名通道对它完全失效。
 	assert.deepEqual(aliasesOf("subgoal"), new Set(["子目标"]));
@@ -329,9 +316,9 @@ test("快照：20–29 的默认候选状态与核心语义字段与规范机械
 	assert.equal(valuesOf("pitfall").notApplicable["关系展开"], true);
 	assert.deepEqual(valuesOf("report").coreFields, ["title", "report_form", "research_question", "research_purpose"]);
 	assert.deepEqual(valuesOf("report").relations.find((r) => r.relationKey === "inspired-by").targets, ["spark", "norm", "pitfall", "report", "friction", "subgoal"]);
-	// friction 表当前因 26:298 机械值漂移停用；修好后的目标态：
-	// coreFields = [title, phenomenon, attribution]；informs targets = 六类型枚举。
-	assert.equal(result.byType.has("friction"), false, "friction 表停用是已查明的 G2 遗留漂移");
+	assert.deepEqual(valuesOf("friction").coreFields, ["title", "phenomenon", "attribution"]);
+	assert.deepEqual(valuesOf("friction").relations.find((r) => r.relationKey === "informs").targets,
+		["spark", "norm", "pitfall", "report", "friction", "subgoal"]);
 	assert.deepEqual(valuesOf("norm").coreFields, ["direction_key", "title"]);
 	assert.equal(valuesOf("norm").notApplicable["关系展开"], true);
 	// 28：本轮补上映射后才被读入（此前 FACT_TYPE_BY_SPEC_ID 缺这一项，
