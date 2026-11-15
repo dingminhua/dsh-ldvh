@@ -35,10 +35,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 8 → 9（11 §9 第 2 项）
+  - at: 2026-11-15T11:47:43.777Z
+    provider: workbuddy
+    model: hy4free
+    summary: 补充观察：count 9 → 10（11 §9 第 2 项）
 occurrence:
-  count: 9
+  count: 10
   first_at: 2026-11-09T23:11:35.411Z
-  last_at: 2026-11-13T16:01:16.826Z
+  last_at: 2026-11-15T09:36:43.840Z
 ---
 
 # 批量删码越界连带删掉通用函数
@@ -80,3 +84,7 @@ occurrence:
 补充观察（2026-11-13T16:01:16.826Z）：材料自述批量删除/改写的后果共三类：一是整段删除夹具时把非目标的 `git` 辅助函数一并删掉（「我找到了错误：`git` 辅助函数和项目仓库的初始化被误删。现在从 HEAD 取回」），二是删掉 `if (item.type === 'workcase') {` 后留下孤立 `else` 致结构断裂（「我误删了 `if (item.type === 'workcase') {`，导致结构断裂」），三是正则过宽误伤合法的 `./spark-writer.js` import；[turn 68] 另自述规范侧「这两处都是我机械替换造成的」。三者同属「按目标段估算边界整段删除/替换、未把『非目标符号不得被触碰』列为可核对条件、改写后无『受保护符号仍存在』机械校验位」这一机制，落在同一子系统（主控批量源码/文本改写的范围切片环节）并反复产生——与既有 open 账目 friction-5c47f6
 逐字引证：`commit-dto.test.ts` 误删了 `git` 辅助函数，`cognition-inbox` 留下孤立 `else`，`subgoal-writer` 的正则范围过宽，误伤了合法的 import
 （来源：69）
+
+补充观察（2026-11-15T09:36:43.840Z）：改写测试文件时按范围删除用例，同一文件里的夹具定义被一并删除，须从恢复后的状态改用只删用例主体的做法重做。
+逐字引证：删除范围把夹具定义带走了
+来源：本次观察材料 [turn 9] 助手段：『现在拆分 `plugin/test/norm-writer.test.mjs`，只暂存我改的两条用例。又踩到同一个坑：删除范围把夹具定义带走了。恢复后改用更精确的做法：只删两条用例主体，保留夹具。』（agent-9 会话 turn 9）

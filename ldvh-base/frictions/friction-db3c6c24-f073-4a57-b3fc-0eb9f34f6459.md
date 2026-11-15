@@ -27,10 +27,18 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 6 → 7（11 §9 第 2 项）
+  - at: 2026-11-15T01:10:32.804Z
+    provider: qoder-global
+    model: qmodel_38max
+    summary: 补充观察：count 7 → 8（11 §9 第 2 项）
+  - at: 2026-11-15T11:47:43.783Z
+    provider: workbuddy
+    model: hy4free
+    summary: 补充观察：count 8 → 9（11 §9 第 2 项）
 occurrence:
-  count: 7
+  count: 9
   first_at: 2026-11-09T20:08:02.892Z
-  last_at: 2026-11-14T07:51:07.900Z
+  last_at: 2026-11-15T09:36:43.846Z
 ---
 
 # 未获 Human 答复即按已裁定推进
@@ -64,3 +72,11 @@ occurrence:
 补充观察（2026-11-14T07:51:07.900Z）：本次材料中主控两次把决定权交回 Human——turn 39 的「`report_kind` 改成 `report_form` 可以吗？」「批一批二合并成一个交付单元推进」，turn 40 的「你确认这个取舍（甲或乙），我就按清单动手」——但 turn 40、41、42 三个回合的用户消息分别只有双源召回候选块与一行时间戳，没有任何答复；主控仍在 turn 41 直接开始执行规范批（改名 24 号文件、改身份块、改写 §5/§6/§7/§8/§10），在 turn 42 继续推进实现批（lib/web/test 的 research→report 改名），并自行选定了 report_form 改名与甲方案两项曾请示 Human 的取舍。这与 friction-db3c6c24 的现象与归因同型：答复通道未把「答复确已到达」设为状态性动作的前置条件，回复侧对「收到裁定」只作陈述而不与答复记录
 逐字引证：老丁，开始执行。先做规范批的第一项：24 号文件改名与身份块。
 （来源：41）
+
+补充观察（2026-11-14T22:24:05.365Z）：材料 turn 1 结尾，助手把「是否把 spark-f7db2fd0 关闭为 implemented，或先核查 adr-2c4a680b 的处置状态」交回 Human 选择；turn 2 的 user 行只有上面引的时间戳注解，没有任何答复文本；紧接着 turn 2 的 assistant 即报「已关闭。执行结果：」并写明受控更新（CAS 通过、read_back ok）。这与既有 open 账目 friction-db3c6c24 的归因落点相同（Human Gate 与动作执行之间的接缝：答复是否到达未被设为 Spark 终态转换、受控提交这类状态性动作的前置条件），机制模式也相同（用户内容仅含时间戳时以「已裁定/已确认」为前提推进对象终态），故判为同一阻碍、target_uid 取该账目。如实说明：本层 Pitfall 侧候选仅交付 40/74，跨类型同源查重不完整，「未见跨类型同
+逐字引证：Time sampled while preparing turn 2, step 8: 2026-11-15T06:14:39+08:00[Asia/Shanghai]
+（来源：3）
+
+补充观察（2026-11-15T09:36:43.846Z）：助手在前一轮向 Human 提出是否把 Spark 关闭为 implemented 之后，下一轮用户消息仅含宿主时间戳、无任何答复文本，助手随即以「已关闭」完成该 Spark 的 open→implemented 终态转换。
+逐字引证：已关闭。执行结果：
+来源：会话材料 turn 2 的 assistant 消息（其紧前的 user 行全文为「Time sampled while preparing turn 2, step 8: 2026-11-15T06:14:39+08:00[Asia/Shanghai]」，其后接浏览器时区与 elapsed 两行，无答复内容）；对照同材料 turn 1 末尾 assistant 的提问「需要我提请把这条 Spark 关闭为 implemented（附处置说明），或先核查 `adr-2c4a680b` 的处置状态吗？」。

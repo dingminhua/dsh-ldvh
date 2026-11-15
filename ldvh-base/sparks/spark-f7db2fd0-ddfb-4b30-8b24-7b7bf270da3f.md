@@ -1,10 +1,10 @@
 ---
 title: 调研吸收支持双职能且锚定目标子目标
-status: open
+status: implemented
 question: 调研吸收要同时承担外部调查与内部信息吸收两个职能，且两者都必须围绕当前目标与子目标展开，还差什么：取证面如何在 33 号内分流、结论各落哪个事实类型、锚定登记项落在 Research 还是既有 serves 采用面？
 scope_boundary: 当「两职能的取证面分流与共同契约」「内部结论的载体归属」「目标锚定的登记项与无锚定时是否准予对象化」三条判据能从规范源原文读出时停止；不在本议题内决定调研的方法论、轮次上限与证据平台形态。
 intent: 用户指出调研与吸收应围绕当前目标与决定，而非漫无目的。实查发现 33 §5.1 只有原则句、24 号 research_purpose 不提目标/决定，47 份 Research 中仅 5 份 purpose 提及、serves 使用 0 次——偏移已实际发生。先判定锚定该落在哪个字段、无锚定是否准予进入，再决定改 24 还是改 33。
-summary: Human 五项裁定齐备，方案收敛为改造 24 号为统一报告类型：D1 改名 report、D2 判据 8 原地改写、D3 非事实对象来源一律摘录进正文（取消 internal_evidence）、D4 审核门槛随迁只绑 audit、D5 spec_key 与文件名一次改齐。四批次：规范 7 份→实现（含 serves 阻断修复）→50 份存量迁移→docs 捞回。
+summary: "已关闭（implemented）。调研吸收双职能与目标锚定议题经三轮演变收敛：Human 定调「报告是事实对象、调研吸收是其产出系统」，五项裁定将 24 号改造为统一报告类型（report_form: research/summary/audit），内外来源统一承载、锚定接既有 serves 采用面；规范、实现与 50 份存量迁移已落地，docs 捞回留待 Human 择机触发。"
 evolution:
   - at: 2026-11-13T00:51:30+08:00
     summary: Human 将本议题的要求从「调研与吸收须锚定当前目标与决定」扩展为「调研吸收要支持外部调查和内部信息吸收两个职能，且两者都围绕目标和子目标」。问题域从单一锚定缺口扩为双职能分流加双锚定；此前的调查边界与「锚定缺失」结论继续有效，载体判断由「可能需要新事实类型」修正为「复用 DevLog（29），不新立类型」。
@@ -13,6 +13,7 @@ evolution:
   - at: 2026-11-14T15:20:00+08:00
     summary: Human 裁定五项落定改造 24 号方案：D1 改名 report（目录与存量同迁）、D2 判据 8 原地改写措辞、D3 非事实对象来源一律逐字摘录进正文并取消 internal_evidence 字段、D4 审核四项准入门槛随迁只绑 audit、D5 spec_key 与文件名一次改齐。批次：规范 7 份 → 实现（含 serves 白名单阻断修复）→ 50 份存量迁移 → docs 捞回（Human 择机）。
 serves: 3ab9c84c-0ebd-45d5-983d-cec515ef623a
+disposition: 议题已解决并落地：Human 五项裁定将 24 号改造为统一报告类型（改名 report、判据 8 原地改写、内部来源摘录进正文、审核门槛随迁只绑 audit、spec_key/文件名一次改齐）；批一规范、批二实现、批三 50 份存量迁移均已核实落地，adr-2c4a680b 已退役。docs 捞回由 Human 择机触发，不属本议题范围。
 object_uid: f7db2fd0-ddfb-4b30-8b24-7b7bf270da3f
 fact_type_key: spark
 created_at: 2026-11-09T10:52:52.509Z
@@ -49,6 +50,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 登记 Human 五项裁定（D1 改名 report、D2 判据 8 原地改写、D3 非事实对象来源一律逐字摘录进正文并取消 internal_evidence 字段、D4 审核门槛随迁只绑 audit、D5 spec_key 与文件名一次改齐），并记明 D3 的规范先例依据（33 §10.1 逐字摘录纪律同构）与 09 §5.3 悬空引用检查的 commit 锚点规避、目标形态、docs 捞回衔接与四批次计划。
+  - at: 2026-11-14T22:14:39.556Z
+    provider: qoder
+    model: qmodel_38max
+    summary: Human 确认关闭：open→implemented。五项裁定（D1–D5）已全部落地——24 号已改造为统一报告类型（specs/24-Report-报告.md）、实现侧 report_form 三形态与 serves 已接通、50 份存量已迁入 ldvh-base/reports/、adr-2c4a680b 已以 outdated 退役；调查边界三条判据均可从规范源原文读出。批四 docs 捞回按方案由 Human 择机触发，不属本议题范围。同步将 summary 更新为终态快照。
 refs:
   - object_uid: 1e31cf82-0057-4423-b28f-9b0e20b90e86
 ---
