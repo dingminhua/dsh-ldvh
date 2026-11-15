@@ -69,12 +69,12 @@ test("tokenize：中文只取二元组，单字不进匹配集", () => {
 });
 
 test("tokenize：纯虚字二元组不进匹配集（实测噪声源）", () => {
-	const tokens = tokenize("创建一个 ADR 记录决策");
+	const tokens = tokenize("创建一个 Norm 记录方向");
 	assert.ok(!tokens.includes("一个"), "「一个」两端都是虚字，命中一切");
 	assert.ok(tokens.includes("建一"), "「建一」只有一个虚字，2026-10-27 起保留（跨词噪声的代价小于实词被吞）");
 	assert.ok(tokens.includes("创建"), "实义二元组应保留");
 	assert.ok(tokens.includes("记录"), "实义二元组应保留");
-	assert.ok(tokens.includes("adr"), "ASCII 词应保留");
+	assert.ok(tokens.includes("norm"), "ASCII 词应保留");
 });
 
 test("tokenize：含单个虚字的二元组须保留（2026-10-27 修正的核心）", () => {
@@ -177,15 +177,16 @@ test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜
 	);
 	assert.ok(facts.length > 0, "事实源不得为空（否则后续断言全部失去前提）");
 	const types = new Set(facts.map((f) => f.type));
-	// 七类，单数形；曾因从目录名猜单复数得 "researche"/"workca"。
-	for (const expected of ["adr", "friction", "norm", "pitfall", "report", "spark"]) {
+	// 已登记类型，单数形；曾因从目录名猜单复数得 "researche"/"workca"。
+	for (const expected of ["friction", "norm", "pitfall", "report", "spark"]) {
 		assert.ok(types.has(expected), `应含类型 ${expected}，实际 ${[...types].join(",")}`);
 	}
 	for (const t of types) {
-		// 2026-11-14：DevLog 已撤除，盘上 21 条存量尚未物理删除，其类型
-		// `devlog` 因此**不在**已登记闭集内。这是撤除期的预期状态，不是
-		// 目录名猜单复数产生的脏值；运行时按「未登记类型被排除」如实披露。
-		if (t === "devlog") continue;
+		// 2026-11-14：DevLog 已撤除，盘上 21 条存量尚未物理删除；2026-11-16 ADR
+		// 类型撤除后，盘上 17 条存量同样尚未物理删除。两者因此**不在**已登记闭集内。
+		// 这是撤除期的预期状态，不是目录名猜单复数产生的脏值；运行时按「未登记类型
+		// 被排除」如实披露。
+		if (t === "devlog" || t === "adr") continue;
 		assert.ok(
 			REGISTERED_FACT_TYPES.includes(t),
 			`类型 ${t} 不在已登记闭集内——目录名猜单复数会产生这类值`,
@@ -242,7 +243,7 @@ test("recallForAction：缺动作描述即拒绝", async () => {
 });
 
 test("recallForAction：返回 specs 与 facts，且不声称适用（34 §13）", async () => {
-	const r = await recallForAction({ action: "创建 ADR 记录一个已拍板的取舍", root: ROOT });
+	const r = await recallForAction({ action: "创建 Norm 记录一个方向约束", root: ROOT });
 	assert.equal(r.ok, true);
 	assert.ok(Array.isArray(r.specs));
 	assert.ok(Array.isArray(r.facts));
@@ -1108,16 +1109,16 @@ test("排序比较器：每层键都须真的被样本覆盖（无并列组 = �
 
 	// ③ **没有类型轴**（2026-10-31，Human 裁定删除 typeRank 族）。
 	// 类型不是排序键：证据（weakHit/tier/hits/status）与时间全等时，
-	// adr 与 spark 必须比较为 0；谁在前只由 `path` 稳定兜底。
+	// norm 与 spark 必须比较为 0；谁在前只由 `path` 稳定兜底。
 	const sparkNewer = mk({ ...base, type: "spark", updatedAt: "2026-10-27T00:00:00.000Z" });
 	assert.equal(
 		compareFactHits(mk(base), sparkNewer) > 0, true,
 		"类型不再是排序键：同证据、更新者（spark）须在前（时间键生效）",
 	);
-	const sameEvidenceAdr = mk({ ...base, type: "adr" });
+	const sameEvidenceNorm = mk({ ...base, type: "norm" });
 	assert.equal(
-		compareFactHits(mk(base), sameEvidenceAdr), 0,
-		"同证据、同时间、同路径的 pitfall 与 adr 必须并列（无类型轴）",
+		compareFactHits(mk(base), sameEvidenceNorm), 0,
+		"同证据、同时间、同路径的 pitfall 与 norm 必须并列（无类型轴）",
 	);
 
 	// ④ **类型等级键已删除**（2026-10-31，Human 裁定）。
@@ -1127,7 +1128,7 @@ test("排序比较器：每层键都须真的被样本覆盖（无并列组 = �
 	// 2026-10-31 由 Human 裁定连同 `RECALL_TYPE_TIERS` / `RECALL_TYPE_TIER_OTHER`
 	// 一并删除。本条随之改写为**新行为的双向断言**，而不是删掉：
 	//   · 同等证据下类型不再产生名次（比较为 0）；
-	//   · 证据强的一律在前——弱命中的 adr 不得压过强命中的 pitfall
+	//   · 证据强的一律在前——弱命中的 norm 不得压过强命中的 pitfall
 	//     （`weakHit` 仍是第一键，且这是**证据**不是身份）。
 	// 这样「每个排序键都被样本覆盖」的核心价值仍在（时间/状态/证据三键都有
 	// 并列组），只是不再有一条不存在的类型键假装被覆盖。
@@ -1136,16 +1137,16 @@ test("排序比较器：每层键都须真的被样本覆盖（无并列组 = �
 		compareFactHits(mk(base), sameEvidenceSpark), 0,
 		"同等证据下 pitfall 与 spark 必须并列（类型轴已删除，不得复活）",
 	);
-	const weakAdr = mk({ weakHit: true, tier: 1, hits: 99, status: "active", type: "adr", path: "c.md" });
+	const weakNorm = mk({ weakHit: true, tier: 1, hits: 99, status: "active", type: "norm", path: "c.md" });
 	const strongPitfall = mk({ weakHit: false, tier: 4, hits: 1, status: "active", type: "pitfall", path: "d.md" });
 	assert.equal(
-		compareFactHits(strongPitfall, weakAdr) < 0, true,
-		"弱命中的 adr 不得压过强命中的 pitfall（证据先于身份）",
+		compareFactHits(strongPitfall, weakNorm) < 0, true,
+		"弱命中的 norm 不得压过强命中的 pitfall（证据先于身份）",
 	);
 	const strongSpark = mk({ weakHit: false, tier: 4, hits: 1, status: "active", type: "spark", path: "e.md" });
 	assert.equal(
-		compareFactHits(strongSpark, weakAdr) < 0, true,
-		"证据相同时不再有类型轴：强命中的 spark 同样压过弱命中的 adr",
+		compareFactHits(strongSpark, weakNorm) < 0, true,
+		"证据相同时不再有类型轴：强命中的 spark 同样压过弱命中的 norm",
 	);
 
 	// ⑤ **NaN 防护**（这是曾经的真实 bug）：任何合法输入都不得返回 NaN。
@@ -1198,7 +1199,7 @@ test("类型点名层：点名某事实类型时，该类型自己的规范须�
 	// 里（实测某类型名命中 6 份、adr/pitfall/spark 各 4 份），同层同分后只按路径
 	// 字典序，序号小的规范被排到前面。
 	const cases = [
-		{ q: "写一个 ADR", want: "ADR" },
+		
 		{ q: "记一条 Spark", want: "Spark" },
 		{ q: "新增一条 Pitfall", want: "Pitfall" },
 		{ q: "处理一个 Friction", want: "Friction" },
@@ -1255,43 +1256,29 @@ test("类型点名层只对规范生效，不得作用于事实（实测回归�
 	// 两条同时红，而它们守的排序行为其实没坏。保留前一条即可。
 });
 
-test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要求）", async (t) => {
+test("默认事实类型须为 Pitfall（03 §6.1 标准路径的明示要求）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	// 03 §6.1 标准路径逐字：「完成适用来源要求的行动前事实预检；召回时机成立时，
-	// 按相应来源完成所需的 **ADR/Pitfall 召回**」。
-	// 此前默认召回全部类型，实测「写一个 ADR」limit=3 时两条事实**全是 research**，
-	// 一条 ADR 都没有（research 文档 scope 恰含 adr 且路径字典序靠前）——
-	// 即「所需的 ADR/Pitfall 召回」被无关类型挤掉了。
-	assert.deepEqual([...REQUIRED_RECALL_TYPES], ["adr", "pitfall"]);
+	// 按相应来源完成所需的 **Pitfall 召回**」。决策类类型撤除后，必需类型只剩
+	// 经验一类；此前默认召回全部类型，实测「写一条经验」limit=3 时事实全是
+	// research——即「所需的 Pitfall 召回」被无关类型挤掉了。
+	assert.deepEqual([...REQUIRED_RECALL_TYPES], ["pitfall"]);
 
-	// ── a) 必需类型不得被挤掉（须有 active ADR 才守得住）─────────────────────
+	// ── a) 必需类型不得被挤掉（须有 active Pitfall 才守得住）─────────────────
 	//
-	// 迁到合成语料（2026-11-15，审查体 M8）：本仓 17 条 ADR 已全数 retired
-	// （`8055c813`），原用例拿 ROOT 当夹具时「须召回 adr」的前提**不可能成立**，
-	// 而 `DEFAULT_STATUSES_BY_TYPE.adr = ["active"]` 是规范明定的候选口径
-	// （retired 不入普通候选），故实现无退化、红的只是语料态。已在改动前的
-	// 基线检出（`a9d6741b`）上实证同一条逐字同样失败——属既有缺口，不是本次引入。
-	// 把它 skip 掉等于让「ADR 不被无关类型挤掉」这条真实守卫消失，故改用受控
-	// 合成语料（标题含「ADR」字样，可被类型点名层命中）。
+	// 用受控合成语料，使「Pitfall 被无关类型挤掉」这条真实守卫不随仓库语料态漂移。
 	//
-	// **2026-10-30 补上 `excludeTypes`**：本条守的是「注入路径里 ADR/Pitfall 不被
+	// **2026-10-30 补上 `excludeTypes`**：本条守的是「注入路径里 Pitfall 不被
 	// 无关类型挤掉」，而注入路径（`buildRecallInjection`）会传
 	// `excludeTypes: INJECTION_EXCLUDED_TYPES`——`31 §10`（2026-10-27 修订）已让
-	// spark 退出自动注入。此前不传，测的就不是注入路径：spark 占满 limit=3，
-	// 一条 adr 都进不来（实测无参时为 `spark,friction,spark`，加参后
-	// `friction,adr,adr`）。这是**测试与实现路径失配**，不是实现退化。
+	// spark 退出自动注入。此前不传，测的就不是注入路径。
 	const { mkdtemp, rm } = await import("node:fs/promises");
 	const { tmpdir } = await import("node:os");
 	const project = await mkdtemp(join(tmpdir(), "ldvh-requiredtypes-"));
 	try {
-		await seedFactCorpus(project, {
-			adrCount: 2,
-			// 标题须含「ADR」字样：类型点名层按类型词命中，否则该 query 打不到 ADR。
-			adrTitles: ["合成 ADR 决策基线甲", "合成 ADR 决策基线乙"],
-			pitfallCount: 1,
-		});
+		await seedFactCorpus(project, { pitfallCount: 2 });
 		const r = await recallForAction({
-			action: "写一个 ADR",
+			action: "写一条 Pitfall 经验",
 			root: project,
 			limit: 3,
 			budgetBytes: 24000,
@@ -1299,8 +1286,8 @@ test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要�
 		});
 		assert.ok(r.facts.length > 0, "应召回到事实");
 		assert.ok(
-			r.facts.some((f) => f.type === "adr"),
-			`「写一个 ADR」须召回 adr（义务召回，22 §12），实际：${r.facts.map((f) => f.type).join(",")}`,
+			r.facts.some((f) => f.type === "pitfall"),
+			`「写一条 Pitfall」须召回 pitfall（义务召回，23 §12），实际：${r.facts.map((f) => f.type).join(",")}`,
 		);
 	} finally {
 		await rm(project, { recursive: true, force: true });
@@ -1313,7 +1300,7 @@ test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要�
 	// 排序键**，「必需类型同分在前」既无实现也无规范依据（02 §9.2 明禁跨类型共用
 	// 的相关性分数）。保留它只会变成一条靠当前语料路径顺序碰巧通过的假断言。
 	//
-	// 这一段**不依赖 active ADR**（它守的是排序键的构成），故仍用真实仓库语料：
+	// 这一段**不依赖特定类型语料**（它守的是排序键的构成），故仍用真实仓库语料：
 	// 语料越丰富，并列项越多，本段的分辨力越强——换成合成语料反而会削弱它。
 	const ranked = await recallForAction({
 		action: "把 34 号规范改名成双源召回",
@@ -1412,7 +1399,7 @@ test("中间产物不得进入召回（02 §9.2）", async () => {
 			);
 		};
 		await make("observation-buffer", "observation-buffer", "88888888-8888-4888-8888-888888888888");
-		await make("adrs", "adr", "99999999-9999-4999-8999-999999999999");
+		await make("norms", "norm", "99999999-9999-4999-8999-999999999999");
 
 		const r = await recallForAction({
 			action: "测试缓冲区留观条目",
@@ -1425,7 +1412,7 @@ test("中间产物不得进入召回（02 §9.2）", async () => {
 			!r.facts.some((f) => f.type === "observation-buffer"),
 			"中间产物（留观缓冲）不得形成候选卡",
 		);
-		assert.ok(r.facts.some((f) => f.type === "adr"), "已登记类型仍须正常召回");
+		assert.ok(r.facts.some((f) => f.type === "norm"), "已登记类型仍须正常召回");
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}
@@ -1438,7 +1425,7 @@ test("REGISTERED_FACT_TYPES 须与 specs/20–29 段一致（防漂移）", asyn
 	const { join: joinPath } = await import("node:path");
 	const specsDir = joinPath(ROOT, "specs");
 	const files = (await readdir(specsDir)).filter((f) => /^2[0-9]-.*\.md$/.test(f));
-	// 从文件名取 ASCII 类型名（如 `22-ADR-决策.md` → adr）。
+	// 从文件名取 ASCII 类型名（如 `27-Norm-事实规范.md` → norm；21/22 号为空位）。
 	const fromSpecs = files
 		.map((f) => {
 			const name = f.replace(/\.md$/, "").replace(/^2[0-9]-/, "");
@@ -1518,7 +1505,7 @@ test("uncheckedRange 的分类须与 candidatesExcluded 自洽", async () => {
 		action: "把 34 号规范改名",
 		root: ROOT,
 		limit: 3,
-		types: ["adr", "pitfall"],
+		types: ["norm", "pitfall"],
 	});
 	const u = r.uncheckedRange;
 	const sum = u.excludedByTypeFilter.length + u.excludedByStatus.length + u.excludedByTypeWhitelist.length;
@@ -1534,7 +1521,7 @@ test("candidatesScanned 须反映**实际参与匹配**的候选数（防御性�
 		action: "把 34 号规范改名",
 		root: ROOT,
 		limit: 3,
-		types: ["adr", "pitfall"],
+		types: ["norm", "pitfall"],
 	});
 	assert.ok(
 		narrow.counts.candidatesScanned < wide.counts.candidatesScanned,
@@ -1854,9 +1841,9 @@ test("trigger_signal 须参与匹配（不得读进变量却不用）", async (t
 	//
 	// `23 §8` 定义它是「**重新审视信号**：存在真实重审前提时写（依赖版本变更、
 	// 环境迁移等）」。这恰是召回最该用的一种输入：用户说「升级了依赖」时应当
-	// 召回标了该信号的 Pitfall/ADR，否则「何时该重看这条经验」就白记了。
+	// 召回标了该信号的 Pitfall，否则「何时该重看这条经验」就白记了。
 	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
-	const withTrigger = facts.filter((f) => typeof f.trigger === "string" && f.trigger.trim() !== "");
+	const withTrigger = facts.filter((f) => REGISTERED_FACT_TYPES.includes(f.type) && typeof f.trigger === "string" && f.trigger.trim() !== "");
 	assert.ok(withTrigger.length > 0, "应存在带 trigger_signal 的事实");
 
 	// 关键：该字段的文本必须进入 detail（唯一的事实侧匹配面之一）。
@@ -1879,7 +1866,7 @@ test("默认候选状态须按类型取，不得统一写死 active（20–27 �
 	// 2026-10-26 修订：observing 已退出 26 §9 闭集（观察材料改由 11 §12bis.1 的
 	// 本地缓冲承载，不进事实源），故默认候选只含 open。
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.friction], ["open"], "26：默认只含 open");
-	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.adr], ["active"], "22：默认含 active");
+	assert.equal(Object.hasOwn(DEFAULT_STATUSES_BY_TYPE, "adr"), false, "22 已撤除：默认状态表不得再含 adr");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.norm], ["active"], "27：默认含 active");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.pitfall], ["active"], "23 §12 / 2026-11-03：Pitfall 无 draft，默认候选只含 active");
 
@@ -1963,7 +1950,7 @@ test("须给出 F0 层：类型/状态计数使「有多少在等」不依赖查
 		action: "有多少候选在等",
 		root: ROOT,
 		limit: 3,
-		types: ["adr"],
+		types: ["norm"],
 		statuses: ["active"],
 	});
 	assert.deepEqual(
@@ -2282,7 +2269,7 @@ test("须给出结构化 gaps（01 §10.3 明禁「以已披露代替」）", as
 	// 实测缺口（2026-10-24）：本模块此前把缺失写成**说明文字**（如
 	// limitations.unimplemented 里那段中文），却没有结构化 `gaps` 字段——
 	// 而该条明确禁止「以『已披露』代替」：消费方要能**机械枚举**缺失项，
-	// 字符串说明做不到。本仓库既有约定见 adr-tools.js（多处 `gaps: [...]`）。
+	// 字符串说明做不到。本仓库既有约定见 pitfall-tools.js（多处 `gaps: [...]`）。
 	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
 	assert.ok(Array.isArray(r.gaps), "须有 gaps 数组（可为空，但不得缺失）");
 
@@ -2334,7 +2321,7 @@ test("「本次召回完整度」与「事实集合完整性」须分开表达�
 		action: "把 34 号规范改名",
 		root: ROOT,
 		limit: 1,
-		types: ["adr"],
+		types: ["norm"],
 	});
 	assert.equal(
 		narrow.f0.setAudit.status,
@@ -2486,7 +2473,7 @@ test("渲染字符上限须由字节预算导出，不得固定成 1600（档位
 // ---------------------------------------------------------------------------
 
 /**
- * 构造一个可控事实源：一条 spark + 一条 adr + 一条 pitfall，标题用同一批词。
+ * 构造一个可控事实源：一条 spark + 一条 norm + 一条 pitfall，标题用同一批词。
  * 用临时项目而非本仓 `ldvh-base/`，因为本仓 spark 条数会随工作漂移，
  * 断言写死条数必然变成「改数字」的脆弱用例。
  */
@@ -2505,7 +2492,7 @@ async function withSparkFixture(fn) {
 	};
 	try {
 		await write("sparks", "spark", "11111111-1111-4111-8111-111111111111", "召回范围测试 火花条目", "open");
-		await write("adrs", "adr", "22222222-2222-4222-8222-222222222222", "召回范围测试 决策条目", "active");
+		await write("norms", "norm", "22222222-2222-4222-8222-222222222222", "召回范围测试 规范条目", "active");
 		await write("pitfalls", "pitfall", "33333333-3333-4333-8333-333333333333", "召回范围测试 经验条目", "active");
 		return await fn(project);
 	} finally {
@@ -2522,7 +2509,7 @@ test("31 §10：excludeTypes 的类型不形成候选（Spark 不进自动注入
 		const after = await recallForAction({ ...q, excludeTypes: INJECTION_EXCLUDED_TYPES });
 		assert.ok(!after.facts.some((f) => f.type === "spark"), "排除后不得出现 spark 候选");
 		// 其余类型不受影响——排除是**定向**的，不是整体收窄。
-		assert.ok(after.facts.some((f) => f.type === "adr"), "adr 仍须是候选");
+		assert.ok(after.facts.some((f) => f.type === "norm"), "norm 仍须是候选");
 		assert.ok(after.facts.some((f) => f.type === "pitfall"), "pitfall 仍须是候选");
 	});
 });
@@ -2535,7 +2522,7 @@ test("31 §10：excludeTypes 不使完整度降级、不冒充「被类型过滤
 	await withSparkFixture(async (project) => {
 		const q = { action: "召回范围测试", root: project, limit: 10, budgetBytes: 40000, includeSpecs: false };
 
-		const narrowed = await recallForAction({ ...q, types: ["adr", "pitfall"] });
+		const narrowed = await recallForAction({ ...q, types: ["norm", "pitfall"] });
 		assert.ok(
 			narrowed.uncheckedRange.excludedByTypeFilter.some((f) => f.type === "spark"),
 			"types 白名单：被排除者须进 excludedByTypeFilter（本次漏查）",
@@ -2551,7 +2538,7 @@ test("31 §10：excludeTypes 不使完整度降级、不冒充「被类型过滤
 			scoped.uncheckedRange.excludedByScope.some((f) => f.type === "spark"),
 			"excludeTypes：须在独立的 excludedByScope 里如实列出（不隐藏边界）",
 		);
-		// 完整度：同为「只看 adr/pitfall」，两种参数必须得到不同的取值。
+		// 完整度：同为「只看 norm/pitfall」，两种参数必须得到不同的取值。
 		assert.equal(
 			scoped.recallCompleteness,
 			narrowed.recallCompleteness,
@@ -2623,7 +2610,7 @@ test("召回路径的用例须与它们所测的路径同参（`excludeTypes` �
 	// limit 名额，传时不会。
 	//
 	// 于是「不传」不叫「更宽松」，叫**测了另一条路径**。实测代价：本文件有两条
-	// 用例（「写一个 ADR 须召回 adr」「子代理登记表须被召回」）因漏传而转红，
+	// 用例（「写一条 Pitfall 须召回 pitfall」「子代理登记表须被召回」）因漏传而转红，
 	// 而实现并无退化——目标项分别从第 3 位掉到第 4 位、从 limit 内掉出。
 	//
 	// 本用例是**行为断言**而非源码文本断言：它实际跑一次注入路径，检查注入行
@@ -3179,7 +3166,7 @@ test("tokenize 是段内的：拼接串的 token 集等于各段 token 集之并
 	const cases = [
 		["白屏", "测试"],
 		["召回", "排序改进"],
-		["创建一个 ADR 记录决策", "提交校验"],
+		["创建一个 Norm 记录方向", "提交校验"],
 		["pre-commit", "白屏"],
 		["改一下", "删了"],
 		["", "只有一段"],

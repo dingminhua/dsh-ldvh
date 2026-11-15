@@ -162,7 +162,6 @@ test("目录缺失不算错误（该类型尚无对象）", async () => {
 
 test("FACT_TYPE_DIRECTORIES 与七个 writer 的 *_DIRECTORY 常量一致", async () => {
   const writers = {
-    adr: ["adr-writer.js", "ADR_DIRECTORY"],
     // devlog-writer.js 随 29 号撤除不再纳入本表（存量暂留为历史档案）。
     friction: ["friction-writer.js", "FRICTION_DIRECTORY"],
     norm: ["norm-writer.js", "NORM_DIRECTORY"],
@@ -239,8 +238,8 @@ test("读取入口：类型前缀与实际类型不符时给出 type_prefix_mism
 // 6. 写路径不得随读路径放宽（scope 边界：写错对象的代价与读错不对等）
 // ---------------------------------------------------------------------------
 
-test("其余七个 writer 的写路径仍各自持有 canonical-only 门", () => {
-  const writers = ["adr", "friction", "norm", "pitfall", "report", "spark", "subgoal"];
+test("其余六个 writer 的写路径仍各自持有 canonical-only 门", () => {
+  const writers = ["friction", "norm", "pitfall", "report", "spark", "subgoal"];
   for (const type of writers) {
     const source = readFileSync(new URL(`../lib/${type}-writer.js`, import.meta.url), "utf8");
     const uses = source.split("assertValidUid(").length - 1;

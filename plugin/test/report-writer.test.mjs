@@ -719,7 +719,7 @@ test("validateBodyStructure accepts retired 建议 section with a 'still-referab
 无。
 
 ## 建议
-A1 修复方法 X：研究→执行断链由回查条件说明补足——可被后续 ADR 在重新评估时检索本对象。
+A1 修复方法 X：研究→执行断链由回查条件说明补足——可被后续规范在重新评估时检索本对象。
 
 ## 后续分流
 - A1 → 修复`;

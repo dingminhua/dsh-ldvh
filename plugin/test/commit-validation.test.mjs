@@ -950,7 +950,7 @@ test("docs_reference_dangling is registered in the K1 rule registry", () => {
 const declarationUnit = (subject, resolution) =>
 	`| ${LOAD_BEARING_MARKER} ${subject} | 不得声称本文已完成对齐 | ${resolution ?? "**无**——须按判据逐处核对"} |`;
 
-const specCarrier = (content, baseline) => [{ path: "specs/22-ADR-决策.md", content, baseline }];
+const specCarrier = (content, baseline) => [{ path: "specs/27-Norm-事实规范.md", content, baseline }];
 
 const messageWith = (items) =>
 	["docs(x): y", "", "关键变更:", ...items.map((item) => `- ${item}`), "", "LDVH-Provider: p", "LDVH-Model: m"].join("\n");
@@ -960,7 +960,7 @@ const WITH_RESOLUTION = declarationUnit(SUBJECT, `${LOAD_BEARING_RESOLUTION_LABE
 
 test("class 1: a declaration present at HEAD but absent from the candidate is refused", () => {
 	const result = checkLoadBearingDeclarations(specCarrier("| 本文正文对 §7.2 的对齐 | 已完成 |\n", WITH_RESOLUTION), {
-		message: messageWith(["specs/22-ADR-决策.md: 调整表格行"]),
+		message: messageWith(["specs/27-Norm-事实规范.md: 调整表格行"]),
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.removed]);
@@ -968,7 +968,7 @@ test("class 1: a declaration present at HEAD but absent from the candidate is re
 
 test("class 2: dropping the 恢复条件 sub-element is refused (the incident's own shape)", () => {
 	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
-		message: messageWith(["specs/22-ADR-决策.md: 调整列表述"]),
+		message: messageWith(["specs/27-Norm-事实规范.md: 调整列表述"]),
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);
@@ -977,7 +977,7 @@ test("class 2: dropping the 恢复条件 sub-element is refused (the incident's 
 test("class 3: a resolvable independent-review reference lets the change through", () => {
 	const reference = "0ac049b5-68e2-4873-a545-f5e647c249b9";
 	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
-		message: messageWith([`specs/22-ADR-决策.md: 调整列表述，独立复核 ${reference}`]),
+		message: messageWith([`specs/27-Norm-事实规范.md: 调整列表述，独立复核 ${reference}`]),
 		resolvable: new Set([reference]),
 	});
 	assert.equal(result.ok, true);
@@ -986,7 +986,7 @@ test("class 3: a resolvable independent-review reference lets the change through
 
 test("class 4: an unresolvable reference exempts nothing", () => {
 	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
-		message: messageWith(["specs/22-ADR-决策.md: 调整列表述，独立复核 deadbeefdeadbeef"]),
+		message: messageWith(["specs/27-Norm-事实规范.md: 调整列表述，独立复核 deadbeefdeadbeef"]),
 		resolvable: new Set(),
 	});
 	assert.equal(result.ok, false);
@@ -995,8 +995,8 @@ test("class 4: an unresolvable reference exempts nothing", () => {
 
 test("class 5: an undecidable baseline fails closed rather than passing", () => {
 	const result = checkLoadBearingDeclarations([], {
-		message: messageWith(["specs/22-ADR-决策.md: 调整表格行"]),
-		unreadable: ["specs/22-ADR-决策.md"],
+		message: messageWith(["specs/27-Norm-事实规范.md: 调整表格行"]),
+		unreadable: ["specs/27-Norm-事实规范.md"],
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.baselineUnreadable]);
@@ -1030,7 +1030,7 @@ test("BOUNDARY: weakening a declaration while keeping marker and resolution is N
 	// check proves only that a resolvable reference was carried.
 	const weakened = `| ${LOAD_BEARING_MARKER} ${SUBJECT} | 尽量不对齐 | ${LOAD_BEARING_RESOLUTION_LABEL}也许某天 |`;
 	const result = checkLoadBearingDeclarations(specCarrier(weakened, WITH_RESOLUTION), {
-		message: messageWith(["specs/22-ADR-决策.md: 弱化表述"]),
+		message: messageWith(["specs/27-Norm-事实规范.md: 弱化表述"]),
 	});
 	assert.equal(result.ok, true);
 });
@@ -1076,7 +1076,7 @@ test("the resolution label must be CARRIED, not merely quoted in a code span", (
 	assert.equal(extractLoadBearingUnits(quoted)[0].hasResolution, false);
 	assert.equal(extractLoadBearingUnits(carried)[0].hasResolution, true);
 	const result = checkLoadBearingDeclarations(specCarrier(quoted, carried), {
-		message: messageWith(["specs/22-ADR-决策.md: 把要件改成引用形式"]),
+		message: messageWith(["specs/27-Norm-事实规范.md: 把要件改成引用形式"]),
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);
@@ -1254,7 +1254,7 @@ test("carrier identity: a clean staged carrier produces no finding", () => {
 
 test("carrier identity: filename/declaration mismatch is refused (真实错误写法)", () => {
 	const result = checkFactCarrierIdentity([
-		{ path: `ldvh-base/adrs/adr-${UID_A}.md`, content: carrierText(UID_B) },
+		{ path: `ldvh-base/norms/norm-${UID_A}.md`, content: carrierText(UID_B) },
 	]);
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((i) => i.rule), ["facts/carrier_uid_filename_mismatch"]);
@@ -1299,7 +1299,7 @@ test("carrier identity: a frontmatter without the declaration fails closed", () 
 // 要求会替规范增加一条没人批准的规定——首版实现正是这样，被那条测试拦住。
 test("carrier identity: a carrier whose filename encodes no identity is NOT refused", () => {
 	const result = checkFactCarrierIdentity([
-		{ path: "ldvh-base/adrs/unnamed-carrier.md", content: carrierText(UID_A) },
+		{ path: "ldvh-base/norms/unnamed-carrier.md", content: carrierText(UID_A) },
 	]);
 	assert.equal(result.ok, true, JSON.stringify(result.issues));
 });

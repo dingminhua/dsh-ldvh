@@ -155,12 +155,12 @@ test("Spark Gate：自由输入提交仍拒绝授权，但 custom_note 可见", 
   assert.match(out.reason, /自由文本/);
 });
 
-test("ADR Gate：自由输入提交仍拒绝授权，但 custom_note 可见", async () => {
+test("Norm Gate：自由输入提交仍拒绝授权，但 custom_note 可见", async () => {
   const seams = gateSeam({
-    answers: [{ id: "ldvh-adr-consent", selected: [], custom: FREE_TEXT }],
+    answers: [{ id: "ldvh-norm-consent", selected: [], custom: FREE_TEXT }],
   });
-  const out = await seams.requestAdrConsent({
-    action: "create", objectTitle: "示例决策", summary: "查重结论：无重复", agent: { id: "a" },
+  const out = await seams.requestNormConsent({
+    action: "create", objectTitle: "示例规范", summary: "查重结论：无重复", agent: { id: "a" },
   });
   assert.equal(out.granted, false);
   assert.equal(out.custom_note, FREE_TEXT);

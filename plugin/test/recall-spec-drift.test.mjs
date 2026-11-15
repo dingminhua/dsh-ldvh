@@ -43,10 +43,9 @@ import {
 const ROOT = join(import.meta.dirname, "..", "..");
 const SPECS_DIR = join(ROOT, "specs");
 
-/** 类型 → 它的事实规范文件名（20–29，21 与 29 号空位）。这是**唯一映射来源**，不得在别处再抄一份。 */
+/** 类型 → 它的事实规范文件名（20–29，21/22/29 号空位）。这是**唯一映射来源**，不得在别处再抄一份。 */
 const TYPE_SPEC_FILES = Object.freeze({
 	spark: "20-Spark-火花.md",
-	adr: "22-ADR-决策.md",
 	pitfall: "23-Pitfall-踩坑经验.md",
 	report: "24-Report-报告.md",
 	goal: "25-Goal-项目目标.md",
@@ -214,7 +213,7 @@ test("⑤ 未登记类型目录不得被静默忽略（须进 gaps）", async ()
 	// 本用例要求它至少在 gaps 或 uncheckedRange 里如实披露。
 	const entries = await readdir(join(ROOT, "ldvh-base"), { withFileTypes: true }).catch(() => []);
 	const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-	// **目录名是复数**（adrs/pitfalls/…），类型名是单数（adr/pitfall/…）。
+	// **目录名是复数**（norms/pitfalls/…），类型名是单数（norm/pitfall/…）。
 	// 直接比目录名会把全部已知类型误判为「未登记」。已实测踩过此坑。
 	const knownDirs = new Set(REGISTERED_FACT_TYPES.map((t) => `${t}s`));
 	knownDirs.add("reports"); // research 的复数是不规则形式

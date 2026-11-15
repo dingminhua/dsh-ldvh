@@ -34,7 +34,6 @@ import {
   scanCarrierDirectory,
 } from "../lib/carrier-scan.js";
 import { listSparkObjects, SPARK_DIRECTORY } from "../lib/spark-writer.js";
-import { listAdrObjects, ADR_DIRECTORY } from "../lib/adr-writer.js";
 import { listPitfallObjects, PITFALL_DIRECTORY } from "../lib/pitfall-writer.js";
 import { listResearchObjects, REPORT_DIRECTORY } from "../lib/report-writer.js";
 import { listFrictionObjects, FRICTION_DIRECTORY } from "../lib/friction-writer.js";
@@ -175,13 +174,12 @@ test("declaredObjectUid reads only the top-level declaration line", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The five lists share the classification — asserted per type so that a writer
+// The lists share the classification — asserted per type so that a writer
 // that quietly re-grows its own `if (!nameMatch) continue` fails here.
 // ---------------------------------------------------------------------------
 
 const LISTS = [
   ["spark", SPARK_DIRECTORY, listSparkObjects, { includeTerminal: true }],
-  ["adr", ADR_DIRECTORY, listAdrObjects, { includeTerminal: true }],
   ["pitfall", PITFALL_DIRECTORY, listPitfallObjects, { includeTerminal: true }],
   ["report", REPORT_DIRECTORY, listResearchObjects, { includeTerminal: true }],
   ["friction", FRICTION_DIRECTORY, listFrictionObjects, { includeResolved: true }],
@@ -190,12 +188,11 @@ const LISTS = [
 /** Minimal body per type so the carrier parses (structure checks run later). */
 const BODIES = {
   spark: "## 当前理解\nx\n\n## 调查问题\ny\n\n## 调查边界\nz\n",
-  adr: "## 决策背景\nx\n",
   pitfall: "## 症状\nx\n",
   report: "## 研究问题\nx\n",
   friction: "## 现象\nx\n",
 };
-const STATUS = { spark: "open", adr: "active", pitfall: "active", report: "active", friction: "open" };
+const STATUS = { spark: "open", pitfall: "active", report: "active", friction: "open" };
 
 for (const [type, directory, listFn, options] of LISTS) {
   test(`${type} list: a mismatched filename is reported, never dropped`, async () => {

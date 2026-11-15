@@ -28,8 +28,9 @@ const SPECS = join(ROOT, "specs");
 const FACTS = join(ROOT, "ldvh-base");
 
 const SPARK = join(SPECS, "20-Spark-火花.md");
-const ADR = join(SPECS, "22-ADR-决策.md");
 const PITFALL = join(SPECS, "23-Pitfall-踩坑经验.md");
+// 22 号（ADR 决策）已整份撤除，此处不再有它的路径——原先「改动 22 的字段名」
+// 那一项随之删掉（改动 23 已足以验证「字段改名会被漂移检查发现」）。
 
 /**
  * 跑漂移检查，按 `specs/06` §5 的三态归类（单一入口见 `lib/test-run-report.js`）。
@@ -118,11 +119,11 @@ try {
 	results.push(["① 新增普通规范（specs/ 新载体）", "无需守护", "目录扫描自动纳入，另由召回用例验证"]);
 
 	// —— 变动 2：修改规范内容（字段改名）——
-	await backup(ADR);
+	// （2026-11-16：原先同时改 22 号与 23 号；22 号已整份撤除，只剩 23 号。
+	//   本项验证的是「字段改名会被漂移检查发现」，改一份即可。）
 	await backup(PITFALL);
-	await writeGuarded(ADR, (await readFile(ADR, "utf8")).replaceAll("trigger_signal", "trigger_sig"));
 	await writeGuarded(PITFALL, (await readFile(PITFALL, "utf8")).replaceAll("trigger_signal", "trigger_sig"));
-	results.push(["② 修改规范：frontmatter 字段改名", ...(await driftVerdict("改动 22/23 的 trigger_signal"))]);
+	results.push(["② 修改规范：frontmatter 字段改名", ...(await driftVerdict("改动 23 的 trigger_signal"))]);
 	await restoreAll();
 
 	// —— 变动 3：新增事实类型规范 ——

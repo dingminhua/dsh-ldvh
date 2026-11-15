@@ -144,7 +144,6 @@ test("结构守卫: 防御性自检——该断言确实能捕获本地实现（
 
 test("结构守卫: 消费方 writer 均已引用共享实现", async () => {
   const consumers = [
-    "adr-writer.js",
     "friction-writer.js",
     "norm-writer.js",
     "pitfall-writer.js",

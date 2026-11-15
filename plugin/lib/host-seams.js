@@ -78,7 +78,7 @@ function selectedLabelOf(entry) {
  * 也不出现在留痕、也不出现在回给模型的信封里——即「输入被当成跳过、AI 看不到」。
  *
  * 本函数只负责**把文字取回来**；取到之后怎么处置由各接缝自己决定，且一律不得
- * 冒充 `review|skip` 答复（32 §9.1 闭集）或 Gate 的明确点选（20/22 §16、07 §5.6）。
+ * 冒充 `review|skip` 答复（32 §9.1 闭集）或 Gate 的明确点选（20 §16、27 §15、07 §5.6）。
  * Gate 接缝仍 fail-closed，只是拒绝理由里必须带上这段文字，让模型看得见。
  */
 function customTextOf(entry) {
@@ -127,11 +127,11 @@ function clampHead(text, budget) {
  * - `head` — 短外壳行（Gate 名与对象标题）。逐字进入 `question`，超出
  *   `ASK_QUESTION_MAX_CHARS` 时按预算裁剪。
  *
- * **呈报内容去哪了**：不再随提请下发。20 §16 / 22 §16 要求的「呈报内容」由
+ * **呈报内容去哪了**：不再随提请下发。20 §16 / 27 §15 要求的「呈报内容」由
  * 主控在**调用受控写入之前**写进对话正文（Human 在会话里读到的就是它），
  * 弹窗只承担「这是什么动作、点哪个键」。这一分工的代价必须如实理解：
  * **机械层不再证明 Human 看到过完整呈报**——它只证明取得过一次明确肯定答复。
- * 该缺口的登记见 `20 §16` 与 `22 §16.2` 的据实声明段。
+ * 该缺口的登记见 `20 §16` 与 `27 §15` 的据实声明段。
  */
 function composeAskTitle({ head }) {
   const lines = (Array.isArray(head) ? head : [])
@@ -164,25 +164,15 @@ function composeAskTitle({ head }) {
 const SPARK_CONSENT_QUESTION_ID = "ldvh-spark-consent";
 const SPARK_CONSENT_LABEL = "确认";
 
-/** 22 §16 ADR Human Gate identity — 第 1 项（创建）与第 2 项（终态决定 retired）
- * 共用同一询问 id：一次处置只问一次，两项的呈报内容不同故 question 文本分列。
- * 与 Spark 同纪律：id 与肯定标签在「问」与「收」两处共用同一常量，解析永远不会
- * 在从未提供过的标签上放行。
- *
- * **第 3 项（`specs/22-ADR-决策.md:270` ADR 类型本身的取消或合并）不走本 seam**：
- * 该动作当前无实现入口，本 seam 不承载它，也不得据其存在声称第 3 项已获承载。 */
-const ADR_CONSENT_QUESTION_ID = "ldvh-adr-consent";
-const ADR_CONSENT_LABEL = "确认";
-
 /** 27 §15 Norm Human Gate identity — 第 1 项（创建）与第 2 项（终态决定 retired）
  * 共用同一询问 id：一次处置只问一次，两项的呈报内容不同故 question 文本分列。
- * 与 Spark / ADR 同纪律：id 与肯定标签在「问」与「收」两处共用同一常量，解析
+ * 与 Spark 同纪律：id 与肯定标签在「问」与「收」两处共用同一常量，解析
  * 永远不会在从未提供过的标签上放行。
  *
  * **为什么它此前不存在**：27 §15 第 1、2 项一直要求 Human 决定，27 §7 也写明
- * 「创建必须经 Human 决定」，但 27 号没有像 22 §16.2 那样规定「确认由什么承载」，
- * 实现侧因此一次也没问过——`norm-write-object` 的 create 与 retire 都直接落盘。
- * 这是**规范有义务、实现无承载**的缺口，不是规范许可不确认。
+ * 「创建必须经 Human 决定」，但 27 号没有像其它类型规范那样规定「确认由什么
+ * 承载」，实现侧因此一次也没问过——`norm-write-object` 的 create 与 retire 都
+ * 直接落盘。这是**规范有义务、实现无承载**的缺口，不是规范许可不确认。
  *
  * **第 3 项（方向清单增减或重新分层）与第 4 项（类型取消或合并）不走本 seam**：
  * 前者属对 27 号自身的修改（走规范修改程序），后者当前无实现入口。本 seam 不
@@ -657,78 +647,6 @@ export function createHostSeams() {
   }
 
   /**
-   * Ask the Human to confirm one ADR action (22 §16 Human Gate).
-   *
-   * Carries the first two of the three 22 §16 Gates: 创建 (action=create) and
-   * 终态决定 retired (action=retire). The third (`:270` ADR 类型本身的取消或
-   * 合并) has no implementation entry and is deliberately NOT carried here.
-   *
-   * Same discipline as `requestSparkConsent`: the Human's own answer is recorded
-   * by the host, not asserted by the AI. A missing answerer, a failed ask or an
-   * unchosen/declined answer all yield `granted: false` — silence is not
-   * consent, and this path must fail closed.
-   *
-   * `signal` is forwarded so an abandoned prompt is released (ASK_ABORTED →
-   * fail closed) instead of pending forever: the hosting tool declares no
-   * wall-clock deadline (`awaitsHumanDecision`).
-   *
-   * `summary` is the 呈报内容 the Human must see to judge — create: the dedup
-   * conclusion + title/decision/scope; retire: retirement_reason + the full
-   * change_log.summary evidence statement + relation targets (22 §10). A caller
-   * that supplies none is refused rather than asked a content-free question:
-   * asking without the report would record a "yes" to something never seen.
-   * **It no longer travels with the question** (Human 2026-11-13: 所有经 LDVH
-   * 业务的提请都简洁，title 在 200 字内，没有其它细节信息): 主控 presents it in
-   * the conversation body before calling this seam, and the dialog carries only
-   * the action line. The seam therefore can no longer prove the Human was shown
-   * the report — that gap is registered in 22 §16.2's 据实声明段.
-   */
-  async function requestAdrConsent({ action, objectTitle, summary, agent, signal }) {
-    const ask = seams.ask;
-    if (typeof ask !== "function") {
-      return { granted: false, reason: "no human-answerer entry is available; 22 §16 requires an explicit Human confirmation, so consent cannot be assumed" };
-    }
-    const verb = action === "retire" ? "转入终态" : "创建";
-    const report = typeof summary === "string" && summary.trim().length > 0
-      ? summary.trim()
-      : null;
-    // A content-free ask would record consent to something the Human never saw
-    // (mirrors 20 §16 at requestSparkConsent).
-    if (report === null) {
-      return { granted: false, reason: "22 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
-    }
-    // 标题组装：只放 Gate 名与对象标题，不携带任何呈报细节。
-    const head = [`ADR ${verb}确认（22 §16）`];
-    if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
-    const composed = composeAskTitle({ head });
-    try {
-      const answer = await ask({
-        questions: [{
-          id: ADR_CONSENT_QUESTION_ID,
-          header: "ADR 授权",
-          question: composed.question,
-          options: [
-            { label: ADR_CONSENT_LABEL, description: `确认${verb}该 ADR 对象` },
-            { label: "取消", description: "不执行本次写入，保持现状" }
-          ]
-        }],
-        ...(signal === undefined ? {} : { signal })
-      }, agent);
-      // Accept ONLY the affirmative for THIS question — never fall back to
-      // `answers[0]`, which could grant ADR consent from an affirmative given
-      // to a different question in the same batch.
-      const answers = Array.isArray(answer?.answers) ? answer.answers : [];
-      const entry = answers.find((a) => a?.id === ADR_CONSENT_QUESTION_ID) ?? null;
-      const selected = selectedLabelOf(entry);
-      const customNote = customTextOf(entry);
-      if (selected === ADR_CONSENT_LABEL) return { granted: true, answer: selected, ...(customNote === null ? {} : { custom_note: customNote }) };
-      return { granted: false, ...(customNote === null ? {} : { custom_note: customNote }), reason: `human did not confirm the ADR ${verb} (answer: ${JSON.stringify(selected ?? null)})${customNote === null ? "" : `；Human 另写了自由文本（见 custom_note），不作为授权` }` };
-    } catch (error) {
-      return { granted: false, reason: `adr consent request failed: ${String(error?.message ?? error)}` };
-    }
-  }
-
-  /**
    * Ask the Human to confirm one Norm action (27 §15 Human Gate).
    *
    * Carries the first two of the four 27 §15 items: 创建 (action=create) and
@@ -736,7 +654,7 @@ export function createHostSeams() {
    * carried: item 3 is a modification of spec 27 itself (its own change
    * procedure), item 4 has no implementation entry.
    *
-   * Same discipline as `requestAdrConsent`: the Human's own answer is recorded
+   * Same discipline as `requestSparkConsent`: the Human's own answer is recorded
    * by the host, not asserted by the AI. A missing answerer, a failed ask or an
    * unchosen/declined answer all yield `granted: false` — silence is not
    * consent, and this path must fail closed.
@@ -1037,8 +955,6 @@ export function createHostSeams() {
     requestRegistrationConsent,
     /** 20 §16 Spark create/terminal confirmation routed through ctx.userQuestions.ask. */
     requestSparkConsent,
-    /** 22 §16 ADR create/retire confirmation routed through ctx.userQuestions.ask. */
-    requestAdrConsent,
     /** 27 §15 consent request routed through ctx.userQuestions.ask. */
     requestNormConsent,
     /** 两处把关询问（2026-11-13 Human 决定）：非 Gate——`skip` 是合法答复。 */

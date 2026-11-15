@@ -81,18 +81,21 @@ import { normPositioningOf, positioningExcerptLine } from "./norm-positioning.js
  *
  *   · Spark（20）默认候选是 `open` → 34 条 open 不可见；
  *   · Friction（26）是 `open`（+ 当时的 `observing`，2026-10-26 已退出闭集）→ 当时 92 条不可见；
- *   · ADR（22）／Norm（27）是 `active` → 恰好正确；
+ *   · Norm（27）是 `active` → 恰好正确（一个决策类类型曾同属这一列，2026-11-16
+ *     随该类型撤除，现不在本表）；
  *   · Pitfall（23 §12）是 `active` → 恰好正确（2026-11-03 取消 `draft` 后本类型无待确认档）。
  *
  * 合计 **142 条本可召回的事实**默认完全不可见。
  *
  * 逐条依据：
  *   · `20`「默认候选只包含 open Spark；implemented/discarded 不进入普通未处置候选」；
- *   · `21 §13`「默认候选只含 draft 与 open；closed 只在精确引用、证据链反查或历史追溯时展开」；
  *   · `23 §12`「默认候选只含 active」（2026-11-03 修订：`draft` 待确认态已取消，discarded 只在精确引用与历史追溯时展开）；
  *   · `26`「默认候选只含 `open`」（2026-10-26 修订：观察态已退出闭集）；resolved 与 voided 仅在精确引用时展开；
- *   · `22`「默认候选只含 active——当前决策基线就是 active 集本身」；
  *   · `27`「默认候选只含 active——当前生效规范就是 active 集本身」。
+ *
+ * （原列有一条 `21 §13` 关于 report 默认候选的引用与一条决策类类型的 `22` 引用；
+ * 前者规范号已撤除、后者随该类型撤除，2026-11-16 一并去掉。report 的现行依据
+ * 见上方 `report` 条目的 `24` 原文。）
  *
  * 未列出的类型沿用 `["active"]`（`24` 未对默认候选另作规定）。
  */
@@ -131,7 +134,6 @@ export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   // 但那是巧合而非声明：一旦回退默认值改动，report 会静默改变候选范围，
   // 且无任何测试报错。漂移检查用例发现此缺项。
   report: ["active"],
-  adr: ["active"],
   norm: ["active"],
   pitfall: ["active"],
   // **`subgoal` 于 2026-11 新增**（28 §12.4）：默认候选只含 `active`；
@@ -206,41 +208,41 @@ export function recallStatusPolicyOf(criteria, type) {
  * 召回不到——故 `source-recall.test.mjs` 有一条用例直接比对 specs 目录与本表。
  */
 export const REGISTERED_FACT_TYPES = Object.freeze([
-  "spark", "adr", "pitfall", "report", "goal", "friction", "norm", "subgoal",
+  "spark", "pitfall", "report", "goal", "friction", "norm", "subgoal",
 ]);
 
 /**
- * **必需优先**的事实类型（`03 §6.1` 标准路径：「完成所需的 **ADR/Pitfall** 召回」）。
+ * **必需优先**的事实类型（`03 §6.1` 标准路径：「完成所需的 Pitfall 召回」）。
  *
- * 为什么是「排序优先」而不是「过滤限定」：过滤会**漏**。
- *   · 过滤（曾试）：默认只召回这两类 → 「加个」这类短指令因只能搜这两类而
- *     召回不到东西（实测 inject 由 true 变 false），属真实退化。
- *   · 排序（现用）：仍召回全部被触发的类型，只是把 ADR/Pitfall 排在同层前面，
- *     确保它们不被 research 等无关类型挤掉（实测「写一个 ADR」曾在 limit=3 时
- *     返回两条 research、一条 adr 都没有）。
+ * **2026-11-16 收窄**：本常量曾并列一个决策类事实类型。该类型按 `specs/34 §8.4`
+ * 撤回留痕「ADR 决策基线 F1 常驻枚举自此废止」撤除后，只剩经验一类——这里保留
+ * 该处曾经并列过它的记录，不伪造「从来没有过」。
  *
- * `03 §6.1` 快通道那条写的是「不遍历**未被当前目标和来源规则触发的**全量规则或
- * 事实」——不该全量遍历，但被触发的仍应召回到。排序满足这一点而不牺牲召回面。
+ * 为什么是「排序优先」而不是「过滤限定」（历史理由，随该类型撤除已无并列对象，
+ * 但纪律不变）：过滤会**漏**——实测默认只召回点名类型时，「加个」这类短指令
+ * 召回不到东西（inject 由 true 变 false），属真实退化。故本常量是**声明**
+ * （`03 §6.1` 点名要求完成所需召回），由「默认候选状态集 + 不被过滤」与类型
+ * 点名层承担义务，**不承载排序轴**（类型等级表已于 2026-10-31 裁定删除）。
  */
-export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
+export const REQUIRED_RECALL_TYPES = Object.freeze(["pitfall"]);
 
 /**
  * **类型不参与排序**（2026-10-31 Human 裁定删除类型等级表）。
  *
- * 历史：本文件曾导出 `RECALL_TYPE_TIERS`（ADR=0／Norm=1／Pitfall=2／Friction=3）
+ * 历史：本文件曾导出 `RECALL_TYPE_TIERS`（决策类=0／Norm=1／Pitfall=2／Friction=3）
  * 与 `RECALL_TYPE_TIER_OTHER`，作为 `compareFactHits` 的末位键——「证据完全
  * 相同时才看类型」。该机制有三重问题，Human 已裁定删除：
  *
  *   1. **无规范承载**：specs/ 全库没有「类型等级」概念，`02 §9.2` 反而明禁
  *      「建立所有类型共用的相关性分数」；
  *   2. **与义务召回的实现重复**：`REQUIRED_RECALL_TYPES` 已是声明，而该表让
- *      ADR/Pitfall 同分时优先，属同一规则的第二个实现；
- *   3. **收益不抵成本**：实测其唯一可见效果是「写一个 ADR」等点名查询的次序，
+ *      点名类型同分时优先，属同一规则的第二个实现；
+ *   3. **收益不抵成本**：实测其唯一可见效果是「点名某个类型名」的查询次序，
  *      而那个场景的正确做法是**类型点名层**（见 `matchCandidate`），不是排序轴。
  *
  * 删除后的口径：**证据相同时不再有类型轴**——`tier`/`hits`/`weakHit` 全等时
  * 直接落到状态、时间与路径。`REQUIRED_RECALL_TYPES` 保留为**声明性常量**
- * （`03 §6.1` 点名要求「完成所需的 ADR/Pitfall 召回」），**无任何排序消费点**；
+ * （`03 §6.1` 点名要求完成所需召回），**无任何排序消费点**；
  * 其义务由「默认候选状态集 + 不被过滤」与类型点名层承担。
  */
 
@@ -253,7 +255,7 @@ export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
  *
  * ── 为什么不是 `types` 白名单（重要，别合并成一条路径）───────────────
  *
- * 直觉做法是注入时传 `types: ["adr","pitfall", …]`（正面枚举「要哪些」）。
+ * 直觉做法是注入时传 `types: ["norm","pitfall", …]`（正面枚举「要哪些」）。
  * 不采用，有两条据实的理由：
  *
  * 1. **正面枚举会在新增事实类型时静默漏掉它。** 本文件 `REGISTERED_FACT_TYPES`
@@ -570,7 +572,7 @@ const PARSED_CORPUS_CACHE = new Map();
  * 读一个语料目录的全部 `.md` 文件，返回 `[{ dir, name, text }]`。
  *
  * `dir` 是**相对语料根的子目录路径**（顶层文件为 `""`），`name` 是文件名。
- * 事实源用它取类型目录名（`adrs`/`frictions`/…），规范源不用（`dir` 恒为 `""`）。
+ * 事实源用它取类型目录名（`norms`/`frictions`/…），规范源不用（`dir` 恒为 `""`）。
  *
  * **并行读**：实测 274 个文件串行读 78ms、并行读 18ms。
  */
@@ -757,7 +759,7 @@ function parseFrontmatter(text) {
  * ── 依赖与失败姿态 ─────────────────────────────────────────────────
  *
  * `yaml`（^2.8.1）**已是本插件的直接依赖**（`plugin/package.json`，writer 侧
- * `adr-writer` / `friction-writer` / `goal-writer` 早已在用 `parseYaml`），
+ * 既有 writer 工具（`friction-writer` / `goal-writer` 等）早已在用 `parseYaml`），
  * 故此处不引入新依赖、不引入第二规则源。
  *
  * 解析失败**不抛出、不静默**：退回旧的行式解析器并如实置 `__yamlError`，
@@ -853,7 +855,7 @@ export function statusRank(status) {
  * 上一版此处误写成 `a.weakHit`／`a.tier`／`a.hits`（元素其实是 `{fact, index}`），
  * 三者都是 `undefined` → `undefined - undefined = NaN` → 而 `NaN !== 0` 为真
  * → 比较器**恒返回 NaN**。V8 对返回 NaN 的比较器不保证任何次序，排序退化为
- * 实现相关的乱序（实测「写一个 ADR」时 spark 排到 adr 前，两者证据完全相同）。
+ * 实现相关的乱序（实测点名某类型的查询里，spark 排到该类型之前，两者证据完全相同）。
  * 这类 bug 不抛错、既有测试还偶然通过。故本函数**保证任何合法输入都返回有限数**。
  *
  * @param {{fact: object, index: number}} a
@@ -868,7 +870,7 @@ export function compareFactHits(a, b) {
   //
   // 1. `weakHit`——强命中先于弱命中。**仍是第一键**：弱命中（只靠单字/通用词）
   //    即便类型等级最高也不该抢名额。实测反例见 `RECALL_TYPE_TIERS` 的注释
-  //    （6 条 ADR 靠「回」字压掉真正相关的 Pitfall）。
+  //    （实测某次 6 条同类对象靠「回」字压掉真正相关的 Pitfall）。
   // 2. `tier`——命中落在哪个字段（编号 > 适用范围 > 内容 > 标题 > 正文）。
   // 3. `hits`——跨层命中的 idf 加权厚度（降序）。只用于排序，不做裁决。
   // 4. `statusRank`——已准入先于未准入。
@@ -877,11 +879,11 @@ export function compareFactHits(a, b) {
   //
   // ── 「必需类型优先」不再是排序键（2026-10-31 Human 裁定）─────────────
   //
-  // 本函数曾以 `typeRank`（ADR > Norm > Pitfall > Friction > 其它）作末位键，
+  // 本函数曾以 `typeRank`（决策类 > Norm > Pitfall > Friction > 其它）作末位键，
   // 并在此处记有一条死代码教训。Human 已裁定删除该族常量（理由见文件头
   // `RECALL_TYPE_TIERS` 删除处的注释）：类型不是证据，**证据相同时不再有类型轴**。
-  // `REQUIRED_RECALL_TYPES` 仍是声明性常量，但**无排序消费点**——`22 §12` 的
-  // 义务召回由「默认候选状态集 + 不被过滤」与 `matchCandidate` 的类型点名层承担。
+  // `REQUIRED_RECALL_TYPES` 仍是声明性常量，但**无排序消费点**——`03 §6.1` 的点名
+  // 义务由「默认候选状态集 + 不被过滤」与 `matchCandidate` 的类型点名层承担。
   //
   // 曾经另一个候选实现是 `rank = (f) => REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1`；
   // 它当年就已证明是死代码，删除 `typeRank` 后**不得**把它捡回来充当替代——
@@ -983,41 +985,38 @@ export const RECALL_DIRECT_BYTE_BUDGET = 4000;
 export const RENDER_FIXED_OVERHEAD_BYTES = 720;
 
 /**
- * **基线段让位阈值**（字节）：总预算低于此值时，渲染层不输出基线段、本模块也不预留。
+ * **常驻索引段让位阈值**（字节）：总预算低于此值时，渲染层不输出常驻段、本模块也不预留。
  *
- * 依据：固定开销（720）+ 三态/截断披露行（约 300）已接近该值，再输出基线必顶破
- * 预算（实测 800 下任何基线形态都超：单行 898、并入披露行 870）。
+ * 历史名称沿用（`BASELINE_*` 前缀是标识符，不起行为作用；改名会波及变异锚点与
+ * 数十处测试断言而无行为收益）。它现在只服务**常驻索引段**（Norm 段与经验按需
+ * 行）的让位判定，与已撤除的决策基线不再有关。
+ *
+ * 依据：固定开销（720）+ 三态/截断披露行（约 300）已接近该值，再输出常驻段必顶破
+ * 预算（实测 800 下任何常驻段形态都超：单行 898、并入披露行 870）。
  */
 export const BASELINE_YIELD_BELOW_BYTES = 1200;
 
 /**
- * **基线段可占注入预算的比例分母**（3 = 最多占 1/3）。
- *
- * 基线是义务披露，但不得吃掉候选区全部份额——ADR 增长时宁可截断基线
- * （并如实披露）也要留住词法候选。
- */
-export const BASELINE_BUDGET_SHARE_DIVISOR = 3;
-
-/**
- * ── **L0 常驻枚举**（Human 决定 2026-11-04；2026-11-11 重订为两类 + 经验按需）──
+ * ── **L0 常驻枚举**（Human 决定 2026-11-04；2026-11-11 重订为经验按需；
+ * 2026-11-16 决策类类型撤除）──
  *
  * Human 的原话是「排序就是 ADR、事实规范、经验，这三个的 L0 是必须注入的，
- * 其他根据预算安排」。故注入面常驻的是**事实源侧三类对象的 F1 标识**（术语订正见 34 §8.4「分层归属」：
- * 事实源侧是 F1，规范源侧才是 L0），按
- * ADR → 事实规范（Norm）→ 经验（Pitfall）的次序分配，其余事实类型仍走词法候选。
+ * 其他根据预算安排」。**2026-11-16 变更**：其中的决策类事实类型已按
+ * `specs/34 §8.4` 撤回留痕（「ADR 决策基线 F1 常驻枚举自此废止」）撤除，故本组
+ * 常量只剩**事实规范（Norm）**一段；经验仍按需给索引（`PITFALL_ON_DEMAND_*`），
+ * 其余事实类型走词法候选。
  *
  * **为什么不覆盖元规范**（同日订正）：此前一段实现把 `specs/`（元规范）的标题
  * 全量常驻，理由是「词法匹配对规范侧 0/29」。那是**另一件事**：元规范已有既有的
  * 载体发现与读取通道（`01 §10` 的 L0–L4 读取、`ldvh_read_specification_candidates`），
  * 引导面亦已按 `01 §10.4` 注入规范锚点。在注入面再复制一份元规范标题清单，是
  * 在既有通道之外发一份可能漂移的第二索引，且不属 Human 所指的「事实规范」。
- * 故本组常量只覆盖事实源侧的三类对象，元规范目录整段撤除。
+ * 故本组常量只覆盖事实源侧的常驻对象，元规范目录整段撤除。
  *
  * **为什么必须是全量而不是词法候选**（`pitfall-8b3c5705` 同型结论）：依赖词法
- * 匹配的面不能保证某个已知对象进入注入位——换个说法就漏。而这三类对象是
- * 「AI 行动前必须核对」的东西：ADR 属法定效力决定（`22 §1`／`22 §12` 义务召回）、
- * 事实规范界定项目自身要求（`27 §10` 义务召回）、经验是不得重蹈的已知陷阱
- * （`23 §12` 的遵守预检消费点）。三者的可见性若取决于当回合用词，义务召回就悬空。
+ * 匹配的面不能保证某个已知对象进入注入位——换个说法就漏。事实规范界定项目自身
+ * 要求（`27 §10` 义务召回）、经验是不得重蹈的已知陷阱（`23 §12` 的遵守预检消费点），
+ * 二者的可见性若取决于当回合用词，义务召回就悬空。
  *
  * **本段是索引，不是候选**（`01.Att.03 §4`：L0 的直接用途是「发现、去重与精确
  * 定位」，「不能单独证明」列含「与当前事项相关、规则适用」）。故：
@@ -1026,19 +1025,19 @@ export const BASELINE_BUDGET_SHARE_DIVISOR = 3;
  *   · 段头逐字写明类型与 active 口径，段尾声明「不证明适用」；
  *   · 与候选行使用不同的行首（`·` 而非 `- `），结构上就进不了候选裁剪池。
  *
- * **字段只到 L0 为止**：ADR 带状态（`22 §12` F1 的 title+status）、Norm 带
- * `direction_key`（`27 §10` F1 的 direction_key+title）、经验只带标题。三类均
- * **不带** scope／正文／decision——那是 F2/F3 的内容，常驻会给注入面造成无谓的
- * 字节压力，且会把索引做成第二份语料。
+ * **字段只到 L0 为止**：Norm 带 `direction_key`（`27 §10` F1 的 direction_key+title）、
+ * 经验只带标题。两类均**不带** scope／正文——那是 F2/F3 的内容，常驻会给注入面
+ * 造成无谓的字节压力，且会把索引做成第二份语料。
  */
 // **2026-11-11 Human 决定**：「ADR 和事实规范的索引不能减少，经验应该是按需给出索引」
 // （`34 §8.4` 已按此重订）。故常驻段由三段缩为两段，`pitfall` 移出本数组——
 // 它不再逐条列标题，改为一行按需入口（`PITFALL_ON_DEMAND_*` 见下）。
+// **2026-11-16**：决策类类型撤除后再缩为本数组的单个成员（Norm）。
 //
 // **为什么不是把 `pitfall` 从段定义里整段删掉**：本文件多处按下标/按类型引用段，
 // 保留段头与入口常量可供按需行复用；且段序、份额计算都在此数组上派生，
 // 少一个元素即自动少一份份额——这是本决定**顺带释放预算**的实现路径。
-export const L0_SEGMENT_ORDER = Object.freeze(["adr", "norm"]);
+export const L0_SEGMENT_ORDER = Object.freeze(["norm"]);
 
 /** 经验按需入口的工具名（`34 §8.4`「入口须可用」要求它真实存在且能取全量）。 */
 export const PITFALL_ON_DEMAND_ENTRYPOINT = "ldvh_pitfall_list";
@@ -1055,7 +1054,7 @@ export const PITFALL_ON_DEMAND_ENTRYPOINT = "ldvh_pitfall_list";
 export const PITFALL_ON_DEMAND_HEADER = "【经验 · active Pitfall（23 §12 按需索引）】";
 
 /**
- * 各段的段头（逐字含类型与 active 口径；`adr` 沿用既有措辞以保引用稳定）。
+ * 各段的段头（逐字含类型与 active 口径；`pitfall` 沿用既有措辞以保引用稳定）。
  *
  * **措辞用 F1 不用 L0**（2026-11-15 术语订正，34 §8.4「分层归属」）：本段是
  * **事实源侧的 F1 常驻枚举**，不是规范源侧的 L0 发现层——`02 §9.1` 明写两套
@@ -1065,25 +1064,21 @@ export const PITFALL_ON_DEMAND_HEADER = "【经验 · active Pitfall（23 §12 �
  * 把「常量名 L0」读成「分层 L0」。
  */
 export const L0_SEGMENT_HEADERS = Object.freeze({
-  adr: "【决策基线 · active ADR（22 §12 义务披露）】",
   norm: "【事实规范 · active Norm（27 §10 F1 常驻枚举）】",
   pitfall: "【经验 · active Pitfall（23 §12 F1 枚举）】",
 });
 
 /** 各段的取全量入口（段尾披露「另有 N 条未列出」时一并给出）。 */
 export const L0_SEGMENT_ENTRYPOINTS = Object.freeze({
-  adr: "ldvh_adr_list",
   norm: "ldvh_norm_list",
   pitfall: "ldvh_pitfall_list",
 });
 
 /**
- * **常驻索引可占「固定开销与基线之外」剩余预算的比例分母**（3 = 至多三分之一）。
+ * **常驻索引可占「固定开销之外」剩余预算的比例分母**（3 = 至多三分之一）。
  *
- * 与 `BASELINE_BUDGET_SHARE_DIVISOR` 同一条方法论，但主体从「ADR 基线」扩到
- * 「Norm 段」：常驻段优先于词法候选，却不得把候选区吃干——
- * 否则 `34 §8.1` 第 1 项的「双源召回」会退化成「双源清单」（只剩常驻段，不再有
- * 按本次动作匹配的候选）。
+ * 常驻段优先于词法候选，却不得把候选区吃干——否则 `34 §8.1` 第 1 项的「双源召回」
+ * 会退化成「双源清单」（只剩常驻段，不再有按本次动作匹配的候选）。
  *
  * **为什么是 3 而不是 2**（2026-11-04 实测）：分母取 2 时，2400 档 L0 占 586 字节、
  * 候选只剩 714，且规范候选先吃 60% 后首条事实卡（549 字节）放不下——事实侧归零，
@@ -1146,8 +1141,8 @@ export const L0_NORM_NOTE = "（索引不证明适用；命中先读全文核对
  *   · `excerptUnavailable`——正文不合 27 §8 书写契约，机械导不出（须改载体）。
  * 二者都不得静默（`02 §9.1` 不得静默截断；`34 §12` 三态可分辨）。
  *
- * 装填次序即 Human 指定的次序：ADR 先，其次 Norm；前一段装不下才
- * 轮到后一段。每段超出的部分如实计数披露（`02 §9.1` 不得静默截断）。
+ * 装填次序沿用 Human 指定的次序（Norm 段在前；决策类类型已撤除、经验按需）；
+ * 前一段装不下才轮到后一段。每段超出的部分如实计数披露（`02 §9.1` 不得静默截断）。
  * 经验已于 2026-11-11 移出本序列（`34 §8.4` 重订），改由按需行承载。
  *
  * @param {Array<{type: string, entries: string[], excerpts?: string[], total: number}>} segments 按次序排好的常驻段
@@ -1292,9 +1287,10 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
     // `shown=4/5` 而 `excerptOmitted=5`，披露说「另有 5 条」而段尾说「仅容前
     // 4 条」，读者重复计数）。
     const recount = () => {
-      // **adr 段没有摘录这个部件**：`excerpts` 为空数组时不得把标题全数报成
-      // 「摘录降级」——那会让 ADR 段每回合多出一行毫无意义的披露，并把
-      // 「本类没有摘录概念」与「摘录被降级」混成一件事（34 §12 三态纪律）。
+      // **没有摘录部件的段**（当前即 Norm 之外的非摘录段；决策类类型撤除后
+      // 常驻序列只剩 Norm，本守卫作为防御保留）：`excerpts` 为空数组时不得把
+      // 标题全数报成「摘录降级」——那会让该段每回合多出一行毫无意义的披露，
+      // 并把「本类没有摘录概念」与「摘录被降级」混成一件事（34 §12 三态纪律）。
       if (!hasExcerpts) return { unavailable: 0, omitted: 0 };
       let unavailable = 0;
       for (let i = 0; i < kept.length; i += 1) {
@@ -1358,7 +1354,7 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
 }
 
 /**
- * 三段 L0 的**枚举输入**（只取身份字段，确定性排序）。
+ * 常驻段的**枚举输入**（只取身份字段，确定性排序）。
  *
  * 状态取各自类型的默认候选状态（`DEFAULT_STATUSES_BY_TYPE`，与词法候选同源，
  * 故「有词命中时基线 N 条、无词命中时基线 M 条」的漂移不可能出现）。
@@ -1376,7 +1372,6 @@ export function l0EnumerationOf(facts) {
     picked.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0)
       || (String(a.ref) < String(b.ref) ? -1 : String(a.ref) > String(b.ref) ? 1 : 0));
     const entries = picked.map((fact) => {
-      if (type === "adr") return `· ${fact.title}${fact.status ? `［${fact.status}］` : ""}`;
       // Norm 带 direction_key（`27 §10` F1 口径）：它是遵守预检的稳定入口。
       const directionKey = fact.structural?.directionKey;
       if (type === "norm" && typeof directionKey === "string" && directionKey !== "") {
@@ -1408,7 +1403,7 @@ export function l0EnumerationOf(facts) {
  * active 经验的真实总数（`34 §8.4` 第 1 项「总数须真实」的唯一计数口径）。
  *
  * **不能从 `l0EnumerationOf` 的结果里找 pitfall 段再兜底 0**（2026-11-11 缺陷）：
- * 该函数只遍历 `L0_SEGMENT_ORDER`（现为 adr/norm），经验已改为按需、不在常驻段里。
+ * 该函数只遍历 `L0_SEGMENT_ORDER`（现为 norm），经验已改为按需、不在常驻段里。
  * 故「找不到 pitfall 段」只表示「经验不在常驻枚举」，不表示「本项目没有经验」；
  * 用 `?? 0` 会把「未枚举」说成「本类为空」，直接违反 34 §12 三态与 §8.4 第 1 项。
  * 计数按与词法候选同源的默认状态集，避免第二套判定。
@@ -1443,7 +1438,7 @@ export function l0LinesOf(plan) {
  * 取值依据（实测 2026-10-25，本仓语料）：
  *   · 引导面 governed 实际 2675 字节；
  *   · 召回面去冗余后 2400 预算下最大 2130 字节、3000 下 2721 字节；
- *   · 两块合计约 4.8–5.4K → 故 10K 档已留约 2 倍余量，足以容纳 ADR 增长与
+ *   · 两块合计约 4.8–5.4K → 故 10K 档已留约 2 倍余量，足以容纳常驻段增长与
  *     更长语料；20K 以上属「大语料项目」的宽裕档。
  *
  * **档位值是受控常量**：改档位集合本身须走受控提交 + Human 决定（`34 §15.1`
@@ -1829,7 +1824,7 @@ export async function loadSpecs(specsDir) {
 /**
  * 载入事实源 `ldvh-base/`。
  *
- * 每个子目录是一个事实类型（adrs/frictions/norms/pitfalls/researches/sparks）。
+ * 每个子目录是一个事实类型（frictions/norms/pitfalls/researches/sparks）。
  * 取 `title` / `status` 与类型相关的可匹配字段（scope、decision、phenomenon、question、
  * research_question、gist、trigger_signal 等），外加正文前若干行做补充匹配。
  *
@@ -2048,7 +2043,6 @@ export async function loadFacts(baseDir, options = {}) {
         updatedAt: updatedAtOf(fm),
         // **F2「有界确定性摘录」的来源**（`02 §9.1`）：按类型取最能代表内容的短字段。
         //   · spark → summary（20：完整的当前语义快照）
-        //   · adr → decision（22：单句决策）
         //   · friction → phenomenon（26：单句现象陈述）
         //   · research → research_question
         //   · pitfall → scope（23：六要素住正文，frontmatter 只有 scope/trigger_signal）
@@ -2166,9 +2160,9 @@ export const STRUCTURAL_MATCH_FIELDS = Object.freeze([
  * 取 `object_uid` 的前 8 位。**为什么要补这一档（实测）**：本仓语料里
  * 「类型短名 + 前 8 位」这一形态出现 **726 次、去重 186 个对象**
  * （friction 236、spark 124、research 101、pitfall 86、
- * adr 7、norm 6、goal 1）——这是人和 AI 实际写出来的指称形态。
- * 而改造前的结构层**只认完整 36 位 uid**，于是最常用的那种写法恰好查不到：
- * `adr-62d3e2d8` 与裸 `62d3e2d8` 均 0 命中，只有
+ * norm 6、goal 1；其中另有 7 个属一个已于 2026-11 撤除的类型）——这是人和 AI
+ * 实际写出来的指称形态。而改造前的结构层**只认完整 36 位 uid**，于是最常用的
+ * 那种写法恰好查不到：`<类型短名>-62d3e2d8` 与裸 `62d3e2d8` 均 0 命中，只有
  * `62d3e2d8-7202-4e13-902e-788ec4bca9ed` 才行。
  *
  * **为什么不是「子串匹配」**：只认**整词恰好等于**「8 位十六进制」或
@@ -2441,7 +2435,7 @@ const CJK_CHAR = /[\u3400-\u9fff]/;
  * ∪ 判据表「类型词别名」白名单（02 §12.4）。返回命中的词，未命中返回 `null`。
  *
  * 两条**字面**规则：
- *   · ASCII 词：与查询 token **整词相等**（`adr` 不得命中 `adrenal`）；
+ *   · ASCII 词：与查询 token **整词相等**（`spark` 不得命中 `sparkle`）；
  *   · 中文别名：查询原文**含完整别名**，且别名右侧**不紧接汉字**。
  *     右侧边界是必需的——「火花乙」里的「火花」是一个更长的对象名，把它读成
  *     「点名类型 spark」会让该类型全部对象同层并列，真正点名的那条被字典序挤掉。
@@ -2568,8 +2562,8 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
 
   // **事实侧类型点名（闭集，2026-10-31）**：让类型点名对**事实对象**生效。
   //
-  // 类型词集合 = `fact_type_key` 派生词（`adr`/`adrs` 等，大小写不敏感整词）
-  // ∪ 判据表「类型词别名」白名单（`22 §12.4`）。**禁止开放词表**——开放词表
+  // 类型词集合 = `fact_type_key` 派生词（`norm`/`norms` 等，大小写不敏感整词）
+  // ∪ 判据表「类型词别名」白名单（`02 §12.4`）。**禁止开放词表**——开放词表
   // 正是历史回归根因：查询里的 `agent` 让 4 条调研文档以「类型点名」冲顶，
   // 与「点名某个类型」毫无关系。闭集成员由判据表逐类型登记，可穷举、可审计。
   //
@@ -2614,12 +2608,12 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
   // 点名的是某个**事实类型**，最该命中该类型自己的规范。
   //
   // 实测缺陷（2026-10-24）：类型点名时首位可能不是目标规范——因为类型名会出现在
-  // 多份规范的 scope 里（实测某类型名命中 6 份、adr/pitfall/spark 各 4 份），同层
+  // 多份规范的 scope 里（实测某类型名命中 6 份、若干类型名各 4 份），同层
   // 同分后只能按路径字典序，序号小的规范被排到前面。
   //
   // 判据：查询的某 token **整词等于**本规范标题里出现的类型短名。标题形如
-  // `Spark-火花`、`ADR-决策`——取标题中 ASCII 词作为类型名，
-  // 与查询 token 做**大小写无关的整词比较**（不认子串，避免 `adr` 命中 `adrenal`）。
+  // `Spark-火花`、`Pitfall-踩坑经验`——取标题中 ASCII 词作为类型名，
+  // 与查询 token 做**大小写无关的整词比较**（不认子串，避免 `spark` 命中 `sparkle`）。
   // 这是确定性事实（标题里有没有这个词），无权重、无 AI 判断。
   //
   // **事实侧另走闭集**（2026-10-31 修，见上）：本段仍只对规范生效，因为规范
@@ -2629,7 +2623,7 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
   // Agent 调研文档以 `类型点名命中：agent` 冲顶，把真正相关的 Pitfall 挤出
   // limit。事实侧永远**不得**从标题/正文自由取词作类型名。
   if (candidate.source === "spec" && typeof candidate.title === "string") {
-    // **注意尾部连字符**：`Spark-火花`、`ADR-决策` 这类标题里，贪婪匹配会把
+    // **注意尾部连字符**：`Spark-火花`、`Pitfall-踩坑经验` 这类标题里，贪婪匹配会把
     // 分隔用的 `-` 吞进词里（实测 `Pitfall-踩坑经验` 得到 `pitfall-`，
     // 导致与查询词 `pitfall` 永不相等）。故尾部连字符不算词的一部分。
     const titleTypeNames = (candidate.title.match(/[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*/g) ?? []).map((w) => w.toLowerCase());
@@ -2743,8 +2737,8 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
   // 对查询「在 Git Gate 再加一条校验：header 必须带英文」全文命中 7 个词
   // （gate/header/一条/校验/提交/提/必须），却只被记为 `hits=1`——因为它在
   // tier 1 只命中「提交」一个。结果它与另外 3 条 hits=1 并列，最后按 **UUID
-  // 字典序** 决定谁进 top-3，被挤出注入位（`adr-7ceaf7fc` < `pitfall-9665d624`
-  // < `pitfall-a1b997d0` < `pitfall-daed4856`）。
+  // 字典序** 决定谁进 top-3，被挤出注入位（其中一条是已撤除的决策类对象
+  // `adr-7ceaf7fc`，另三条是 `pitfall-*`，短指称前缀恰好决定了该序）。
   //
   // 排序据此判断「谁更相关」，而实际决定名次的是 UUID 字母序——这不是相关性
   // 判断，是伪随机。故把命中面改为**全部层累计**：`tier` 仍是「最精确的命中层」
@@ -2847,7 +2841,7 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
  * @param {object} input
  * @param {string} input.action       动作描述（即将发生什么）
  * @param {string} [input.scope]      补充范围词（文件/对象/能力，34 §7 必需输入）
- * @param {string[]} [input.types]    只召回这些事实类型（adrs/norms/pitfalls/…）
+ * @param {string[]} [input.types]    只召回这些事实类型（norms/pitfalls/sparks/…）
  * @param {string[]} [input.excludeTypes] 这些类型**不属本次声明范围**（不形成候选，
  *   且**不使完整度降级**、不进 `excludedByTypeFilter`——它们不是「本次漏查」，
  *   而是由另一条路径承接）。注入路径用 `INJECTION_EXCLUDED_TYPES` 传入。
@@ -3072,26 +3066,24 @@ function relationExpansionsOf(hitCards, pool, scopedFacts, criteria) {
 }
 
 /**
- * 只枚举 F1 决策基线（active ADR），不跑任何词法匹配。
+ * 只枚举常驻索引（事实规范段与经验按需计数），不跑任何词法匹配。
  *
- * **为什么需要单独一个入口**（2026-11-03）：`22 §12` 的义务召回要求「相关行动
- * 开始前，AI 必须召回并核对相关 active ADR」，其可见性**不得**取决于本回合是否
- * 走词法召回。而 `recallForAction` 会在两处整体短路：
+ * **为什么需要单独一个入口**（2026-11-03）：常驻索引的义务召回（`27 §10` 事实
+ * 规范、`23 §12` 经验消费点）要求其可见性**不得**取决于本回合是否走词法召回。
+ * 而 `recallForAction` 会在两处整体短路：
  *   · 动作描述切不出主题词 → `recall/no_tokens`（如「是不是应该」「怎么办」）；
  *   · 判为纯读取/纯查询 → 调用方 `buildRecallInjection` 在调用前就返回。
  * 这两条短路都是 `34 §6` 的**词法候选**排除条件，针对的是「本次有哪些相关候选」，
- * 与 F1 基线「当前决策全貌」无关。短路时连基线一起吞掉，等于把义务召回重新绑回
- * 当回合用词——正是方案 A（Human 2026-10-25）要消除的缺陷。
+ * 与常驻索引「当前有哪些必须核对的对象」无关。短路时连常驻索引一起吞掉，等于把
+ * 义务召回重新绑回当回合用词。
+ *
+ * **2026-11-16 收窄**：本入口此前还承载一个决策类类型的常驻基线；该类型已按
+ * `specs/34 §8.4` 撤回留痕（「ADR 决策基线 F1 常驻枚举自此废止」）撤除，故现在
+ * 只返回常驻索引段与经验按需计数。函数名沿用（导出名是标识符，改名会波及调用点
+ * 与测试断言而无行为收益）。
  *
  * **边界**：只读事实源，不读规范源、不建索引、不写任何东西；返回结构与
- * `recallForAction` 的 `decisionBaseline`／`l0Enumeration` 同形，故渲染层无需
- * 第二套逻辑。
- *
- * **2026-11-04 扩至三段**（Human 决定）：ADR、事实规范（Norm）、经验（Pitfall）
- * 的 L0 都必须注入，且都不依赖词法命中。故本入口同时给出三段的枚举——
- * `decisionBaseline` 仍只承载 ADR（形状不变，既有消费方与断言无需改动），
- * `l0Enumeration` 承载 Norm 段与经验段（ADR 段在其中被跳过，避免同一批对象
- * 出现两份渲染）。
+ * `recallForAction` 的 `l0Enumeration` 同形，故渲染层无需第二套逻辑。
  *
  * @param {{root?: string, budgetBytes?: number|null}} [input]
  */
@@ -3102,56 +3094,34 @@ export async function baselineOnlyForAction(input = {}) {
   const factsDir = join(root, "ldvh-base");
   const factsReadable = await isReadableDir(factsDir);
   // 事实源不可读时不抛错：与 `recallForAction` 同口径，把「读不到」如实标进
-  // `sourceUnreadable`，绝不返回空 items 让读者读成「本项目没有 ADR」。
+  // `sourceUnreadable`，绝不返回空 items 让读者读成「本项目没有这些对象」。
   const facts = factsReadable ? await loadFacts(factsDir) : [];
-  // **不受任何过滤影响**（22 §12／02 §9.1 F1）：不传 types/statuses/limit，只按
+  // **不受任何过滤影响**（`02 §9.1` F1）：不传 types/statuses/limit，只按
   // 各自类型的默认候选状态取——与 `recallForAction` 内的枚举同源同序，两处若
-  // 不一致会出现「有词命中时基线 3 条、无词命中时基线 2 条」的漂移。
+  // 不一致会出现「有词命中时 N 条、无词命中时 M 条」的漂移。
   const enumeration = l0EnumerationOf(facts);
-  const adrSegment = enumeration.find((segment) => segment.type === "adr");
-  const active = facts.filter(
-    (fact) => fact.type === "adr" && (DEFAULT_STATUSES_BY_TYPE.adr ?? DEFAULT_STATUSES_FALLBACK).includes(fact.status),
-  );
-  // 确定性排序：标题码点序，同标题再按稳定引用兜底（02 §9 红线，无权重）。
-  active.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
-  const items = active.map((fact) => ({
-    title: fact.title,
-    status: fact.status,
-    ref: fact.ref,
-    path: fact.path,
-  }));
-  // Norm 段与经验段：与完整路径同一规划函数（份额与让位阈值同源）。
+  // 常驻段：与完整路径同一规划函数（份额与让位阈值同源）。
   //
-  // **Norm 段同样不进本路径**（2026-11-15，Human 决定）：规范目录独立成一行注入
-  // （`norm-directory.js`），两条召回路径（行动前候选／纯读取基线）都不得并列同一
+  // **事实规范段不进本路径**（2026-11-15，Human 决定）：规范目录独立成一行注入
+  // （`norm-directory.js`），两条召回路径（行动前候选／纯读取回合）都不得并列同一
   // 份目录——漏掉一条就会出现「行动前回合没有、纯读取回合有」的不一致，读者会
   // 读成「有时注入有时不注入」。
   const l0Plan = planL0Enumeration(
-    enumeration.filter((segment) => segment.type !== "adr" && segment.type !== "norm"),
+    enumeration.filter((segment) => segment.type !== "norm"),
     budgetBytes,
     RENDER_FIXED_OVERHEAD_BYTES,
   );
   return {
     ok: true,
-    decisionBaseline: {
-      items,
-      sourceUnreadable: !factsReadable,
-      pagination: { hasCursor: false, howToGetAll: "本字段即全量 active ADR（不按 limit 截断）；逐条全文用 ldvh_adr_read" },
-      note: "F1 枚举：不受本次 limit／types／预算影响；retired 不入基线（22 §12）",
-      // 本路径不跑词法召回，故没有候选区与基线争预算，预留恒为 0。
-      reservedBytes: 0,
-    },
     l0Enumeration: {
       order: [...L0_SEGMENT_ORDER],
       segments: l0Plan.segments,
       bytes: l0Plan.bytes,
       note: l0Plan.note,
       sourceUnreadable: !factsReadable,
-      // ADR 段的对象已在 `decisionBaseline.items` 里，此处只报条数供核对。
-      adrTotal: adrSegment?.total ?? 0,
       // **经验按需通道的计数**（`34 §8.4` 2026-11-11 重订）：经验不再逐条常驻，
       // 但必须给出**真实总数**，否则「本类为空」与「未列出」无法分辨（34 §12 三态）。
-      // **不得从 `enumeration` 里找**：该枚举只覆盖常驻段（adr/norm），经验已转按需；
+      // **不得从 `enumeration` 里找**：该枚举只覆盖常驻段（现为 norm），经验已转按需；
       // 找不到 pitfall 段不等于 0 条——那正是 2026-11-11 的缺陷（纯读取回合报「0 条」）。
       // 计数与全量路径共用 `countActivePitfalls`，两路径才不会漂移；读不到给 null。
       pitfallTotal: factsReadable ? countActivePitfalls(facts) : null,
@@ -3189,10 +3159,10 @@ export async function recallForAction(input = {}) {
   // `02 §12.4` 的机械项，须从判据表读，不能在这里读硬编码表。
   // 事实类型过滤。**默认不限定类型**——`03 §6.1` 快通道那条写的是「不遍历
   // **未被当前目标和来源规则触发的**全量规则或事实」，即：不该全量遍历，
-  // 但被触发的类型仍应召回。曾把默认收窄为 `["adr","pitfall"]`，结果
-  // 「加个」这类短指令因只能搜这两类而召回不到东西（实测 inject 由 true 变 false）。
+  // 但被触发的类型仍应召回。曾把默认收窄为「点名类型 + 一个决策类类型」两类，
+  // 结果「加个」这类短指令因只能搜这两类而召回不到东西（实测 inject 由 true 变 false）。
   //
-  // ADR/Pitfall 的优先级**不靠过滤**（过滤会漏），也**不靠排序类型轴**（2026-10-31
+  // 点名类型的优先级**不靠过滤**（过滤会漏），也**不靠排序类型轴**（2026-10-31
   // Human 已裁定删除 `typeRank` 族）：它们由默认候选状态集保证「不被过滤」，
   // 由类型点名层保证「点名时居首」。`REQUIRED_RECALL_TYPES` 保留为**声明性常量**，
   // **无排序消费点**。
@@ -3482,7 +3452,7 @@ export async function recallForAction(input = {}) {
         // 依据 Human 的判断：「优先按匹配程度，其次按最后更新时间」。
         // **为什么不让时间当主键**：本仓事实的创建时间跨度是 2026-09-09 至
         // 2026-11-03，若「越新越前」优先，一条今天新建的待办记录会压掉
-        // 2026-09-09 的权威 ADR——新 ≠ 更适用。故它只在**证据强度相同时**
+        // 2026-09-09 的权威对象——新 ≠ 更适用。故它只在**证据强度相同时**
         // 用于「同等相关里优先看较近的」。
         // 字符串比较安全：ISO-8601 固定长度、统一 `Z` 时区。空串（取不到时间）
         // 排在同分组末尾，不伪造当前时间。
@@ -3547,22 +3517,22 @@ export async function recallForAction(input = {}) {
     source: {
       tier: "project",
       // 用**全文**算指纹：用截断后的 body 会让载体后半部分的变化对指纹不可见
-      // （实测某 ADR 真实 3796 字符，body 只 1200——后 2596 字符的内容变化查不出）。
+      // （实测某对象真实 3796 字符，body 只 1200——后 2596 字符的内容变化查不出）。
       contentFingerprint: contentFingerprintOfCached(c.fullText ?? c.body ?? "", c),
     },
   })).map((fact, index) => ({ fact, index }))
     // **必需类型优先**（`03 §6.1` 标准路径的点名要求）。
     // ── 排序键：类型优先级**只在同分时生效**（2026-10-27 修，第 1 步）──────
     //
-    // **原实现的缺陷**：这里曾把「是否属于 ADR/Pitfall」作为**第一排序键**无条件
-    // 前置，把 `collect` 已经排好的质量次序整体推翻。实测证据（「这次改动会不会
+    // **原实现的缺陷**：这里曾把「是否属于点名类型（Pitfall 等）」作为**第一排序键**
+    // 无条件前置，把 `collect` 已经排好的质量次序整体推翻。实测证据（「这次改动会不会
     // 把已有的缓存弄坏」）：唯一命中「缓存」的那条 friction（`宿主缓存旧模块致
-    // precheck 误报`，命中层级 tier 2）被 28 条 adr/pitfall/spark 压在**第 29 位**
+    // precheck 误报`，命中层级 tier 2）被 28 条同类命中压在**第 29 位**
     // ——而其中多数只是靠「改」「提」这类通用词命中 tier 1。10K 档注入约前
     // 20 行，它必然进不去。
     //
-    // 这不是「ADR/Pitfall 不重要」。恰恰相反：`22 §12` 要求相关行动前必须召回
-    // active ADR，故必需类型**不能被过滤**。但「必需」的正确承载方式是与同等
+    // 这不是「点名类型不重要」。恰恰相反：`03 §6.1` 要求相关行动前完成所需召回，
+    // 故点名类型**不能被过滤**。但「必需」的正确承载方式是与同等
     // 证据比较时优先，**不是无条件压过证据更强的其它类型**——后者会让「最强命中
     // 排不进注入位」，而注入位恰恰是最稀缺的资源。
     //
@@ -3633,64 +3603,12 @@ export async function recallForAction(input = {}) {
   // 的「注入内容……未超 LDVH 侧常量预算」。
   //
   // 预留值取 RENDER_FIXED_OVERHEAD_BYTES（720，共享常量，见文件头注释）。
-  // **F1 决策基线段也须计入固定开销**（2026-10-25，方案 A 落地）。
-  //
-  // 基线段在渲染层是**固定输出**（`22 §12` 义务披露，无条件），所以它和标题/
-  // 声明行一样，属于「不随候选条数变化但必占预算」的部分。若不在这里扣掉，
-  // 预算会按「只有候选」来分配，实际注入时基线再挤进来——实测 2400 预算下
-  // 基线（约 267 字节 + 段头/声明约 90 字节）导致候选被多裁 2 条，
-  // 即「表面上预算没超，实际候选被基线挤掉且裁剪原因归错」。
-  //
-  // 先枚举基线（它只依赖已加载的 facts），算出其字节量，再据此收紧可用预算：
-  // 候选区与基线各自有界，互不吃掉对方的份额。
-  const decisionBaselineForBudget = (() => {
-    // **状态判定复用受漂移守卫的常量**（第四十次审核 Minor-5）：此前硬编码
-    // `"active"`，而 `DEFAULT_STATUSES_BY_TYPE.adr`（本文件 :125）才是有
-    // `recall-spec-drift.test.mjs` 守卫、随 22 状态闭集同步的那份。两处不一致
-    // 时基线会静默漂移（第二规则源风险，01 §11.4）。
-    const adrActiveStatuses = DEFAULT_STATUSES_BY_TYPE.adr;
-    const active = scopedFacts.filter(
-      (fact) => fact.type === "adr" && adrActiveStatuses.includes(fact.status),
-    );
-    // 确定性排序（`02 §9` 红线）：标题码点序，同标题再按稳定引用兜底。
-    active.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
-    return active.map((fact) => ({
-      title: fact.title,
-      status: fact.status,
-      ref: fact.ref,
-      path: fact.path,
-    }));
-  })();
-  // **基线段预留**（2026-10-25，第四十次审核 M-1/Minor-2 修复）：
-  // 预留必须与渲染层的实际消耗**同口径**，否则会出现「预留 400、实际 473」
-  // 的欠预留（实测 1200–1466 窗内最多欠 73 字节，直接导致注入超预算）。
-  //
-  // 渲染层基线段实际由三部分构成，这里逐项对齐（常量取自 recall-injection.js，
-  // 不在本文件重复字面量）：
-  //   · 条目行：`· 标题［status］` + 换行
-  //   · 段头：`【决策基线 · active ADR（22 §12 义务披露）】`
-  //   · 段尾：适用性声明 `（基线只保证「看得见」…）`
-  //   · 可能的省略披露行 `（基线按字节上限 N 列出前 M 条…）`
-  const BASELINE_HEADER = "【决策基线 · active ADR（22 §12 义务披露）】";
-  const BASELINE_FOOTER = "（基线只保证「看得见」，**不证明适用**：逐条是否适用于本次行动须自行判断。）";
-  // 省略披露行按最坏情形估（三位数条数 + 三位数上限）。
-  const BASELINE_OMIT_NOTE_BYTES = 150;
-  const baselineItemBytes = decisionBaselineForBudget.reduce(
-    (sum, item) => sum + Buffer.byteLength(`· ${item.title}［${item.status}］`, "utf8") + 1,
-    0,
-  );
-  const baselineFullBytes = decisionBaselineForBudget.length === 0
-    ? 0
-    : baselineItemBytes
-      + Buffer.byteLength(BASELINE_HEADER, "utf8") + 1
-      + Buffer.byteLength(BASELINE_FOOTER, "utf8") + 1
-      + BASELINE_OMIT_NOTE_BYTES;
-  const baselineScaledCap = Math.floor(budgetBytes / BASELINE_BUDGET_SHARE_DIVISOR);
-  // 与渲染层同一阈值（共享常量）：低于让位阈值时渲染层**不输出基线段**，
-  // 故数据层也不再预留——否则候选会白白少放，而基线又没出现在文本里。
-  const baselineBytes = decisionBaselineForBudget.length === 0 || budgetBytes < BASELINE_YIELD_BELOW_BYTES
-    ? 0
-    : Math.min(baselineFullBytes, baselineScaledCap);
+  // **2026-11-16**：这里曾有「决策基线段」的独立预留——按条目行（`· 标题［status］`）
+  // + 段头 + 段尾适用性声明 + 省略披露行逐项对齐渲染层，占注入预算最多 1/3。
+  // 该常驻段按 `specs/34 §8.4` 撤回留痕「ADR 决策基线 F1 常驻枚举自此废止」撤除后，
+  // 预留一并去掉：预留必须与渲染层的实际消耗**同口径**（2026-10-25 第四十次审核
+  // M-1/Minor-2 的教训），留一份不再渲染的字节账只会反向压掉候选条数。
+  // 固定开销 `RENDER_FIXED_OVERHEAD_BYTES` 仍是唯一的不随候选变化的预留项。
   const estimateLineBytes = (item) => {
     const title = typeof item.title === "string" ? item.title : "";
     const reason = typeof item.hitReason === "string" ? item.hitReason : "";
@@ -3717,46 +3635,46 @@ export async function recallForAction(input = {}) {
     return Buffer.byteLength(`${title}${reason}${path}${excerpt}${stableRef}`, "utf8")
       + structuralBytes + 8;
   };
-  // ── **三段 L0 常驻枚举的预算次序**（Human 决定 2026-11-04）───────────────
+  // ── **常驻索引段的预算次序**（Human 决定 2026-11-04；2026-11-16 收窄）─────────
   //
   // Human 的原话：「排序就是 ADR、事实规范、经验，这三个的 L0 是必须注入的，
-  // 其他根据预算安排」。故注入面按 **ADR → 事实规范（Norm） → 经验（Pitfall）**
-  // 装填常驻索引段（F1 口径），**之后**剩下的字节才归词法候选（其余类型按预算安排）。
+  // 其他根据预算安排」。**2026-11-16**：其中的决策类类型已按 `specs/34 §8.4`
+  // 撤回留痕撤除，故注入面只剩 **事实规范（Norm）** 一段常驻（经验按需给索引行），
+  // **之后**剩下的字节才归词法候选（其余类型按预算安排）。
   //
   //   budgetBytes
   //     − RENDER_FIXED_OVERHEAD_BYTES（标题/声明/分节头）
-  //     − baselineBytes      （ADR 段；22 §12 义务披露，含 1/3 上限与让位阈值）
-  //     − l0Plan.bytes       （Norm 段 + 经验段；份额见 `L0_SHARE_DIVISOR`）
+  //     − l0Plan.bytes       （Norm 段；份额见 `L0_SHARE_DIVISOR`）
   //     = usableBudget       （词法候选，含规范候选与其余事实类型的候选）
   //
-  // 三段 L0 不是候选（`01.Att.03 §4`：L0 只证明「有这些」，不证明相关或适用），
+  // 常驻段不是候选（`01.Att.03 §4`：L0 只证明「有这些」，不证明相关或适用），
   // 故不占 `limit` 名额、不带命中理由，并各自成节、逐段在超预算时如实计数披露
   // （`02 §9.1` 不得静默截断）。
   //
-  // **为什么不预扣「三段全量」而不设份额**：实测本仓三段约 2.8K（ADR 104 +
+  // **为什么设份额而不是预扣全量**：实测本仓常驻段约 2.8K（决策类 104 +
   // Norm 80 + 经验 48 条标题 2600），默认档 10240 下份额足够全量装下；但小预算
   // （2400／4000）若让经验段吃满，词法候选会被压成零——那会与 `34 §8.1` 第 1 项
   // 「双源召回」直接冲突（只剩清单、不再有按本次动作匹配的候选）。故设份额并
   // **在超份额时如实披露**，而不是二选一。
-  // **枚举只算一次**：`planL0Enumeration` 只承接 adr 之外的两段（adr 由决策基线承载），
-  // 但经验总数要单独取回——故先整体算一遍再分流，避免同一批数据算两次而漂移。
+  // **枚举只算一次**：`planL0Enumeration` 只承接常驻段，但经验总数要单独取回
+  // ——故先整体算一遍再分流，避免同一批数据算两次而漂移。
   const l0AllSegments = l0EnumerationOf(scopedFacts);
-  // **经验总数须单独算**：`l0EnumerationOf` 只遍历 `L0_SEGMENT_ORDER`（现为 adr/norm），
+  // **经验总数须单独算**：`l0EnumerationOf` 只遍历 `L0_SEGMENT_ORDER`（现为 norm），
   // 经验已不在其中——它按需而不常驻。但它仍须给出真实总数（`34 §8.4` 第 1 项），
   // 故此处按与枚举同源的默认状态集另行计数，口径一致、不引入第二种判定。
   const l0PitfallTotal = countActivePitfalls(scopedFacts);
   // **Norm 段不进召回计划**（2026-11-15，Human 决定）：规范目录搬到**引导层**
   // （`norm-directory.js`，宿主框架层、每回合组装、不受召回预算约束）。召回块里
   // 不再并列同一份目录——两份目录会形成第二权威，且召回块那份仍带候选区的
-  // 「命中不等于适用」措辞（对按类型枚举的目录是误述）。ADR 段照旧由决策基线
-  // 承载、经验照旧按需，故此处只余空计划：召回预算全部回到候选区。
+  // 「命中不等于适用」措辞（对按类型枚举的目录是误述）。经验照旧按需，故此处
+  // 只余空计划：召回预算全部回到候选区。
   const l0Plan = planL0Enumeration(
-    l0AllSegments.filter((segment) => segment.type !== "adr" && segment.type !== "norm"),
+    l0AllSegments.filter((segment) => segment.type !== "norm"),
     budgetBytes,
-    RENDER_FIXED_OVERHEAD_BYTES + baselineBytes,
+    RENDER_FIXED_OVERHEAD_BYTES,
   );
   const l0Bytes = l0Plan.bytes;
-  const usableBudget = Math.max(0, budgetBytes - RENDER_FIXED_OVERHEAD_BYTES - baselineBytes - l0Bytes);
+  const usableBudget = Math.max(0, budgetBytes - RENDER_FIXED_OVERHEAD_BYTES - l0Bytes);
   // **保底只在整个结果为空时才生效**，不是「每个源各自保底」。
   //
   // 实测缺陷（2026-10-24）：原实现对 specs 与 facts **分别**调用保底——specs 收了
@@ -3788,12 +3706,12 @@ export async function recallForAction(input = {}) {
     return true;
   };
   const keptSpecs = specHits.filter(fitsSpec);
-  // **词法候选只吃三段 L0 之后的余量**（Human 决定 2026-11-04：L0 三段必须注入，
+  // **词法候选只吃常驻索引段之后的余量**（Human 决定 2026-11-04：常驻段必须注入，
   // 「其他根据预算安排」——「其他」既含其余事实类型的候选，也含本次命中的规范
-  // 候选行；它们不进 L0 索引，故属「按预算安排」的那一侧）。
+  // 候选行；它们不进常驻索引，故属「按预算安排」的那一侧）。
   //
-  // 次序因此是：ADR 段（基线）→ Norm 段 → 经验段 → 规范候选 → 事实候选。
-  // 前四者都不受本回合用词影响；只有最后一段随动作变化。
+  // 次序因此是：Norm 段 → 经验按需行 → 规范候选 → 事实候选（决策类段已随该类型
+  // 撤除，2026-11-16）。前三者都不受本回合用词影响；只有最后一段随动作变化。
   const keptFacts = factHits.filter(fits);
   if (keptSpecs.length === 0 && keptFacts.length === 0) {
     // 整体为空 → 保底第一条（规范优先，否则事实）。
@@ -3823,7 +3741,7 @@ export async function recallForAction(input = {}) {
   // 故判断改为「候选行 + 渲染开销 > 预算」。这也使极小预算下的保底如实标记
   // overBudget（保底本就是明知超额仍给一条，必须说清）。
   const overBudget =
-    used + RENDER_FIXED_OVERHEAD_BYTES + baselineBytes + l0Bytes > budgetBytes;
+    used + RENDER_FIXED_OVERHEAD_BYTES + l0Bytes > budgetBytes;
 
   // **源可读性一次计算、四处复用**（2026-10-25 第六次审核 N-1）：三态判定、
   // gaps 登记、sourceNotRead 清单与 note 措辞必须对「哪一源不可读」说同一句话，
@@ -3845,76 +3763,26 @@ export async function recallForAction(input = {}) {
     return "complete";
   })();
 
-  // **F1 决策基线**（`02 §9.1` F1：「类型来源要求的最小权威字段卡片；需要时为
-  // 全部指定对象集合分页返回」，用途「建立恢复基线、当前决策/责任全貌」）。
-  //
-  // 为什么它必须**独立于词法命中**（2026-10-25，Human 决定）：
-  // `22 §1` 把 ADR 定为「对 AI 具有持续约束力的**法定效力**决定……违背 active ADR
-  // 的行动视同违背规范源」；`22 §12` 又立「**义务召回原则**：相关行动开始前，AI
-  // 必须召回并核对相关 active ADR——这是义务而非「需要时查阅」」，并把 F1 明确
-  // 定义为「F1 枚举 active ADR **计数**（title + status）」（逐字含「计数」二字，
-  // 第四十次审核 Minor-1 修正）、把「当前决策基线就是 active 集本身」写进同一节。
-  //
-  // 而本模块此前只实现 F2（词法候选卡）：**法定决策的可见性取决于用户当回合恰好
-  // 用了什么词**。实测（2026-10-25）：「每次回复先称呼老丁」这条 ADR 在
-  // 「把这个函数改成异步的」上完全不被召回，在「总结一下刚才聊的内容」上却因
-  // 通用词命中而被召回——义务召回因此悬空。故 F1 基线在此**无条件枚举**，
-  // 不参与匹配、不受 `limit`/`types`/`budget` 影响（只受 active 状态约束，
-  // `22 §12`：retired 不进入普通候选）。
-  //
-  // 与 `02 §9.2`「本文不建立所有类型共用的……无条件全量注入」的关系：
-  // **此处存在规范解释张力，本实现不作单方裁定**（2026-10-25，第四十次审核 M-4）。
-  //
-  // 两种读法在文本上都能成立：
-  //   · 读法一：限定语「所有类型共用的」统辖整个并列清单，故 `02` 只拒绝跨类型
-  //     共用的默认量；同段前句把「本类型的召回时机」明确授权给具体类型来源，
-  //     `22` 正是 ADR 的类型权威 → 本段是类型领域增量。
-  //   · 读法二：`02 §9.2` 第 1 段的进入条件（「只有在项目事实对当次理解、判断、
-  //     验证或行动确实必要……才进入事实消费分支」）**不在**该授权范围内，
-  //     而本实现把基线推到每一个行动回合，等于绕过进入条件。
-  //
-  // 按 `34 §7.5` 层级参考，`02`（层级 2，01–11 基础规范）与 `22`（层级 3，
-  // 20–27 事实类型规范）冲突「须提请 Human，不得自行取舍」；按 `01 §7.4` C-1
-  // 「权威关系无法确认时，不静默选边」。故：**本实现不写结论式断言**，
-  // 该张力已作为待决事项提请 Human 裁定（见提交说明与交还报告）。
-  // 裁定前本段按「22 为 ADR 类型权威」实施，这是可回退的临时口径。
-  //
-  // 只给 title+status（`22 §12` F1 口径）+ 稳定引用 `ref`（供 F3 按需展开）：
-  // decision 全文属 F3，常驻会给注入面造成无谓字节压力。
-  const decisionBaseline = (() => {
-    return {
-      // `22 §12`：active 集本身即当前决策基线；retired 不入基线。
-      // 枚举与排序已在预算计算处完成（`decisionBaselineForBudget`），此处复用，
-      // 避免同一对象字面量内二次枚举导致「预算按 A 算、交付按 B 算」。
-      items: decisionBaselineForBudget,
-      // **基线自身的可读性须与三态同口径**（N-1 教训）：事实源不可读时基线为空，
-      // 若只给空数组，读者会把「读不到」当成「本项目没有 ADR」——正是 34 §12
-      // 与 `02 §9.2` 要防的「把零结果当无约束」。故单独标记。
-      sourceUnreadable: factSideUnreadable,
-      // F1 允许「分页返回」；本实现不持游标，如实声明取全量的方式。
-      pagination: { hasCursor: false, howToGetAll: "本字段即全量 active ADR（不按 limit 截断）；逐条全文用 ldvh_adr_read" },
-      note: "F1 枚举：不受本次 limit／types／预算影响；retired 不入基线（22 §12）",
-      // 该段在总预算中已单独预留的字节数（供调用方核对，不重复计入候选预算）。
-      reservedBytes: baselineBytes,
-    };
-  })();
+  // **决策基线段已撤除**（2026-11-16，`specs/34 §8.4` 撤回留痕「ADR 决策基线
+  // F1 常驻枚举自此废止」）：这里曾无条件枚举该类型的 active 集（`02 §9.1` F1
+  // 「类型来源要求的最小权威字段卡片」口径），理由是「法定效力决策的可见性不得
+  // 取决于当回合用词」。该类型撤除后没有对象可枚举，机制与 `decisionBaseline`
+  // 交付键一并去掉——保留这条记录只为让下一位读者知道此处曾有一整段机制、
+  // 以及它为何不在了（`00 §4.6` 不伪造「这里从来没有过」）。常驻可见性改由
+  // `l0Enumeration`（事实规范段 + 经验按需行）承接。
 
   return {
     ok: true,
     query: { action, scope: input.scope ?? "", tokens: tokens.length },
     specs: keptSpecs,
     facts: keptFacts,
-    // F1 决策基线（见上方 decisionBaseline 的完整理由）：**无条件枚举**全部
-    // active ADR，独立于 `specs`/`facts`（后两者是 F2 词法候选）。消费方须把
-    // 两者分开呈现——基线是「当前决策全貌」，候选是「本次可能相关的」。
-    decisionBaseline,
-    // **三段 L0 常驻枚举**（Human 决定 2026-11-04）：与 `specs`/`facts`（F2 词法
-    // 候选）是**两种东西**，不合并。ADR 段由 `decisionBaseline` 承载（既有形状
-    // 不变），本字段承载 **Norm 段 + 经验段**——消费方须把二者都单独成段呈现。
+    // **常驻索引段**（Human 决定 2026-11-04；2026-11-16 收窄）：与 `specs`/`facts`
+    // （F2 词法候选）是**两种东西**，不合并。决策类类型撤除后，本字段承载
+    // **事实规范段 + 经验按需计数**——消费方须把二者单独成段呈现。
     //
     // `segments[].lines` 是已排版好的行（段头 + 条目 + 段尾），渲染层只管拼接，
     // 不再做第二次字节决策；`yielded` 为真表示该段在本档预算下整段让位，调用方
-    // 须把「该段 N 条未展开」并入披露行（让位不等于静默，同极小预算下决策基线的
+    // 须把「该段 N 条未展开」并入披露行（让位不等于静默，同极小预算下常驻段的
     // 痕迹纪律）。`omitted > 0` 且未让位者，其段尾已自带「仅容前 M 条、共 N 条、
     // 全量用哪个工具」的披露，无需调用方二次声明。
     l0Enumeration: {
@@ -4052,7 +3920,7 @@ export async function recallForAction(input = {}) {
       factsReturned: keptFacts.length,
       // **实际参与匹配的候选数**（= 规范全量 + 通过类型/状态/白名单过滤的事实）。
       // 曾误写为 `specs.length + facts.length`，其中 facts 是**过滤前**的全量，
-      // 于是无论 types 怎么过滤它都恒为同一个数（实测 types=["adr","pitfall"] 与
+      // 于是无论 types 怎么过滤它都恒为同一个数（实测 types=["pitfall"] 与
       // 不传 types 得到同一个值）——「扫了多少」这个数就失去意义。
       // 此处刻意**不写那个恒定值是多少**：它是语料规模的快照，随事实源增长而变，
       // 写进注释就必然过时（friction-943940d6）。判据是「随过滤变化」，不是「等于某数」。
@@ -4092,7 +3960,7 @@ export async function recallForAction(input = {}) {
     // 而该条明确禁止「以『已披露』代替」——**只写在文字里不算**：消费方要能
     // 机械枚举出「这次读取有哪些没承载」，字符串说明做不到。
     //
-    // 本仓库既有约定见 `adr-tools.js`（多处 `gaps: [...]`），本模块此前未跟上。
+    // 本仓库既有约定（多处 `gaps: [...]`，见既有 writer 工具），本模块此前未跟上。
     // 逐项检查四类必披露内容是否承载，缺者入 gaps：
     gaps: [
       ...criteriaGapsOf(criteria, scopedFacts),
@@ -4427,7 +4295,7 @@ export async function recallForAction(input = {}) {
       //     相关项从第 29 位升到第 15 位。
       //     **分母随语料增长**（症状段 ≥40 字者：22 → 23 → 28），比率下降部分是
       //     稀释而非能力退化；但 2026-10-30 复测同时发现「结构命中淹没主题查询」
-      //     的独立问题（见 test/source-recall.test.mjs 的 ADR 类型优先用例），
+      //     的独立问题（见 test/source-recall.test.mjs 的类型优先用例），
       //     那是真退化，另案处理。
       //     **2026-11-01 判据改固定夹具**（老丁 m00559）：该比率此前与项目真实语料
       //     绑定，语料每增一条坑就漂一次，用例红的是语料不是实现。现由
@@ -4457,7 +4325,7 @@ export async function recallForAction(input = {}) {
       //     其「可复用行动结构」内容「在相应业务系统规范按本文 §9 承接之前，
       //     **不取得规范效力**」；
       //   · `ldvh-base/` 下也无 action/template 类事实载体（实测只有
-      //     adrs/frictions/norms/pitfalls/researches/sparks/goal）。
+      //     frictions/norms/pitfalls/researches/sparks/goal）。
       //
       // 故这不是「本函数忘了做」，而是**上游承载尚未建立**。如实登记为未兑现，
       // 不伪造一个空的路由字段冒充已实现。

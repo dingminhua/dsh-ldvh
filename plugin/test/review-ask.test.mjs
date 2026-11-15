@@ -101,15 +101,15 @@ test("COMPLEXITY_CRITERIA：每条都带规范出处，不新增判据", () => {
 // 点位排除（2026-11-14 Human 决定，specs/32 §4.2）
 // ---------------------------------------------------------------------------
 
-test("GATE_POINT_EXCLUSIONS：四类都有承接面、出处与反向边界，且属 32 号不属 04 号", () => {
-  assert.ok(Array.isArray(GATE_POINT_EXCLUSIONS) && GATE_POINT_EXCLUSIONS.length === 4,
-    "点位排除恰为四类（32 §4.2），不得就地增删——增删属 Human 决定");
+test("GATE_POINT_EXCLUSIONS：三类都有承接面、出处与反向边界，且属 32 号不属 04 号", () => {
+  assert.ok(Array.isArray(GATE_POINT_EXCLUSIONS) && GATE_POINT_EXCLUSIONS.length === 3,
+    "点位排除恰为三类（32 §4.2），不得就地增删——增删属 Human 决定");
   for (const item of GATE_POINT_EXCLUSIONS) {
     for (const field of ["key", "label", "carried", "source", "notExcluded"]) {
       assert.equal(typeof item[field], "string", `${item.key} 缺 ${field}`);
       assert.ok(item[field].trim().length > 0, `${item.key} 的 ${field} 不得为空`);
     }
-    // **出处必须是 32 号**：这四类是「何时不请示」的点位排除，权威在 specs/32 §4.2。
+    // **出处必须是 32 号**：这三类是「何时不请示」的点位排除，权威在 specs/32 §4.2。
     // 若有人把它改标成 specs/04，等于把 32 的规则写成 04 的判据——32 §19 第 5 项
     // 明禁两张清单互相顶替，而这条一旦混读，「含一段调研」会被推成「不算复杂任务」。
     assert.match(item.source, /^specs\/32 §4\.2/, `${item.key} 的出处须回指 specs/32 §4.2，实际 ${item.source}`);
@@ -119,7 +119,7 @@ test("GATE_POINT_EXCLUSIONS：四类都有承接面、出处与反向边界，�
 });
 
 test("点位排除与判据清单必须是两份数据、不得合并（32 §19 第 5 项）", () => {
-  // 破法很具体：有人觉得「反正都是不请示的理由」，把四类塞进 COMPLEXITY_CRITERIA
+  // 破法很具体：有人觉得「反正都是不请示的理由」，把三类塞进 COMPLEXITY_CRITERIA
   // 省得渲染两块。那一步同时犯三件事——改了 04 的判据条数（本文无权）、把
   // 「不算复杂」与「不必问」压成一句、并让方案收敛自查随排除一起被免掉。
   const criteriaKeys = new Set(COMPLEXITY_CRITERIA.map((i) => i.key));
@@ -138,9 +138,9 @@ test("点位排除与判据清单必须是两份数据、不得合并（32 §19 
 // 点位排除与规范原文的漂移面（2026-11-14 行动后复核 MINOR-5）
 // ---------------------------------------------------------------------------
 
-test("GATE_POINT_EXCLUSIONS：四类名称与承接条文须能在 specs/32 原文逐字找到", async () => {
+test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原文逐字找到", async () => {
   // 权威：01 §11.4「不得由 Code、测试、索引或页面先行制造事实上的第二规则源」。
-  // 本模块把 32 §4.2 的四类写成了常量，规范改某类的名称或所引条文而代码不跟，
+  // 本模块把 32 §4.2 的三类写成了常量，规范改某类的名称或所引条文而代码不跟，
   // 代码就成了第二份规则源——且没有任何既有测试会红。故逐字回指原文。
   //
   // **方向是「代码里的每个值在原文中存在」**，不查「原文里的每个值在代码中存在」：
@@ -163,6 +163,7 @@ test("GATE_POINT_EXCLUSIONS：四类名称与承接条文须能在 specs/32 原�
     // 每条 source 指向的条文号（specs/32 §4.2）须存在
     if (!spec.includes("### 4.2 明确排除与证明边界")) drifted.push(`${item.key}: 32 §4.2 节标题`);
     // 承接面里的条文号须能在原文找到（只查 §编号串，不查散文）
+    // （所述第 4 类已随 ADR 类型撤除删除；保留此段以说明 00/22 编号表的由来。）
     // 第 4 类（纯逐条转承）的承接面落在 00、22 与 27 号，故编号表须一并扩到这几个——
     // 不扩的后果是「代码引了 22 §16，而 22 号根本没有那一节」这类漂移无声通过。
     // **00 号必须在里面**（2026-11-14 复审 MINOR-G，实测抓出）：第 4 类最承重的一条
@@ -188,6 +189,7 @@ test("GATE_POINT_EXCLUSIONS：四类名称与承接条文须能在 specs/32 原�
       // 成「承接条文在规范里无同名标题」——三个标题其实逐字都在。
       // 正确取法是 sec.slice(4)，或下面这行等价地把 § 从 head 里清掉。
       const [specNo, secNo] = [sec.slice(0, 2), sec.slice(4)];
+      // 22 号已撤除；保留此映射使任何 22 § 引用仍会红（语料不可读），不得静默删除以免守卫退化为不查。
       const file = { "00": "00", "09": "09", "02": "02", "33": "33", "22": "22", "27": "27" }[specNo];
       if (!file) continue;
       // 33 号交付合同的编号在本仓原文里是 §14（正文编号）；此处只验 §编号在
@@ -223,54 +225,6 @@ test("GATE_POINT_EXCLUSIONS：四类名称与承接条文须能在 specs/32 原�
   assert.deepEqual(drifted, [], `点位排除常量与规范原文漂移（01 §11.4 禁第二规则源）：\n${drifted.join("\n")}`);
 });
 
-test("GATE_POINT_EXCLUSIONS：label 的语义限定须回指规范里的分段，而不是自造一套", async () => {
-  // 2026-11-14 三轮复审 MINOR-9 抓出的空洞：漂移守卫只查 `label.split("（")[0]`
-  // （类别名），而本类失守过的恰恰是**括号里那串限定**——类别名两次都没变。
-  // 上一条「summary 含 label 全文」只证明渲染器没退回手抄，不证明 label 与规范一致。
-  //
-  // 判据形态刻意保守：本类 label 用「先决条件按点位分别成立见（三）」这种**指路**
-  // 写法，不当自由散文。判据是**成对**的：关键词须在 label 里、其段号须在 label 里、
-  // 「**（N）关键词」须在规范里——只查编号存在不够（改指到另一个存在的段仍会绿）。
-  const { readFile } = await import("node:fs/promises");
-  const { join } = await import("node:path");
-  const spec = await readFile(
-    join(import.meta.dirname, "..", "..", "specs/32-把关请示系统规范.md"), "utf8",
-  );
-  const target = GATE_POINT_EXCLUSIONS.find((i) => i.key === "pure-verbatim-absorption");
-  assert.ok(target, "第 4 类须存在（32 §4.2 第 4 项）");
-  // **不只查编号存在，还要查指向对不对**（2026-11-14 四轮复审 MINOR-8）：
-  // 只校验「（N）这一段存在」的话，把「先决条件见（三）」改成「见（八）」仍然全绿
-  // ——（八）确实存在，只是讲的不是先决条件。故把 label 里每处指路与其**期望关键词**
-  // 成对列出：改错段号时关键词对不上，测试即红。
-  const expectations = [
-    { marker: "规则单位", section: "二", keyword: "规则单位与范围" },
-    { marker: "先决条件", section: "三", keyword: "先决条件" },
-    { marker: "计量口径", section: "八", keyword: "计量口径" },
-  ];
-  // **marker 与段号必须绑在一起**（2026-11-14 复核 MINOR-4）：上一版是两个独立断言
-  // ——「marker 出现过」+「某个（N）出现过」，把「规则单位见（二），先决条件见（三）」
-  // 互换（二）（三）之后仍然全绿。成对校验才是这里要的：关键词与其**紧邻**的段号
-  // 须同时出现在同一个小句里。
-  const failures = [];
-  for (const { marker, section, keyword } of expectations) {
-    if (!target.label.includes(marker)) {
-      failures.push(`label 未提及「${marker}」——该限定被删掉了，读的人就不知道去规范哪一段`);
-      continue;
-    }
-    // 同一小句内：marker 在前、段号在后；允许中间有「按点位分别成立」这类插入语，
-    // 但不允许跨越「；」（跨句就说明段号挂到别的 marker 上了）。
-    const bound = new RegExp(`${marker}[^；]{0,20}（${section}）`);
-    if (!bound.test(target.label)) {
-      failures.push(`label 的「${marker}」未与（${section}）绑定在同一小句里，实际 label：${target.label}`);
-      continue;
-    }
-    if (!spec.includes(`**（${section}）${keyword}`)) {
-      failures.push(`规范里「**（${section}）${keyword}」不存在——label 指错了段或规范改段序了`);
-    }
-  }
-  assert.deepEqual(failures, [], `第 4 类 label 与 §4.2 分段失配：\n${failures.join("\n")}`);
-});
-
 test("工具描述：点位排除的每个 label **全文**须出现在 ldvh_review_ask 的 summary 里", async () => {
   // 2026-11-14 复审 MAJOR-D：工具描述是**模型读得最靠后的那一面**（拿到工具结果就读它），
   // 而它此前是手抄副本。实测失效形状：规范把「一次工作含多条去向不因此出列」写进边界后，
@@ -286,67 +240,6 @@ test("工具描述：点位排除的每个 label **全文**须出现在 ldvh_rev
   assert.deepEqual(
     missing, [],
     `工具描述缺下列类别的 label 全文（模型会把这类工作判错）：${missing.join(", ")}`,
-  );
-});
-
-test("GATE_POINT_EXCLUSIONS：notExcluded 也须逐字回指原文（此前无任何守卫）", async () => {
-  // 2026-11-14 独立审核 MAJOR-5 的复发面：上一版把规范里的「一次工作转承多份 ADR」
-  // 写进 §4.2 的边界，却**没写进常量**——注入行由常量渲染（lifecycle.js），于是
-  // 模型读到的边界比规范窄，会把「一次转承两条 ADR」误判成仍需请示。而那恰是触发
-  // 整条第 4 类的真实工作形状。
-  //
-  // 上一条用例只查 label 的类别名与 carried 里的 § 编号，**不查 notExcluded**，
-  // 所以这处漂移当时没有任何测试会红。本条补上：按「；」切成片段，逐段在原文中找。
-  //
-  // 反方向（规范加了边界而常量没跟）本用例查不出，与上一条同一取舍：解析规范结构
-  // 越出机械层边界。故调边界时**先改规范再改常量**，别指望这里替你想起来。
-  const { readFile } = await import("node:fs/promises");
-  const { join } = await import("node:path");
-  const spec = await readFile(
-    join(import.meta.dirname, "..", "..", "specs/32-把关请示系统规范.md"), "utf8",
-  );
-  // **只查第 4 类**：前三类的 notExcluded 是早于本条用例的既有文案，未按逐字形态
-  // 写（它们把「不适用」栏写成了自己的措辞，其中两处还带 § 引用）。把它们一并纳入
-  // 会立刻红成一片，而那不是本次要守的东西——本次守的是**新加这一类**不留副本漂移。
-  // 把前三类也收进来需要先改规范措辞，那属独立的一次改动，不在本用例的范围里。
-  const target = GATE_POINT_EXCLUSIONS.find((i) => i.key === "pure-verbatim-absorption");
-  assert.ok(target, "第 4 类须存在（32 §4.2 第 4 项）");
-  const missing = target.notExcluded
-    .split("；")
-    .map((f) => f.trim())
-    .filter((f) => f.length > 0 && !spec.includes(f));
-  assert.deepEqual(
-    missing, [],
-    `第 4 类的 notExcluded 与 specs/32 §4.2 原文不一致（01 §11.4 禁第二规则源）：\n${missing.join("\n")}`,
-  );
-
-  // **反方向：规范（七）列的每一条边界，常量里都须有对应片段**（2026-11-14 复核 MAJOR-2）。
-  // 上面那段只查「常量里的片段在规范中存在」，即**常量→规范**方向；而这一条真正的
-  // 复发面是 MAJOR-5 的形状——**规范里有、常量里漏**（规范→常量）。复核实测：
-  // 把「一份 Norm 承接多份 ADR」整段从常量删掉，98 条测试全绿。没有这一段，
-  // 上一条用例的标题「MAJOR-5 的复发面」就是一句空话。
-  //
-  // 取法：截出（七）段，按「- 」切条目，每条取其主干（去掉括注与「：」前的标题以外的
-  // 修饰），断言常量 notExcluded 里存在一个片段包含该主干的关键词。**不追求逐字**
-  // ——那要解析规范的括注结构，越出机械层边界；这里守的是「每一条都被提到了」。
-  const start = spec.indexOf("**（七）额外边界**");
-  const end = spec.indexOf("**（八）计量口径**");
-  assert.ok(start !== -1 && end !== -1 && end > start, "须能定位 §4.2（七）与（八）两段");
-  const boundaryBlock = spec.slice(start, end);
-  const bullets = boundaryBlock
-    .split("\n")
-    .filter((line) => line.trim().startsWith("- "))
-    .map((line) => line.trim().slice(2));
-  assert.ok(bullets.length >= 5, `（七）应有若干条边界，实际解析到 ${bullets.length} 条`);
-  const uncovered = bullets.filter((b) => {
-    // 主干 = 到第一个「：」或「（」为止的那截；太短（<4 字）就不作为判据，避免恒真
-    const head = b.split(/[：（]/)[0].trim();
-    if (head.length < 4) return false;
-    return !target.notExcluded.includes(head);
-  });
-  assert.deepEqual(
-    uncovered, [],
-    `规范 §4.2（七）的下列边界在 notExcluded 里没有对应片段（规范→常量方向漏失）：\n${uncovered.join("\n")}`,
   );
 });
 

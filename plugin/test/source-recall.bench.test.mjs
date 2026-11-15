@@ -51,9 +51,9 @@ const BENCH = Object.freeze([
 		maxSpecs: 5,
 	},
 	{
-		q: "写一个 ADR 记录这个取舍",
-		why: "ADR 类型的规范必须命中；采坑经验不该因为 scope 提到 ADR 就排前面",
-		must: ["ADR-决策"],
+		q: "写一个 Norm 约束这个方向",
+		why: "Norm 类型的规范必须命中；采坑经验不该因为 scope 提到规范就排前面",
+		must: ["Norm-事实规范"],
 		mustNot: [],
 		maxSpecs: 5,
 	},
@@ -140,7 +140,7 @@ test("基准：无关查询不得命中（防止匹配退化到「什么都中�
 
 test("基准：纯读取不触发召回（34 §6 排除条件）", async () => {
 	const { shouldRecall } = await import("../lib/recall-injection.js");
-	for (const q of ["看看 34 号规范有哪几节", "列出所有 ADR 的标题", "查一下有哪些 Pitfall"]) {
+	for (const q of ["看看 34 号规范有哪几节", "列出所有 Norm 的标题", "查一下有哪些 Pitfall"]) {
 		assert.equal(shouldRecall(q), false, `「${q}」是纯读取，不应召回`);
 	}
 });

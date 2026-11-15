@@ -866,7 +866,7 @@ test("render: an unattributable uid is left alone rather than given a guessed ty
 // 断言会红。故这几条用例钉的是**调用点的行为**，不是 writer 的内部。
 // 删掉 `requestNormGate` 的两处调用，本组全红；这不是靠读代码看出来的。
 
-/** 造一个受管辖的仓库 + 登记。与 `adr-tools.test.mjs` 同一形态（不另造一套夹具）。 */
+/** 造一个受管辖的仓库 + 登记。与既有工具测试同一形态（不另造一套夹具）。 */
 async function governedFixture(base) {
 	const home = join(base, "home");
 	const repo = await initRepo(base);
@@ -877,7 +877,7 @@ async function governedFixture(base) {
 
 /**
  * 造一个最小 hostSeams 替身：记录问了几次、并按 `answer` 给答复。
- * `null` = 人没答（须 fail-closed）。镜像 `adr-tools.test.mjs` 的 `adrSeam`。
+ * `null` = 人没答（须 fail-closed）。镜像既有接缝测试的替身。
  */
 function fakeSeams(answer = "确认") {
 	const calls = [];
@@ -895,7 +895,7 @@ function fakeSeams(answer = "确认") {
 /**
  * 捕获 `registerNormTools` 真正注册的描述符，并按 DSH 运行时的形态驱动它们。
  *
- * **这是 ADR 测试的做法**（`adr-tools.test.mjs` 的 `makeDescriptors`），不是我
+ * **这是既有工具测试的做法**（同目录工具测试的 `makeDescriptors`），不是我
  * 另造的通道。它比「直接调 handler」强：**参数 schema 与 descriptor 都在路径上**，
  * 于是「加了参数但 schema 不收」这类缺陷会被真实宿主校验挡住——独立审查 MINOR-1
  * 正是拿这一点反对我第一版的 test-only 导出。
@@ -1208,7 +1208,7 @@ test("27 §15.2：active → active 更新不问；active → retired 必须问�
 test("27 §15.2：CAS 指纹过期时不去打扰 Human（不为注定失败的写入点头）", async () => {
 	// 独立复核 MINOR-2：Gate 若在 CAS 校验之前、且不读当前载体，Human 会被问、
 	// 会答「确认」，而写入随后因指纹不匹配被拒——那道确认已经发生、已经落进会话
-	// 记录，读起来却像一次失败的决定。ADR 的 retire 分支先读载体，这里同形。
+	// 记录，读起来却像一次失败的决定。既有类型的 retire 分支先读载体，这里同形。
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const created = await createNormObject({
@@ -1267,7 +1267,7 @@ test("ldvh_norm_write：awaitsHumanDecision 必须真的接线到 descriptor（�
 	//      门禁在真实组合里等于不存在——写入被拒，而人以为自己答过）。
 	const { OPERATIONS, toolDescriptorFor } = await import("../lib/norm-tools.js");
 	assert.equal(OPERATIONS["norm-write-object"].awaitsHumanDecision, true,
-		"该工具在 create/retire 上阻塞在人身上，须声明 awaitsHumanDecision（与 adr-tools 同一纪律）");
+		"该工具在 create/retire 上阻塞在人身上，须声明 awaitsHumanDecision（与既有写入工具同一纪律）");
 	const descriptor = toolDescriptorFor("norm-write-object", OPERATIONS["norm-write-object"], async () => ({}));
 	assert.equal(descriptor.timeoutMs, undefined,
 		`descriptor 不得带墙钟上限（否则 30s 会丢弃迟到的答复）；实际 ${JSON.stringify(descriptor.timeoutMs)}`);

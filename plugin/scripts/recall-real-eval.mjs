@@ -49,7 +49,7 @@ async function runCase(c) {
   });
   const ok = r.ok === true;
   // **必须同时保留 type**（2026-11-11 修）：`want` 里有一类标注写的是**类型名**
-  // （`ADR-决策`／`Pitfall-踩坑经验`），只有候选自己的 `type` 字段能对上。
+  // （如 `Pitfall-踩坑经验`），只有候选自己的 `type` 字段能对上。
   // 初版只取标题，导致这类标注永远匹配不上，**事实侧精确率恒接近 0**——
   // 读数看似「注入的全是无关经验」，实际是判据与期望不同构导致的恒定假。
   const specs = ok ? (r.specs ?? []).map((x) => ({ title: x.title, type: x.type ?? "spec" })) : [];

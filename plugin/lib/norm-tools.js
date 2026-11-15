@@ -80,7 +80,7 @@ const OPERATIONS = {
     // 经 `requestNormConsent` 走 27 §15 第 1/2 项；其余更新不提问但共用同一描述符。
     // 超时预算**逐工具**，故整个工具不声明墙钟期限——否则每次 CAS 更新都要为
     // Human 的等待买单，而迟到的答复会被 30s 超时丢弃，门禁在真实组合里形同虚设。
-    // 与 `adr-tools.js`（22 §16）同一纪律与同一已知代价。
+    // 与其它带 Human Gate 的 writer 同一纪律与同一已知代价。
     awaitsHumanDecision: true,
     summary: "Controlled write of Norm fact objects: create (requires an explicit Human confirmation per 27 §15 item 1 and a recorded dedup conclusion; requires a direction_key with no existing active Norm, else ERR_DIRECTION_ALREADY_EXISTS) and CAS update with change_log; active→active holds direction_key fixed (27 §13.2), active→retired requires a Human confirmation per 27 §15 item 2 and is terminal (specs/03 §9.4–§9.5, specs/27 §11). IMPORTANT: the 呈报内容 (dedup conclusion, title, direction_key, and the 方向定位与适用范围 points) MUST be written into the conversation body BEFORE calling — the dialog carries only the action line, so the Human judges from what you wrote there (27 §15.2)",
     effect: "may_change_state"
@@ -253,7 +253,8 @@ async function executeListObject(args, exec, deps) {
  * entry. Fail-closed on every path that is not an explicit affirmative: no
  * answerer, a failed ask, or a declined/unchosen answer.
  *
- * 与 `adr-tools.js` 的 `requestAdrGate`（22 §16）同形。27 §15 第 3 项（方向清单
+ * 与既有带 Human Gate 的工具同形（该形态原由一个已撤除类型的 tools 模块承载）。
+ * 27 §15 第 3 项（方向清单
  * 增减）属对 27 号自身的修改、第 4 项（类型取消或合并）无实现入口，二者**刻意
  * 不在此**——本函数不承载它们，也不得据其存在声称已获承载。
  */
@@ -395,7 +396,7 @@ function positioningOf(args) {
  * 呈报内容（27 §15.2）：创建给查重结论 + 方向定位；退役给理由与据实说明。
  *
  * **为什么创建侧读正文而不是 frontmatter**（2026-11-15 独立审查 MAJOR-1）：我第一版
- * 照抄 `adrCreateReport`，读了 `draft.scope`——但 **Norm 的 frontmatter 闭集里没有
+ * 照抄同批工具的呈报构造，读了 `draft.scope`——但 **Norm 的 frontmatter 闭集里没有
  * `scope`**（27 §8；`VALID_FM_KEYS` 实测报 closed-set violation）。那一行是死代码：
  * 真实组合里宿主 schema 先拒，Human 永远看不到「这份 Norm 管什么」。
  *
@@ -403,7 +404,7 @@ function positioningOf(args) {
  * （27 §7 载体内聚：规则散文整体住正文，frontmatter 只承载机器索引）。故从
  * `body_markdown` 取该段，这才是 Human 判断方向划分所需的材料。
  *
- * 与 `adrCreateReport` 同的占位纪律：缺项输出「（缺失）」而不是静默省略——省略会让
+ * 与既有呈报构造相同的占位纪律：缺项输出「（缺失）」而不是静默省略——省略会让
  * 报告看起来完整，而 Human 无从知道他少看了什么。
  */
 function normReportFor(action, args) {
@@ -411,7 +412,7 @@ function normReportFor(action, args) {
   if (action === "create") {
     const draft = args?.frontmatter_draft ?? {};
     const dedup = typeof args?.dedup_result === "string" ? args.dedup_result.trim() : "";
-    // 查重结论是 27 §6.2/§14 的创建提案必备项，缺失即不可提请（与 adr-tools 同）。
+    // 查重结论是 27 §6.2/§14 的创建提案必备项，缺失即不可提请（与其它类型同纪律）。
     lines.push(`查重结论：${dedup.length > 0 ? dedup : "（缺失）"}`);
     const title = typeof draft.title === "string" ? draft.title.trim() : "";
     lines.push(`标题：${title.length > 0 ? title : "（缺失）"}`);
@@ -431,7 +432,7 @@ function normReportFor(action, args) {
       if (typeof fm.retirement_reason === "string") lines.push(`retirement_reason：${fm.retirement_reason}`);
     }
   }
-  // 空行分段（与 `adrCreateReport` 同形）：宿主按 Markdown 渲染，单个 \n 不产生段落。
+  // 空行分段（与既有呈报构造同形）：宿主按 Markdown 渲染，单个 \n 不产生段落。
   return lines.join("\n\n");
 }
 
@@ -506,8 +507,8 @@ async function executeWriteObject(args, exec, deps) {
     // **呈报为空时在调用端就不问**（2026-11-15）：接缝内部也有这道拒绝，但把检查
     // 放在调用端，是因为「不想问」和「问了被拒」在痕迹上不同——前者不惊动 Human，
     // 后者会在 Human 侧弹一次空问题。27 §15.2 要求 Human 看到的是他要判断的东西。
-    // 27 §15.2 + 27 §6.2/§14：呈报缺项即不得提请。**查重结论缺失硬拒**——照
-    // `adr-tools.js` 的 22 §14.1 处置：语义查重本身不可机械判定，但「有没有记录」
+    // 27 §15.2 + 27 §6.2/§14：呈报缺项即不得提请。**查重结论缺失硬拒**——沿用
+    // 既有类型同一条处置：语义查重本身不可机械判定，但「有没有记录」
     // 可判定，未记录即不得提请（27 §17 同向）。此处若不硬拒，`title`+`direction_key`
     // 就足以让报告非空，于是「查重没做」这件事在链条上完全不可见（独立审查实测）。
     const createGaps = normReportGaps("create", args);
@@ -591,9 +592,9 @@ async function executeWriteObject(args, exec, deps) {
   }
   // 27 §15 第 2 项：active → retired 是终态决定，须经 Human 决定。**只有这一种
   // 迁移**要问——同状态更新（勘误级、补充级）不改变方向是否仍在生效，属 02 §10.5
-  // 的受控更新，不问。这也与 22 §16 把 Gate 限定在 create/retire 的形态一致。
+  // 的受控更新，不问。这也与既有类型把 Gate 限定在 create/retire 的形态一致。
   if (frontmatterAfter.status === "retired") {
-    // **先读当前载体再决定问不问**（与 `adr-tools.js` 的 retire 分支同形，2026-11-15
+    // **先读当前载体再决定问不问**（与既有类型的 retire 分支同形，2026-11-15
     // 独立复核 MINOR-2）：不读就会让 Human 为一次注定失败的写入点头——已过期 CAS
     // 指纹、或对象已 retired 的情形，writer 随后照样拒绝，可那道「确认」已经发生、
     // 已经落进会话记录，读起来却像一次失败的决定。故：
@@ -872,7 +873,7 @@ function parameterSchemaFor(operationKey) {
       // **create 必填**（27 §6.2/§14/§15.2）：create 的 Human 确认必须让 Human 看到
       // 查重结论，否则那个「确认」是对一个没人核过重的方向点头。本工具不做语义查重
       // （27 §6.2 明禁机械相似度判定），故结论只能由调用方给；但「有没有记录」可判定，
-      // 未记录即硬拒、不发出提问（与 `adr-tools.js` 的 22 §14.1 同一处置）。
+      // 未记录即硬拒、不发出提问（与既有类型的同一处置）。
       dedup_result: { type: "string", description: "create (REQUIRED): the semantic dedup conclusion against existing active Norms (27 §6.2/§14.1/§15.2) — state it as e.g. \"no same-topic Norm found\" or \"overlaps <uid> but the direction is materially different\". Dedup is not mechanically decidable, but an unrecorded one refuses the write and the Human ask is not sent." }
     },
     required: ["action"],
@@ -892,7 +893,7 @@ export function toolDescriptorFor(operationKey, operation, handler) {
     // active→retired 现在会阻塞在人的答复上（27 §15.2），而超时预算**逐工具**。
     // 若照抄一个恒定 `timeoutMs: 30000`，Human 想两分钟就要被 30s 砍掉——那时
     // 门禁在真实组合里等于不存在：答复迟到即被丢弃，写入被拒，而人以为自己答过。
-    // 与 `adr-tools.js:759`、`spark-tools.js:1025` 同一接线方式。
+    // 与 `spark-tools.js` 同一接线方式。
     ...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 },
     async execute(args, exec) {
       try {

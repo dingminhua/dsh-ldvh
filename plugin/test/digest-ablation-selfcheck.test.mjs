@@ -143,17 +143,17 @@ test("工具提供迁移可行性验证模式（把词面并入权威字段）",
 
 test("探针报告必须按类型给出迁移可行性，而不是只报全局丢失数", async () => {
   const source = await readFile(SCRIPT, "utf8");
-  // 全局「丢失 N 条」不足以支撑决策：同样丢 10 条，落在 ADR/Pitfall 上可并入
+  // 全局「丢失 N 条」不足以支撑决策：同样丢 10 条，落在 Pitfall 上可并入
   // trigger_signal 救回，落在 friction/research/spark 上则无路可走。
   assert.ok(source.includes("probeTypeBreakdown"), "必须按类型汇总探针结果");
   assert.ok(source.includes("hasMigrationTarget"), "每个类型须标记是否有可迁入字段");
   assert.ok(
     source.includes("TRIGGER_CAPABLE_TYPES"),
-    "可迁入类型的判据须是具名常量（22 §8 / 23 §8 采用 trigger_signal）",
+    "可迁入类型的判据须是具名常量（23 §8 采用 trigger_signal）",
   );
   assert.ok(
-    /TRIGGER_CAPABLE_TYPES\s*=\s*new Set\(\[[^\]]*"adr"[^\]]*"pitfall"/s.test(source),
-    "可迁入类型当前只有 adr 与 pitfall——其余类型闭集无 trigger_signal",
+    /TRIGGER_CAPABLE_TYPES\s*=\s*new Set\(\[[^\]]*"pitfall"/s.test(source),
+    "可迁入类型当前只有 pitfall（ADR 撤除后）——其余类型闭集无 trigger_signal",
   );
   // 必须把「无迁移目标」的损失单独算出来并打印，否则读者会把 80 条当成都能救。
   assert.ok(source.includes("无迁移目标"), "报告须显式点出无迁移目标的损失");

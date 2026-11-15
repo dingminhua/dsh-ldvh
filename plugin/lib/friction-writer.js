@@ -102,8 +102,23 @@ const CORRECT_REMOVABLE_ANCHOR_FIELDS = new Set(["attribution_ref"]);
  */
 const FRICTION_RELATION_KEYS = new Set(["informs", "paired-with"]);
 
-/** informs targets resolve inside the ADR directory (26 §11). */
-const INFORMS_TARGET_DIRS = ["adrs"];
+/** `informs` targets resolve inside the **existing fact-object directories** (26 §11).
+ *
+ * G2 裁定（2026-11-15）：`informs` 的目标不再限定为某一个（现已撤除的）类型，
+ * 改为「现存事实对象目录」——目标身份由载体自身的 `fact_type_key` 承担，Code 只核
+ * 「该 uid 在某个已登记目录里确有载体」。把目标钉在单一目录，会让 `26 §14.1` 的
+ * resolved `informs ≥ 1` 不变量在目标类型撤除后**永久不可达**；按目录集合核验
+ * 仍是确定性、可复算的机械检查。
+ *
+ * 形态为 `[类型短名, 目录名]`：载体文件名是 `<类型短名>-<uuid>.md`，两者都必须给出。
+ */
+const INFORMS_TARGET_DIRS = [
+  ["spark", "sparks"],
+  ["pitfall", "pitfalls"],
+  ["report", "reports"],
+  ["friction", "frictions"],
+  ["norm", "norms"],
+];
 
 /** paired-with targets resolve inside the Pitfall directory (26 §11 / 23 §11). */
 const PAIRED_WITH_TARGET_DIR = "pitfalls";
@@ -223,7 +238,6 @@ export function normalizeAttributionRef(value) {
 /** Fact-type directories scanned when resolving an anchor reference. */
 const ATTRIBUTION_REF_DIRS = [
   ["spark", "sparks"],
-  ["adr", "adrs"],
   ["pitfall", "pitfalls"],
   ["report", "reports"],
   ["friction", "frictions"],
@@ -524,10 +538,10 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
  * Resolve every `relations` target against the fact source (26 §11).
  *
  * Target directory is dispatched **by relation_key**, never by a shared set:
- *   - `informs`     → ADR objects (the remedy);
+ *   - `informs`     → any existing fact-object directory (the remedy);
  *   - `paired-with` → Pitfall objects (the same-root cross-role counterpart).
- * Sharing one directory set would let a pairing point at an ADR, which is not
- * "another role of the same root" by any reading of 26 §11.
+ * Sharing one directory set would let a pairing point at the remedy target, which
+ * is not "another role of the same root" by any reading of 26 §11.
  *
  * Commit form (02 §8.1) belongs to `informs` only (26 §9.2). A `commit`
  * appearing in either `target.commit` or `evidence_locator.commit` must resolve
@@ -592,10 +606,10 @@ async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCo
     }
 
     let resolvedTarget = false;
-    for (const dir of INFORMS_TARGET_DIRS) {
+    for (const [type, dir] of INFORMS_TARGET_DIRS) {
       for (const ext of [".md", ".yaml"]) {
         try {
-          await access(join(factSourceRoot, dir, `adr-${targetUid}${ext}`));
+          await access(join(factSourceRoot, dir, `${type}-${targetUid}${ext}`));
           resolvedTarget = true;
           break;
         } catch { /* try next */ }
@@ -603,7 +617,7 @@ async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCo
       if (resolvedTarget) break;
     }
     if (!resolvedTarget) {
-      return { ok: false, code: "friction/relation_target_unresolvable", message: `informs target ${targetUid} does not resolve to an existing ADR object in ${INFORMS_TARGET_DIRS.join("/")}` };
+      return { ok: false, code: "friction/relation_target_unresolvable", message: `informs target ${targetUid} does not resolve to an existing fact object in ${INFORMS_TARGET_DIRS.map(([, dir]) => dir).join("/")}` };
     }
   }
   return { ok: true };
@@ -736,7 +750,7 @@ function buildFileContent(frontmatter, body) {
 }
 
 /**
- * 展示层输出序（同 spark/adr/pitfall writer 约定）：语义块在前
+ * 展示层输出序（同既有 writer 约定）：语义块在前
  * （标题/状态/现象/归因/信号归属/处置），引用与身份居后，
  * change_log 沉底。只重排键序，不新增、不删除、不改值。
  */

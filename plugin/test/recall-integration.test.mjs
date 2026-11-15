@@ -26,8 +26,8 @@ const ROOT = join(import.meta.dirname, "..", "..");
 // 的简写，而注入路径（`buildRecallInjection`）恒传
 // `excludeTypes: INJECTION_EXCLUDED_TYPES`——`31 §10`（2026-10-27 修订）已让 spark
 // 退出自动注入。此前 `q` 不传，于是它与注入路径扫的是不同的候选集合：
-// spark 参与排序并占掉 limit 名额，「写一个 ADR」limit=3 时一条 adr 都进不来
-// （实测裸调用 `spark,friction,spark`，加参 `friction,adr,adr`）——用例转红而
+// spark 参与排序并占掉 limit 名额，「写一条 Pitfall」limit=3 时一条 pitfall 都进不来
+// （实测裸调用 `spark,friction,spark`，加参 `friction,pitfall,pitfall`）——用例转红而
 // 实现无退化。需要**直调路径**语义的用例须显式覆盖 `excludeTypes: undefined`。
 const q = (o) => recallForAction({ root: ROOT, excludeTypes: INJECTION_EXCLUDED_TYPES, ...o });
 
@@ -56,30 +56,23 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	const named = await q({ action: "写一个 Pitfall", limit: 2, budgetBytes: 24000 });
 	assert.ok(named.specs[0]?.title?.includes("Pitfall"), "类型点名须居首");
 
-	// 第 29 轮：ADR/Pitfall 事实优先。
+	// 第 29 轮：必需类型事实优先（现只剩 Pitfall）。
 	//
-	// 本断言须有 active ADR 才守得住，而本仓 17 条 ADR 已全数 retired（`8055c813`），
-	// `DEFAULT_STATUSES_BY_TYPE.adr = ["active"]` 是规范明定的候选口径，故 ROOT 语料
-	// 下该前提不可能成立（已在改动前基线 `a9d6741b` 上实证同样失败——既有缺口，非
-	// 本次引入）。改用受控合成语料单独守这一断言，其余历轮断言仍用真实语料
-	// （它们不依赖 active ADR，且真实语料的分辨力更强）。
-	const adrCorpus = await mkdtemp(join(tmpdir(), "ldvh-integ-adr-"));
+	// 用受控合成语料守这一断言，其余历轮断言仍用真实语料（它们不依赖特定类型，
+	// 且真实语料的分辨力更强）。
+	const pitfallCorpus = await mkdtemp(join(tmpdir(), "ldvh-integ-pitfall-"));
 	try {
-		await seedFactCorpus(adrCorpus, {
-			adrCount: 2,
-			adrTitles: ["合成 ADR 决策基线甲", "合成 ADR 决策基线乙"],
-			pitfallCount: 1,
-		});
-		const adr = await recallForAction({
-			action: "写一个 ADR",
-			root: adrCorpus,
+		await seedFactCorpus(pitfallCorpus, { pitfallCount: 2 });
+		const pitfall = await recallForAction({
+			action: "写一条 Pitfall 经验",
+			root: pitfallCorpus,
 			limit: 3,
 			budgetBytes: 24000,
 			excludeTypes: INJECTION_EXCLUDED_TYPES,
 		});
-		assert.ok(adr.facts.some((f) => f.type === "adr"), "须召回 adr（义务召回，22 §12）");
+		assert.ok(pitfall.facts.some((f) => f.type === "pitfall"), "须召回 pitfall（义务召回，23 §12）");
 	} finally {
-		await rm(adrCorpus, { recursive: true, force: true });
+		await rm(pitfallCorpus, { recursive: true, force: true });
 	}
 
 	// 第 31 轮：中间产物白名单。
@@ -89,7 +82,7 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	// 把「有几个类型」当作断言对象是错的目标：该用例守的是**中间产物不进候选**，
 	// 与类型总数无关。改守真正的行为：白名单每类都能在默认状态表里被认到——
 	// 新增类型时该断言**自动跟随**，不再需要人工改数字。
-	assert.ok(REGISTERED_FACT_TYPES.length >= 8, "白名单须覆盖至少 8 个已登记类型");
+	assert.ok(REGISTERED_FACT_TYPES.length >= 7, "白名单须覆盖至少 7 个已登记类型");
 	for (const t of REGISTERED_FACT_TYPES) {
 		if (t === "goal") continue; // Goal 是单例，不使用多例状态机（25 §7）
 		assert.ok(
@@ -99,7 +92,7 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	}
 
 	// 第 33 轮：candidatesScanned 非恒量。
-	const narrow = await q({ action: "把 34 号规范改名", limit: 3, types: ["adr"] });
+	const narrow = await q({ action: "把 34 号规范改名", limit: 3, types: ["norm"] });
 	assert.notEqual(
 		narrow.counts.candidatesScanned,
 		base.counts.candidatesScanned,

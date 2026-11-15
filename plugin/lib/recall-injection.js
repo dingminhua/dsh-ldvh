@@ -33,7 +33,6 @@
 // - 不建索引、不落盘、不写事实源（`34 §17` 第 1 项、`02 §9.2`）。
 
 import {
-  BASELINE_BUDGET_SHARE_DIVISOR,
   BASELINE_YIELD_BELOW_BYTES,
   INJECTION_EXCLUDED_TYPES,
   PITFALL_ON_DEMAND_ENTRYPOINT,
@@ -119,11 +118,10 @@ export const MIN_HITS = 1;
  * BM25 分数接进决策路径，该用例不会变红——所以额外把这份清单作为**声明式
  * 契约**写在这里，使「决策读了什么」可以被人一次性核对（`00 §4.6` 据实声明）。
  *
- * 现行决策输入（**只有这三项**）：
+ * 现行决策输入（**只有这两项**）：
  *   · `candidateCount`——候选条数（`specs.length + facts.length`）；
- *   · `baselinePresent`——决策基线是否有内容（`22 §12` 义务召回，与词法无关）；
  *   · `residentIndexPresent`——常驻索引段是否有可交付内容（`27 §10` F1 常驻枚举，
- *     同样与词法无关）。
+ *     与词法无关）。
  *
  * **2026-10-27 更正**（独立审核轻微项 16）：本清单一度列了 `entryVerdict` 与
  * `recallAvailability`，但 `decideInjection` 从不读取它们、调用方也不传——
@@ -131,19 +129,23 @@ export const MIN_HITS = 1;
  * 的 ok 分支），不在本函数内。清单只列本函数真正读的键，否则「声明式契约」
  * 就变成装饰。
  *
- * **2026-11-15 增列第三项**（审查体 BLOCKER B1，实测复现）：原先只有前两项。
- * 本仓 17 条 ADR 已全数 retired（`8055c813`），故 `baselinePresent` 恒为假；
+ * **2026-11-15 增列常驻索引项**（审查体 BLOCKER B1，实测复现）：原先只有候选
+ * 条数一项。当时本仓的决策类对象已全数 retired，故 `baselinePresent` 恒为假；
  * 于是**零词法命中的行动回合**（实测 query「让动画快一点」→ `inject:false /
  * reason:"no-hits"`）整行不注入——5 条 active Norm 与经验按需行一并消失。
  * 而那恰是「AI 不知道哪份规范在管这件事」的典型场景：词面不重合才需要常驻
  * 索引兜底（`34 §8.4`「其可见性若取决于当回合用词，义务召回即悬空」）。
- * 只带 ADR 基线的判据把 27 §10 的义务召回重新绑回了当回合用词。
+ * 只带当时那份常驻基线的判据把 27 §10 的义务召回重新绑回了当回合用词。
+ *
+ * **2026-11-16 去掉 `baselinePresent`**：它承载的决策基线整段已按 `specs/34
+ * §8.4` 撤回留痕撤除；键保留只会留下一个恒假的死输入（`DECISION_KEYS` 声明
+ * 「本函数真正读的键」，留一个不读的键就是装饰）。判据回到候选人数的**替换**
+ * 形态——「有候选，或有常驻索引内容」，与 `34 §8.4` 末段一致。
  *
  * **不在清单内**：`hits`、BM25 加权分、tier、path、任何排序键。
  */
 export const DECISION_KEYS = Object.freeze([
   "candidateCount",
-  "baselinePresent",
   "residentIndexPresent",
 ]);
 
@@ -151,12 +153,12 @@ export const DECISION_KEYS = Object.freeze([
  * 常驻索引段（Norm 段 + 经验按需行）是否有可交付内容。
  *
  * 判据与 `baselineOnlyInjection` 里的 `l0Shown` **同一形态**（让位段不算有内容，
- * 因为让位后由披露行另行承载，两处若不一致会出现「主路径不注入、基线路径注入」
+ * 因为让位后由披露行另行承载，两处若不一致会出现「主路径不注入、纯读取路径注入」
  * 的漂移）。
  *
  * **经验计数只有 >0 才算内容**（2026-11-15 实测缺陷，我自己引入）：初版把
  * `Number.isInteger(pitfallTotal)` 当判据，于是 `pitfallTotal === 0` 也算「有
- * 常驻内容」——实测一个**空事实源**（零 ADR／零 Norm／零 Pitfall）的零命中行动
+ * 常驻内容」——实测一个**空事实源**（零 Norm／零 Pitfall）的零命中行动
  * 回合会注入一整块「双源召回」文本，而其中唯一实质内容是「本项目当前无 active
  * 经验（0 条）」。那是「本类为空」的披露，不是可供行动消费的材料，把它当注入
  * 理由等于让**任何**可读事实源的项目在每个行动回合都无条件注入（违反 `02 §9.2`
@@ -182,24 +184,23 @@ function residentIndexPresentOf(l0Enumeration) {
  * 是否注入的**纯决策函数**（2026-10-27，第 3 步抽出）。
  *
  * 抽出的理由是可测性，不是风格：原先该判断内联在 `buildRecallInjection` 里，
- * 而整链路运行时基线恒非空（`22 §12` 义务召回几乎总有 active ADR），短路分支
- * 根本走不到——于是「把排序分接进决策」这种破坏**测不出来**（实测破坏版仍
+ * 而整链路运行时判据几乎总是成立（常驻索引与经验按需行通常非空），短路分支
+ * 很难走到——于是「把排序分接进决策」这种破坏**测不出来**（实测破坏版仍
  * 65/65 全绿，守卫形同虚设）。抽成纯函数后可独立注入任意候选集与分数。
  *
- * **输入严格取自 `DECISION_KEYS`**（candidateCount / baselinePresent /
- * residentIndexPresent）。**不接收任何排序键**——调用点也不传，故「用分数
- * 决策」在类型层面就做不到，而不是只靠约定。
+ * **输入严格取自 `DECISION_KEYS`**（candidateCount / residentIndexPresent）。
+ * **不接收任何排序键**——调用点也不传，故「用分数决策」在类型层面就做不到，
+ * 而不是只靠约定。
  *
- * @param {{candidateCount:number, baselinePresent:boolean, residentIndexPresent?:boolean}} input
+ * @param {{candidateCount:number, residentIndexPresent?:boolean}} input
  * @returns {boolean} 是否注入
  */
 export function decideInjection(input) {
   const count = Number.isFinite(input?.candidateCount) ? input.candidateCount : 0;
-  const baselinePresent = input?.baselinePresent === true;
   const residentIndexPresent = input?.residentIndexPresent === true;
-  // 有候选 → 注入；无候选但有基线或常驻索引可披露 → 仍注入。
-  // 后两者都不是候选（22 §12／27 §10 的义务召回），其可见性不得取决于当回合用词。
-  return count >= MIN_HITS || baselinePresent || residentIndexPresent;
+  // 有候选 → 注入；无候选但有常驻索引可披露 → 仍注入。
+  // 后者不是候选（27 §10 的义务召回），其可见性不得取决于当回合用词。
+  return count >= MIN_HITS || residentIndexPresent;
 }
 
 /**
@@ -234,20 +235,20 @@ export const RECALL_BYTE_BUDGET = 2400;
  * **单一来源**：注入分节、名额裁剪、披露文案都读这一组常量；改这里一处即生效。
  * 变更走受控提交；**改动属 specs/10 §9.1 第 2 项 Human Gate**。
  *
- * 次序依据（34 §12 交付口径）：ADR > Norm > Pitfall > Friction 是必须先看见的
- * 四类，research 兜底在其后。spark/goal 不进注入：spark 见
- * `INJECTION_EXCLUDED_TYPES`（31 §10），goal 是单例直读、本就不进候选。
+ * 次序依据（34 §12 交付口径）：Norm > Pitfall > Friction 是必须先看见的
+ * 三类，research 兜底在其后（决策类类型已随该类型撤除，2026-11-16）。spark/goal
+ * 不进注入：spark 见 `INJECTION_EXCLUDED_TYPES`（31 §10），goal 是单例直读、
+ * 本就不进候选。
  *
  * **名额不扩大任何预算**：总名额等于既有注入条数上限（3）。分节只是**交付组织**，
  * 不是新的排序键。
  */
 export const FACT_SECTION_ORDER = Object.freeze([
-  "adr", "norm", "pitfall", "friction", "report",
+  "norm", "pitfall", "friction", "report",
 ]);
 
 /** 分节标题里的类型标签（只用于渲染，不参与判定）。 */
 export const FACT_SECTION_LABELS = Object.freeze({
-  adr: "ADR（决策）",
   norm: "Norm（事实规范）",
   pitfall: "Pitfall（踩坑经验）",
   friction: "Friction（摩擦账本）",
@@ -257,11 +258,10 @@ export const FACT_SECTION_LABELS = Object.freeze({
 /**
  * 每类型的**交付名额**。只在注入路径生效（`factSelection`），默认召回路径不受影响。
  *
- * 名额之和（8）大于总名额（3）：类型名额的作用是「同一类型最多占几席」，总名额
+ * 名额之和（6）大于总名额（3）：类型名额的作用是「同一类型最多占几席」，总名额
  * 再从分节次序末尾向前裁——这样一类事实不能挤掉其它类的可见性。
  */
 export const QUOTA_BY_TYPE = Object.freeze({
-  adr: 2,
   norm: 1,
   pitfall: 2,
   friction: 1,
@@ -271,27 +271,12 @@ export const QUOTA_BY_TYPE = Object.freeze({
 /** 单次注入交付的事实候选总名额（= 既有注入 limit 默认值，未扩大）。 */
 export const FACT_QUOTA_TOTAL = 3;
 
-/**
- * **决策基线（F1）段的字节上限**。
- *
- * 与总预算的关系：这是**既有注入面预算内部的子分配**，不是新的预算边界——
- * 总预算由档位决定（`INJECTION_BUDGET_TIERS`，默认档 10240 字节，见
- * `plugin/lib/lifecycle.js` 的生产取值），基线只占其中一段（同 `specBudget`
- * 按 60% 切分候选预算、`planL0Enumeration` 按份额切分 Norm 与经验两段的既有做法）。
- *
- * 为什么需要它：`22 §12` 要求 F1 无条件枚举全部 active ADR，而 ADR 数量会增长
- * （本仓 6 条、约 267 字节；若涨到 30 条即约 1400 字节）。没有上限时基线会
- * 挤占词法候选的预算，使召回失去「按需列出相关项」的功能；有上限而不披露
- * 则违反 `02 §9.1`「不得静默截断」。故：定上限 + 超出时如实计数披露。
- *
- * 定值依据：600 字节约可容纳 12–14 条标题（实测单条约 45 字节），
- * 覆盖 ADR 从当前 6 条增长到十余条的量级；同时保留约 75% 预算给候选区。
- *
- * 变更须走受控提交（`10 §5.3`「体量以固定常量承载，变更走受控提交」）；
- * 提高该上限属「改变引导面注入形式或预算边界」，须 Human 决定（`10 §9.1` 第 2 项）。
- * 本段的引入本身即经 Human 决定（2026-10-25 会话内批准方案 A）。
- */
-export const ADR_BASELINE_BYTE_BUDGET = 600;
+// **决策基线（F1）段的字节上限已撤除**（2026-11-16）：它曾约束「无条件枚举全部
+// active 决策类对象」那一段的字节量（原 600 字节，随对象数增长会挤占候选预算）。
+// 该常驻段按 `specs/34 §8.4` 撤回留痕「ADR 决策基线 F1 常驻枚举自此废止」撤除后，
+// 预算子分配与常量一并取消；`plugin/test/recall-injection.test.mjs` 里关于它的
+// 用例由测试批同步改写。保留这条记录，只为说明此处曾有一个具名上限、以及它为何
+// 不在了（`00 §4.6` 不伪造「从来没有过」）。
 
 /**
  * **【已退役】消费侧纪律行的让位阈值**（原 2000 字节，2026-11-12 起不再生效）。
@@ -493,7 +478,7 @@ export function classifyEntry(text) {
   //
   // 34 §6 的进入信号是**语义条件**（「会产生副作用或改变状态的动作」），词表匹配
   // 只能近似。实测它有两种确定的错误：
-  //   (a) 「看看这些 ADR 是怎么**写**的」——询问句，但含「写」字，被判为写动作；
+  //   (a) 「看看这些 Norm 是怎么**写**的」——询问句，但含「写」字，被判为写动作；
   //   (b) 「改这个文件好不好」——征询，不是执行。
   //
   // 因此本函数**不声称能精确判定动作性质**。它只做一件事：把**明显**的纯读取
@@ -667,68 +652,34 @@ export function currentUserText(messages, isOwnMessage) {
 }
 
 /**
- * 只渲染**决策基线**那一行（词法候选不参与时用）。
+ * 只渲染**常驻索引**那一行（词法候选不参与时用）。
  *
- * **为什么需要它**（2026-11-03，Human 裁决）：`22 §12` 的义务召回是「相关行动
- * 开始前，AI 必须召回并核对相关 active ADR」。而 `34 §6` 的排除条件（纯读取、
+ * **为什么需要它**（2026-11-03，Human 裁决）：`34 §6` 的排除条件（纯读取、
  * 纯查询）与 `recall/no_tokens`（切不出主题词）都在**词法候选**这一层短路。
- * 两者本不是同一件事：前者问「本次有哪些相关候选」，后者是「当前决策全貌」。
- * 旧实现让后者随前者一起消失，实测后果——
- *   · 「继续」「看了看这个文件」「召回」→ 整行不注入，2 条 active ADR 一条不可见；
+ * 两者本不是同一件事：前者问「本次有哪些相关候选」，后者是「当前哪些常驻对象
+ * 必须核对」。旧实现让后者随前者一起消失，实测后果——
+ *   · 「继续」「看了看这个文件」「召回」→ 整行不注入，常驻索引一条不可见；
  *   · 「是不是应该」「怎么办」→ `no_tokens` 短路，同上。
- * 即法定效力决策的可见性重新取决于当回合用词，正是方案 A 要消除的缺陷。
+ * 即常驻对象的可见性重新取决于当回合用词，正是方案 A 要消除的缺陷。
  *
  * **边界**：本函数只渲染**常驻索引段**（F1 口径，见 34 §8.4「分层归属」），不渲染候选、不声称适用（34 §13），并把
  * 「为什么没有候选」如实写在行里，避免读者把「只看到索引」误读成「查过了没相关」。
  *
- * **2026-11-04 扩至三段**（Human 决定「ADR、事实规范、经验，这三个的 L0 是必须
- * 注入的」）：本路径同样渲染 Norm 段与经验段——否则纯读取回合里这两段又退回词法
- * 运气，而那正是本次要消除的缺陷。段内行由数据层 `planL0Enumeration` 排好
- * （份额、让位、省略披露同源），渲染层只管拼接。
+ * **2026-11-16 收窄**：决策类常驻基线已按 `specs/34 §8.4` 撤回留痕撤除，事实规范
+ * 目录改由引导层独立成行（`norm-directory.js`），故本路径实际只剩**经验按需入口**。
+ * 段内行由数据层 `planL0Enumeration` 排好（份额、让位、省略披露同源），渲染层只管
+ * 拼接——保留该循环，使调用方传入其它常驻段时不丢内容。
  *
- * @param {{baseline: object|null, l0Enumeration?: object|null, why: string, limitBytes?: number|null}} input
+ * @param {{l0Enumeration?: object|null, why: string, limitBytes?: number|null}} input
  * @returns {string}
  */
-export function renderBaselineOnlyRow({ baseline, l0Enumeration = null, why, limitBytes = null } = {}) {
-  const items = Array.isArray(baseline?.items) ? baseline.items : [];
+export function renderBaselineOnlyRow({ l0Enumeration = null, why, limitBytes = null } = {}) {
   const l0Segments = Array.isArray(l0Enumeration?.segments) ? l0Enumeration.segments : [];
   const lines = [];
   lines.push("【双源召回 · 行动前候选】");
   // **候选区缺席的原因必须写清**：否则读者会把「只有索引」读成「已查过、无相关」。
   // 34 §6 排除与 no_tokens 是两种不同归因，分别措辞（归因不得混同）。
-  lines.push(`（本轮无词法候选：${why}。以下为 **ADR 决策基线与经验按需入口**——事实规范的常驻目录**独立成行注入**（标签「事实规范目录」），不在本行内，故本行不重复它。索引只证明「有这些」，不证明适用。）`);
-  if (items.length === 0) {
-    if (baseline?.sourceUnreadable === true) {
-      lines.push("（决策基线：事实源不可读，基线未取得——**不表示本项目没有 ADR**（34 §12）。）");
-    } else {
-      lines.push("（决策基线：本项目当前无 active ADR。）");
-    }
-  } else {
-    lines.push("【决策基线 · active ADR（22 §12 义务披露）】");
-    let usedBytes = 0;
-    // 与完整路径同一缩放口径：基线最多占注入预算的 1/3。
-    const scaledCap = typeof limitBytes === "number" && limitBytes > 0
-      ? Math.floor(limitBytes / BASELINE_BUDGET_SHARE_DIVISOR)
-      : ADR_BASELINE_BYTE_BUDGET;
-    const effectiveCap = Math.min(ADR_BASELINE_BYTE_BUDGET, scaledCap);
-    let shown = 0;
-    let omitted = 0;
-    for (const item of items) {
-      const line = `· ${item.title}${item.status ? `［${item.status}］` : ""}`;
-      const lineBytes = Buffer.byteLength(line, "utf8") + 1;
-      if (shown > 0 && usedBytes + lineBytes > effectiveCap) {
-        omitted += 1;
-        continue;
-      }
-      lines.push(line);
-      usedBytes += lineBytes;
-      shown += 1;
-    }
-    if (omitted > 0) {
-      lines.push(`（基线按字节上限 ${effectiveCap} 列出前 ${shown} 条，另有 ${omitted} 条未列出；**未列出不代表不存在**，用 ldvh_adr_list 取全量。）`);
-    }
-    lines.push("（基线只保证「看得见」，**不证明适用**。）");
-  }
+  lines.push(`（本轮无词法候选：${why}。以下只有**经验按需入口**——事实规范的常驻目录**独立成行注入**（标签「事实规范目录」），不在本行内，故本行不重复它。索引只证明「有这些」，不证明适用。）`);
   // 事实规范段：数据层已排好行（含段头、省略披露、段尾声明，以及定位摘录的
   // 降级披露——披露行由 `planL0Enumeration` 排进 lines 并**计入字节账**，故这里
   // 不再追加任何未预留的行；两条渲染路径共用同一份 lines，措辞与预算都不漂移）。
@@ -836,40 +787,26 @@ export function renderRecallRow(result) {
     // `ldvh_read_specification_content`，**不以 `_read` 结尾**——初版只写
     // 「数对应 ldvh_*_read」覆盖不到它。而注入面同时交付规范源候选（`specs/…` 行），
     // 于是「规范侧取不到时去哪读」仍是空白。B 修的正是这类问题，却只修了一半。
-    const fallbackLine = "（**取不到不等于没有**：事实侧按类型枚举用 ldvh_pitfall_list／ldvh_norm_list／ldvh_adr_list 等、精读用对应 ldvh_*_read；**规范侧用 ldvh_read_specification_candidates／ldvh_read_specification_content**；按字面搜载体可用 grep。本行只给路径，不承诺命中。）";
+    const fallbackLine = "（**取不到不等于没有**：事实侧按类型枚举用 ldvh_pitfall_list／ldvh_norm_list 等、精读用对应 ldvh_*_read；**规范侧用 ldvh_read_specification_candidates／ldvh_read_specification_content**；按字面搜载体可用 grep。本行只给路径，不承诺命中。）";
     const hasFallbackRoom = !(typeof result?.budget?.limitBytes === "number"
       && result.budget.limitBytes > 0
       && result.budget.limitBytes < FALLBACK_LINE_MIN_BYTES);
     lines.push(blameLine);
     if (hasFallbackRoom) lines.push(fallbackLine);
   }
-  // **决策基线（F1）**：无条件列出全部 active ADR——独立于词法候选区（`22 §12`
-  // 义务召回原则；`02 §9.1` F1「枚举指定对象集合」）。**为何必须常驻**：
-  // 法定效力决策（`22 §1`：违背 active ADR 视同违背规范源）若只靠词法命中，
-  // 可见性就取决于当回合用词；实测「每次回复先称呼老丁」在「改成异步的」上
-  // 零召回。故本段不受 `- ` 裁剪循环影响（用 `·` 前缀，与候选行区分），
-  // 自身有独立字节上限并如实披露截断。
-  const baseline = result?.decisionBaseline;
-  const baselineItems = Array.isArray(baseline?.items) ? baseline.items : [];
-  // **极小预算下基线让位的痕迹**（2026-11-03 修）：不新增行，只**并入**既有的
-  // 截断行或三态行——新增独立行会顶破极小预算（实测 800 下 +95 字节即超）。
-  // 该痕迹此前完全缺失：预算 < 1200 时模型侧看不到任何「基线存在」的字样。
-  const baselineBudgetLimit =
+  // **决策基线段已撤除**（2026-11-16，`specs/34 §8.4` 撤回留痕「ADR 决策基线
+  // F1 常驻枚举自此废止」）：这里曾无条件逐条列出该类型的 active 集（`02 §9.1`
+  // F1「枚举指定对象集合」口径；用 `·` 前缀与 `- ` 候选行区分，独立字节上限并
+  // 如实披露截断），理由是该类对象的可见性不得取决于当回合用词。没有对象可枚举
+  // 之后，段头／条目／上限／省略披露一并去掉；保留这条记录，使下一位读者知道
+  // 此处曾有一整段机制（`00 §4.6` 不伪造「这里从来没有过」）。
+  //
+  // 常驻可见性现在只剩 Norm 段（由引导层独立成行，见 `norm-directory.js`）与
+  // 经验按需入口。**让位痕迹仍必须留**：让位不等于静默，但极小预算下不能新增行。
+  const budgetLimit =
     typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
-  const baselineYielded = baselineItems.length > 0
-    && baselineBudgetLimit !== null && baselineBudgetLimit > 0
-    && baselineBudgetLimit < BASELINE_YIELD_BELOW_BYTES;
-  // **痕迹措辞按预算宽度分两档**（2026-11-03）：极小预算下不能只是「在长句后
-  // 追加一句」——实测那样反而把 800 档从 797 顶到 878。故让位时整行改用紧凑
-  // 措辞（省掉「未列出的部分不代表不存在」等与本行重复的复述，那句已由第 2 行
-  // 的权威声明承载），净字节仍低于原行。
-  const baselineYieldSuffix = baselineYielded
-    ? baselineItems.length > 0
-      ? `；基线 ${baselineItems.length} 条未展开（22 §12，ldvh_adr_list）`
-      : ""
-    : "";
-  // **各段让位的痕迹**（2026-11-04）：与基线同一纪律——让位不等于静默，但极小
-  // 预算下不能新增行。故三段（ADR／Norm／经验）的让位痕迹合并成**一个**后缀，
+  // **各段让位的痕迹**（2026-11-04）：让位不等于静默，但极小
+  // 预算下不能新增行。故各常驻段（Norm／经验）的让位痕迹合并成**一个**后缀，
   // 只并一次。
   //
   // 措辞按预算宽度分两档（实测依据沿用 2026-11-03）：1200–1500 档的固定行已占去
@@ -880,112 +817,42 @@ export function renderRecallRow(result) {
   const l0YieldedSegments = Array.isArray(l0Enumeration?.segments)
     ? l0Enumeration.segments.filter((segment) => segment?.yielded === true && Number.isInteger(segment?.total) && segment.total > 0)
     : [];
-  const l0Verbose = baselineBudgetLimit === null || baselineBudgetLimit >= 1600;
+  const l0Verbose = budgetLimit === null || budgetLimit >= 1600;
   // **极小预算下只报类别，不报条数**（2026-11-04，实测依据）：1200–1600 档的固定
   // 披露行已占九成以上预算，多 20 字节即顶破（实测 1400 档因这条痕迹多出 9 字节，
-  // 进而触发更贵的一行「本次注入超出预算」+240）。故低于 1600 只留「哪两段未展开」
+  // 进而触发更贵的一行「本次注入超出预算」+240）。故低于 1600 只留「哪段未展开」
   // 这一条可检索事实，条数与入口在数据层 `l0Enumeration` 与 `1600+` 档承载。
   const l0YieldHint = l0Verbose
     ? l0YieldedSegments
       .map((segment) => `${segment.type === "norm" ? "事实规范" : segment.type === "pitfall" ? "经验" : segment.type} ${segment.total} 条`)
       .join("、")
     : "事实规范与经验 L0";
-  const yieldHintOf = ({ baseline, l0 }) => {
-    const parts = [];
-    if (baseline) parts.push(`基线 ${baselineItems.length} 条未展开`);
-    if (l0) parts.push(l0Verbose ? `${l0YieldHint}未展开` : l0YieldHint);
-    if (parts.length === 0) return "";
-    const basis = l0 ? "22 §12／L0" : "22 §12";
-    const entries = l0 && l0Verbose ? "，ldvh_adr_list／ldvh_norm_list／ldvh_pitfall_list" : "";
+  const yieldHintOf = ({ l0 }) => {
+    if (!l0) return "";
+    const parts = [l0Verbose ? `${l0YieldHint}未展开` : l0YieldHint];
+    const basis = "27 §10／23 §12";
+    const entries = l0Verbose ? "，ldvh_norm_list／ldvh_pitfall_list" : "";
     return `；${parts.join("、")}（${basis}${entries}）`;
   };
   let yieldNoteEmitted = false;
   // 紧凑整行（`overBudget` / `blockedByBudget` 两支）用的同一后缀——与
-  // `withBaselineYieldNote` 共用 `yieldHintOf`，避免两处措辞各自漂移。
-  const compactYieldSuffix = yieldHintOf({ baseline: baselineYieldSuffix !== "", l0: l0YieldedSegments.length > 0 });
-  const withBaselineYieldNote = (text) => {
-    const hasBaseline = baselineYieldSuffix !== "";
-    const hasL0 = l0YieldedSegments.length > 0;
-    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;
+  // `withYieldNote` 共用 `yieldHintOf`，避免两处措辞各自漂移。
+  const compactYieldSuffix = yieldHintOf({ l0: l0YieldedSegments.length > 0 });
+  const withYieldNote = (text) => {
+    if (l0YieldedSegments.length === 0 || yieldNoteEmitted) return text;
     yieldNoteEmitted = true;
-    const suffix = yieldHintOf({ baseline: hasBaseline, l0: hasL0 });
+    const suffix = yieldHintOf({ l0: true });
     return text.endsWith("）") ? `${text.slice(0, -1)}${suffix}）` : `${text}${suffix}`;
   };
-  if (baselineItems.length > 0 || baseline?.sourceUnreadable === true) {
-    // **极小预算的退化形态先判**：此时整段压成一行（段头、计数、入口、适用性
-    // 否定都在这一行里），故不得再输出独立段头与独立声明——否则又超回去。
-    const baselineLimitBytes =
-      typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
-    const totalBudgetTooSmall = baselineLimitBytes !== null && baselineLimitBytes > 0
-      && baselineLimitBytes < BASELINE_YIELD_BELOW_BYTES;
-    if (totalBudgetTooSmall && baselineItems.length > 0) {
-      // **极小预算下基线整体让位，但痕迹必须留在既有披露行里**（2026-11-03 修）。
-      //
-      // 预算 < 1200 时固定声明（约 720 字节）加三态/截断披露行已顶满，实测 800
-      // 预算下**新增任何一行**都会超（单行形态 898、并入披露行 870，均 > 800）。
-      // 旧实现因此在这里什么都不输出——后果是读者在极小预算下只看到「候选没列
-      // 出」，完全不知道还有 2 条 active ADR 属义务披露（`22 §12`）。数据层虽
-      // 仍有 `decisionBaseline.items`，但那只有调用方能看见，**模型侧不可见**。
-      //
-      // 修法：不新增行，而是把这条痕迹**并入**紧随其后的截断/三态披露行
-      // （见下方 `baselineYieldSuffix`）。字节预算不变，披露义务不丢。
-      // 取舍理由：`10:241`「注入内容未超 LDVH 侧常量预算」是硬核对项；
-      // 极小预算下「让基线让位但如实说它存在」优于「逐条列全但超预算」。
-    } else {
-    lines.push(`【决策基线 · active ADR（22 §12 义务披露）】`);
-    if (baseline?.sourceUnreadable === true && baselineItems.length === 0) {
-      // 与三态同口径：读不到 ≠ 没有。绝不静默留空。
-      lines.push("· 事实源不可读，基线未取得——**不表示本项目没有 ADR**（34 §12）。");
-    } else {
-      // 逐条按字节上限收敛；超出的如实计数披露（`02 §9.1`：不得静默截断）。
-      //
-      // **上限须随总预算缩放**（2026-10-25，修复 800 字节用例暴露的真实冲突）：
-      // 固定 600 字节的基线在总预算 800 时会与固定声明（720 字节）直接对撞——
-      // 实测 1179 > 800。基线是义务披露，但**披露本身也要能被装下**；
-      // 故实际上限取「常量的上限」与「总预算的一部分」的较小者，
-      // 极小预算下退化为「计数 + 取全量入口」而不是逐条标题（内容按预算收敛，
-      // 披露义务不减：仍如实说明有几条、去哪取）。
-      const limitBytesForBaseline =
-        typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
-      const scaledCap = limitBytesForBaseline !== null && limitBytesForBaseline > 0
-        // 基线最多占注入预算的 1/3，余下留给固定声明与候选区（共享常量）。
-        ? Math.floor(limitBytesForBaseline / BASELINE_BUDGET_SHARE_DIVISOR)
-        : ADR_BASELINE_BYTE_BUDGET;
-      const effectiveCap = Math.min(ADR_BASELINE_BYTE_BUDGET, scaledCap);
-      let usedBytes = 0;
-      let shown = 0;
-      let omitted = 0;
-      for (const item of baselineItems) {
-        const line = `· ${item.title}${item.status ? `［${item.status}］` : ""}`;
-        const lineBytes = Buffer.byteLength(line, "utf8") + 1;
-        if (shown > 0 && usedBytes + lineBytes > effectiveCap) {
-          omitted += 1;
-          continue;
-        }
-        lines.push(line);
-        usedBytes += lineBytes;
-        shown += 1;
-      }
-      if (omitted > 0) {
-        lines.push(
-          `（基线按字节上限 ${effectiveCap} 列出前 ${shown} 条，另有 ${omitted} 条未列出；` +
-            `**未列出不代表不存在**，用 ldvh_adr_list 取全量。）`,
-        );
-      }
-      // 适用性声明不可省：基线常驻**不等于**每条都适用于本回合（`02 §9.2`／34 §13）。
-      // 适用性长声明已由第 2 行承载；此处只留极短复述——基线紧邻其条目，
-      // 读者最容易在此误读为「应当遵守」（22 §1 法定效力），故不可完全省略。
-      lines.push("（基线只保证「看得见」，**不证明适用**。）");
-    }
-    }
-  }
-  // ── **事实规范段 + 经验段**（L0 全量，Human 决定 2026-11-04）─────────────
+  // **常驻段渲染**：决策基线段已撤除（2026-11-16，见上方记录），本处只剩
+  // 数据层排好的常驻段行（Norm／经验）与经验按需行。
+  // ── **事实规范段 + 经验段**（Human 决定 2026-11-04；2026-11-16 收窄）───────
   //
   // Human 的次序是「ADR、事实规范、经验，这三个的 L0 是必须注入的，其他根据
-  // 预算安排」。ADR 段由上面的决策基线承载（形状不变），本处补 **Norm 段与
-  // Pitfall 段**，次序即 `L0_SEGMENT_ORDER`——不能颠倒：Norm 界定项目自身的
-  // 方向规则（违反即违规范源），经验是「别重蹈已知陷阱」（`23 §12` 遵守预检
-  // 的消费点），前者优先级更高。
+  // 预算安排」。决策类那一段已撤除；事实规范目录改由引导层独立成行
+  // （`norm-directory.js`），故本处实际只剩数据层排好的常驻段（若有）——次序即
+  // `L0_SEGMENT_ORDER`，不能颠倒：Norm 界定项目自身的方向规则（违反即违规范源），
+  // 经验是「别重蹈已知陷阱」（`23 §12` 遵守预检的消费点），前者优先级更高。
   //
   // 为什么必须**独立于词法命中**：实测对事实源做词法召回时，「前端样式错乱」
   // 「页面白屏了」这类症状表述与 Norm 的标题／direction_key 常无字面重合，
@@ -1035,9 +902,8 @@ export function renderRecallRow(result) {
   if (onDemandLine !== null && budgetAllowsOnDemandLine(result?.budget?.limitBytes ?? null)) {
     lines.push(onDemandLine);
   }
-  // **事实源不可读时 L0 段也须出声**：读不到 ≠ 本项目没有这三类对象（34 §12）。
-  // 基线已对 ADR 说过一次，此处只补 Norm／经验两侧的缺失——不重复 ADR。
-  if (l0Enumeration?.sourceUnreadable === true && baselineItems.length === 0) {
+  // **事实源不可读时 L0 段也须出声**：读不到 ≠ 本项目没有这两类对象（34 §12）。
+  if (l0Enumeration?.sourceUnreadable === true) {
     lines.push("（事实规范与经验两段的常驻索引未取得——事实源不可读，**不表示本项目没有这两类对象**（34 §12）。）");
   }
   if (specs.length > 0) {
@@ -1101,7 +967,7 @@ export function renderRecallRow(result) {
       ...[...sectionOf.keys()].filter((type) => !FACT_SECTION_ORDER.includes(type)),
     ];
     // **单节时用短表头**：分数段表头的收益只在「多类并存」时存在；只有一类时
-    // `事实源：` 与 `事实源 · ADR（决策）：` 信息量相同，却多占 18 字节预算
+    // `事实源：` 与 `事实源 · Report（报告）：` 信息量相同，却多占 18 字节预算
     // （实测预算 1200 的情形正因此超 7 字节）。多节才逐节标注类型。
     const singleSection = orderedTypes.length === 1;
     for (const type of orderedTypes) {
@@ -1348,7 +1214,7 @@ export function renderRecallRow(result) {
       const moreHint = atCeiling
         ? `每侧 ${RECALL_LIMIT_MAX} 已是本实现的条数上限（RECALL_LIMIT_MAX），要更全请缩小动作范围或分次查询。`
         : `调大 limit 可看到更多（当前每侧 ${limitN ?? "?"}）。`;
-      lines.push(withBaselineYieldNote(
+      lines.push(withYieldNote(
         `（受条数上限（每侧 limit=${limitN ?? "?"}）限制：规范源命中 ${specHitsN} 条、列出 ${specShownN} 条；`
         + `事实源命中 ${factHitsN} 条、列出 ${factShownN} 条。数据层预算尚有余量（候选行估算 ${usedBytes}/${limitBytes} 字节）。`
         + `未返回的部分不代表不存在；${moreHint}）`,
@@ -1487,7 +1353,7 @@ export function renderRecallRow(result) {
       : tightBudget
         ? "未列出的不代表不存在（34 §12）。"
         : "未取得的部分不代表不存在；「未命中」不构成「无相关」的证据（34 §12）。";
-    lines.push(withBaselineYieldNote(
+    lines.push(withYieldNote(
       `（本次召回完整度：**${completeness}**${notRead.length > 0 ? `；未读取的源：${notRead.join("；")}` : ""}${filteredNote}。` +
         completenessTail +
         "）",
@@ -1526,39 +1392,27 @@ export function renderRecallRow(result) {
   let byteTriggered = false;
   // **裁剪次序（2026-11-01，老丁 m00559 任务「事实卡被渲染层裁光」修复）**：
   // 旧循环从尾部裁「- 」行，事实卡排在候选区末尾故最先死——实测 2400 预算下
-  // 2 张 ADR 事实卡全是决策基线重复行、强命中候选被名额挤出，尾删连裁 2 张后
-  // 零事实交付（测试「应有事实卡行」红）。改三级优先：
-  // ① 基线重复行优先删（其对象已在【决策基线】段逐条列出，信息不丢）；
-  // ② 其余「- 」候选行仍从尾部删（N-6 纪律不变，披露行仍永不裁剪）；
-  // ③ 软保底：事实卡（「- [」行）只剩最后 1 张时退出①②候选池，仅当已无
+  // 强命中候选被名额挤出，尾删连裁 2 张后零事实交付（测试「应有事实卡行」红）。
+  // 改两级优先：
+  // ① 「- 」候选行从尾部删（N-6 纪律不变，披露行仍永不裁剪）；
+  // ② 软保底：事实卡（「- [」行）只剩最后 1 张时退出①候选池，仅当已无
   //    其他候选行可删时才删——2400 复现留 1 张事实卡，800 极小预算仍能收进
   //    硬顶（N-7「实际 X 字节不得超预算 800」不放宽，故保底必须可让位）。
-  const trimBaselineItems = Array.isArray(result?.decisionBaseline?.items)
-    ? result.decisionBaseline.items
-    : [];
-  const baselineDupKeys = [];
-  for (const item of trimBaselineItems) {
-    if (typeof item?.path === "string" && item.path !== "") baselineDupKeys.push(item.path);
-    if (typeof item?.ref === "string" && item.ref !== "") baselineDupKeys.push(item.ref);
-  }
-  const isBaselineDupRow = (row) => baselineDupKeys.some((key) => row.includes(key));
+  //
+  // （原有第①级「决策基线重复行优先删」随该段撤除一并去掉，2026-11-16：
+  // 没有基线段，就不存在「对象已在别处逐条列出、故可安全重复删」的行。）
   const findDeletable = () => {
     const factIdx = [];
     for (let i = 0; i < trimmed.length; i += 1) {
       if (trimmed[i].startsWith("- [")) factIdx.push(i);
     }
     const protectedIdx = factIdx.length === 1 ? factIdx[0] : -1;
-    // ① 基线重复行（尾部优先），跳过受保底行
-    for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-      if (i === protectedIdx) continue;
-      if (trimmed[i].startsWith("- ") && isBaselineDupRow(trimmed[i])) return i;
-    }
-    // ② 其余候选行（尾部优先），跳过受保底行
+    // ① 候选行（尾部优先），跳过受保底行
     for (let i = trimmed.length - 1; i >= 0; i -= 1) {
       if (i === protectedIdx) continue;
       if (trimmed[i].startsWith("- ")) return i;
     }
-    // ③ 最后手段：受保底的最后 1 张事实卡（仅当已无其他候选行）
+    // ② 最后手段：受保底的最后 1 张事实卡（仅当已无其他候选行）
     return protectedIdx;
   };
   while (overChars() || overBytes()) {
@@ -1687,24 +1541,22 @@ export function renderRecallRow(result) {
   // **最终总预算收口**（2026-10-25，第四十次审核 M-1 修复）。
   //
   // 上面的裁剪循环只裁 `- ` 候选行；候选裁光后 `idx === -1` 直接 break，
-  // **固定声明 + 基线段 + 三态/截断披露行仍可能顶破预算且无人披露**——
+  // **固定声明 + 常驻段 + 三态/截断披露行仍可能顶破预算且无人披露**——
   // 实测预算 1200、query「页面白屏了」时注入 1364 字节（超 164），而数据层
   // `overBudget=false`、注入文本还写着「实际用 415 字节」，读者无从得知真实量。
   // 这违反 `10:241`「注入内容未超 LDVH 侧常量预算」与 `02 §9.1`「不得静默截断」。
   //
   // 收口规则（固定文本与三态披露**永不删**——那是 `34 §12` 的披露底线）：
-  //   0. **先让 L0 的非 ADR 两段让位**（2026-11-04）：经验段先、事实规范段后——
-  //      它们是「索引」，而 ADR 基线是义务披露的最高一档；Human 指定的次序
-  //      （ADR → 事实规范 → 经验）因此在让位次序上**反向**生效。每段让位都留
-  //      一行可查的痕迹，不静默消失。
-  //   1. 仍超预算 → **基线整段让位**（它是本行里唯一可让的内容块；
-  //      义务披露降级为一句可查的痕迹，不静默消失）；
-  //   2. 让位后仍超 → 如实带出并标注超出量（不再假装守住了预算）。
+  //   0. **先让常驻索引段让位**（2026-11-04）：经验段先、事实规范段后——
+  //      它们是「索引」；Human 指定的次序（事实规范 → 经验）因此在让位次序上
+  //      **反向**生效。每段让位都留一行可查的痕迹，不静默消失。
+  //      （2026-11-16：决策类那一段已撤除，故这里只剩两段。）
+  //   1. 让位后仍超 → 如实带出并标注超出量（不再假装守住了预算）。
   if (limitBytes !== null && limitBytes > 0) {
     const bytesNow = () => Buffer.byteLength(trimmed.join("\n"), "utf8");
-    // **L0 段让位**（只作用于 Norm／经验两段；ADR 由下方既有规则让位）。
+    // **常驻段让位**（只作用于 Norm／经验两段）。
     //
-    // 为什么次序是经验先让：Human 的注入次序是 ADR → 事实规范 → 经验，让位是
+    // 为什么次序是经验先让：Human 的注入次序是事实规范 → 经验，让位是
     // 它的镜像——最后被满足的最先让出。段块形态固定（数据层 `planL0Enumeration`
     // 产出 `lines: [header, ...interleaved, note, ...disclosure]`）：段头以
     // `【事实规范` 或 `【经验` 起，其后是 `· ` 标题行、`  ↳ ` 定位摘录行、段尾
@@ -1752,28 +1604,10 @@ export function renderRecallRow(result) {
         `（${label} 常驻索引未展开：${total > 0 ? `${total} 条` : "本类"}，本次因字节预算 ${limitBytes} 不足未列出；用 ${entry} 取全量。）`,
       );
     }
-    if (bytesNow() > limitBytes) {
-      // 找出基线段的行区间（段头以「【决策基线」起，到紧随其后的最后一个
-      // 非基线行之前；基线行以 `· ` 或「（基线」开头）。
-      const startIdx = trimmed.findIndex((l) => l.startsWith("【决策基线"));
-      if (startIdx !== -1) {
-        let endIdx = startIdx + 1;
-        while (
-          endIdx < trimmed.length
-          && (trimmed[endIdx].startsWith("· ") || trimmed[endIdx].startsWith("（基线") || trimmed[endIdx].startsWith("【决策基线"))
-        ) endIdx += 1;
-        const removed = endIdx - startIdx;
-        const baselineCount = baselineItems.length;
-        trimmed.splice(startIdx, removed);
-        // **降级痕迹**：只留一行，说明基线存在但因预算未展开（不静默消失）。
-        trimmed.splice(
-          startIdx,
-          0,
-          `（决策基线未展开：${baselineCount} 条 active ADR 属 22 §12 义务披露，本次因字节预算 ${limitBytes} 不足未列出；` +
-            `用 ldvh_adr_list 取全量。**常驻不等于适用**。）`,
-        );
-      }
-    }
+    // **决策基线段让位已撤除**（2026-11-16）：该段不再存在，故不再需要「整段让位
+    // + 只留一行降级痕迹」这一步；常驻 Norm／经验段的让位仍由上方循环处理
+    // （经验先让、事实规范后让）。
+    //
     // 让位后仍超：如实带出超出量（`00 §4.6` 不得声称超出依据的事）。
     //
     // **但极小预算下不再加这一行**：预算低于让位阈值时，超出的是固定声明与
@@ -1852,8 +1686,8 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
   if (result?.ok !== true) {
     // **`recall/no_tokens` 与 `recall/action_required` 仍然只落基线**（2026-11-03）：
     // 前者是「切不出主题词」（如「是不是应该」「怎么办」），后者理论上不可达
-    // （上游已挡空串）。两者都是**词法候选**层无从下手，而 F1 基线不依赖词法，
-    // 故此时仍须让 2 条 active ADR 可见——否则义务召回又绑回当回合用词。
+    // （上游已挡空串）。两者都是**词法候选**层无从下手，而常驻索引不依赖词法，
+    // 故此时仍须让常驻索引可见——否则义务召回又绑回当回合用词。
     const code = result?.error?.code;
     if (code === "recall/no_tokens") {
       return baselineOnlyInjection({
@@ -1868,38 +1702,33 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
   const total = (result.specs?.length ?? 0) + (result.facts?.length ?? 0);
   // 决策走**纯函数** `decideInjection`（见其定义处）：把「决策读了什么」变成
   // 可独立注入测试的接口。此前这段逻辑内联在长函数里，只能整链路跑——
-  // 而整链路里基线恒非空，短路分支根本进不去，于是「把分数接进决策」这种
+  // 而整链路里判据几乎总是成立，短路分支很难走到，于是「把分数接进决策」这种
   // 破坏**测不出来**（实测：破坏版仍 65/65 全绿）。抽出后守卫用例才有分辨力。
-  // **零命中短路的例外：基线或常驻索引有内容时仍须注入**（2026-10-25 Human
-  // 决定方案 A；2026-11-15 扩到常驻索引段，审查体 BLOCKER B1）。
+  // **零命中短路的例外：常驻索引有内容时仍须注入**（2026-10-25 Human 决定方案 A；
+  // 2026-11-15 扩到常驻索引段，审查体 BLOCKER B1；2026-11-16 去掉决策基线项）。
   //
   // 旧行为「一条都没命中就不注入」的理由是 `02 §9.2` 要防「无条件注入」——那对
-  // **词法候选**成立（候选的意义就在「本次相关」，无命中即无内容）。但 F1 基线
-  // 不是候选：`22 §12` 的义务召回要求「相关行动开始前必须召回并核对 active ADR」，
-  // 其可见性不得取决于当回合用词（实测「每次回复先称呼老丁」在无关消息上零召回）。
-  // 若在此短路，基线就被词法运气重新挡在门外，方案 A 等于没做。
+  // **词法候选**成立（候选的意义就在「本次相关」，无命中即无内容）。但常驻索引
+  // 不是候选：`27 §10` 的义务召回要求方向规范在行动前可核对，其可见性不得取决于
+  // 当回合用词。若在此短路，常驻索引就被词法运气重新挡在门外，方案 A 等于没做。
   //
-  // **2026-11-15 扩第三项**：本仓 17 条 ADR 已全数 retired，`baselinePresent`
-  // 恒为假，于是「5 条 active Norm + 零词法命中」的回合整行不注入（实测
-  // query「让动画快一点」→ inject:false）——`27 §10` 的义务召回（方向规范未召回
-  // 核对即开始工作视同违背）同样被绑回当回合用词。而零命中正是常驻索引最该
-  // 兜底的场景：词面不重合时，AI 只能靠每回合在场的定位摘录判断「哪份规范可能
-  // 在管这件事」。故常驻段有可交付内容时也须注入。
+  // **2026-11-15 扩常驻索引项**（当时称第三项）：当时本仓 17 条决策类对象已全数
+  // retired，`baselinePresent` 恒为假，于是「5 条 active Norm + 零词法命中」的回合
+  // 整行不注入（实测 query「让动画快一点」→ inject:false）——`27 §10` 的义务召回
+  // （方向规范未召回核对即开始工作视同违背）同样被绑回当回合用词。而零命中正是
+  // 常驻索引最该兜底的场景：词面不重合时，AI 只能靠每回合在场的定位摘录判断
+  // 「哪份规范可能在管这件事」。故常驻段有可交付内容时也须注入。
   //
-  // 故：基线有内容、或常驻索引段有内容（或事实源不可读须披露）→ 仍注入，但
-  // **只带这些常驻面**（`specs`/`facts` 为空，渲染层自然不会输出候选区）。这条
-  // 不构成「无条件注入」：34 §6 的进入条件仍在更上游把关（纯读取回合不进本函数），
-  // 且注入的内容是义务披露而非「本次相关」的候选。
-  const baselineHasContent =
-    (result?.decisionBaseline?.items?.length ?? 0) > 0 ||
-    result?.decisionBaseline?.sourceUnreadable === true;
+  // 故：常驻索引段有内容（或事实源不可读须披露）→ 仍注入，但**只带这些常驻面**
+  // （`specs`/`facts` 为空，渲染层自然不会输出候选区）。这条不构成「无条件注入」：
+  // 34 §6 的进入条件仍在更上游把关（纯读取回合不进本函数），且注入的内容是义务
+  // 披露而非「本次相关」的候选。
   const residentIndexHasContent = residentIndexPresentOf(result?.l0Enumeration);
   if (!decideInjection({
     candidateCount: total,
-    baselinePresent: baselineHasContent,
     residentIndexPresent: residentIndexHasContent,
   })) {
-    // 一条都没命中、且无基线／常驻索引可披露 → 不注入。
+    // 一条都没命中、且无常驻索引可披露 → 不注入。
     // 不注入不等于「无相关」，故这里只在返回值里说明，不写进上下文。
     return { inject: false, reason: "no-hits" };
   }
@@ -1953,17 +1782,21 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
 }
 
 /**
- * 只注入**决策基线**（词法候选被 `34 §6` 排除条件或 `no_tokens` 短路时）。
+ * 只注入**常驻索引**（词法候选被 `34 §6` 排除条件或 `no_tokens` 短路时）。
  *
- * **为什么单独走一条路径**（2026-11-03，Human 裁决）：`22 §12` 的义务召回是
- * 「相关行动开始前，AI 必须召回并核对相关 active ADR」，它属 `02 §9.1` F1
- * （枚举指定对象集合），**不依赖词法命中**。而 `34 §6` 的排除条件与
+ * **为什么单独走一条路径**（2026-11-03，Human 裁决）：常驻索引的义务召回（`27 §10`
+ * 事实规范、`23 §12` 经验消费点）**不依赖词法命中**。而 `34 §6` 的排除条件与
  * `recall/no_tokens` 都在词法候选这一层——旧实现让整行注入一起消失，
- * 实测「继续」「看看这个文件」「召回」「怎么办」这些回合里 2 条 active ADR
- * 一条都看不见，法定效力决策的可见性又绑回了当回合用词。
+ * 实测「继续」「看看这个文件」「召回」「怎么办」这些回合里常驻索引一条都看不见，
+ * 其可见性又绑回了当回合用词。
  *
- * **代价与取舍**：这些回合会多注入约 5 行（约 350 字节）。它不构成
- * `02 §9.2` 禁止的「无条件全量注入」：注入的**不是候选**，是 F1 基线，
+ * **2026-11-16 收窄**：决策类常驻基线按 `specs/34 §8.4` 撤回留痕撤除，事实规范目录
+ * 改由引导层独立成行（`norm-directory.js`），故本路径实际只剩**经验按需入口**。
+ * 函数名 `baselineOnly*` 与返回字段 `baselineOnly*` 沿用（标识符，改名会波及调用点
+ * 与测试断言而无行为收益）。
+ *
+ * **代价与取舍**：这些回合会多注入约 3 行（约 200 字节）。它不构成
+ * `02 §9.2` 禁止的「无条件全量注入」：注入的**不是候选**，是常驻索引，
  * 且 `34 §6` 的词法候选排除条件依然生效（行里如实写明「本轮无词法候选」及其原因）。
  *
  * **失败不拦回合**：与主路径同纪律，召回失败只记日志并如实标注原因。
@@ -1977,46 +1810,44 @@ async function baselineOnlyInjection({ projectRoot, why, cause, limitBytes = nul
   } catch (error) {
     return { inject: false, reason: `recall-failed:${error instanceof Error ? error.message : String(error)}` };
   }
-  const data = baseline?.decisionBaseline ?? null;
   const l0 = baseline?.l0Enumeration ?? null;
-  // **注入判据扩到三段**（2026-11-04，Human 决定）：任一段有内容即须注入——
-  // 否则「本项目无 active ADR、但有 active Norm 与经验」的回合会整行不进，
-  // 而那正是事实规范与经验最需要被看见的情形。
+  // **注入判据**（2026-11-04，Human 决定）：任一段常驻内容有内容即须注入——
+  // 否则「本项目无 Norm 常驻段、但有经验」的回合会整行不进，
+  // 而那正是经验最需要被看见的情形。
   const l0Shown = Array.isArray(l0?.segments)
     ? l0.segments.some((segment) => segment?.yielded !== true && Array.isArray(segment?.lines) && segment.lines.length > 0)
     : false;
   // **经验按需入口也计入「有内容」**（2026-11-15）：事实规范的常驻目录迁到独立
-  // 一行注入后，本行的 l0 段恒空（只剩 ADR 决策基线与经验按需入口）。若判据仍
-  // 只数 ADR 与 l0 段，「无 active ADR 但有经验」的纯读取回合会**整行不进**——
-  // 经验按需入口随之消失，正是 2026-11-04 那次扩判据要避免的形态。
+  // 一行注入后，本行的 l0 段恒空（只剩经验按需入口）。若判据只数 l0 段，
+  // 「有经验」的纯读取回合会**整行不进**——经验按需入口随之消失，正是 2026-11-04
+  // 那次扩判据要避免的形态。
   const pitfallTotal = l0?.pitfallTotal;
   const hasPitfall = Number.isInteger(pitfallTotal) && pitfallTotal > 0;
-  const hasContent = (data?.items?.length ?? 0) > 0 || data?.sourceUnreadable === true || l0Shown || hasPitfall;
+  const hasContent = l0Shown || hasPitfall;
   // 无内容可披露 → 不进（与主路径同判据：不注入不等于「无相关」）。
   if (!hasContent) return { inject: false, reason: "no-hits" };
-  const text = renderBaselineOnlyRow({ baseline: data, l0Enumeration: l0, why, limitBytes });
-  // 渲染侧硬约束同样适用：极小预算下基线行也须守住字节预算。
-  // 此处只做**如实标注**，不再裁剪——基线是义务披露，裁掉等于回到旧缺陷。
+  const text = renderBaselineOnlyRow({ l0Enumeration: l0, why, limitBytes });
+  // 渲染侧硬约束同样适用：极小预算下本行也须守住字节预算。
+  // 此处只做**如实标注**，不再裁剪——常驻索引是义务披露，裁掉等于回到旧缺陷。
   const bytes = Buffer.byteLength(text, "utf8");
   const overBudget = typeof limitBytes === "number" && limitBytes > 0 && bytes > limitBytes;
   const result = {
     ok: true,
-    decisionBaseline: data,
     l0Enumeration: l0,
     specs: [],
     facts: [],
     provesApplicability: false,
-    // **明示本次没有走词法召回**：调用方与测试据此分辨「只带基线」与「有候选」。
+    // **明示本次没有走词法召回**：调用方与测试据此分辨「只带常驻索引」与「有候选」。
     baselineOnly: true,
     // **归因不得混同**（2026-11-03）：`34 §6` 排除（纯读取／纯查询）与
     // `recall/no_tokens`（切不出主题词）是两种不同判定，处置与排查方向都不同；
-    // 两者都走「只带基线」这条路径，故归因必须由独立字段承载，不能靠文本措辞。
+    // 两者都走「只带常驻索引」这条路径，故归因必须由独立字段承载，不能靠文本措辞。
     baselineOnlyCause: cause ?? null,
     baselineOnlyReason: why,
     budget: { limitBytes, usedBytes: 0, limit: 0 },
     gaps: [
       ...(baseline?.gaps ?? []),
-      `本轮未做词法候选召回（${why}）；ADR／事实规范／经验的常驻索引不受该条件影响（22 §12、27 §10、23 §12）。`,
+      `本轮未做词法候选召回（${why}）；事实规范与经验的常驻索引不受该条件影响（27 §10、23 §12）。`,
     ],
   };
   result.render = {
@@ -2025,7 +1856,7 @@ async function baselineOnlyInjection({ projectRoot, why, cause, limitBytes = nul
     truncated: false,
     droppedCandidates: 0,
     note: overBudget
-      ? "基线行超出当次字节预算（基线属 22 §12 义务披露，不裁剪，如实带出）"
+      ? "常驻索引行超出当次字节预算（常驻索引属 27 §10／23 §12 披露，不裁剪，如实带出）"
       : "渲染文本未触硬约束",
   };
   return { inject: true, text, digest: text, result };

@@ -14,7 +14,7 @@
 // ── 为什么取证形态而非「判定是否落实」 ─────────────────────────────────
 //
 // 「这次召回有没有真的改变行动」是**语义判断**，不是机械可判定的：同一句
-// 「改用方案 B」既可能是被注入的 ADR 改变的结果，也可能是模型自己想到的。
+// 「改用方案 B」既可能是被注入的常驻对象改变的结果，也可能是模型自己想到的。
 // 因此本脚本只产出**结构性证据**：
 //   · 注入后是否出现工具调用（形态：行动发生）
 //   · 工具调用的参数里是否出现被注入候选的**标题词/路径/object_uid**
@@ -103,7 +103,7 @@ function actionsOf(events) {
  */
 const WEAK_TITLE_PREFIXES = [
   "dsh-ui", "Spark ", "Human ", "只推 dev", "插件 lib", "Git Ga", "retire",
-  "ADR/Fr", "事实对象正", "本地开发工", "调研系统的",
+  "事实对象正", "本地开发工", "调研系统的",
 ];
 const isWeakTitlePrefix = (prefix) =>
   WEAK_TITLE_PREFIXES.some((w) => prefix.startsWith(w.slice(0, prefix.length)));
@@ -143,14 +143,14 @@ const GATE_TOOLS = new Set([
  */
 const REF_KIND_BY_TOOL = new Map([
   ["ldvh_spark_write", "write"],
-  ["ldvh_adr_write", "write"], ["ldvh_pitfall_write", "write"],
+  ["ldvh_pitfall_write", "write"],
   ["ldvh_friction_write", "write"], ["ldvh_norm_write", "write"],
   ["ldvh_devlog_write", "write"],
   ["ldvh_pending_queue_resolve", "write"], ["edit", "write"],
   ["ask_user_question", "write"], ["update_goal", "write"],
   ["read", "read"], ["bash", "read"], ["grep", "read"],
   ["ldvh_norm_read", "read"],
-  ["ldvh_spark_read", "read"], ["ldvh_adr_read", "read"],
+  ["ldvh_spark_read", "read"],
   ["subagent", "relay"], ["structured_output", "relay"], ["compress", "relay"],
 ]);
 const kindOf = (tool) => REF_KIND_BY_TOOL.get(tool) ?? "relay";

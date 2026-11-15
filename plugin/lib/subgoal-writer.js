@@ -859,7 +859,7 @@ export async function updateSubGoalObject(args) {
   if (!exclusivity.ok) return exclusivity;
 
   // `bodyMarkdownAfter` is the COMPLETE target body as returned by a precise
-  // read — it already carries the H1 (same contract as norm/adr writers).
+  // read — it already carries the H1 (same contract as norm writers).
   const body = bodyMarkdownAfter.trim();
   const bodyCheck = validateSubGoalBodyStructure(body, next.title);
   if (!bodyCheck.ok) {

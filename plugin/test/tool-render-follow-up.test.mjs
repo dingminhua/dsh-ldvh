@@ -18,7 +18,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import * as adr from "../lib/adr-tools.js";
 import * as friction from "../lib/friction-tools.js";
 import * as pitfall from "../lib/pitfall-tools.js";
 import * as research from "../lib/report-tools.js";
@@ -37,7 +36,6 @@ const GOAL_OPERATIONS = {
 // 每个类型层取一个代表性 operation（read 类即可：renderEnvelope 是同一函数，
 // 与具体 operation 无关）。tuple = [层名, 模块, operationKey, OPERATIONS 中的键]。
 const LAYERS = [
-  ["adr", adr, "adr-read-object", adr.OPERATIONS],
   ["friction", friction, "friction-read-object", friction.OPERATIONS],
   ["pitfall", pitfall, "pitfall-read-object", pitfall.OPERATIONS],
   ["research", research, "research-read-object", research.OPERATIONS],

@@ -2,7 +2,7 @@
 // mechanical layer (specs/23 §13 受控操作 + specs/03 §9) into the governed
 // ldvh_* tool surface.
 //
-// Coverage follows the adr-tools.test.mjs / spark-tools.test.mjs pattern:
+// Coverage follows the spark-tools.test.mjs pattern:
 // handlers are driven through registerFrictionTools's descriptors with a
 // mock ctx.tools registry, a real governed-project fixture, the full envelope
 // shape is asserted, and the friction-writer.create* / update* are used to
@@ -140,7 +140,7 @@ async function seedFriction(root, overrides = {}) {
   return { draft, created };
 }
 
-async function seedResolvedFriction(root, adrUid) {
+async function seedResolvedFriction(root, informsTargetUid) {
   const { draft, created } = await seedFriction(root, { title: "待销账摩擦" });
   const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
   const updated = await updateFrictionObject({
@@ -150,7 +150,7 @@ async function seedResolvedFriction(root, adrUid) {
     frontmatterAfter: {
       ...read.value.frontmatter,
       status: "resolved",
-      relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+      relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
     },
     bodyMarkdownAfter: validBodyMarkdown(draft) + "\n\n## 处置\n已解决。",
     changeSummary: "销账",
@@ -169,30 +169,25 @@ async function seedOpenFriction(root, overrides = {}) {
   return { draft, created, read, updated: null };
 }
 
-async function createAdrFixture(root, uid) {
-  const adrBody = [
-    "## 决策背景\n背景说明。",
-    "## 决定\n我们决定采用方式 X 解决摩擦问题。",
-    "## 备选与理由\n替代方案 Y 已被否决因为 Z。",
-    "## 后果\n预期结果可被度量。",
-    "## 适用范围\n适用于本仓库所有 CI 场景。",
+async function createInformsTargetFixture(root, uid) {
+  const normBody = [
+    "## 核心规则体系\n摩擦解药以事实规范承载。",
+    "## 适用边界\n适用于本仓库所有 CI 场景。",
   ].join("\n\n");
-  const adrFm = {
+  const normFm = {
     object_uid: uid,
-    fact_type_key: "adr",
-    title: "解决 CI 摩擦的决策",
+    fact_type_key: "norm",
+    title: "解决 CI 摩擦的规范",
     status: "active",
-    decision: "我们决定采用方式 X 解决摩擦问题。",
-    scope: "适用于本仓库所有 CI 场景。",
-    trigger_signal: "当 CI 摩擦出现时触发",
+    direction_key: "ci-friction",
     created_at: "2026-09-10T12:00:00+08:00",
     change_log: [{ at: "2026-09-10T12:00:00+08:00", summary: "受控创建" }],
   };
   const yaml = await import("yaml");
-  const fmStr = yaml.stringify(adrFm);
-  const content = `---\n${fmStr}---\n\n${adrBody.trim()}\n`;
-  await mkdir(join(root, "adrs"), { recursive: true });
-  await writeFile(join(root, "adrs", `adr-${uid}.md`), content, "utf8");
+  const fmStr = yaml.stringify(normFm);
+  const content = `---\n${fmStr}---\n\n${normBody.trim()}\n`;
+  await mkdir(join(root, "norms"), { recursive: true });
+  await writeFile(join(root, "norms", `norm-${uid}.md`), content, "utf8");
   return uid;
 }
 
@@ -333,9 +328,9 @@ test("friction-list-objects: default (open only) filter and full projection", as
     // 故两条活账都用 open（它们是同一个状态，只是建了两条）。
     const first = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦甲" });
     const second = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦乙" });
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(join(repo, "ldvh-base"), adrUid);
-    const resolved = await seedResolvedFriction(join(repo, "ldvh-base"), adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(join(repo, "ldvh-base"), informsTargetUid);
+    const resolved = await seedResolvedFriction(join(repo, "ldvh-base"), informsTargetUid);
 
     const env = await run(desc, "ldvh_friction_list", {}, repo);
     assert.equal(env.outcome, "completed");
@@ -364,9 +359,9 @@ test("friction-list-objects: includeResolved=all returns all, including resolved
     const desc = makeDescriptors(deps);
 
     await seedFriction(join(repo, "ldvh-base"), { title: "甲" });
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(join(repo, "ldvh-base"), adrUid);
-    await seedResolvedFriction(join(repo, "ldvh-base"), adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(join(repo, "ldvh-base"), informsTargetUid);
+    await seedResolvedFriction(join(repo, "ldvh-base"), informsTargetUid);
 
     const env = await run(desc, "ldvh_friction_list", { status: "all" }, repo);
     assert.equal(env.outcome, "completed");
@@ -561,7 +556,7 @@ test("friction-write-object update: CAS conflict → rejected with retry follow-
 // friction-write-object update: resolved transition with informs (26 §9.2/§11)
 // ---------------------------------------------------------------------------
 
-test("friction-write-object update: resolve with informs to ADR → completed with read-back", async () => {
+test("friction-write-object update: resolve with informs to Norm → completed with read-back", async () => {
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const deps = makeDeps(home, base);
@@ -570,8 +565,8 @@ test("friction-write-object update: resolve with informs to ADR → completed wi
 
     const { draft, created } = await seedFriction(join(repo, "ldvh-base"), { title: "可销账摩擦" });
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(join(repo, "ldvh-base"), adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(join(repo, "ldvh-base"), informsTargetUid);
 
     const env = await run(
       desc,
@@ -583,7 +578,7 @@ test("friction-write-object update: resolve with informs to ADR → completed wi
         frontmatter_after: {
           ...read1.value.frontmatter,
           status: "resolved",
-          relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+          relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
         },
         body_markdown_after: validBodyMarkdown(draft) + "\n\n## 处置\n已解决。",
         change_summary: "销账",
@@ -716,8 +711,8 @@ test("friction-write-object update: updating a resolved friction → rejected st
 
     const { created } = await seedFriction(join(repo, "ldvh-base"));
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(join(repo, "ldvh-base"), adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(join(repo, "ldvh-base"), informsTargetUid);
 
     // open→resolved
     const envResolve = await run(
@@ -730,7 +725,7 @@ test("friction-write-object update: updating a resolved friction → rejected st
         frontmatter_after: {
           ...read1.value.frontmatter,
           status: "resolved",
-          relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+          relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
         },
         body_markdown_after: validBodyMarkdown() + "\n\n## 处置\n已解决。",
         change_summary: "销账",

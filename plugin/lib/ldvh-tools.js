@@ -37,7 +37,6 @@ import { registerSubagentResultTool } from "./subagent-result.js";
 import { REVIEW_ASK_OPERATION, reviewAskParameterSchema, executeReviewAsk } from "./review-ask-tool.js";
 import { registerReportTools } from "./report-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
-import { registerAdrTools } from "./adr-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
 import { registerFrictionTools } from "./friction-tools.js";
 import { registerNormTools } from "./norm-tools.js";
@@ -1960,8 +1959,6 @@ export function registerLdvhTools(ctx, deps) {
   disposers.push(registerReportTools(ctx, deps));
   // Spark mechanical layer (specs/20 writer), same registration surface.
   disposers.push(registerSparkTools(ctx, deps));
-  // ADR mechanical layer (specs/22 writer), same registration surface.
-  disposers.push(registerAdrTools(ctx, deps));
   // Pitfall mechanical layer (specs/23 writer), same registration surface.
   disposers.push(registerPitfallTools(ctx, deps));
   // Friction mechanical layer (specs/26 writer), same registration surface.

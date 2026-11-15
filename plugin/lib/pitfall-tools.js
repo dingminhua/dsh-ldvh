@@ -399,7 +399,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
 }
 
 // ---------------------------------------------------------------------------
-// Registration (same shape as adr-tools.js — mounted from
+// Registration (same shape as spark-tools.js — mounted from
 // registerLdvhTools, so tools land only in governed sessions)
 // ---------------------------------------------------------------------------
 

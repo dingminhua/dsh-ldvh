@@ -43,21 +43,21 @@ import {
 } from "../lib/precheck-record.js";
 
 // ---------------------------------------------------------------------------
-// 场景：AI 要改一份受控事实对象（ADR），并行工作 case
+// 场景：AI 要改一份受控事实对象（Norm），并行工作 case
 // ---------------------------------------------------------------------------
 
 test("端到端：进入 → 风险路由 → 三段判断 → 落实 → 记录 → 交还 → 分层", () => {
 	// ── 第 1 段：进入判定（34 §6）──────────────────────────────────────────
-	// 动作是「创建 ADR」，属会改状态的动作，命中进入信号第 1 项。
+	// 动作是「创建 Norm」，属会改状态的动作，命中进入信号第 1 项。
 	const entry = checkEntry({
-		actionKind: "创建 ADR",
+		actionKind: "创建 Norm",
 		signals: ["即将执行会产生副作用或改变状态的动作"],
 	});
 	assert.equal(entry.ok, true, "进入判定应成立");
 	assert.equal(entry.entered, true, "改状态的动作应进入本系统");
 
 	// ── 第 2 段：风险路由（34 §11）────────────────────────────────────────
-	// 涉及授权边界（ADR 承载已拍板取舍），故不可快通道。
+	// 涉及授权边界（Norm 承载成体系方向规范），故不可快通道。
 	const routing = checkRiskRouting({
 		stage: "三段判断",
 		tier: "标准路径",
@@ -105,7 +105,7 @@ test("端到端：进入 → 风险路由 → 三段判断 → 落实 → 记录
 	// 执行中发现一个判断错误偏离，已发现即登记。
 	const deviation = evaluateDeviation({
 		form: "判断错误偏离",
-		affectedScope: "ADR 范围写宽了",
+		affectedScope: "Norm 范围写宽了",
 		sideEffects: "无写入",
 		pendingChecks: "核对范围边界",
 		discoveredAt: "2026-10-23T18:00:00+08:00",
@@ -143,10 +143,10 @@ test("端到端：进入 → 风险路由 → 三段判断 → 落实 → 记录
 
 	// ── 第 9 段：生成记录（03 §7.2）────────────────────────────────────────
 	const record = renderPrecheckRecord({
-		effective: "specs/34（L3 §8）、specs/03 §7.2（L2）、adr-1（active）",
+		effective: "specs/34（L3 §8）、specs/03 §7.2（L2）、norm-1（active）",
 		applicable: "34 §17 第 3 项；34 §9.3",
 		allowed: "本会话 Human 授权限 plugin/ 下",
-		recalled: { adr: "adr-1：不硬编码路径（适用）", pitfall: "未遍历" },
+		recalled: { pitfall: "未遍历" },
 		unverified: "specs/34 的 operation 声明未落盘（已判定为 C：不声明）",
 	});
 	assert.equal(record.ok, true);
@@ -157,15 +157,15 @@ test("端到端：进入 → 风险路由 → 三段判断 → 落实 → 记录
 	assert.equal(shape.complete, true, "五段必备齐备");
 	const parsed = parseRecord(record.text);
 	assert.equal(parsed.complete, true);
-	assert.equal(parsed.fields.effective, "specs/34（L3 §8）、specs/03 §7.2（L2）、adr-1（active）");
-	assert.deepEqual(parsed.fields.recalled, { adr: "adr-1：不硬编码路径（适用）", pitfall: "未遍历" });
+	assert.equal(parsed.fields.effective, "specs/34（L3 §8）、specs/03 §7.2（L2）、norm-1（active）");
+	assert.deepEqual(parsed.fields.recalled, { pitfall: "未遍历" });
 
 	// 往返校验：渲染 → 解析 → 比对，字段须等价（防两套逻辑漂移）。
 	const roundTrip = roundTripRecord({
 		effective: "specs/34",
 		applicable: "34 §17 第 3 项",
 		allowed: "本会话授权限 plugin/",
-		recalled: { adr: "adr-1", pitfall: "未遍历" },
+		recalled: { pitfall: "未遍历" },
 		unverified: "未落盘",
 	});
 	assert.equal(roundTrip.roundTripStable, true, "往返须稳定");
@@ -179,17 +179,17 @@ test("端到端：进入 → 风险路由 → 三段判断 → 落实 → 记录
 			allowed: "本会话 Human 授权限 plugin/ 下",
 		},
 		application: settled,
-		recalled: "ADR 一条（适用）；Pitfall 未遍历（快通道下未扫）",
-		verified: "34 与 03 §7.2 全文已读；ADR 当前对象已按 F3 读取",
+		recalled: "Pitfall 未遍历（快通道下未扫）",
+		verified: "34 与 03 §7.2 全文已读；当前 Norm 对象已按 F3 读取",
 		unverified: "未验证：注入后的实际理解效果",
 		residualRisk: "注入理解效果未验证，可能误把候选当适用",
 		humanDecisions: "偏离影响是否扩大暂停范围（34 §15.1 第 3 项）",
 		madeHumanDecisions: "本会话 Human 授权：限 plugin/ 下的受控写入",
-		continuation: "先核 ADR 范围边界，再决定是否恢复偏离",
+		continuation: "先核 Norm 范围边界，再决定是否恢复偏离",
 		deviations: [
 			{
 				form: "判断错误偏离",
-				affectedScope: "ADR 范围写宽了",
+				affectedScope: "Norm 范围写宽了",
 				sideEffects: "无写入",
 				pendingChecks: "核对范围边界",
 				discoveredAt: "2026-10-23T18:00:00+08:00",
@@ -247,7 +247,7 @@ test("端到端：进入 → 风险路由 → 三段判断 → 落实 → 记录
 		effective: "specs/34、specs/03 §7.2",
 		applicable: "34 §12 交还结构",
 		allowed: "本会话授权限 plugin/",
-		recalled: { adr: "adr-1", pitfall: "未遍历" },
+		recalled: { pitfall: "未遍历" },
 		unverified: "operation 声明未落盘",
 	});
 	assert.equal(envelope.ok, true);
@@ -294,7 +294,7 @@ test("端到端负路径：交还缺必填项时，分层声明不应被当作�
 test("端到端负路径：仪式疑似记录仍可交还，但须带提醒", () => {
 	const ritual = renderPrecheckRecord({
 		effective: "无", applicable: "无", allowed: "无", unverified: "无",
-		recalled: { adr: "无", pitfall: "无" },
+		recalled: { pitfall: "无" },
 	});
 	assert.equal(ritual.ok, true, "不因疑似而拒绝（拒绝会逼出更糟的空话）");
 	assert.equal(ritual.ritualSuspected, true);

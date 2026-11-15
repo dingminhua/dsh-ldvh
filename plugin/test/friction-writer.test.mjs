@@ -6,7 +6,7 @@
 //      informs 只在销账流转写入。观察态 observing 已于 2026-10 退出闭集——
 //      观察材料改由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象），不进事实源；
 //      `observing → open`（阈值）与 `open → observing`（放回留观）两条流转一并删除）,
-//   §11 informs 关系（目标限 ADR 目录可解析）,
+//   §11 informs 关系（目标为任一现存事实对象）,
 //   §12 召回（默认 open；resolved/voided 只在 includeResolved）,
 //   §13 受控操作, §14.1 特有验证.
 // Tests assert spec behaviour; where the implementation diverges from the
@@ -68,28 +68,24 @@ SG-3 框架效能目标。
 SG-4 第四条子目标。
 `;
 
-/** ADR fixture file written to the fact source root for informs target resolution. */
-async function createAdrFixture(factSourceRoot, uid) {
-  const adrBody = [
-    `## 决策背景\n背景说明。`,
-    `## 决定\n我们决定采用方式 X 解决摩擦问题。`,
-    `## 备选与理由\n替代方案 Y 已被否决因为 Z。`,
-    `## 后果\n预期结果可被度量。`,
-    `## 适用范围\n适用于本仓库所有 CI 场景。`,
+/** Existing-fact-object fixture for informs target resolution (Norm carrier). */
+async function createInformsTargetFixture(factSourceRoot, uid) {
+  const normBody = [
+    `## 核心规则体系\n摩擦解药以事实规范承载。`,
+    `## 适用边界\n适用于本仓库所有 CI 场景。`,
   ].join("\n\n");
-  const adrFm = {
+  const normFm = {
     object_uid: uid,
-    fact_type_key: "adr",
-    title: "解决 CI 摩擦的决策",
+    fact_type_key: "norm",
+    title: "解决 CI 摩擦的规范",
     status: "active",
-    decision: "我们决定采用方式 X 解决摩擦问题。",
-    scope: "适用于本仓库所有 CI 场景。",
+    direction_key: "ci-friction",
     created_at: "2026-09-10T12:00:00+08:00",
     change_log: [{ at: "2026-09-10T12:00:00+08:00", summary: "受控创建" }],
   };
-  const content = `---\n${stringifyYaml(adrFm)}---\n\n${adrBody.trim()}\n`;
-  await mkdir(join(factSourceRoot, "adrs"), { recursive: true });
-  await writeFile(join(factSourceRoot, "adrs", `adr-${uid}.md`), content, "utf8");
+  const content = `---\n${stringifyYaml(normFm)}---\n\n${normBody.trim()}\n`;
+  await mkdir(join(factSourceRoot, "norms"), { recursive: true });
+  await writeFile(join(factSourceRoot, "norms", `norm-${uid}.md`), content, "utf8");
   return uid;
 }
 
@@ -399,12 +395,12 @@ async function seedResolvedWithAnchor(root, { anchorUid, informsUid }) {
   return uid;
 }
 
-/** 造一个最小的 informs 目标（adrs 目录下的载体，只要 object_uid 可解析）。 */
+/** 造一个最小的 informs 目标（现存事实对象目录下的载体，只要 object_uid 可解析）。 */
 async function seedInformsTarget(root, uid) {
-  await mkdir(join(root, "adrs"), { recursive: true });
+  await mkdir(join(root, "norms"), { recursive: true });
   await writeFile(
-    join(root, "adrs", `adr-${uid}.md`),
-    `---\nobject_uid: ${uid}\nfact_type_key: adr\ntitle: 解药决策\nstatus: active\ndecision: 采用 A。\nscope: 解药。\ncreated_at: "2026-10-01T00:00:00.000Z"\n---\n\n# 解药决策\n`,
+    join(root, "norms", `norm-${uid}.md`),
+    `---\nobject_uid: ${uid}\nfact_type_key: norm\ntitle: 解药规范\nstatus: active\ndirection_key: ci-friction\ncreated_at: "2026-10-01T00:00:00.000Z"\n---\n\n# 解药规范\n`,
     "utf8",
   );
 }
@@ -805,11 +801,11 @@ test("state machine: open→observing 放回留观流转已删除——一律被
   });
 });
 
-test("state machine: open→resolved with 1 informs relation to existing ADR succeeds (26 §9.2)", async () => {
+test("state machine: open→resolved with 1 informs relation to existing Norm succeeds (26 §9.2)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
 
     const updated = await updateFrictionObject({
       factSourceRoot: root,
@@ -818,7 +814,7 @@ test("state machine: open→resolved with 1 informs relation to existing ADR suc
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
@@ -840,8 +836,8 @@ test("commit target: target.commit is accepted when it resolves (02 §8.1 commit
   // 允许不带 object_uid 的情形。本例钉住该形态可落盘、hash 真实存在时通过。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const realHash = "a".repeat(40);
 
     const ok = await updateFrictionObject({
@@ -878,8 +874,8 @@ test("evidence_locator.commit 拒绝路径仍有覆盖：不可解析与无 reso
   // 同样必须在 hash 不可解析／无 resolver 时 fail-closed。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const bad = "9".repeat(40);
 
     const unresolvable = await updateFrictionObject({
@@ -891,7 +887,7 @@ test("evidence_locator.commit 拒绝路径仍有覆盖：不可解析与无 reso
         status: "resolved",
         relations: [{
           relation_key: "informs",
-          target: { object_uid: adrUid },
+          target: { object_uid: informsTargetUid },
           evidence_locator: { commit: bad },
         }],
       },
@@ -912,7 +908,7 @@ test("evidence_locator.commit 拒绝路径仍有覆盖：不可解析与无 reso
         status: "resolved",
         relations: [{
           relation_key: "informs",
-          target: { object_uid: adrUid },
+          target: { object_uid: informsTargetUid },
           evidence_locator: { commit: "8".repeat(40) },
         }],
       },
@@ -933,7 +929,7 @@ test("evidence_locator.commit 拒绝路径仍有覆盖：不可解析与无 reso
         status: "resolved",
         relations: [{
           relation_key: "informs",
-          target: { object_uid: adrUid },
+          target: { object_uid: informsTargetUid },
           evidence_locator: { commit: "7".repeat(40) },
         }],
       },
@@ -985,8 +981,8 @@ test("commit target: unresolvable hash, missing resolver and both-forms-carrying
   // 测试仍全绿）。故每条都断言 issues 里出现该条规则的专属文案。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const bad = "b".repeat(40);
 
     const unresolvable = await updateFrictionObject({
@@ -1035,7 +1031,7 @@ test("commit target: unresolvable hash, missing resolver and both-forms-carrying
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid, commit: "d".repeat(40) } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid, commit: "d".repeat(40) } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "把 commit 塞进 target",
@@ -1082,8 +1078,8 @@ test("commit target: unresolvable hash, missing resolver and both-forms-carrying
 test("correct: resolved 账可改正文与 relations，终态判定逐字不变（26 §13）", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const resolved = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
@@ -1091,7 +1087,7 @@ test("correct: resolved 账可改正文与 relations，终态判定逐字不变�
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
@@ -1148,8 +1144,8 @@ test("correct: open 账与缺授权的更正请求都被机械拒绝（26 §13 f
     assert.equal(onOpen.error.code, "friction/correction_requires_terminal");
 
     // ② 缺 human_authorization 即拒——更正与其它受控更新同权限
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const resolved = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
@@ -1157,7 +1153,7 @@ test("correct: open 账与缺授权的更正请求都被机械拒绝（26 §13 f
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
@@ -1182,8 +1178,8 @@ test("correct: relationsAfter 非法输入被机械拒绝，no-op 被拒（26 §
   // 未覆盖 relationsAfter 的非法输入与 no-op。本例补真判别力。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const resolved = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
@@ -1191,7 +1187,7 @@ test("correct: relationsAfter 非法输入被机械拒绝，no-op 被拒（26 §
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
@@ -1218,7 +1214,7 @@ test("correct: relationsAfter 非法输入被机械拒绝，no-op 被拒（26 §
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
       expectedFingerprint: resolved.value.fingerprint,
-      relationsAfter: [{ relation_key: "supersedes", target: { object_uid: adrUid } }],
+      relationsAfter: [{ relation_key: "supersedes", target: { object_uid: informsTargetUid } }],
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "写入闭集外的 relation_key",
       humanAuthorization: "Human 授权",
@@ -1292,8 +1288,8 @@ test("correct: 等价键序的 relations 重传被判 no-op（复审缺陷 A 的
   // 声称更正过的 change_log，即本动作要防的假记录。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const resolved = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
@@ -1347,8 +1343,8 @@ test("correct: 合法 relations 变更确实写入并落盘（正向路径的运
   // 更正为带 locator 的形态（真实变更），应放行、回读可见、change_log 带授权原文。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const resolved = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
@@ -1356,7 +1352,7 @@ test("correct: 合法 relations 变更确实写入并落盘（正向路径的运
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
@@ -1392,8 +1388,8 @@ test("correct: 合法 relations 变更确实写入并落盘（正向路径的运
 test("state machine: resolved object update returns status_terminal (26 §9.2 终态不重开)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const updated1 = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
@@ -1401,7 +1397,7 @@ test("state machine: resolved object update returns status_terminal (26 §9.2 �
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
@@ -1430,8 +1426,8 @@ test("state machine: resolved object update returns status_terminal (26 §9.2 �
 test("state machine: open→resolved succeeds with informs written at that transition (26 §9.2)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
 
     // First: 活账上的补充级更新（status 逐字未变——创建即 open，26 §9）
     const updated1 = await updateFrictionObject({
@@ -1453,7 +1449,7 @@ test("state machine: open→resolved succeeds with informs written at that trans
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "事后销账",
@@ -1507,53 +1503,13 @@ test("state machine: informs target not resolvable → friction/relation_target_
   });
 });
 
-test("state machine: informs target pointing to spark file (wrong type) → relation_target_unresolvable (26 §11)", async () => {
-  await withTemp("friction-writer.", async (root) => {
-    const { read: r1 } = await createAndRead(root);
-    // Create a spark file (not ADR) — informs target must resolve in adrs/
-    await mkdir(join(root, "sparks"), { recursive: true });
-    const sparkFm = {
-      object_uid: "ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb",
-      fact_type_key: "spark",
-      title: "测试火花",
-      status: "open",
-      question: "怎么验证？",
-      scope_boundary: "范围限定。",
-      intent: "测试意图。",
-      summary: "测试摘要。",
-      created_at: "2026-09-10T12:00:00+08:00",
-      change_log: [],
-    };
-    await writeFile(
-      join(root, "sparks", "spark-ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb.md"),
-      `---\n${parseYaml(stringifyYaml(sparkFm))}\n---\n\n## 当前理解\n测试。\n\n## 调查问题\n测试。\n\n## 调查边界\n测试。`,
-      "utf8"
-    );
-    const result = await updateFrictionObject({
-      factSourceRoot: root,
-      objectUid: r1.value.object_uid,
-      expectedFingerprint: r1.value.fingerprint,
-      frontmatterAfter: {
-        ...r1.value.frontmatter,
-        status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: "ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb" } }],
-      },
-      bodyMarkdownAfter: resolvedBodyMarkdown(),
-      changeSummary: "销账指向 spark 文件",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(!result.ok);
-    assert.equal(result.error.code, "friction/relation_target_unresolvable");
-  });
-});
-
 test("state machine: open 活账携带 relations → relations_invalid (26 §11 — 活账不得带关系)", async () => {
   // 原用例写作「observing→open with relations」；三值闭集下活账只有 open 一值，
   // 该判据的实质不变：26 §11 的 informs 只在销账流转写入，活账带关系一律被拒。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const result = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
@@ -1561,7 +1517,7 @@ test("state machine: open 活账携带 relations → relations_invalid (26 §11 
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "open",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "试图在 open 时带关系",
@@ -1578,8 +1534,8 @@ test("state machine: open→observing 带关系同样被拒（26 §9 三值闭�
   // 实现上闭集检查发生在关系检查之前，故错误码是 status_transition_invalid。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
 
     const result = await updateFrictionObject({
       factSourceRoot: root,
@@ -1589,7 +1545,7 @@ test("state machine: open→observing 带关系同样被拒（26 §9 三值闭�
         ...r1.value.frontmatter,
         status: "observing",
         occurrence: { ...r1.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "放回留观带关系（流转已删除）",
@@ -1643,8 +1599,8 @@ test("update: supplement-level — status unchanged, phenomenon unchanged, attri
 test("update: 补充级更新不得携带 relations（26 §9.3 补充边界 / §11）", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read } = await createAndRead(root);
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
 
     // status 逐字未变 → 补充级；带 relations 必须被拒
     const result = await updateFrictionObject({
@@ -1653,7 +1609,7 @@ test("update: 补充级更新不得携带 relations（26 §9.3 补充边界 / §
       expectedFingerprint: read.value.fingerprint,
       frontmatterAfter: {
         ...read.value.frontmatter,
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "在补充级更新里塞关系",
@@ -1729,13 +1685,13 @@ test("list: 2 live（open）+ 1 resolved——默认召回 2 条，includeResolv
     const b = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) , sessionSignature: TEST_SIGNATURE});
     assert.ok(b.ok, JSON.stringify(b.error));
 
-    // Create a third and resolve it (needs ADR)
+    // Create a third and resolve it (needs an existing fact object as informs target)
     const draftC = { ...validFrontmatterDraft(), title: "丙摩擦" };
     const c = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftC, bodyMarkdown: validBodyMarkdown(draftC) , sessionSignature: TEST_SIGNATURE});
     assert.ok(c.ok, JSON.stringify(c.error));
     const readC = await readFrictionObject({ factSourceRoot: root, objectUid: c.value.object_uid });
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const resolvedC = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: c.value.object_uid,
@@ -1743,7 +1699,7 @@ test("list: 2 live（open）+ 1 resolved——默认召回 2 条，includeResolv
       frontmatterAfter: {
         ...readC.value.frontmatter,
         status: "resolved",
-        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "informs", target: { object_uid: informsTargetUid } }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
@@ -1905,7 +1861,7 @@ test("attribution_ref 形态：对象形态与裸 string 均接受，坏形态�
 test("attribution_ref 可解析性：指向已存在对象→入账；指向空气→零写拒绝（26 §8/§11）", async () => {
   await withTemp("friction-attribution.", async (root) => {
     const anchorUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, anchorUid);
+    await createInformsTargetFixture(root, anchorUid);
 
     // 可解析：对象形态
     const okObject = await createFrictionObject({
@@ -1952,7 +1908,7 @@ test("attribution_ref 可解析性：指向已存在对象→入账；指向空�
 test("attribution_ref 可解析性：update 与 correct 同样核验（补充级更新不留后门，26 §8/§11）", async () => {
   await withTemp("friction-attribution-u.", async (root) => {
     const anchorUid = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
-    await createAdrFixture(root, anchorUid);
+    await createInformsTargetFixture(root, anchorUid);
 
     const created = await createFrictionObject({
       factSourceRoot: root,
@@ -2003,7 +1959,7 @@ test("attribution_ref 可解析性：update 与 correct 同样核验（补充级
     // correct（终态）：attr 继承落盘值可解析则放行；改为悬空则拒绝。
     // 终态记录需先 resolve 才有处置段，这里直接用 resolved 路径造一条。
     await withTemp("friction-attribution-c.", async (root2) => {
-      await createAdrFixture(root2, anchorUid);
+      await createInformsTargetFixture(root2, anchorUid);
       const draft = validFrontmatterDraft({ attribution_ref: { object_uid: anchorUid } });
       const c = await createFrictionObject({
         factSourceRoot: root2,
@@ -2105,7 +2061,7 @@ test("attribution_ref 可解析性只认顶层 object_uid 声明行（缩进 uid
 // The pairing is the same-root cross-role edge: this Friction names the Pitfall
 // that records the avoidance for the *same* obstacle. It is state-neutral — a
 // pair exists whether the debt is open, settled or voided — and its target
-// resolves in pitfalls/, never in adrs/.
+// resolves in pitfalls/, never in a non-Pitfall type directory.
 // ---------------------------------------------------------------------------
 
 /** Pitfall fixture file written to the fact source root for paired-with resolution. */
@@ -2154,17 +2110,17 @@ test("paired-with: 可在 open 期声明（配对是静态事实，不依赖债�
 
 test("paired-with: 目标不在 pitfalls/ → relation_target_unresolvable（按 key 分派目录，26 §11）", async () => {
   await withTemp("friction-paired.", async (root) => {
-    // an ADR exists at this uid — a pairing must NOT resolve against adrs/
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    // a Norm exists at this uid — a pairing must NOT resolve against norms/
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const created = await createFrictionObject({
       factSourceRoot: root,
       frontmatterDraft: validFrontmatterDraft({
-        relations: [{ relation_key: "paired-with", target: { object_uid: adrUid } }],
+        relations: [{ relation_key: "paired-with", target: { object_uid: informsTargetUid } }],
       }),
       bodyMarkdown: validBodyMarkdown(),
       sessionSignature: TEST_SIGNATURE,
-      changeSummary: "配对指向 ADR",
+      changeSummary: "配对指向 Norm",
     });
     assert.equal(created.ok, false);
     assert.equal(created.error.code, "friction/relation_target_unresolvable");
@@ -2235,9 +2191,9 @@ test("paired-with: 销账只带 paired-with 不带 informs → relations_invalid
 test("paired-with: 销账时 informs 与 paired-with 并存被接受（配对不因销账消失，26 §9.4）", async () => {
   await withTemp("friction-paired.", async (root) => {
     const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createPitfallFixture(root, pitfallUid);
-    await createAdrFixture(root, adrUid);
+    await createInformsTargetFixture(root, informsTargetUid);
     const { read: r1 } = await createAndRead(root, {
       relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
     });
@@ -2250,7 +2206,7 @@ test("paired-with: 销账时 informs 与 paired-with 并存被接受（配对不
         status: "resolved",
         relations: [
           { relation_key: "paired-with", target: { object_uid: pitfallUid } },
-          { relation_key: "informs", target: { object_uid: adrUid } },
+          { relation_key: "informs", target: { object_uid: informsTargetUid } },
         ],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
@@ -2364,8 +2320,8 @@ test("findFrictionsPairedWith: 反查命中（含终态——配对不随债清�
     assert.ok(a.ok, JSON.stringify(a.error));
 
     // 已销账的账同样带着配对边——反查必须命中它
-    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    await createAdrFixture(root, adrUid);
+    const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createInformsTargetFixture(root, informsTargetUid);
     const b = await createAndRead(root, {
       title: "另一笔同源账",
       phenomenon: "另一条现象陈述，用于验证反查覆盖终态。",
@@ -2380,7 +2336,7 @@ test("findFrictionsPairedWith: 反查命中（含终态——配对不随债清�
         status: "resolved",
         relations: [
           { relation_key: "paired-with", target: { object_uid: pitfallUid } },
-          { relation_key: "informs", target: { object_uid: adrUid } },
+          { relation_key: "informs", target: { object_uid: informsTargetUid } },
         ],
       },
       // 正文须与 frontmatter 的 phenomenon 载体内聚（26 §8）——按本条的 draft 生成

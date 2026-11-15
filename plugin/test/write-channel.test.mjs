@@ -15,10 +15,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-/** 七类事实写入工具中可枚举 OPERATIONS 的模块（goal 未导出 OPERATIONS，见文件末注）。 */
+/** 事实写入工具中可枚举 OPERATIONS 的模块（goal 未导出 OPERATIONS，见文件末注）。 */
 const WRITE_MODULES = [
   "spark",
-  "adr",
   "pitfall",
   "friction",
   "norm",
@@ -41,7 +40,7 @@ async function writeDescriptors() {
 
 test("写入工具的顶层参数根是开放的（通道外字段不在参数层被拒，且无替代守护）", async () => {
   const descriptors = await writeDescriptors();
-  assert.ok(descriptors.length >= 6, "expected at least six fact write tools");
+  assert.ok(descriptors.length >= 5, "expected at least five fact write tools（ADR 撤除后为五类）");
 
   for (const { module, descriptor } of descriptors) {
     assert.equal(

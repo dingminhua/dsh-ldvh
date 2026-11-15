@@ -73,13 +73,6 @@ export const REAL_CASES = [
     jaccard: 0.12,
   },
   {
-    q: "ADR的也和其他事实对象一样，可以授权后修改吧，你觉得如何",
-    want: ["ADR-决策", "规范源与规范模型基础规范"], // 重标 2026-11-11：问的是「ADR 能否像其他事实对象一样授权后修改」，涉及事实对象的授权修改规则（02／规范模型），故补 02 号。
-    kind: "topic",
-    basis: "问 ADR 的修订通道，22 号是 ADR 的权威载体。",
-    jaccard: 0.30,
-  },
-  {
     q: "召回系统是很重要的一环，其实是这三个价值的保障",
     want: ["双源召回系统规范", "理念与构成"], // 重标 2026-11-11：问句明确说「这三个价值」，指 00 的三大核心价值，故 00 相关。
     kind: "topic",
@@ -91,13 +84,6 @@ export const REAL_CASES = [
     want: ["双源召回系统规范", "Norm-事实规范", "检查机制规范"], // 重标 2026-11-11：「检查……是否符合设计要求」既是规范符合性（27）也是检查机制（04）的动作。
     kind: "topic",
     basis: "核对召回实现与设计的一致性，权威判据在 34。",
-    jaccard: 0.30,
-  },
-  {
-    q: "ADR是每次都会强制召回对不对？我认为是必须的",
-    want: ["ADR-决策", "双源召回系统规范"], // 重标 2026-11-11：「强制召回」正是 34 号规范规定的内容，故 34 相关。
-    kind: "topic",
-    basis: "问 ADR 是否常驻召回；22 §12 与 34 §8.4 共同承载该义务。",
     jaccard: 0.30,
   },
   {
@@ -211,7 +197,7 @@ export const REAL_CASES = [
     // writer），末句才问「这个又是什么问题」。故它的上文就是**同一消息的前半段**，
     // 不是另一条消息。
     q: "这个又是什么问题，检查一下是否属实",
-    context: "spark-writer.js:933（以及 adr/friction/pitfall 各自的 list 函数）对文件名不匹配的载体一律 continue，静默吞掉。它和 localFactReader 的宽松正则口径不一致，才造成「工具查不到、Web 报得出」的分裂。",
+    context: "spark-writer.js:933（以及 norm/friction/pitfall 各自的 list 函数）对文件名不匹配的载体一律 continue，静默吞掉。它和 localFactReader 的宽松正则口径不一致，才造成「工具查不到、Web 报得出」的分裂。",
     want: ["受控提交与机械守护规范", "事实源与事实模型基础规范"],
     kind: "ellipsis",
     basis: "上文讲的是载体文件名与 object_uid 不一致被静默吞掉——那正是事实源载入"
@@ -242,7 +228,7 @@ export const REAL_CASES = [
     want: [],
     kind: "noise",
     basis: "前半句是表态，后半句「要做什么」是询问下一步；"
-      + "上句是 adr 作废后重开的讨论。本句无主题词，属省略。",
+      + "上句是 norm 作废后重开的讨论。本句无主题词，属省略。",
   },
   {
     q: "都修复了，对吗",
@@ -298,9 +284,9 @@ export const REAL_CASES = [
  * 不相关**：
  *
  *   · 规范名（34 条）：如「双源召回系统规范」——与标题直接可比；
- *   · 类型名（11 条）：如「ADR-决策」「Pitfall-踩坑经验」——它们**不是对象名**，
+ *   · 类型名（11 条）：如「Pitfall-踩坑经验」「Norm-事实规范」——它们**不是对象名**，
  *     而是类型。任何具体对象标题（「只推 dev，main 发布线不含事实对象」）
- *     都不含「ADR-决策」这六个字，故恒为 false。
+ *     都不含「Pitfall-踩坑经验」这六个字，故恒为 false。
  *
  * 实测后果：topic 事实侧读数是 **2/113 = 1.8%**，看起来像「注入的全是无关经验」，
  * 实际上其中相当一部分是**该类型的正确对象**，只是判据匹配不上。
@@ -315,7 +301,7 @@ export const REAL_CASES = [
  * **这里不猜**：类型名只用于「该类型只要有对象被召回即可」这一宽松判定，
  * 并在注释里如实声明它弱于对象级判定。
  */
-const TYPE_PREFIXES = ["ADR", "Pitfall", "Friction", "Research", "Norm", "Spark", "Goal", "SubGoal"];
+const TYPE_PREFIXES = ["Pitfall", "Friction", "Research", "Norm", "Spark", "Goal", "SubGoal"];
 
 /** 判断某个 want 条目是不是「类型名」而非「对象/规范名」。 */
 export function isTypeWant(w) {
@@ -335,8 +321,8 @@ export function isRealCaseRelated(title, want, type) {
   const typeLower = typeof type === "string" ? type.toLowerCase() : "";
   return want.some((w) => {
     if (typeof w !== "string" || w === "") return false;
-    // **类型名标注**：`want` 里写的是类型（`ADR-决策`／`Pitfall-踩坑经验`），
-    // 而候选自带 `type` 字段（`adr`／`pitfall`）。直接用 type 比对——
+    // **类型名标注**：`want` 里写的是类型（`Pitfall-踩坑经验`／`Norm-事实规范`），
+    // 而候选自带 `type` 字段（`norm`／`pitfall`）。直接用 type 比对——
     // 初版从标题里找字符串，永远匹配不上，使事实侧精确率恒接近 0。
     if (isTypeWant(w)) {
       const bare = w.split("-")[0].toLowerCase();

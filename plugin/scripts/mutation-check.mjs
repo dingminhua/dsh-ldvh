@@ -104,7 +104,7 @@ const MUTATIONS = [
 	[LIB, "弱命中不排后", "Number(a.weakHit === true) - Number(b.weakHit === true) ||", "0 ||"],
 	[LIB, "中间产物白名单失效", "if (!REGISTERED_FACT_TYPES.includes(c.type)) return false;", ""],
 	// **类型轴已删**（2026-10-31 Human 裁定，见 `compareFactHits` 注释）：
-	// 原「ADR/Pitfall 优先（typeRank 降级）」锚点随常量一起删除，改钉**删除后的
+	// 原「点名类型优先（typeRank 降级）」锚点随常量一起删除，改钉**删除后的
 	// 替代不变量**——候选名次只由证据决定，tier 必须先于 hits。若把 hits 提到
 	// tier 之前，「结构命中先于正文命中」的性质必须转红。
 	[LIB, "证据次序失效（hits 压过 tier）", "    num(fa.tier) - num(fb.tier) ||\n    num(fb.hits) - num(fa.hits);", "    num(fb.hits) - num(fa.hits) ||\n    num(fa.tier) - num(fb.tier);"],
@@ -152,25 +152,24 @@ const MUTATIONS = [
 	[LIB, "排序无确定性兜底", "        a.path.localeCompare(b.path),", "        0,"],
 	[LIB, "类型点名层失效", "        return { tier: 0.5, hits: 1, hitReason: `类型点名命中：${named}` };", "        return { tier: 9, hits: 1, hitReason: `x` };"],
 	[LIFE, "召回头缺失 projectPath 兜底", '          if (typeof projectPath !== "string" || projectPath.length === 0) return { inject: false, reason: "no-project" };', ""],
-	// —— F1 决策基线与常驻索引（22 §12／27 §10 义务召回；2026-10-25 方案 A，
-	//    2026-11-15 扩到常驻索引段）——
-	// 钉住本功能的**核心不变量**：义务披露不得被词法命中条件挡住。
-	// ① 把 baselinePresent 写死 false → 退回「法定决策靠词面运气」（实测
-	//    「每次回复先称呼老丁」在无关消息上零召回，正是该缺陷的现场）。
-	[INJ, "零命中时基线被短路（退回词面运气）", "  if (!decideInjection({\n    candidateCount: total,\n    baselinePresent: baselineHasContent,\n    residentIndexPresent: residentIndexHasContent,\n  })) {", "  if (!decideInjection({\n    candidateCount: total,\n    baselinePresent: false,\n    residentIndexPresent: residentIndexHasContent,\n  })) {"],
-	// ② 把 residentIndexPresent 写死 false → 2026-11-15 修的那个缺陷复活：本仓
-	//    ADR 已全数 retired（baselinePresent 恒假），于是「5 条 active Norm + 零词法
-	//    命中」的回合整行不注入，而零命中正是常驻索引最该兜底的场景（词面不重合）。
-	//    由「常驻索引判据」正反控制用例与 B1 回归用例抓住。
-	[INJ, "零命中时常驻索引段被短路（Norm 段随词法运气缺席）", "  if (!decideInjection({\n    candidateCount: total,\n    baselinePresent: baselineHasContent,\n    residentIndexPresent: residentIndexHasContent,\n  })) {", "  if (!decideInjection({\n    candidateCount: total,\n    baselinePresent: baselineHasContent,\n    residentIndexPresent: false,\n  })) {"],
+	// —— 常驻索引的注入判据（27 §10 义务召回；2026-10-25 方案 A，
+	//    2026-11-15 扩到常驻索引段，2026-11-16 去掉决策基线项）——
+	// 钉住本功能的**核心不变量**：常驻索引的可见性不得被词法命中条件挡住。
+	// ① 把 residentIndexPresent 写死 false → 2026-11-15 修的那个缺陷复活：
+	//    「5 条 active Norm + 零词法命中」的回合整行不注入，而零命中正是常驻索引
+	//    最该兜底的场景（词面不重合）。由「常驻索引判据」正反控制用例抓住。
+	[INJ, "零命中时常驻索引段被短路（Norm 段随词法运气缺席）", "  if (!decideInjection({\n    candidateCount: total,\n    residentIndexPresent: residentIndexHasContent,\n  })) {", "  if (!decideInjection({\n    candidateCount: total,\n    residentIndexPresent: false,\n  })) {"],
+	// ② 判据恒真 → 任何可读事实源的项目在每个行动回合都无条件注入
+	//    （违反 02 §9.2「不建立无条件全量注入」与 34 §6 的进入条件）。
+	//    **2026-11-16 替换自旧的 `baselinePresent` 恒假变异**：该键已随决策基线撤除。
+	[INJ, "注入判据恒真（无条件注入）", "  return count >= MIN_HITS || residentIndexPresent;", "  return true;"],
 	// ③ 把「经验计数 >0」放宽成「为整数即可」→ 空事实源的零命中行动回合也无条件
 	//    注入（实测整块内容里只有「本项目当前无 active 经验（0 条）」一行）。那是
 	//    「本类为空」的披露，不是可消费材料；放宽即违反 02 §9.2 不建立无条件注入。
 	[INJ, "经验计数为 0 也算常驻内容（空事实源无条件注入）", "  const pitfallPresent = Number.isInteger(l0Enumeration?.pitfallTotal) && l0Enumeration.pitfallTotal > 0;", "  const pitfallPresent = Number.isInteger(l0Enumeration?.pitfallTotal);"],
-		// **对准真实不变量**（第四十次审核 M-2）：数据层不为基线预留预算，
-	// 于是预算按「只有候选」分配、实际注入时基线再挤进来——这正是
-	// 「预留量须与实际基线段字节相符」用例要防的错配（欠预留会让注入超预算）。
-	[LIB, "基线不预留预算（预算按无基线分配）", "    : Math.min(baselineFullBytes, baselineScaledCap);", "    : 0;"],
+	// **`基线不预留预算` 锚点已删**（2026-11-16）：它钉的 `baselineScaledCap`
+	// 整段随决策基线撤除，锚点片段在代码里已不存在。常驻段的预算预留由
+	// 「累计字节须与 `planL0Enumeration` 的份额口径相符」的既有用例守护。
 	// —— 召回面预算档位（第四十一次审核 Major-3：新代码零变异守护）——
 	//
 	// 锚点须对准**行为不变量**，不是「常量值等于某个数」（后者改常量就会误报）。
@@ -241,21 +240,23 @@ const MUTATIONS = [
 	[GB, "预警带判据恒真（逼近上限无人知）", "  return length <= budget * GUIDANCE_EARLY_WARNING_RATIO;", "  return true;"],
 	[GB, "漂移判据恒不漂移（记录值形同虚设）", "  return { drifted: delta !== 0, measured, recorded, delta };", "  return { drifted: false, measured, recorded, delta };"],
 	[WM, "回收期间的改动不挂起（in-flight 差异被吞）", "            pendingFingerprint = next;\n            void scheduleRecheck();", "            void 0;"],
-	// —— 三段 L0 常驻枚举（2026-11-04 加，Human 决定：ADR／事实规范／经验必须注入）——
+	// —— 常驻枚举（2026-11-04 加，Human 决定：事实规范等常驻对象必须注入）——
 	//
-	// 这组守的是**「三段的可见性不依赖当回合用词」**这件事。每一条对应一种
+	// 这组守的是**「常驻段的可见性不依赖当回合用词」**这件事。每一条对应一种
 	// 「实现看着还在、但某一段其实列不出来」的失效形态：
-	// ① 只枚举 ADR 后两段被跳过 → 「单纯读取回合也须带出三段」必须转红；
-	// ② 装填次序颠倒（经验先于事实规范）→ 「次序须为 ADR → 事实规范 → 经验」必须转红；
+	// ① 常驻序列被清空 → 「单纯读取回合也须带出常驻段」必须转红；
+	// ② 装填次序/成员被悄悄改回多段 → 「经验按需、不常驻」必须转红；
 	// ③ 让位时整段静默消失（不留痕迹）→ 「逐段让位须留痕迹」必须转红。
 	// **2026-11-11 改订**：经验已移出常驻段（`34 §8.4` 重订），原两条变异的
-	// `from` 片段随之失效。这里按新结构重写，并保留它们原本要守护的两件事：
+	// `from` 片段随之失效。**2026-11-16 再改**：决策类类型撤除后 `L0_SEGMENT_ORDER`
+	// 只剩 `norm`，两个 `from` 片段按新值重写，守的两件事不变：
 	//   · 「事实规范段不得被漏掉」——仍以 `norm` 为对象；
-	//   · 「经验不得被悄悄加回常驻段」——旧版守的是次序颠倒，新版直接守「不含 pitfall」，
-	//     因为按需化之后，把 pitfall 加回 `L0_SEGMENT_ORDER` 才是真正的回归。
-	[LIB, "L0 只枚举 ADR（事实规范段缺失）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\"]);"],
-	[LIB, "经验被悄悄加回常驻段（应按需，34 §8.4 2026-11-11）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\", \"pitfall\"]);"],
-	[INJ, "L0 让位不留痕迹（静默消失）", "    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;", "    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;\n    if (hasL0) return text;"],
+	//   · 「经验不得被悄悄加回常驻段」——按需化之后，把 pitfall 加回
+	//     `L0_SEGMENT_ORDER` 才是真正的回归。
+	[LIB, "常驻段被整段跳过（事实规范段缺失）", "export const L0_SEGMENT_ORDER = Object.freeze([\"norm\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([]);"],
+	[LIB, "经验被悄悄加回常驻段（应按需，34 §8.4 2026-11-11）", "export const L0_SEGMENT_ORDER = Object.freeze([\"norm\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"norm\", \"pitfall\"]);"],
+	// ③ 让位痕迹被清空（段被撤但不说）→ 「逐段让位须留痕迹」必须转红。
+	[INJ, "L0 让位不留痕迹（静默消失）", "    yieldNoteEmitted = true;\n    const suffix = yieldHintOf({ l0: true });", "    yieldNoteEmitted = true;\n    const suffix = \"\";"],
 	// —— 在途改动守卫（2026-11-04 加，friction-68e6f33e／451c4a7d 的处置）——
 	//
 	// 这组守的是「判据不得恒真」——两个方向的恒真都对应一种真实的覆盖形态：

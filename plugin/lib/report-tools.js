@@ -1063,7 +1063,7 @@ function parameterSchemaFor(operationKey) {
           analysis_body_after: { type: "string", description: "update/correct: the complete target analysis body" },
           survey_body_after: { type: "string", description: "update/correct, exploratory only: the complete target survey body (sub-stage immutable)" },
           change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
-          human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a retired report. Written verbatim into the change_log summary; a correction request without it fails closed (24 §13). NOTE: this field is a self-report — its presence is NOT proof that Human actually consented (same boundary as 21 §14 / 22 §13 / 26 §13 correct)." }
+          human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a retired report. Written verbatim into the change_log summary; a correction request without it fails closed (24 §13). NOTE: this field is a self-report — its presence is NOT proof that Human actually consented (same boundary as every type's `correct` channel; the live wording is 26 §13's)." }
         },
         required: ["action"],
         additionalProperties: false

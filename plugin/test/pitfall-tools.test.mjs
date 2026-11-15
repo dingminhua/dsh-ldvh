@@ -2,7 +2,7 @@
 // mechanical layer (specs/23 §13 受控操作 + specs/03 §9) into the governed
 // ldvh_* tool surface.
 //
-// Coverage follows the adr-tools.test.mjs pattern: handlers are driven
+// Coverage follows the spark-tools.test.mjs pattern: handlers are driven
 // through registerPitfallTools's descriptors with a mock ctx.tools registry,
 // a real governed-project fixture (tmp repo + registration), and the full
 // 05 §8 envelope shape is asserted, not just the result.

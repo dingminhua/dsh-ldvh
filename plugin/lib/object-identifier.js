@@ -154,9 +154,10 @@ export function isRegisteredFactType(typeKey) {
  *
  * 2026-11-14：DevLog（29 号）已撤除，`devlog: "devlogs"` 随之移除。存量
  * `ldvh-base/devlogs/` 暂留为历史档案，但不再作为可反查的登记类型。
+ * 2026-11-16：22 号 ADR 已撤除，`adr: "adrs"` 随之移除（存量载体已按 H2 裁定
+ * 物理删除；`ldvh-base/adrs/` 不再存在，也不再有可反查的该类型）。
  */
 export const FACT_TYPE_DIRECTORIES = Object.freeze({
-  adr: "adrs",
   friction: "frictions",
   norm: "norms",
   pitfall: "pitfalls",

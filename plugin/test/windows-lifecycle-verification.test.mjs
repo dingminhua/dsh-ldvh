@@ -88,12 +88,12 @@ test("① 候选路径必须为实际 Git 根：仓库子目录被拒绝", { ski
 	});
 });
 
-test("② 首次安装创建 ldvh-base 各类型目录（原文档写「五类」，现为七类：researches/frictions/norms 后加）", { skip: !isWindows && "本文件是 Windows 验证记录" }, async () => {
+test("② 首次安装创建 ldvh-base 各类型目录（ADR 撤除后为五类）", { skip: !isWindows && "本文件是 Windows 验证记录" }, async () => {
 	await withWorld(async ({ base }) => {
 		const repo = await initRepo(base);
 		const result = await initializeFactSource(repo);
 		assert.equal(result.state, "ready", `事实源未就绪：${JSON.stringify(result)}`);
-		for (const dir of ["sparks", "adrs", "pitfalls", "reports", "frictions", "norms"]) {
+		for (const dir of ["sparks", "pitfalls", "reports", "frictions", "norms"]) {
 			const s = await stat(join(repo, "ldvh-base", dir));
 			assert.equal(s.isDirectory(), true, `${dir} 未创建`);
 		}

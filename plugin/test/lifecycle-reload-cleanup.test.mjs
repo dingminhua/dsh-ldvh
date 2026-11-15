@@ -683,7 +683,7 @@ test("lifecycle reload: cleanup failure is reported while other agents are still
     const stop = registry.start();
     try {
       // 用仍存在的工具做就绪探针：原探针取自一个已撤除的工具。
-      await waitFor(() => first.tools.has("ldvh_adr_write") && second.tools.has("ldvh_adr_write"), { label: "both tool batches" });
+      await waitFor(() => first.tools.has("ldvh_norm_write") && second.tools.has("ldvh_norm_write"), { label: "both tool batches" });
       await assert.rejects(stop(), /cleanup/i, "a partial cleanup must not be reported as successful");
       assert.equal(first.tools.size, 0, "the failing agent's synchronous cleanup was attempted");
       assert.equal(second.tools.size, 0, "the other agent was cleaned despite the failure");

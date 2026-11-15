@@ -69,18 +69,10 @@ test("carrierCoherenceMessage：不给条款号时不伪造一个", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. 八类 writer 的报错都必须两向可读
+// 2. 五类 writer 的报错都必须两向可读
 // ---------------------------------------------------------------------------
 
 const CASES = [
-  {
-    type: "adr",
-    file: "adr-writer.js",
-    fn: "validateCarrierCoherence",
-    frontmatter: { decision: LONG, scope: "x" },
-    body: `# T\n\n## 决定\n\n${BODY_MARK}\n`,
-    clause: "22 §8",
-  },
   {
     type: "friction",
     file: "friction-writer.js",

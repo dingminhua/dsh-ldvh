@@ -984,7 +984,8 @@ const CARRIER_ID_SEGMENT =
 
 /** ldvh-base 下每个事实类型目录对应的载体名前缀。 */
 const FACT_TYPE_PREFIXES = Object.freeze({
-  "ldvh-base/adrs": "adr",
+  // "ldvh-base/adrs": "adr" — 22 号已于 2026-11-15 撤除；存量载体按 H2 裁定物理删除，
+  // 该目录不再存在，故不再登记前缀（先例同下方 devlogs）。
   // "ldvh-base/devlogs": "devlog" — 29 号已于 2026-11-14 撤除；21 条存量已删（91b3d727），逐字副本在 docs/devlog-archive/。
   "ldvh-base/frictions": "friction",
   "ldvh-base/norms": "norm",

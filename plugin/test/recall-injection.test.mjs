@@ -236,7 +236,7 @@ test("renderRecallRow：超预算如实标出裁剪与字节数（05 §9.2）", 
 	// 缺 counts 时无法判断，会退到条数分支（2026-10-24 改）。
 	const text = renderRecallRow({
 		specs: [],
-		facts: [{ type: "adr", status: "active", title: "某决定", path: "ldvh-base/adrs/a.md", hitReason: "标题命中：决定" }],
+		facts: [{ type: "norm", status: "active", title: "某方向规范", path: "ldvh-base/norms/a.md", hitReason: "标题命中：规范" }],
 		truncated: true,
 		counts: { specHits: 3, factHits: 1, specsReturned: 0, factsReturned: 1 },
 		budget: { limitBytes: 200, usedBytes: 190 },
@@ -259,26 +259,25 @@ test("buildRecallInjection：无项目路径不注入", async () => {
 	assert.equal(r.reason, "no-project");
 });
 
-test("buildRecallInjection：命中 34 §6 排除条件时不进入词法召回，但基线仍可见", async () => {
-	// **行为已于 2026-11-03 变更**（Human 裁决「ADR 必须每次都在」）：`34 §6`
-	// 排除的是**词法候选**，不是 F1 决策基线——`22 §12` 的义务召回不依赖词法命中。
-	// 旧行为让整行注入一起消失，实测「看看这个文件」这类回合里 2 条 active ADR
-	// 一条都看不见，法定效力决策的可见性又绑回了当回合用词。
-	// 归因仍须可分辨：`baselineOnlyCause` 明确写明这是 §6 排除，不是召回失败。
+test("buildRecallInjection：命中 34 §6 排除条件时不进入词法召回，但常驻索引仍可见", async () => {
+	// **行为已于 2026-11-03 变更**（Human 裁决「常驻索引必须每次都在」）：`34 §6`
+	// 排除的是**词法候选**，不是常驻索引——`27 §10`/`23 §12` 的义务可见性不依赖
+	// 词法命中。归因仍须可分辨：`baselineOnlyCause` 明确写明这是 §6 排除，不是
+	// 召回失败；决策类类型撤除后，常驻索引由 Norm 段与经验按需行承载。
 	const r = await buildRecallInjection({ userText: "看看这个文件", projectRoot: ROOT });
-	assert.equal(r.inject, true, "基线仍须注入（22 §12 义务召回）");
-	assert.equal(r.result?.baselineOnly, true, "须标记为「只带基线」");
+	assert.equal(r.inject, true, "常驻索引仍须注入（34 §8.4 末段）");
+	assert.equal(r.result?.baselineOnly, true, "须标记为「只带索引」");
 	assert.equal(r.result?.baselineOnlyCause, "excluded-by-34-6", "归因须写明是 34 §6 排除");
 	assert.deepEqual(r.result?.specs, [], "不得带入词法候选（规范源）");
 	assert.deepEqual(r.result?.facts, [], "不得带入词法候选（事实源）");
 	assert.match(r.text, /本轮无词法候选/, "须如实说明本回合没有做词法召回");
-	assert.match(r.text, /决策基线/, "基线须可见");
+	assert.match(r.text, /经验 · active Pitfall|事实规范 · active Norm/, "常驻索引须可见");
 });
 
 test("buildRecallInjection：纯读取回合的经验总数须与全量路径一致（2026-11-11 缺陷回归）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	// **缺陷形态**：`baselineOnlyForAction` 曾从「常驻段枚举」里找 pitfall 段再 `?? 0`。
-	// 2026-11-11 起经验改为按需、已不在常驻段（`L0_SEGMENT_ORDER` 只剩 adr/norm），
+	// 2026-11-11 起经验改为按需、已不在常驻段（`L0_SEGMENT_ORDER` 只剩 norm），
 	// 于是纯读取回合稳定报「本项目当前无 active 经验（0 条）」，而同一语料实际有 68 条。
 	// 这违反 `34 §8.4` 第 1 项「总数须真实」与 `34 §12` 三态（「本类为空」vs「未枚举」）。
 	// 本条同时钉两件事：该回合须报真实总数；两条渲染路径的计数不得漂移。
@@ -505,7 +504,7 @@ test("渲染文本须有硬上限，超限按行裁剪并如实说明（不得�
 
 test("渲染文本未超限时不得添加裁剪说明", async () => {
 	// **前提须显式构造**（2026-10-25 修）：原用例用「页面白屏了」走真实召回，
-	// 但 F1 决策基线常驻后该回合也会注入基线，2400 预算下总字节可能触到裁剪线
+	// 但常驻索引常驻后该回合也会注入索引，2400 预算下总字节可能触到裁剪线
 	// ——那说明「基线常驻确实占预算」，不是「未超限却加了说明」。
 	// 本用例要钉的是后者，故直接构造一个明确不超限的结果保住原意。
 	const small = {
@@ -516,7 +515,6 @@ test("渲染文本未超限时不得添加裁剪说明", async () => {
 		counts: { specHits: 1, factHits: 0, specsReturned: 1, factsReturned: 0, candidatesScanned: 10 },
 		unchecked: { specs: [], facts: [] },
 		ranking: { keys: ["tier", "hits", "path"] },
-		decisionBaseline: { items: [], sourceUnreadable: false },
 	};
 	const out = renderRecallRow(small);
 	assert.ok(!/渲染层按硬约束/.test(out), "未超限时不得出现裁剪说明");
@@ -955,36 +953,22 @@ test("命中理由须排在路径之前（路径对人零信息量，却是读�
 		],
 		facts: [
 			{
-				type: "adr",
+				type: "norm",
 				status: "active",
-				title: "夹具决策重复项",
+				title: "夹具规范重复项",
 				hitReason: longReason,
-				path: "ldvh-base/adrs/adr-dupe.md",
+				path: "ldvh-base/norms/norm-dupe.md",
 				excerpt: "夹具摘录甲",
 			},
 			{
-				type: "adr",
+				type: "norm",
 				status: "active",
-				title: "夹具决策保留项",
+				title: "夹具规范保留项",
 				hitReason: longReason,
-				path: "ldvh-base/adrs/adr-keep.md",
+				path: "ldvh-base/norms/norm-keep.md",
 				excerpt: "夹具摘录乙",
 			},
 		],
-		// 基线项与**第一张**事实卡同 path：裁剪第一级（基线重复行优先删）会先删
-		// 掉它，第二张（非重复）则受软保底保护——这正是本次修复要守的路径。
-		// 若两张都设成重复项，①级会把事实卡全删光，本用例就会在错误的前提下
-		// 「通过」（标定时踩过：初版两张皆重复，裁剪后 facts=0）。
-		decisionBaseline: {
-			items: [
-				{
-					title: "夹具决策重复项",
-					status: "active",
-					ref: "adr-dupe",
-					path: "ldvh-base/adrs/adr-dupe.md",
-				},
-			],
-		},
 		// 2400 字节触发字节裁剪（字符上限 = 1200，减去说明行预留 120 后比较 1080）。
 		budget: { limitBytes: 2400, usedBytes: 5000, limit: 2 },
 	});
@@ -994,7 +978,7 @@ test("命中理由须排在路径之前（路径对人零信息量，却是读�
 	// 缺陷本体：裁剪不得把事实卡裁光（本次修复的软保底），也不得把规范卡裁光。
 	const factLines = out.split("\n").filter((l) => l.startsWith("- ["));
 	assert.ok(factLines.length >= 1, `裁剪后应仍有事实卡行，实际 ${factLines.length}`);
-	// 注意：事实卡也以「- 」开头（`- [adr/active] …`），故规范卡须额外排除
+	// 注意：事实卡也以「- 」开头（`- [norm/active] …`），故规范卡须额外排除
 	// 「- [」前缀——否则下面的规范卡断言会拿事实卡当规范卡比对（夹具里两类
 	// 并存，这个歧义第一次变得可见）。
 	const specLines = out.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- [") && l.includes("—"));
@@ -1086,249 +1070,6 @@ test("注入文本的实际字节数不得超预算（10:241「未超 LDVH 侧�
 });
 
 // ---------------------------------------------------------------------------
-// F1 决策基线（22 §12 义务召回原则 / 02 §9.1 F1「枚举指定对象集合」）
-//
-// 2026-10-25 Human 决定方案 A：注入面在词法候选区之外**无条件**列出全部
-// active ADR。理由：22 §1 把 ADR 定为法定效力决定（违背 active ADR 视同违背
-// 规范源），22 §12 立义务召回原则；若基线只靠词法命中，法定决策的可见性
-// 就取决于当回合用词——实测「每次回复先称呼老丁」在「改成异步的」上零召回。
-// ---------------------------------------------------------------------------
-
-test("F1 基线：法定决策不得靠词面运气——零词法命中时基线仍须出现", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// 这条用例钉住方案 A 的全部意义所在：**词法候选为 0 时基线仍须交付**。
-	// 而它是法定效力决定，违背它视同违背规范源（22 §1）。若基线随词法命中
-	// 一起缺席，义务召回悬空。
-	//
-	// **为什么用合成语料**（2026-11-15，审查体 M8）：本用例原先拿本仓库自己的
-	// ADR 当夹具，并断言「本仓有 active ADR（前提须成立）」。`8055c813` 把最后
-	// 2 条 active ADR 转为 Norm 后，全仓 17 条 ADR 均为 retired，于是本条与另外
-	// 9 条基线用例一起转红——红的是「仓库现在没有 active ADR」这个语料事实，
-	// 不是基线代码坏了。把它 skip 掉等于让活代码失去守卫；往事实源里造一条
-	// active ADR 则是污染真实语料。故改用受控合成语料（`seedFactCorpus`）：
-	// 守卫既活着，又不随仓库语料态漂移。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-zerohit-"));
-	try {
-		// **语料须只含 ADR：无 Norm、无 Pitfall**（2026-11-15，独立复核 MAJOR-1）。
-		//
-		// 本条守的是「零词法命中时**基线**仍须使回合注入」。而注入判据有三项：
-		// 词法候选、决策基线、常驻索引。`seedFactCorpus` 的 `norms` 缺省造 2 条
-		// active Norm——那会让「常驻索引」**独立地**满足注入判据，于是本条在
-		// 「基线被短路」时照样通过：守卫变成假通过（复核方实测：该变异在隔离
-		// 运行时存活）。故此处显式传 `norms: []`、`pitfallCount: 0`，使基线是
-		// 唯一的注入理由——它一旦短路，本条必须转红。
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 0, norms: [] });
-		// 前提自证：语料里确实只有 ADR（否则上面的推理不成立）。
-		const premise = await recallForAction({ action: "让动画快一点", root: project, limit: 3 });
-		assert.equal(
-			premise.facts.filter((f) => f.type === "norm" || f.type === "pitfall").length,
-			0,
-			"前提：本语料不得含 Norm/Pitfall——否则基线不是唯一的注入理由，本条会退化为假通过",
-		);
-		// **输入必须真零命中**（2026-10-25，第四十次审核 M-3）：旧用例用
-		// 「把这个函数改成异步的」，实测该 query specs=1 + facts=3 = **4 条命中**——
-		// 前提不成立，断言在「零命中」从未发生的情况下恒真，守不住它声称的不变量。
-		// 「让动画快一点」实测在真实语料与合成语料下均 specs=0 / facts=0，且是合理
-		// 的行动描述，非无意义串。**换串时须同样实测零命中**，不得凭感觉选。
-		const zeroHitQuery = "让动画快一点";
-		const zeroHit = await recallForAction({ action: zeroHitQuery, root: project, limit: 3 });
-		assert.equal(
-			zeroHit.specs.length + zeroHit.facts.length,
-			0,
-			`前提：该 query 须真零命中（"${zeroHitQuery}" 当前命中 ${zeroHit.specs.length + zeroHit.facts.length} 条；若语料变动导致命中，须换一个实测零命中的 query）`,
-		);
-		const r = await buildRecallInjection({
-			userText: zeroHitQuery,
-			projectRoot: project,
-			limit: 3,
-		});
-		assert.equal(r.inject, true, "有 active ADR 时必须注入（基线无条件）");
-		const items = r.result.decisionBaseline.items;
-		assert.ok(items.length > 0, "合成语料有 active ADR（前提须成立）");
-		for (const item of items) {
-			assert.equal(item.status, "active", "retired 不入基线（22 §12）");
-			assert.ok(r.text.includes(item.title), `基线须列出全部 active ADR 标题，缺「${item.title}」`);
-		}
-		// 基线是**独立段**：不能混进词法候选区（`- ` 前缀），否则会被裁剪循环吃掉。
-		assert.match(r.text, /【决策基线 · active ADR/, "基线段须有独立段头");
-		assert.match(r.text, /^· /m, "基线行用 `· ` 前缀（与候选 `- ` 区分，不被裁剪）");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("F1 基线：常驻不等于适用——须带「不证明适用」声明（02 §9.2／34 §13）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// 迁到合成语料的理由同上条（ADR 已全数 retired，`8055c813`）：本条钉的是
-	// 「基线段在场时必带不证明适用声明」这一渲染纪律，与被测语料是哪一份无关。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-noapplicable-"));
-	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 0 });
-		const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: project, limit: 3 });
-		assert.equal(r.inject, true);
-		assert.match(r.text, /【决策基线 · active ADR/, "前提：基线段须在场（否则声明无从出现）");
-		assert.match(r.text, /基线只保证「看得见」，\*\*不证明适用\*\*/, "须显式否定适用性");
-		// 数据层也不得把基线写成适用（与 provesApplicability:false 同纪律）。
-		assert.equal(r.result.provesApplicability, false);
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("F1 基线：事实源不可读时须披露「基线未取得」而非静默留空（34 §12）", () => {
-	// 读不到 ≠ 没有。若只给空数组，读者会把「读不到」当成「本项目没有 ADR」，
-	// 正是 34 §12 与 02 §9.2 要防的「把零结果当无约束」。
-	const row = renderRecallRow({
-		specs: [],
-		facts: [],
-		decisionBaseline: { items: [], sourceUnreadable: true },
-	});
-	assert.match(row, /事实源不可读，基线未取得/, "不可读须显式披露");
-	assert.match(row, /\*\*不表示本项目没有 ADR\*\*/, "须否定「没有」的误读");
-});
-
-test("F1 基线：零 active ADR 时整段安静（不输出空段头）", () => {
-	const row = renderRecallRow({ specs: [], facts: [], decisionBaseline: { items: [], sourceUnreadable: false } });
-	assert.ok(!row.includes("决策基线"), "无 active ADR 时不出现空段");
-});
-
-test("F1 基线：超出字节上限时须如实计数披露，不得静默截断（02 §9.1）", () => {
-	// 造 30 条超长标题，远超 ADR_BASELINE_BYTE_BUDGET。
-	const items = Array.from({ length: 30 }, (_, i) => ({
-		title: `第${i}条很长的决策标题用来占满基线预算的测试项`,
-		status: "active",
-		ref: `adr-${i}`,
-		path: `ldvh-base/adrs/adr-${i}.md`,
-	}));
-	const row = renderRecallRow({ specs: [], facts: [], decisionBaseline: { items, sourceUnreadable: false } });
-	const shown = (row.match(/^· /gm) || []).length;
-	assert.ok(shown > 0 && shown < 30, `须部分列出（实测 ${shown} 条）`);
-	assert.match(row, /另有 \d+ 条未列出/, "须如实披露未列出条数");
-	assert.match(row, /\*\*未列出不代表不存在\*\*/, "须否定「未列出=不存在」");
-});
-
-test("F1 基线：基线字节已从候选预算中扣除（不得挤占后仍声称未超预算）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// 迁到合成语料（ADR 已全数 retired，`8055c813`）：本条钉的是「基线预留量
-	// 已从候选预算扣除、总注入不超预算」这一预算纪律，与语料是哪一份无关。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-reserve-"));
-	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 0 });
-		// 若基线不预留，预算按「只有候选」分配，实际注入时基线再挤进来——
-		// 表现为候选被多裁且裁剪原因归错。本用例钉住：总字节仍 ≤ 预算，
-		// 且数据层如实给出基线预留量。
-		const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: project, limit: 99, budgetBytes: 2400 });
-		assert.equal(r.inject, true);
-		const actual = Buffer.byteLength(r.text, "utf8");
-		assert.ok(actual <= 2400, `实际注入 ${actual} 字节须 ≤ 2400`);
-		assert.ok(r.result.decisionBaseline.reservedBytes > 0, "须给出基线预留字节数供核对");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("F1 基线：同一事实集两次调用须逐字节一致（确定性排序，02 §9 红线）", async () => {
-	const a = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3 });
-	const b = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3 });
-	const titlesA = a.result.decisionBaseline.items.map((i) => i.title);
-	const titlesB = b.result.decisionBaseline.items.map((i) => i.title);
-	assert.deepEqual(titlesA, titlesB, "基线顺序须确定（不引入相似度/权重）");
-});
-
-test("F1 基线：预留量须与实际基线段字节相符（不得欠预留）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// 迁到合成语料（ADR 已全数 retired，`8055c813`）：本条钉的是「预留量 ≥
-	// 实际渲染字节」的预算一致性，与语料是哪一份无关。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-reservefit-"));
-	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 0 });
-		// 第四十次审核 Minor-2：数据层预留 400 字节、渲染层实际输出 473 字节，
-		// 欠预留 73 字节——正是「预算按 A 算、交付按 B 算」。本用例钉住两者相符。
-		const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: project, limit: 99, budgetBytes: 2400 });
-		assert.equal(r.inject, true);
-		const lines = r.text.split("\n");
-		const start = lines.findIndex((l) => l.startsWith("【决策基线"));
-		assert.ok(start !== -1, "基线段须存在（2400 预算下应展开）");
-		let end = start + 1;
-		while (end < lines.length && (lines[end].startsWith("· ") || lines[end].startsWith("（基线"))) end += 1;
-		const actualBytes = Buffer.byteLength(lines.slice(start, end).join("\n"), "utf8") + 1;
-		const reserved = r.result.decisionBaseline.reservedBytes;
-		assert.ok(
-			reserved >= actualBytes,
-			`预留 ${reserved} 字节须 ≥ 实际基线 ${actualBytes} 字节（欠预留会让注入超预算）`,
-		);
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("F1 基线：retired ADR 不入基线（合成 retired 才具分辨力）", async () => {
-	// 第四十次审核 D4-4：本仓当前无 retired ADR，故「断言 item.status==='active'」
-	// 是恒真空断言。此处用纯函数 + 合成数据，才有分辨力。
-	const row = renderRecallRow({
-		specs: [],
-		facts: [],
-		decisionBaseline: {
-			items: [
-				{ title: "在效决策", status: "active", ref: "adr-a", path: "x" },
-			],
-			sourceUnreadable: false,
-		},
-	});
-	assert.match(row, /在效决策/, "active 须列出");
-	assert.ok(!row.includes("已退役决策"), "retired 不得出现");
-});
-
-test("F1 基线：极小预算下让位须在数据层可观察（不得只剩注释）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// 迁到合成语料（ADR 已全数 retired，`8055c813`）：本条钉的是「极小预算下
-	// 基线让位时数据层仍可观察（reservedBytes=0 且 items 非空）」，与语料无关。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-yield-"));
-	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 0 });
-		// 第四十次审核 Minor-3：让位在注入文本与数据层均无可观察痕迹。
-		// 现数据层给出 reservedBytes=0 且 items 仍非空——「有基线但未展开」可机械判定。
-		const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: project, limit: 3, budgetBytes: 900 });
-		if (!r.inject) return;
-		assert.equal(r.result.decisionBaseline.reservedBytes, 0, "极小预算下不预留");
-		assert.ok(r.result.decisionBaseline.items.length > 0, "基线仍在数据层可见（有，但未展开）");
-		assert.ok(!/^【决策基线/m.test(r.text), "注入面不得出现基线段");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("F1 基线：不受 types/statuses/limit 过滤影响（note 声称须有用例守住）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// 迁到合成语料（ADR 已全数 retired，`8055c813`）：本条钉的是「F1 无条件
-	// 枚举不受 types/statuses/limit 过滤影响」，与语料是哪一份无关。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-nofilter-"));
-	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 1 });
-		const configs = [
-			{ types: ["pitfall"] },
-			{ statuses: ["retired"] },
-			{ limit: 1 },
-			{ includeSpecs: false },
-		];
-		for (const cfg of configs) {
-			const r = await recallForAction({ action: "修改 合成决策基线条目 相关的实现", root: project, limit: 3, ...cfg });
-			assert.ok(
-				r.decisionBaseline.items.length > 0,
-				`配置 ${JSON.stringify(cfg)} 下基线不得为空（F1 无条件枚举）`,
-			);
-			assert.equal(
-				r.decisionBaseline.items.length,
-				(await recallForAction({ action: "修改 合成决策基线条目 相关的实现", root: project, limit: 3 })).decisionBaseline.items.length,
-				`配置 ${JSON.stringify(cfg)} 下基线条数不得变化`,
-			);
-		}
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-// ---------------------------------------------------------------------------
 // 第 3 步：排序分与「是否注入」的决策依据分离（2026-10-27）
 // ---------------------------------------------------------------------------
 
@@ -1350,20 +1091,21 @@ test("决策只数条数，不读排序分（排序分注入极端值，注入�
 	// **分辨力来源**：直接对纯函数 `decideInjection` 注入极端输入。
 	// 整链路跑是测不出来的——基线恒非空，短路分支进不去（实测破坏版仍全绿）。
 	// 这里传入任意「分数」字段，断言决策完全无视它。
-	const base = { candidateCount: 1, baselinePresent: false };
+	const base = { candidateCount: 1, residentIndexPresent: false };
 	assert.equal(decideInjection(base), true, "有一条候选即注入");
-	assert.equal(decideInjection({ candidateCount: 0, baselinePresent: false }), false, "零候选无基线不注入");
-	assert.equal(decideInjection({ candidateCount: 0, baselinePresent: true }), true, "零候选但有基线仍注入（22 §12）");
+	assert.equal(decideInjection({ candidateCount: 0, residentIndexPresent: false }), false, "零候选无常驻索引不注入");
+	assert.equal(decideInjection({ candidateCount: 0, residentIndexPresent: true }), true, "零候选但有常驻索引内容仍注入（34 §8.4 末段）");
 	// 注入排序分：无论多低/多高，决策不变。
 	for (const score of [0, -1e9, 1e9, Number.NaN]) {
 		assert.equal(decideInjection({ ...base, hits: score, score, bm25: score }), true,
 			`分数 ${score} 不得影响决策`);
-		assert.equal(decideInjection({ candidateCount: 0, baselinePresent: false, hits: score, score }), false,
+		assert.equal(decideInjection({ candidateCount: 0, residentIndexPresent: false, hits: score, score }), false,
 			`分数 ${score} 不得让零候选变成注入`);
 	}
 
 	// 声明式契约：决策允许读取的输入项是闭集，不含任何排序键。
 	assert.ok(Array.isArray(DECISION_KEYS), "DECISION_KEYS 须导出");
+	assert.ok(!DECISION_KEYS.includes("baselinePresent"), "已撤除的决策基线死键不得留在决策闭集里");
 	for (const forbidden of ["hits", "score", "bm25", "tier", "path"]) {
 		assert.ok(!DECISION_KEYS.includes(forbidden),
 			`决策闭集不得包含排序键「${forbidden}」（排序分只用于排序，34 §13／02 §9.2）`);
@@ -1684,123 +1426,21 @@ test("截断归因：同一次注入里每类来源最多一条说明，且互�
 		assert.ok(!/渲染层/.test(line), `数据层行不得陈述渲染层的事。实际：${line}`);
 	}
 });
-
 // ---------------------------------------------------------------------------
-// F1 决策基线：即使词法层不产出候选，也须每次可见（22 §12 义务召回）
-// ---------------------------------------------------------------------------
-
-test("22 §12：极小预算下基线让位须留下可见痕迹（不得静默）", async () => {
-	// **旧缺陷**（2026-11-03 修）：预算 < BASELINE_YIELD_BELOW_BYTES(1200) 时
-	// 基线整段让位，且**什么都不说**——模型侧只看到「候选没列出」，完全不知道
-	// 还有 2 条 active ADR 属义务披露。数据层虽有 decisionBaseline.items，
-	// 但那只对调用方可见，模型侧不可见。
-	//
-	// 修法：不新增行（新增必超预算），把痕迹**并入**既有截断披露行，
-	// 并改用紧凑措辞使净字节不高于原行。
-	//
-	// 迁到合成语料（2026-11-15，ADR 已全数 retired，`8055c813`）：本条钉的是
-	// 「让位必留痕」这一渲染纪律，与语料是哪一份无关。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-yieldtrace-"));
-	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 1 });
-		for (const budgetBytes of [600, 800, 1000, 1100, 1199]) {
-			const r = await buildRecallInjection({
-				userText: "修改受保护内容并重新提交",
-				projectRoot: project,
-				budgetBytes,
-			});
-			assert.equal(r.inject, true, `预算 ${budgetBytes}：仍须注入`);
-			const items = r.result?.decisionBaseline?.items ?? [];
-			assert.ok(items.length > 0, `预算 ${budgetBytes}：数据层须仍承载基线（让位不等于丢弃）`);
-			assert.match(
-				r.text,
-				/基线 \d+ 条未展开/,
-				`预算 ${budgetBytes}：必须留下「基线存在但未展开」的痕迹，不得静默。实际文本：${r.text}`,
-			);
-			assert.match(r.text, /22 §12/, "痕迹须回指义务召回依据");
-		}
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("22 §12：纯读取回合仍须带出决策基线（基线不依赖词法命中）", async () => {
-	// 迁到合成语料（2026-11-15，ADR 已全数 retired，`8055c813`）：本条钉的是
-	// 「纯读取回合同样交付基线」这一不依赖词法命中的纪律，与语料是哪一份无关。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-readonly-"));
-	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 1 });
-		for (const q of ["看看这个文件", "列出所有规范", "列一下目录", "查询一下"]) {
-			const r = await buildRecallInjection({ userText: q, projectRoot: project });
-			assert.equal(r.inject, true, `「${q}」：基线须可见`);
-			assert.equal(r.result?.baselineOnly, true, `「${q}」：须标记为只带基线`);
-			assert.ok((r.result?.decisionBaseline?.items?.length ?? 0) > 0, `「${q}」：基线条目须在数据层`);
-			assert.match(r.text, /决策基线/, `「${q}」：基线须进渲染文本`);
-		}
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("22 §12：no_tokens 回合仍须带出决策基线", async () => {
-	for (const q of ["是不是应该", "为什么这里不对", "怎么办", "下一步"]) {
-		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
-		assert.equal(r.inject, true, `「${q}」：基线须可见`);
-		assert.equal(r.result?.baselineOnlyCause, "recall/no_tokens", `「${q}」：归因须为 no_tokens`);
-		assert.match(r.text, /决策基线/, `「${q}」：基线须进渲染文本`);
-	}
-});
-
-test("22 §12：无可披露基线时不注入（只带基线的路径不得变成无条件注入）", async () => {
-	// 边界：临时项目只有空的 ldvh-base（无 adr 载体）⇒ 基线为空 ⇒ 纯读取回合
-	// 不得注入任何东西。否则「每次必带基线」会退化成「每次必注入一行空壳」。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baselineonly-"));
-	try {
-		await mkdir(join(project, "ldvh-base", "adrs"), { recursive: true });
-		const r = await buildRecallInjection({ userText: "看看这个文件", projectRoot: project });
-		assert.equal(r.inject, false, "无 active ADR 可披露时不得注入");
-		assert.equal(r.reason, "no-hits");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-// 反控制（2026-11-15）：与上条同一不变量的**行动回合**侧。B1 修复把「常驻索引有
-// 内容」并入注入判据后，实测一个空事实源（零 ADR／零 Norm／零 Pitfall）的零命中
-// 行动回合也注入了，整块内容里只有一行「本项目当前无 active 经验（0 条）」——那是
-// 「本类为空」的披露，不是可供行动消费的材料。若判据把 pitfallTotal 为整数就算
-// 「有内容」，则任何可读事实源的项目都会在每个行动回合无条件注入（违反 02 §9.2）。
-// 本条钉住：经验计数为 0 不构成注入理由；正反对照——同一事实源加上 active Norm
-// 后必须注入（B1 修复本身仍活着，不被这次收紧抹掉）。
-
-test("22 §12：事实源不可读时基线路径须如实披露，而不是静默留空", async () => {
-	const project = await mkdtemp(join(tmpdir(), "ldvh-baselineunreadable-"));
-	try {
-		// 故意不建 ldvh-base：目录不存在 ⇒ 事实源不可读。
-		const r = await buildRecallInjection({ userText: "看看这个文件", projectRoot: project });
-		assert.equal(r.inject, true, "不可读也须披露（读不到 ≠ 没有）");
-		assert.match(r.text, /不可读|未取得/, "须如实说明未取得基线");
-		assert.match(r.text, /不表示本项目没有 ADR/, "须区分「读不到」与「没有」");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-// ---------------------------------------------------------------------------
-// 三段 L0 常驻枚举（Human 决定 2026-11-04）
+// 两段 L0 常驻枚举（Human 决定 2026-11-04）
 //
 // Human 的原话：「我说的规范是事实规范，不是元规范，元规范是之前机制就有的，
 // 我认为排序就是 ADR、事实规范、经验，这三个的 L0 是必须注入的，其他根据预算
-// 安排」。故注入面常驻的是**事实源侧三类对象的 L0 标识**：
-//   ADR（22 §12 义务召回）→ 事实规范 Norm（27 §10 义务召回）→ 经验 Pitfall
-//   （23 §12 遵守预检消费点），其余事实类型仍走词法候选、按预算安排。
+// 安排」。决策类类型撤除后（2026-11-16），注入面常驻的是**事实源侧两类对象**：
+//   事实规范 Norm（27 §10 义务召回）→ 经验 Pitfall（23 §12 按需索引），
+//   其余事实类型仍走词法候选、按预算安排。
 //
 // 元规范（specs/）的标题目录**不在**本机制内：它已有既有载体发现与读取通道
 // （01 §10 的 L0–L4 读取、ldvh_read_specification_candidates），引导面亦已按
 // 01 §10.4 注入规范锚点。在注入面再复制一份标题清单，是在既有通道之外发一份
 // 可能漂移的第二索引，且不属 Human 所指的「事实规范」。
 //
-// 本组用例守两件事：「三段必须注入」（不依赖词法命中）与「索引不是候选」
+// 本组用例守两件事：「常驻段必须注入」（不依赖词法命中）与「索引不是候选」
 // （不带命中理由、不占 limit 名额、必须自证不证明适用）。
 // ---------------------------------------------------------------------------
 
@@ -1821,7 +1461,7 @@ test("22 §12：事实源不可读时基线路径须如实披露，而不是静�
 test("L0 常驻：定位摘录降级须留痕，且「不静默」不变量在紧预算下成立", async () => {
 	const project = await mkdtemp(join(tmpdir(), "ldvh-normdegrade-"));
 	try {
-		await seedFactCorpus(project, { adrCount: 0, pitfallCount: 0 });
+		await seedFactCorpus(project, { pitfallCount: 0 });
 		for (const budgetBytes of [1500, 1800, 2000, 2400, 3000, 10240]) {
 			const r = await buildRecallInjection({
 				userText: "把 34 号规范改名成双源召回",
@@ -1888,7 +1528,7 @@ test("L0 全量段尾不得长于通用段尾（份额守卫）", () => {
 });
 
 
-test("L0 常驻：单纯读取回合也须带出 ADR 基线与经验按需行，且不并列事实规范段（不依赖词法命中）", async () => {
+test("L0 常驻：单纯读取回合也须带出经验按需行，且不并列事实规范段（不依赖词法命中）", async () => {
 	// 这是本节决定的实质：常驻内容的可见性不得取决于当回合用词。旧实现里 Norm 与
 	// 经验只靠词法候选出现，于是「继续」「看看这个文件」这类回合里它们整类不可见。
 	// 2026-11-11 起经验改为按需行——**它同样不得依赖词法命中**：那一行是常驻的，
@@ -1905,7 +1545,6 @@ test("L0 常驻：单纯读取回合也须带出 ADR 基线与经验按需行，
 		assert.equal(r.result?.baselineOnly, true, `「${q}」：须标记为只带索引`);
 		assert.doesNotMatch(r.text, /【事实规范 · active Norm/, `「${q}」：纯读取行不得再并列事实规范段`);
 		assert.match(r.text, /【经验 · active Pitfall（23 §12 按需索引）/, `「${q}」：经验按需行须在`);
-		assert.match(r.text, /决策基线/, `「${q}」：ADR 决策基线须如实披露（无 active ADR 时如实写明）`);
 	}
 });
 
@@ -2122,7 +1761,6 @@ test("34 §12：渲染层裁掉候选时，完整度不得仍报 complete", asyn
 		counts: { specHits: 6, factHits: 0, specsReturned: 6, factsReturned: 0 },
 		unchecked: { specs: [], facts: [] },
 		uncheckedRange: { sourceNotRead: [], excludedByTypeFilter: [], excludedByStatus: [], excludedByTypeWhitelist: [] },
-		decisionBaseline: { items: [], sourceUnreadable: false },
 		l0Enumeration: { segments: [], pitfallTotal: 0 },
 		budget: { limitBytes: 1200, usedBytes: 900, limit: 12 },
 	};

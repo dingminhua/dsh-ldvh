@@ -76,7 +76,7 @@ import {
 
 /** 一份满足 03 §7.2 四段必需项的最小输入。 */
 const COMPLETE_FIELDS = {
-	effective: "specs/34（L3 §8）、ldvh-base/adrs/adr-0b08523c（active）",
+	effective: "specs/34（L3 §8）、ldvh-base/norms/norm-0b08523c（active）",
 	applicable: "34 §8.3 约束落实三判据；21 §6.1 plan 边界",
 	allowed: "本会话 Human 授权：仅改 plugin/lib 与 plugin/test",
 	unverified: "specs/07 Web 呈现层未核对",
@@ -153,34 +153,29 @@ test("render：非对象入参拒绝", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 「已召回」两级结构（03 §7.2：ADR / Pitfall 各一行，未触发须标记）
+// 「已召回」单级结构（03 §7.2：Pitfall 一行，未触发须标记）
 // ---------------------------------------------------------------------------
 
 test("recalled：未传时如实留「未声明」并带出理由，不冒充「未触发」（03 §7.2 末句）", () => {
 	const result = renderPrecheckRecord(COMPLETE_FIELDS);
 	// 修正（首版错误）：缺省只说明调用方没说，不说明召回时机未成立。
 	// 把未知写成「未触发」正是 §7.2 要防的「把没查的写成查过了」。
-	assert.match(result.text, /^ {2}- ADR：未声明$/m);
 	assert.match(result.text, /^ {2}- Pitfall：未声明$/m);
 	assert.match(result.recallDeclarationGap, /未给出「已召回」区/);
 });
 
-test("recalled：传对象时逐级呈现", () => {
+test("recalled：传对象时按 Pitfall 一级呈现", () => {
 	const result = renderPrecheckRecord({
 		...COMPLETE_FIELDS,
-		recalled: { adr: "adr-0b08523c（active）：不硬编码路径", pitfall: "pitfall-3ee591bc：验证手段自欺" },
+		recalled: { pitfall: "pitfall-3ee591bc：验证手段自欺" },
 	});
-	assert.match(result.text, /^ {2}- ADR：adr-0b08523c/m);
 	assert.match(result.text, /^ {2}- Pitfall：pitfall-3ee591bc/m);
-	assert.equal(result.undifferentiatedRecall, false);
+	assert.doesNotMatch(result.text, /^ {2}- ADR：/m, "ADR 召回级已随类型撤除");
 });
 
-test("recalled：单串无法区分两级时如实标记 undifferentiated，不猜不拆", () => {
-	const result = renderPrecheckRecord({ ...COMPLETE_FIELDS, recalled: "ADR 与 Pitfall 均已核对" });
-	assert.equal(result.undifferentiatedRecall, true);
-	assert.match(result.text, /^ {2}- ADR：ADR 与 Pitfall 均已核对$/m);
-	// 不能替调用方判 Pitfall 未触发——缺省即「未声明」。
-	assert.match(result.text, /^ {2}- Pitfall：未声明$/m);
+test("recalled：单串内容直接落在 Pitfall 行，不猜不拆", () => {
+	const result = renderPrecheckRecord({ ...COMPLETE_FIELDS, recalled: "已核对全部召回类型" });
+	assert.match(result.text, /^ {2}- Pitfall：已核对全部召回类型$/m);
 });
 
 // ---------------------------------------------------------------------------
@@ -341,7 +336,7 @@ test("evaluateReuse：载体指纹已变即不复用，并指出是哪个载体"
 		noNewSignal: true,
 		carriers: [
 			{ path: "specs/34-双源召回系统规范.md", baseline: "aaa", current: "bbb" },
-			{ path: "ldvh-base/adrs/adr-1.md", baseline: "ccc", current: "ccc" },
+			{ path: "ldvh-base/norms/norm-1.md", baseline: "ccc", current: "ccc" },
 		],
 	});
 	assert.equal(result.reusable, false);
@@ -1110,7 +1105,7 @@ const RETURN_INPUT = {
 		{ statement: "a", hasTarget: "范围", hasChange: "改为分列", hasTraceableBasis: "§12" },
 		{ statement: "b", hasTarget: "路径", hasTraceableBasis: "§8.3" },
 	]),
-	recalled: "ADR 一条（已适用）；Pitfall 未触发",
+	recalled: "Pitfall 一条（已适用）",
 	verified: "34 与 03 §7.2 已逐条读毕",
 	unverified: "specs/34 的 operation 声明未落盘",
 	residualRisk: "operation 声明缺失时，改名相关调用方可能读不到新号",
@@ -1292,41 +1287,31 @@ test("RECALL_MARKS 恰为三个合法取值", () => {
 	assert.deepEqual([...RECALL_MARKS], ["未触发", "未遍历", "未声明"]);
 });
 
-test("recalled：显式声明「未触发」与「未遍历」各自原样保留", () => {
+test("recalled：显式声明「未触发」原样保留", () => {
 	const result = renderPrecheckRecord({
 		...COMPLETE_FIELDS,
 		tier: "快通道",
-		recalled: { adr: "未触发", pitfall: "未遍历" },
+		recalled: { pitfall: "未触发" },
 	});
-	assert.match(result.text, /^ {2}- ADR：未触发$/m);
-	assert.match(result.text, /^ {2}- Pitfall：未遍历$/m);
-});
-
-test("recalled：快通道下未逐级标明即带出警告（§7.2 末句要求明确标记）", () => {
-	const result = renderPrecheckRecord({
-		...COMPLETE_FIELDS,
-		tier: "快通道",
-		recalled: { adr: "未触发" },
-	});
-	assert.equal(result.fastPathWarnings.length, 1);
-	assert.match(result.fastPathWarnings[0], /未遍历/);
+	assert.match(result.text, /^ {2}- Pitfall：未触发$/m);
+	assert.doesNotMatch(result.text, /^ {2}- ADR：/m, "ADR 召回级已随类型撤除");
 });
 
 test("recalled：把「未遍历」写成「已核对」即拒绝（§7.2 点名禁止）", () => {
 	const result = renderPrecheckRecord({
 		...COMPLETE_FIELDS,
-		recalled: { adr: "未遍历（已核对全部）", pitfall: "未触发" },
+		recalled: { pitfall: "未遍历（已核对全部）" },
 	});
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "record/recall_mark_swapped");
-	assert.deepEqual(result.offenders.map((o) => o.level), ["ADR"]);
+	assert.deepEqual(result.offenders.map((o) => o.level), ["Pitfall"]);
 });
 
-test("recalled：标准路径下未逐级标明不产生快通道警告（该警告仅属快通道）", () => {
+test("recalled：标准路径下不产生快通道警告（该警告仅属快通道）", () => {
 	const result = renderPrecheckRecord({
 		...COMPLETE_FIELDS,
 		tier: "标准路径",
-		recalled: { adr: "未触发" },
+		recalled: { pitfall: "未触发" },
 	});
 	assert.deepEqual(result.fastPathWarnings, []);
 });
@@ -1347,13 +1332,13 @@ test("parseRecord：把完整记录解析回结构化字段", () => {
 	assert.equal(parsed.fields.unverified, COMPLETE_FIELDS.unverified);
 });
 
-test("parseRecord：两级「已召回」各自解析", () => {
+test("parseRecord：「已召回」按 Pitfall 级解析", () => {
 	const { text } = renderPrecheckRecord({
 		...COMPLETE_FIELDS,
-		recalled: { adr: "adr-1 适用", pitfall: "未遍历" },
+		recalled: { pitfall: "未遍历" },
 	});
 	const parsed = parseRecord(text);
-	assert.deepEqual(parsed.fields.recalled, { adr: "adr-1 适用", pitfall: "未遍历" });
+	assert.deepEqual(parsed.fields.recalled, { pitfall: "未遍历" });
 });
 
 test("parseRecord：条件段出现即解析，未出现则不在结果里（不虚构占位）", () => {
@@ -1435,7 +1420,7 @@ test("shape 与 parseRecord 对同一输入的 complete 判定必须一致（防
 test("detectRitualRecord：全「无」内容的记录被标为疑似，但不拒绝", () => {
 	const result = detectRitualRecord({
 		effective: "无", applicable: "无", allowed: "无", unverified: "无",
-		recalled: { adr: "无", pitfall: "无" },
+		recalled: { pitfall: "无" },
 	});
 	assert.equal(result.ok, true);
 	assert.equal(result.ritualSuspected, true);
@@ -1450,10 +1435,10 @@ test("detectRitualRecord：有实质内容时不标疑", () => {
 	assert.equal(result.notice, null);
 });
 
-test("detectRitualRecord：两级召回均为「未声明」也算疑似（整个召回区没交代）", () => {
+test("detectRitualRecord：召回区均为「未声明」也算疑似（整个召回区没交代）", () => {
 	const result = detectRitualRecord({
 		...COMPLETE_FIELDS,
-		recalled: { adr: "未声明", pitfall: "未声明" },
+		recalled: { pitfall: "未声明" },
 	});
 	assert.ok(result.suspect.some((item) => item.section === RECALLED_LABEL));
 });
@@ -1468,7 +1453,7 @@ test("detectRitualRecord：「略」「同上」「N/A」等也计入", () => {
 test("renderPrecheckRecord：疑似空记录仍渲染成功，但带出提醒（不阻断）", () => {
 	const result = renderPrecheckRecord({
 		effective: "无", applicable: "无", allowed: "无", unverified: "无",
-		recalled: { adr: "无", pitfall: "无" },
+		recalled: { pitfall: "无" },
 	});
 	assert.equal(result.ok, true, "不得因疑似而拒绝——会逼出更糟的空话");
 	assert.equal(result.ritualSuspected, true);

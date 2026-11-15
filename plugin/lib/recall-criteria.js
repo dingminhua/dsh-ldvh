@@ -65,13 +65,14 @@ export const RECALL_CRITERIA_NOT_APPLICABLE = "不采用";
  */
 export const FACT_TYPE_BY_SPEC_ID = Object.freeze({
   "20": "spark",
-  "22": "adr",
   "23": "pitfall",
   "24": "report",
   "25": "goal",
   "26": "friction",
   "27": "norm",
   "28": "subgoal",
+  // 22 号（ADR 决策）已于 2026-11-15 整份撤除（01 §8 号位表为空位），映射随之删除；
+  // 号位不复用，详见 02 §7.1 fact_type_key 值域与 specs/34 §8.4 的撤回留痕。
   // 29 号 DevLog 已于 2026-11-14 撤除（01 §8 号位表为空位），映射随之删除；
   // 号位不复用，详见 02 §7.1 fact_type_key 值域。
 });
@@ -83,8 +84,8 @@ export const FACTSOURCE_TYPE_KEYS = Object.freeze(Object.values(FACT_TYPE_BY_SPE
  * `fact_type_key` 的派生词（大小写不敏感整词）。
  *
  * 02 §12.4 的类型词别名规则：别名「不得与 `fact_type_key` 值域（§7.1）派生词
- * 冲突」。派生规则保持**最小且确定**：键本身与键的复数形（`adr`/`adrs`）。
- * 复数是事实源目录名的实际形态（`adrs/`、`pitfalls/`），故一并覆盖。
+ * 冲突」。派生规则保持**最小且确定**：键本身与键的复数形（`norm`/`norms`）。
+ * 复数是事实源目录名的实际形态（`norms/`、`pitfalls/`），故一并覆盖。
  */
 export function typeKeyDerivedWords(typeKey) {
   const key = String(typeKey ?? "").trim().toLowerCase();

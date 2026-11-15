@@ -1,16 +1,12 @@
 // Scaffolding parity tests: AgentLifecycle object, runtime config swap,
-// event-stream primitives, render last-good degrade, rpc/commands skeleton.
+// event-stream primitives, rpc/commands skeleton.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import { AgentLifecycle, ActivityLog } from "../lib/agent-lifecycle.js";
 import { createRuntimeConfig } from "../lib/runtime-config.js";
 import { openTurn, turnToolCalls, turnUserTexts } from "../lib/event-stream.js";
-import { renderWithLastGood } from "../lib/adr-enumeration.js";
 import { registerLdvhRpc } from "../lib/rpc.js";
-import { withTemp } from "./helpers.mjs";
 
 // --- AgentLifecycle object -------------------------------------------------
 
@@ -67,28 +63,6 @@ test("event-stream: openTurn / turnToolCalls / turnUserTexts over the durable lo
 	assert.equal(calls.count, 2);
 	assert.deepEqual(calls.names.sort(), ["bash", "read"]);
 	assert.deepEqual(turnUserTexts(events, 1), ["改一下"]);
-});
-
-// --- render last-good degrade ----------------------------------------------
-
-test("renderWithLastGood: success stores; failure serves last good degraded", async () => {
-	await withTemp("ldvh-adr.", async (base) => {
-		await mkdir(join(base, "ldvh-base", "adrs"), { recursive: true });
-		await writeFile(join(base, "ldvh-base", "adrs", "a.yaml"), "title: T\nstatus: active\ndecision: D\nobject_id: adr-1\n");
-		const holder = { lastGoodEnumeration: null };
-		const good = await renderWithLastGood(holder, base);
-		assert.equal(good.degraded, false);
-		assert.ok(good.text.includes("T"));
-		// Corrupt the directory so the next render throws (unreadable path).
-		const broken = join(base, "no-such-place");
-		const degraded = await renderWithLastGood(holder, broken);
-		// readdir failure inside renderActiveAdrEnumeration returns null-text
-		// (not a throw), so lastGood stays the good render either way; force a
-		// real throw via a non-string projectRoot.
-		const thrown = await renderWithLastGood(holder, null);
-		assert.equal(thrown.degraded, true, "failure degraded");
-		assert.ok(thrown.text === null || thrown.text.includes("T"), "serves last good or empty");
-	});
 });
 
 // --- rpc skeleton ------------------------------------------------------------

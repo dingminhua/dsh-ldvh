@@ -1680,7 +1680,7 @@ test("渲染：陈旧模块报告的每个字段都须在模型侧可见（不�
 				library_dir: "/repo/plugin/lib",
 				checked: 94,
 				stale: [
-					{ file: "/repo/plugin/lib/adr-writer.js", mtime_ms: 1793800000000 },
+					{ file: "/repo/plugin/lib/norm-writer.js", mtime_ms: 1793800000000 },
 					{ file: "/repo/plugin/lib/spark-writer.js", mtime_ms: 1793800000001 }
 				],
 				unreadable: ["/repo/plugin/lib/broken.js"],
@@ -1694,7 +1694,7 @@ test("渲染：陈旧模块报告的每个字段都须在模型侧可见（不�
 	assert.ok(rendered.includes("/repo/plugin/lib"), "受检目录必须可见");
 	assert.ok(rendered.includes("1793792277000"), "进程启动时刻必须可见");
 	assert.ok(rendered.includes("stale: 2"), "陈旧计数必须可见");
-	assert.ok(rendered.includes("adr-writer.js"), "陈旧文件须逐个列名，不能只给计数");
+	assert.ok(rendered.includes("norm-writer.js"), "陈旧文件须逐个列名，不能只给计数");
 	assert.ok(rendered.includes("spark-writer.js"), "陈旧文件须逐个列名");
 	assert.ok(rendered.includes("unreadable: 1"), "不可读计数必须可见");
 	assert.ok(rendered.includes("broken.js"), "不可读文件须列名");

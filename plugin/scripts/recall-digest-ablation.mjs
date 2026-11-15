@@ -81,7 +81,7 @@ let MAX_PROBES = 120;
  */
 const STRIP_PATTERN = /^recall_digest:[^\n]*(?:[ \t]*\r?\n|$)/gm;
 const FACT_DIRS = Object.freeze([
-  "adrs", "devlogs", "frictions", "norms", "pitfalls", "researches", "sparks", "subgoals",
+  "devlogs", "frictions", "norms", "pitfalls", "researches", "sparks", "subgoals",
 ]);
 
 async function listMarkdown(dir) {
@@ -338,8 +338,8 @@ async function collectWholeWordProbes() {
  */
 const PROBE_BUDGET_BYTES = 200000;
 
-/** 可迁入 `trigger_signal` 的类型（22 §8 与 23 §8 采用；其余类型闭集无此字段）。 */
-const TRIGGER_CAPABLE_TYPES = new Set(["adr", "pitfall"]);
+/** 可迁入 `trigger_signal` 的类型（23 §8 采用；其余类型闭集无此字段）。 */
+const TRIGGER_CAPABLE_TYPES = new Set(["pitfall"]);
 
 
 /**
@@ -357,7 +357,7 @@ const ALL_STATUSES = Object.freeze([
  * 把探针结果按事实类型汇总，并标记该类型是否有可迁入字段。
  *
  * 为什么要单独汇总：全局「丢失 N 条」不足以支撑决策——同样丢 10 条，落在
- * ADR/Pitfall 上可以并入 `trigger_signal` 救回，落在 friction/spark/research
+ * Pitfall 上可以并入 `trigger_signal` 救回，落在 friction/spark/report
  * 上则**无路可走**。两者的处置完全不同，故必须在同一份报告里分开。
  */
 function probeTypeBreakdown(rows) {
@@ -481,7 +481,7 @@ async function runProbeTerms(limit, asJson, maxProbes = 120) {  MAX_PROBES = max
       note: "探针只测字面可达，不测该查询是否真实用户会提；rank 为命中位置，"
         + "低排位说明该词面虽可命中但并不领先。",
       // **按类型分布是迁移可行性的判据**（2026-11-10 实证）：`trigger_signal`
-      // 只存在于 ADR 与 Pitfall 的闭集里，其余 6 个类型没有可迁入的现有字段。
+      // 只存在于 Pitfall 的闭集里，其余类型没有可迁入的现有字段。
       // 因此「独有词面落在哪一类」直接决定「移除会不会造成不可恢复的损失」——
       // 落在无可迁入字段的类型上，任何「派生」或「并入既有字段」都恢复不了它。
       byType: probeTypeBreakdown(lost),
@@ -496,8 +496,8 @@ async function runProbeTerms(limit, asJson, maxProbes = 120) {  MAX_PROBES = max
       // 故本轮的损失是真实信息损失，而**不是**门槛造成的假损失。
       lossNature: await classifyLostProbes(lost),
       migrationFeasibility: {
-        note: "trigger_signal 仅 ADR/Pitfall 采用；其余类型无等价可迁入字段。",
-        typesWithMigrationTarget: ["adr", "pitfall"],
+        note: "trigger_signal 仅 Pitfall 采用；其余类型无等价可迁入字段。",
+        typesWithMigrationTarget: ["pitfall"],
       },
     };
 
@@ -798,7 +798,7 @@ async function runObjectReachability(limit, asJson) {
  *   · 故「大 limit 下 69% 恢复」**不能**当作「生产可用」的证据。
  *
  * 唯一在小 limit 下也接近无损的是「并入 `trigger_signal`」（27/29 有效），
- * 但它只对 ADR/Pitfall 可用——其余类型闭集里没有该字段。这正是本字段
+ * 但它只对 Pitfall 可用——其余类型闭集里没有该字段。这正是本字段
  * 无法在全类型上彻底退役的结构性原因。
  */
 async function runDeleteFeasibility(asJson) {
@@ -898,7 +898,7 @@ async function runDeleteFeasibility(asJson) {
       onlyViaDigestProbes: onlyViaDigest.length,
       limits,
       rows,
-      note: "只有「并入 trigger_signal」在**生产小 limit** 下接近无损，而它只对 ADR/Pitfall 可用；"
+      note: "只有「并入 trigger_signal」在**生产小 limit** 下接近无损，而它只对 Pitfall 可用；"
         + "其余类型并入正文会把命中从 tier 2 降到 tier 4，小 limit 下绝大多数救不回来。"
         + "故「大 limit 下恢复率高」不能当作生产可用证据。",
     };

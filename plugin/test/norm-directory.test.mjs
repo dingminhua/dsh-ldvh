@@ -190,7 +190,7 @@ test("目录：定位不合 27 §8 契约者显式标注「定位不可机械导
 test("目录：召回注入块内不再并列规范段（单一来源），且候选名额不受目录占用", async () => {
   const project = await mkdtemp(join(tmpdir(), "ldvh-normdir-single-"));
   try {
-    await seedFactCorpus(project, { adrCount: 2, pitfallCount: 1 });
+    await seedFactCorpus(project, { pitfallCount: 1 });
     const r = await buildRecallInjection({
       userText: "把 34 号规范改名成双源召回",
       projectRoot: project,

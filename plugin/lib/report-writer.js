@@ -290,7 +290,7 @@ export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing
  *
  * Mechanical scope (24 §14): relation_key closed set, minimal target shape,
  * updates cardinality and self-reference, duplicate edges. Target *type*
- * closed sets for cross-type keys (inspired-by/informs → spark/adr)
+ * closed sets for cross-type keys (inspired-by/informs → 现存事实对象类型)
  * need target resolution, which lands with the 20–22 type rebuilds — the
  * `updates` target IS resolvable in our own directory and is checked by the
  * create/update flows (research/relation_target_unresolvable).
@@ -604,7 +604,8 @@ export const RESEARCH_CORRECTABLE_FIELDS = new Set([
  * paper; this entry is its carrier.
  *
  * Frontmatter side is a **whitelist** (see RESEARCH_CORRECTABLE_FIELDS) rather
- * than "no input at all" as in 22 §13 for ADR: Research's index/body
+ * than "no input at all" as some types permit a body-only correction channel:
+ * Research's index/body
  * invariants make a body-only channel unable to perform a legitimate
  * correction (24 §8 items 7 and 10 tie the two layers verbatim). Everything
  * outside the whitelist — status, retirement_reason, retired_at, urls,

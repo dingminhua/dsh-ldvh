@@ -59,9 +59,11 @@
  * ## 为什么必需集合是 5 个标签
  *
  * 必需 = 生效规则、适用规则、行动允许、未验证范围、**已召回**。
- * `REQUIRED_SECTIONS` 只列前四个字符串段，是因为「已召回」是**两级结构**（ADR /
- * Pitfall 各自可标「未触发」/「未遍历」），由 `RECALLED_LABEL` 单独约束；
+ * `REQUIRED_SECTIONS` 只列前四个字符串段，是因为「已召回」是**子项结构**（各子项
+ * 可标「未触发」/「未遍历」），由 `RECALLED_LABEL` 单独约束；
  * `checkRecordShape` 与 `parseRecord` 都把「已召回」计入必备，故整数为 5。
+ * 2026-11-16：`03 §7.2` 现行模板的「已召回」只列 Pitfall 一个子项——原来那个
+ * 决策类子项随其事实类型撤除；代码按现行模板对齐（`RECALLED_SUB_LABELS` 只剩一项）。
  * 两个条件条目（快通道声明／升级记录）仅在传入时呈现——§17 第 2 项禁止为凑段
  * 而填空。
  *
@@ -78,7 +80,7 @@ import { join } from "node:path";
 
 /**
  * 必需段中的**字符串段**（03 §7.2 七条目里未带「如」的四段）。
- * 「已召回」同为必需，但因是两级结构而由 `RECALLED_LABEL` 单独约束。顺序即呈现顺序。
+ * 「已召回」同为必需，但因是子项结构而由 `RECALLED_LABEL` 单独约束。顺序即呈现顺序。
  * `key` 是调用方的入参名，`label` 是 §7.2 的段名原文——两者都不得改动，
  * 因为 `label` 就是机械判定的锚（§17 第 4 项禁改 §7.2 的公共字段名）。
  */
@@ -95,10 +97,11 @@ export const CONDITIONAL_SECTIONS = Object.freeze([
   { key: "escalation", label: "升级记录" },
 ]);
 
-/** 「已召回」段名；其内容为 03 §7.2 的 ADR / Pitfall 两行两级结构。 */
+/** 「已召回」段名；其内容为 03 §7.2 的 Pitfall 子项（2026-11-16：原并列的决策类
+ * 子项随该类型撤除，现行模板只剩 Pitfall）。 */
 export const RECALLED_LABEL = "已召回";
 
-const RECALLED_SUB_LABELS = Object.freeze(["ADR", "Pitfall"]);
+const RECALLED_SUB_LABELS = Object.freeze(["Pitfall"]);
 
 /** 交还开头标记（03 §7.2 的 `[预检落实记录]`）。 */
 export const RECORD_HEADER = "[预检落实记录]";
@@ -131,7 +134,6 @@ export const RECALL_MARKS = Object.freeze(["未触发", "未遍历", "未声明"
 
 function normalizeRecalled(value, tier) {
   const blank = (reason) => ({
-    adr: "未声明",
     pitfall: "未声明",
     declared: false,
     reason,
@@ -142,31 +144,30 @@ function normalizeRecalled(value, tier) {
   if (typeof value === "string") {
     const text = value.trim();
     if (text === "") return blank("「已召回」为空串，等同于未给出");
-    // 单串无法区分 ADR / Pitfall：原样落在 ADR 行、Pitfall 行如实留「未声明」，
-    // 并置 undifferentiated 供调用方补全——不猜、不拆、不静默丢弃。
-    return { adr: text, pitfall: "未声明", undifferentiated: true, declared: false };
+    // 现行模板该区只有一个子项（Pitfall），故单串即该子项内容，原样采用——
+    // 不猜、不拆、不静默丢弃。
+    return { pitfall: text, declared: false };
   }
   if (Array.isArray(value)) {
     const text = value.filter((item) => isNonEmptyString(item)).map((item) => item.trim()).join("；");
     if (text === "") return blank("「已召回」为空数组，等同于未给出");
-    return { adr: text, pitfall: "未声明", undifferentiated: true, declared: false };
+    return { pitfall: text, declared: false };
   }
   if (typeof value === "object") {
-    // 逐级判断：给了就呈现，没给就留「未声明」——不替调用方填「未触发」。
+    // 给了就呈现，没给就留「未声明」——不替调用方填「未触发」。
     const level = (raw) => {
       if (isNonEmptyString(raw)) return raw.trim();
       // 显式写「未触发」/「未遍历」是合法声明；两者不得互换（§7.2 末句）。
       return "未声明";
     };
-    const adr = level(value.adr);
     const pitfall = level(value.pitfall);
     // §7.2 末句：快通道下如实标「未遍历」是义务，不是可选项。
     const fastPath = tier === "快通道";
     const warns = [];
-    if (fastPath && (adr === "未声明" || pitfall === "未声明")) {
-      warns.push("快通道下的「已召回」区须逐级标明「未触发」或「未遍历」，不得留「未声明」（03 §7.2 末句）");
+    if (fastPath && pitfall === "未声明") {
+      warns.push("快通道下的「已召回」区须逐项标明「未触发」或「未遍历」，不得留「未声明」（03 §7.2 末句）");
     }
-    return { adr, pitfall, declared: true, fastPathWarnings: warns };
+    return { pitfall, declared: true, fastPathWarnings: warns };
   }
   return blank(`「已召回」的形态无法识别（${typeof value}）`);
 }
@@ -187,7 +188,7 @@ function checkRecallMarkSwap(recalled) {
 /**
  * 把调用方的字段对象渲染为 03 §7.2 的文本形态。
  *
- * 返回 `{ ok: true, text, sections, undifferentiatedRecall }` 或
+ * 返回 `{ ok: true, text, sections }` 或
  * `{ ok: false, error }`。缺必需段时**拒绝**而非填空（§17 第 2 项）。
  */
 export function renderPrecheckRecord(fields = {}) {
@@ -249,8 +250,7 @@ export function renderPrecheckRecord(fields = {}) {
     // §17 第 2 项：疑似空记录随记录交还，不阻断（判据在语义侧）。
     ritualSuspected: ritual.ok === true && ritual.ritualSuspected === true,
     ritualNotice: ritual.ok === true ? ritual.notice : null,
-    undifferentiatedRecall: recalled.undifferentiated === true,
-    // §7.2 末句：快通道下未逐级标明的，连同警告一并交还，不静默放过。
+    // §7.2 末句：快通道下未逐项标明的，连同警告一并交还，不静默放过。
     fastPathWarnings: recalled.fastPathWarnings ?? [],
     // 缺省未声明时如实带出理由（不冒充「未触发」）。
     recallDeclarationGap: recalled.declared === false ? (recalled.reason ?? null) : null,
@@ -309,7 +309,6 @@ export function buildHandover(fields = {}) {
     fingerprint: recordFingerprint(rendered.text),
     shape: checkRecordShape(rendered.text),
     sections: rendered.sections,
-    undifferentiatedRecall: rendered.undifferentiatedRecall,
     // §10：记录不是事实对象，这里如实声明其承载边界。
     carrier: carrierStatus(),
   };
@@ -1454,7 +1453,7 @@ export function routeConflict(input = {}) {
  *
  * ## 边界
  *
- * - 只解析 §7.2 定义的七个顶层级条目与其两级「已召回」；**不解析段内语义**（不判断「生效规则」
+ * - 只解析 §7.2 定义的七个顶层级条目与其「已召回」子项；**不解析段内语义**（不判断「生效规则」
  *   列出的规范是否真的生效——那是 §14「不证明取值正确」）。
  * - 解析失败的段如实留空，**不猜测、不补默认值**。
  * - 条件段未出现即不出现在结果里——不虚构占位。
@@ -1480,7 +1479,9 @@ export function parseRecord(text) {
     if (new RegExp(`^- ${RECALLED_LABEL}：\\s*$`).test(line)) {
       found.push(RECALLED_LABEL);
       for (let inner = index + 1; inner < lines.length; inner += 1) {
-        const match = /^\s+- (ADR|Pitfall)：(.*)$/.exec(lines[inner]);
+        // 现行模板的「已召回」只有 Pitfall 一个子项（2026-11-16：决策类子项随
+        // 该类型撤除）。旧记录里若有该子项，会作为未登记标签被忽略——不并入这里。
+        const match = /^\s+- (Pitfall)：(.*)$/.exec(lines[inner]);
         if (match === null) break;
         out.recalled[match[1].toLowerCase()] = match[2].trim();
         index = inner;
@@ -1574,13 +1575,12 @@ export function detectRitualRecord(fields = {}) {
   };
   for (const section of REQUIRED_SECTIONS) check(section.label, fields[section.key]);
   check("未验证范围", fields.unverified);
-  // 已召回：两级都为「未声明」时也算疑似——它意味着整个召回区没有交代。
+  // 已召回：整个召回区都「未声明」时也算疑似——它意味着召回区没有交代。
   const recalled = fields.recalled;
   if (recalled !== null && typeof recalled === "object" && !Array.isArray(recalled)) {
-    const adr = String(recalled.adr ?? "").trim();
     const pitfall = String(recalled.pitfall ?? "").trim();
-    if (adr === "未声明" && pitfall === "未声明") {
-      suspect.push({ section: RECALLED_LABEL, value: "两级均为「未声明」" });
+    if (pitfall === "未声明") {
+      suspect.push({ section: RECALLED_LABEL, value: "召回区为「未声明」" });
     }
   }
   return {

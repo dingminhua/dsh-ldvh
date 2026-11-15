@@ -635,7 +635,7 @@ export async function updateNormObject(args) {
   }
 
   // `bodyMarkdownAfter` is the COMPLETE target body as returned by a precise
-  // read — it already carries the H1 (same contract as pitfall/adr writers).
+  // read — it already carries the H1 (same contract as pitfall writers).
   // Re-prepending the H1 here would produce two H1 headings and fail the
   // structure check.
   const body = bodyMarkdownAfter.trim();

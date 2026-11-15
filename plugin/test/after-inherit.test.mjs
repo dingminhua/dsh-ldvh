@@ -21,9 +21,6 @@ import {
   CODE_MANAGED_FIELDS,
 } from "../lib/after-integrity.js";
 import {
-  ADR_REMOVABLE_FIELDS,
-} from "../lib/adr-writer.js";
-import {
   FRICTION_REMOVABLE_FIELDS,
   createFrictionObject,
   readFrictionObject,
@@ -53,11 +50,6 @@ const VALID_FM_KEYS_BY_TYPE = {
     "phenomenon", "attribution", "attribution_ref", "relations",
     "occurrence", "disposition", "change_log",
   ]),
-  adr: new Set([
-    "object_uid", "fact_type_key", "title", "created_at", "status",
-    "decision", "scope", "trigger_signal", "urls",
-    "relations", "retirement_reason", "retired_at", "change_log",
-  ]),
   pitfall: new Set([
     "object_uid", "fact_type_key", "title", "created_at", "status",
     "scope", "trigger_signal", "urls", "disposition", "change_log",
@@ -81,7 +73,6 @@ const VALID_FM_KEYS_BY_TYPE = {
 const REMOVABLE_BY_TYPE = {
   spark: SPARK_REMOVABLE_FIELDS,
   friction: FRICTION_REMOVABLE_FIELDS,
-  adr: ADR_REMOVABLE_FIELDS,
   pitfall: PITFALL_REMOVABLE_FIELDS,
   report: REPORT_REMOVABLE_FIELDS,
   norm: NORM_REMOVABLE_FIELDS,
@@ -104,7 +95,6 @@ const RETIRED_FROM_CLOSED_SET_BY_TYPE = {
 const REQUIRED_BY_TYPE = {
   spark: ["object_uid", "fact_type_key", "title", "created_at", "status", "question", "scope_boundary", "intent", "summary"],
   friction: ["object_uid", "fact_type_key", "title", "created_at", "status", "phenomenon", "occurrence"],
-  adr: ["object_uid", "fact_type_key", "title", "created_at", "status", "decision", "scope"],
   pitfall: ["object_uid", "fact_type_key", "title", "created_at", "status", "scope"],
   report: ["object_uid", "fact_type_key", "title", "created_at", "status", "report_form"],
   norm: ["object_uid", "fact_type_key", "title", "created_at", "status", "direction_key"],

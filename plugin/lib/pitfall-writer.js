@@ -310,7 +310,7 @@ function buildFileContent(frontmatter, body) {
 }
 
 /**
- * 展示层输出序（同 spark/adr writer 约定）：语义块在前
+ * 展示层输出序（同既有 writer 约定）：语义块在前
  * （标题/状态/范围/信号/终态去向），引用与身份居后，change_log 沉底。
  * 只重排键序，不新增、不删除、不改值。
  */

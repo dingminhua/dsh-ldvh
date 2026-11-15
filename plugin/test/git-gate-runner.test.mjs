@@ -459,8 +459,8 @@ test("a fact reference resolves by the carrier's object_uid, not only by its fil
 	await withTemp("ldvh-ggr.", async (base) => {
 		const root = await committedDeclarationRepo(base);
 		const uid = "11112222-3333-4444-5555-666677778888";
-		await mkdir(join(root, "ldvh-base", "adrs"), { recursive: true });
-		await writeFile(join(root, "ldvh-base", "adrs", "unnamed-carrier.md"), `---\nobject_uid: ${uid}\ntitle: x\n---\n\n# x\n`);
+		await mkdir(join(root, "ldvh-base", "norms"), { recursive: true });
+		await writeFile(join(root, "ldvh-base", "norms", "unnamed-carrier.md"), `---\nobject_uid: ${uid}\ntitle: x\n---\n\n# x\n`);
 		await gitOk(root, ["add", "-A"]);
 		await gitOk(root, ["commit", "-qm", "add fact carrier"]);
 		await writeFile(join(root, "specs", "01-test.md"), declarationFile("**无**——须按判据逐处核对"));

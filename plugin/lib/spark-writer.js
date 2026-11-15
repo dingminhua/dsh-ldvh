@@ -498,9 +498,10 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
   //
   // 2026-11-14：29 号 DevLog 已撤除，`devlogs` 随之从本表移除；实测事实源
   // 中无任何活引用指向那 21 条存量对象，故不会造成既有 refs 不可解析。
+  // 2026-11-16：22 号 ADR 已撤除，`adrs` 随之从本表移除（先例同上：撤除时
+  // 一并核过活引用，不留下指向空气的条目）。
   const dirs = [
     ["spark", SPARK_DIRECTORY],
-    ["adr", "adrs"],
     ["pitfall", "pitfalls"],
     ["report", "reports"],
     ["friction", "frictions"],
@@ -1449,7 +1450,7 @@ export async function updateSparkObject(args) {
   // **只在 `serves` 新增或改动时重新解析**（28 §12.3 第 3 条，Human 2026-11-10）：
   // 该条明文规定 "`retired` 不构成有效解析目标……**既有 `serves` 保留原值不改写
   // 历史引用**"。据此，「解析」是**写入那一刻**的准入条件，不是每次更新的持续不变量
-  // ——与 ADR 已登记的同一形态（`0b08523c`「关系目标的 open 约束为写入前置条件」）。
+  // ——与已撤除类型曾登记的同一形态（`0b08523c`「关系目标的 open 约束为写入前置条件」）。
   //
   // 实测（2026-11-10）：全库 112 个采用 `serves` 的对象有 98 个指向已 `retired` 的
   // SubGoal（87.5%），旧实现使它们**任何内容更新都被拒绝**——连改一个与 serves

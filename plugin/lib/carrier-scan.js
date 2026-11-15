@@ -2,8 +2,8 @@
 //
 // ## Why this module exists
 //
-// Five list implementations (spark / adr / pitfall / research / friction) each
-// carried this pair of lines:
+// The list implementations for the existing fact types (spark / pitfall / report
+// / friction 等) each carried this pair of lines:
 //
 //     const nameMatch = entry.name.match(/^<type>-<UUIDv4>\.md$/i);
 //     if (!nameMatch) continue;  // non-carrier files (e.g. tmp staging)
