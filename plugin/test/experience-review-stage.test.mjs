@@ -21,7 +21,7 @@
 // 也能跑通、无提案时静默返回也能跑通——**只有测试能发现**。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -574,15 +574,16 @@ async function seedFrictionBuffer(base, count = 3) {
   await writeFile(join(dir, `${PROJECT_ID}.jsonl`), `${lines.join("\n")}\n`, "utf8");
 }
 
-// ── ⑧ 摩擦晋升的署名取主控（2026-10-31 实测缺陷）────────────────────
+// ── ⑧ 摩擦晋升已迁出审核段（2026-11-16）──────────────────────────────
 //
-// 原实现传的是 `resolveSignature(sessionPersistence, null)`，而该函数在 id 为空时
-// **恒返回 null**。于是每一次摩擦晋升/补充都以 `signature_unavailable` 被拒——
-// 实测运行记录里 `friction_residual` 三条全是这个码，界面上「5/3 可晋升」永远不动。
-// 摩擦晋升发生在**派发执行体之前**，那时 childId 还不存在；它由主控触发、在宿主
-// 进程内完成，故取主控会话署名（11 §4 主控最终负责、09 §5.1 取当次实际判断方）。
+// Human 2026-11-16 决定：摩擦侧的「闲置审核」不再存在——同源命中 ≥3 次即在**捕获
+// 派发内**直接晋升，不再等第二次派发。故 §9 第 3／4 项（阈值晋升、补充级更新）已从
+// 本段迁到 `lifecycle.js` 的检查点收纳段，连同「取主控会话署名」一并迁走。
+//
+// 本条守住的是**迁移边界**：审核段不得再自行执行摩擦晋升，否则两处都会建账
+// （`friction-review-promotion.js` 模块头：晋升三步之间没有原子性）。
 
-test("摩擦晋升**取主控会话署名**，不是执行体、也不是 null", async () => {
+test("摩擦晋升已迁出：审核段不再自行晋升摩擦缓冲（2026-11-16 迁移）", async () => {
   const base = await mkdtemp(join(tmpdir(), "review-stage-"));
   await seedFrictionBuffer(base);
   const persistence = fakeSessionPersistence({
@@ -595,7 +596,6 @@ test("摩擦晋升**取主控会话署名**，不是执行体、也不是 null",
 
   const result = await runReviewStage({
     subagents,
-    // 主控会话：署名必须从这里取
     parent: { session: { header: { id: "session-controller" } } },
     sessionPersistence: persistence,
     scope: governedScope(base),
@@ -603,17 +603,14 @@ test("摩擦晋升**取主控会话署名**，不是执行体、也不是 null",
     dshHomePath: homeJoiner(base),
   });
 
-  // 前提钉子：open 收到的必须是主控会话 id——若实现又退回 null 或改用 childId，本条红。
-  const openedIds = persistence.opened.map(([id]) => id);
-  assert.ok(
-    openedIds.includes("session-controller"),
-    `署名须按主控会话 id 取，实际打开的会话：${JSON.stringify(openedIds)}`,
-  );
-  // 摩擦晋升成功（不是 signature_unavailable）
+  // 迁移钉子：审核段跑完后，摩擦账本**不得**新增账目（晋升属捕获派发）。
+  const ledgerDir = join(base, "ldvh-base", "frictions");
+  let ledgerNames = [];
+  try { ledgerNames = await readdir(ledgerDir); } catch { ledgerNames = []; }
+  assert.deepEqual(ledgerNames, [], "审核段不得再晋升摩擦缓冲（§9 第 3/4 项已迁至捕获派发）");
+  // 也不得因缺署名产生 friction_residual（那段逻辑已随迁移删除）。
   const rec = lifecycle.events.find((e) => e.name === "review/stage");
-  const residual = rec?.payload?.friction_residual ?? [];
-  const signatureFailures = residual.filter((r) => r.code === "signature_unavailable");
-  assert.deepEqual(signatureFailures, [], "摩擦晋升不得再因缺署名被拒");
+  assert.equal(rec?.payload?.friction_residual, undefined, "审核段不再承载摩擦晋升的残余登记");
   assert.ok(result.ok);
 });
 

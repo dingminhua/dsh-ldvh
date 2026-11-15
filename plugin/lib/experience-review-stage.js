@@ -355,21 +355,10 @@ export async function runReviewStage({
   workspaceRegistry = null, sessions = null, roster = null,
 }) {
   const activity = lifecycle?.activity;
-  // **跨阶段保留的残余失败**（2026-10-31）：摩擦晋升的单条失败不再让整函数返回，
-  // 它记进 `residual` 由本段如实登记。而 `record()` 是**覆盖**语义（同一键写多次只
-  // 留最后一次），故残余若只随某一次 `record` 传出，会被后续的 `landed`/`skipped`
-  // 覆盖掉——那等于静默跳过（§12）。这里让它随**每一次** record 带出。
-  let promotionResidual = [];
-  // 摩擦署名的取数原因（2026-10-31）。它必须随 record 带出：`activity.record` 只进
-  // 内存环形缓冲（ActivityLog 上限 200 条、重启即失），而这里的诊断要能**事后**从
-  // `idle-checkpoint-runs.json` 读到——否则又是一轮「只能靠猜」。
-  let frictionSignatureReason = null;
   const record = (outcome, extra = {}) => {
     const value = {
       outcome,
       ...extra,
-      ...promotionResidual.length > 0 ? { friction_residual: promotionResidual } : {},
-      ...frictionSignatureReason !== null ? { friction_signature: frictionSignatureReason } : {},
     };
     taskOutcomes["experience-review"] = value;
     activity?.record("review/stage", value);
@@ -417,74 +406,18 @@ export async function runReviewStage({
   // 断言「函数没报错」——错形状与错根都**不报错**。
   const pitfalls = Array.isArray(existing?.value?.items) ? existing.value.items : [];
 
-  // ── 1bis. 摩擦缓冲的升级（2026-10-30 职责重划：§9 第 3／4 项移入 §10.2）────
+  // ── 1bis. 摩擦缓冲的升级 —— 已迁出本段（2026-11-16）────────────────────
   //
-  // **必须在经验审核之前、且不受经验缓冲是否为空的影响**：摩擦晋升是纯机械的
-  // （阈值固定内嵌，标题/依据/归因/影响已随观察条目落进缓冲），不需要派生执行体；
-  // 而经验审核需要。若把晋升放在「经验缓冲非空」之后，一个只在摩擦侧有活的运行
-  // 会永远晋升不了——那正是「发现层只写缓冲、审核层做全部升级」这条分工的断点。
+  // **§9 第 3／4 项（阈值晋升、补充级更新）不再在审核段执行**：它们已移到**捕获
+  // 派发内的机械收尾**（`lifecycle.js` 的检查点收纳段），与「写观察条目」同一拍完成。
   //
-  // 失败即 fail-closed 并登记，不降级跳过（§12）。但**不阻断经验审核**：两者处理
-  // 的是不同缓冲，一件失败不应使另一件也停摆；失败已如实登记，读数时可见。
-  let frictionPromotion = null;
-  const frictionSignature = await resolveSignatureDetailed(
-    sessionPersistence,
-    parent?.session?.header?.id ?? null,
-  );
-  try {
-    const { runFrictionReviewPromotion } = await import("./friction-review-promotion.js");
-    frictionPromotion = await runFrictionReviewPromotion({
-      factSourceRoot,
-      dshHomePath,
-      projectId: scope.project.id,
-      // **署名取主控会话，不取执行体**（2026-10-31 修，实测缺陷）。
-      //
-      // 摩擦晋升在本函数**派发执行体之前**执行，此刻 `activation.childId` 还不存在，
-      // 原实现写的是 `resolveSignature(sessionPersistence, null)`——而该函数在
-      // `childId` 为空时**恒返回 null**。于是每一次摩擦晋升/补充都以
-      // `signature_unavailable` 被拒，界面上「5/3 可晋升」永远不动。
-      //
-      // 为什么取主控是对的：这次晋升的**发起者与责任主体**是主控（11 §4：主控发起的
-      // 行动由主控最终负责），执行体那时还没被派生，它也没有参与任何摩擦判断。
-      // 09 §5.1 要的是「当次实际做出这个判断的那一方」的 provider/model——摩擦晋升
-      // 由主控触发、在宿主进程内完成，主控会话记录就是它的权威出处。
-      sessionSignature: frictionSignature.ok ? frictionSignature.value : null,
-    });
-    // 署名取不到时把**具体原因**记下来（不是只留一个 signature_unavailable）。
-    // 2026-10-31：正是缺这一步，使「服务缺失／id 为空／open 抛错／无 routing 事件」
-    // 四种原因混成一个 null，排查只能靠猜——实测为此连猜两轮都没定位。
-    if (!frictionSignature.ok) {
-      frictionSignatureReason = frictionSignature.reason;
-      activity?.record("review/friction-signature-unavailable", {
-        reason: frictionSignature.reason,
-        sessionId: parent?.session?.header?.id ?? null,
-      });
-    }
-  } catch (error) {
-    frictionPromotion = failure("review_stage/friction_promotion_threw", String(error?.message ?? error));
-  }
-  if (frictionPromotion?.ok) {
-    const promotedCount = frictionPromotion.value.promotions.length;
-    const supplementedCount = frictionPromotion.value.supplemented.length;
-    const residual = Array.isArray(frictionPromotion.value.residual) ? frictionPromotion.value.residual : [];
-    if (promotedCount > 0 || supplementedCount > 0) {
-      activity?.record("review/friction-promotion", {
-        promoted: frictionPromotion.value.promotions,
-        supplemented: frictionPromotion.value.supplemented,
-        skipped: frictionPromotion.value.skipped,
-      });
-    }
-    // **单条失败不再整函数返回**（2026-10-31），故它出现在 `ok:true` 的 `residual` 里。
-    // §12 要求如实登记——不登记即静默跳过。这条记录同时是界面上「可晋升却一直没
-    // 晋升」的第一手诊断依据。用 `promotionResidual` 而非此处直接 `record`：后者的
-    // 覆盖语义会让它被随后的 `landed`/`skipped` 抹掉。
-    promotionResidual = residual;
-  } else {
-    record("land-failed", {
-      action: frictionPromotion?.error?.code ?? "friction-promotion-failed",
-      reason: frictionPromotion?.error?.message ?? "unknown",
-    });
-  }
+  // 迁出的理由（Human 2026-11-16 决定）：摩擦侧的「闲置审核」不再存在——同源命中
+  // ≥3 次即在捕获派发内直接晋升为 `open` 待修，不再等第二次派发。晋升本身仍是纯机械
+  // 的（阈值固定内嵌、标题/依据/归因已随观察条目落进缓冲），故搬迁不损失任何语义输入。
+  //
+  // **本段剩下的只有经验审核**：它读经验留观缓冲、派生零上下文执行体成文，与摩擦侧
+  // 无关。摩擦侧的失败登记、署名取数连同晋升一并迁走（见 `friction-review-promotion.js`
+  // 的模块头与 `lifecycle.js` 的调用点）。
 
   // ── 1ter. 摩擦侧投影（转写要用；2026-11-01 B 方案）─────────────────────
   //
@@ -648,14 +581,10 @@ export async function runReviewStage({
   }
   const pending = peek.value.items;
   if (pending.length === 0) {
-    // 经验缓冲为空**不等于本次没干活**：摩擦晋升可能已经落了一笔账目。
-    const promoted = frictionPromotion?.ok ? frictionPromotion.value.promotions.length : 0;
-    const supplemented = frictionPromotion?.ok ? frictionPromotion.value.supplemented.length : 0;
-    record(promoted > 0 || supplemented > 0 ? "landed" : "skipped", {
-      action: promoted > 0 ? "friction-promoted" : supplemented > 0 ? "friction-supplemented" : "empty-buffer",
+    // 经验缓冲为空 → 本次审核无事可做（摩擦晋升已在捕获派发内完成，2026-11-16 迁出）。
+    record("skipped", {
+      action: "empty-buffer",
       pending: 0,
-      friction_promoted: promoted,
-      friction_supplemented: supplemented,
     });
     return {
       ok: true,
@@ -663,7 +592,6 @@ export async function runReviewStage({
         outcome: "skipped",
         formed: null,
         pending: 0,
-        frictionPromotion: frictionPromotion?.value ?? null,
         friction_projection_gap: frictionProjectionGap,
         friction_projection_scope: frictionProjectionScope,
       },

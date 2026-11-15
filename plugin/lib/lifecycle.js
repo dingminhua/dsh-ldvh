@@ -1780,6 +1780,11 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // （F-1）后不会走到任何分支，若不预置就会在 per_task 里**缺席**——缺席与
           // 「没跑」无从区分，恰是本表要消灭的形态。
           const taskOutcomes = {};
+          // 摩擦缓冲机械收尾（2026-11-16）的诊断面：声明在 guard 外，使 runlog 能取到。
+          // 「本次没晋升」与「根本没跑」必须可分辨——只记在 activity（内存环形、重启即失）
+          // 里，Human 事后翻 runlog 看不到，等于没登记（§17/§18 同一纪律）。
+          let frictionPromotionOutcome = null;
+          let frictionPromotionSignatureReason = null;
           for (const key of tasksForThisCheckpoint) {
             if (failedTasks.includes(key)) taskOutcomes[key] = { outcome: "rejected" };
           }
@@ -2091,6 +2096,92 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   }
                 }
               }
+
+              // ── 摩擦缓冲的机械收尾（2026-11-16：§9 第 3／4 项从审核段迁入本拍）──
+              //
+              // **Human 2026-11-16 决定**：摩擦侧的「闲置审核」不再存在——同源命中
+              // ≥3 次即在**本次捕获派发内**直接晋升为 `open` 待修，不再等第二次派发。
+              //
+              // 为什么可以放在这里：晋升本身是纯机械的（阈值 N=3 固定内嵌、`group`
+              // 相等比较、标题/依据/归因已随观察条目落进缓冲），不需要派生执行体；
+              // 它此前只是在 `runReviewStage` 里顺带跑（见该文件 1bis 段的迁移说明）。
+              //
+              // **必须过项目级锁**：晋升「读就绪组 → 建账 → 结算」三步之间没有原子性，
+              // 两个会话并发进入会各建一条重复 `open` 账目（`friction-review-promotion.js`
+              // 模块头与 `experience-review-trigger.js` 的锁说明）。锁的层级高于
+              // `admitAndRecordDispatch` 的会话级准入，两者叠加且锁序单向，不会死锁。
+              //
+              // **署名取主控会话**：本拍由主控发起（11 §4），执行体尚未派生，故取
+              // 本会话的权威路由签名（与迁出前的口径一致）。
+              //
+              // **失败如实登记、不判整轮失败**：晋升/补充的失败记进 runlog 的
+              // `friction_promotion` 面（§12：不静默跳过），不使本次发现结论作废。
+              try {
+                const { runReviewExclusive } = await import("./experience-review-trigger.js");
+                const { runFrictionReviewPromotion } = await import("./friction-review-promotion.js");
+                const { resolveSignatureDetailed } = await import("./experience-review-stage.js");
+                // **先看有没有活可干，再读署名**：署名要打开会话日志（大会话可达
+                // 数十 MB），而「无 pending 条目」时晋升根本无从发生。把读取挡在
+                // 空缓冲之后，既省掉无谓的日志读取，也不破坏本检查点既有的读取
+                // 次数纪律（lifecycle-checkpoint-path 钉住「位置/署名各一次」）。
+                const { readFrictionObservations: peekFriction } = await import("./friction-observation-buffer.js");
+                const peekPending = await peekFriction(dshHomePath, scope.project.id, { status: "pending" });
+                if (peekPending.ok !== true || peekPending.value.items.length === 0) {
+                  frictionPromotionOutcome = { skipped: true, reason: peekPending.ok !== true ? "buffer-unreadable" : "no-pending" };
+                } else {
+                const mainSessionId = typeof sessionId === "string" && sessionId.length > 0 ? sessionId : null;
+                const frictionSig = await resolveSignatureDetailed(
+                  ctx.get("sessionPersistence") ?? null,
+                  mainSessionId,
+                );
+                const locked = await runReviewExclusive({
+                  dshHomePath,
+                  projectId: scope.project.id,
+                  sessionId: mainSessionId,
+                  fn: () => runFrictionReviewPromotion({
+                    factSourceRoot: ledgerRoot,
+                    dshHomePath,
+                    projectId: scope.project.id,
+                    sessionSignature: frictionSig.ok ? frictionSig.value : null,
+                  }),
+                });
+                if (locked?.skipped) {
+                  // 锁被占用 = 另一个会话正在做同一件事。**如实记账**（§11 §17/§18：
+                  // 「本次没晋升」与「没跑」必须可分辨），不静默跳过。
+                  frictionPromotionOutcome = { skipped: true, reason: locked.reason ?? "locked" };
+                  lifecycle.activity?.record("session/checkpoint/friction-promotion", frictionPromotionOutcome);
+                } else if (locked?.result?.ok) {
+                  frictionPromotionOutcome = {
+                    skipped: false,
+                    promoted: locked.result.value.promotions.length,
+                    supplemented: locked.result.value.supplemented.length,
+                    residual: locked.result.value.residual,
+                  };
+                  if (frictionPromotionOutcome.promoted > 0 || frictionPromotionOutcome.supplemented > 0) {
+                    lifecycle.activity?.record("session/checkpoint/friction-promotion", frictionPromotionOutcome);
+                  }
+                } else {
+                  frictionPromotionOutcome = {
+                    skipped: false,
+                    failed: true,
+                    code: locked?.result?.error?.code ?? "friction-promotion-failed",
+                    reason: locked?.result?.error?.message ?? "unknown",
+                  };
+                  lifecycle.activity?.record("session/checkpoint/friction-promotion", frictionPromotionOutcome);
+                }
+                if (frictionSig.ok !== true) {
+                  frictionPromotionSignatureReason = frictionSig.reason ?? "signature-unavailable";
+                }
+                }
+              } catch (error) {
+                frictionPromotionOutcome = {
+                  skipped: false,
+                  failed: true,
+                  code: "friction-promotion-threw",
+                  reason: String(error?.message ?? error),
+                };
+                lifecycle.activity?.record("session/checkpoint/friction-promotion", frictionPromotionOutcome);
+              }
             }
           } else if (checkpoint?.ok === false) {
             // 调度层已按 11 §12 处置完毕（入队或不入队），此处只记活动，不重复登记。
@@ -2161,6 +2252,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               // **逐任务结局**（§11 留痕前提其二）：每任务各自的动作/对象/水位推进；
               // 校验失败者预置 `rejected`。读取侧据此推断连续停滞轮次，无需新计数器。
               per_task: taskOutcomes,
+              // 摩擦缓冲机械收尾（2026-11-16）：晋升/补充的结果与「本次根本没跑」的
+              // 区分面。null = 本次未进入收尾（无发现结论）；其余见各字段。
+              ...frictionPromotionOutcome !== null ? { friction_promotion: frictionPromotionOutcome } : {},
+              ...frictionPromotionSignatureReason !== null ? { friction_signature: frictionPromotionSignatureReason } : {},
             });
           } catch (error) {
             lifecycle.activity?.record("session/checkpoint/runlog-failed", {
