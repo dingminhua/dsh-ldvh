@@ -1954,7 +1954,9 @@ test("pre-step 规范目录: 独立成一行注入（标签「事实规范目录
 	assert.ok(!texts.some((t) => t.includes("双源召回") && t.includes("事实规范目录")), "目录不得混进召回行");
 });
 
-test("pre-step 规范目录: 内容版本未变不重复注入；内容变了刷新旧行而非追加", async () => {
+test("pre-step 规范目录: 每回合都注一行（内容稳定也照注），内容变了由下一行反映", async () => {
+	// 2026-11-16，Human 决定：目录的**每回合在场**是本机制的目的——它与召回候选
+	// 同保证（候选每回合重算）。故不按内容版本去重：内容稳定也照注。
 	const agent = makeAgent("s1", "/cwd");
 	let digest = "nd-same";
 	let text = "【事实规范目录 · active Norm（27 §10）】\n· 甲（a）";
@@ -1964,14 +1966,29 @@ test("pre-step 规范目录: 内容版本未变不重复注入；内容变了刷
 	});
 	const mk = () => ({ kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "改点什么" }] }] });
 	const r1 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
-	const n1 = r1.messages.length;
+	const rows1 = r1.messages.filter((m) => (m?.source?.summary ?? null) === "事实规范目录");
+	assert.equal(rows1.length, 1, "首回合须有一行目录");
+	// 第二回合：内容未变，**仍须再注一行**（否则长会话里目录会沉出上下文窗口）。
 	const r2 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
-	assert.ok(r2.messages.length <= n1, `内容版本未变不得重复注入：${n1} → ${r2.messages.length}`);
-	// 内容变了 ⇒ 刷新旧行（同一标签），不追加第二份目录。
+	const rows2 = r2.messages.filter((m) => (m?.source?.summary ?? null) === "事实规范目录");
+	assert.equal(rows2.length, 1, "每回合都要有一行目录（内容稳定也照注）");
+	// 内容变了 ⇒ 新一行反映新内容。
 	digest = "nd-next";
 	text = "【事实规范目录 · active Norm（27 §10）】\n· 甲（a）\n· 乙（b）";
 	const r3 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
-	const directoryRows = r3.messages.filter((m) => (m?.source?.summary ?? null) === "事实规范目录");
-	assert.equal(directoryRows.length, 1, "内容变了刷新旧行，不得追加第二份目录");
-	assert.ok((directoryRows[0].content?.[0]?.text ?? "").includes("乙（b）"), "旧行须刷新为新内容");
+	const rows3 = r3.messages.filter((m) => (m?.source?.summary ?? null) === "事实规范目录");
+	assert.equal(rows3.length, 1, "同批次内不得出现两份目录");
+	assert.ok((rows3[0].content?.[0]?.text ?? "").includes("乙（b）"), "新一行须反映最新内容");
+});
+
+test("pre-step 规范目录: 同批次内已有同内容目录行时不再重复追加（多实例去重）", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		normDirectoryRow: async () => ({ inject: true, text: "【事实规范目录】同一份", digest: "d" }),
+	});
+	const mk = () => ({ kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "改点什么" }] }] });
+	const r1 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
+	const rows1 = r1.messages.filter((m) => (m?.source?.summary ?? null) === "事实规范目录");
+	assert.equal(rows1.length, 1, "同批次内只应有一份同内容目录行");
 });

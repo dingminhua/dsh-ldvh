@@ -578,9 +578,8 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       // 不是候选；独立成行后，目录的措辞由它自己负责（「凡『何时查阅』时机成立即须
       // 读全文」），不再被候选区的措辞稀释，也不再占召回预算。
       //
-      // 注入规则与**把关询问行同款**：内容稳定则按内容版本注一次（不每回合重复
-      // 注入同一份目录），内容变了则刷新旧行——避免每回合多一份 700 字符的重复
-      // 目录把对话撑爆。
+      // 注入规则与**召回行同形态**：**每回合注一行**（不按内容版本去重）——目录的
+      // 目的是「每回合在场」，与候选区每回合重算同保证；只保留同批次去重。
       if (getNormDirectoryRow !== null) {
         let directoryRow = null;
         try {
@@ -598,16 +597,20 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
               : "";
             return existing === directoryRow.text;
           });
-          if (directoryRow.digest !== state.lastNormDirectoryDigest) {
-            state.lastNormDirectoryDigest = directoryRow.digest;
-            if (!directoryAlreadyInBatch) {
-              extras.push(createPluginMessage(directoryRow.text, label));
-            }
-          } else {
-            const prior = batch.find((message) => isOwnMessage(message) && (message?.source?.summary ?? null) === label);
-            if (prior !== undefined) {
-              prior.content = [{ type: "text", text: directoryRow.text }];
-            }
+          // **每回合注一行**（2026-11-16，Human 决定）：目录的内容稳定，但
+          // **「每回合在场」正是本机制的目的**——目录若只按内容版本注一次，长会话
+          // 里它会沉出上下文窗口，而召回候选是每回合重新推导的，目录不能享受更弱
+          // 的保证。故此处**不以 digest 为追加前提**：每回合都追加一行目录。
+          //
+          // **同批次去重保留**（防插件多实例重复注入同一行）：批次里已有内容完全
+          // 相同的目录行时不再追加。
+          //
+          // **代价（如实登记）**：每回合多一行约 700 字符进对话记录，长会话会累积，
+          // 靠宿主的上下文压缩兜底（旧的先被摘掉）。这与召回行每回合重算候选是
+          // 同一形态的代价。
+          state.lastNormDirectoryDigest = directoryRow.digest;
+          if (!directoryAlreadyInBatch) {
+            extras.push(createPluginMessage(directoryRow.text, label));
           }
         }
       }
