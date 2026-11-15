@@ -34,7 +34,10 @@
 //    `statuses` 恒为空数组，删掉该短路后落到 `statuses.includes(status)` 仍是
 //    false，故该行是冗余的（真实判定在 `recallStatusPolicyOf` 里）。
 //    本仓处置：把锚点改钉到真正承载判定的分支（见该变异处的注释）。
-import { readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { open, readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
@@ -325,6 +328,68 @@ async function classifyRun() {
 // 也不检测他人改动是否使某条变异「碰巧被抓住」——那种情形下变异仍然有效，
 // 只是归因不再唯一，属运行环境事实，机械层不判。
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 实例互斥（2026-11-15，独立复核 MAJOR-3）
+//
+// ## 为什么需要它
+//
+// 本脚本**逐条改写源文件再跑测试**，故两个实例跑在同一目录会互相改写同一批
+// 文件：甲的「变异版」可能正好被乙的测试读到，乙的「还原」可能把甲的变异抹掉。
+// 后果是**判定不可信**——实测：同一提交、同一脚本，一次完整运行报某锚点
+// 「被抓住（4 处失败）」，而只保留该锚点的隔离运行报「存活（0 处失败）」，
+// 两次结论相反。复核方与主控当时恰在同一个隔离目录里各跑了一次，
+// **两边的数字都不能当凭据**。
+//
+// 在途改动守卫（上一段）防的是「覆盖**他人**的改动」，它**认不出**另一个
+// 变异检查实例——那个实例在机械上就是「本脚本自己」。故另设本锁。
+//
+// ## 做法
+//
+// 以**独占创建**的方式在插件目录放一个锁文件；已存在即判定「同目录已有实例在跑」，
+// 直接退出并说明——**不跑、不覆盖、不裁决**（本次没有任何判定产生，故没有
+// 「不可用终态」需要记账）。
+//
+// **边界（如实声明）**：锁只挡**同一目录**的并发实例，不挡「同一目录先后两个
+// 实例」——那没有互斥问题（前者已退出并还原）。它也不挡别的目录里针对同一
+// 仓库的并发运行（那是两份副本，各自自洽）。
+// ---------------------------------------------------------------------------
+// 锁文件放在**系统临时目录**、按插件目录路径哈希命名——不落仓库（否则会污染
+// `git status`，且有可能被误提交；见本仓「共享工作树上先 add 后提交」的经验）。
+const LOCK_FILE = join(
+  tmpdir(),
+  `ldvh-mutation-check-${createHash("sha256").update(PLUGIN).digest("hex").slice(0, 16)}.lock`,
+);
+let lockHandle = null;
+try {
+  lockHandle = await open(LOCK_FILE, "wx");
+  await lockHandle.writeFile(`${process.pid}\n${new Date().toISOString()}\n`, "utf8");
+} catch (error) {
+  if (error?.code === "EEXIST") {
+    console.error(
+      `!! 同目录已有变异检查实例在跑（锁文件 ${LOCK_FILE}）——本次不跑、不覆盖、不裁决。`
+      + `\n   请先确认那个实例是否仍在运行（ps），待其退出后再重跑。`,
+    );
+    process.exit(3);
+  }
+  throw error;
+}
+// 退出时释放锁（异常退出也走这条路径）——残留的锁文件会让下次运行直接拒绝，
+// 那比「跑一次并给出不可信的数字」更安全，但也更碍事，故务必清掉。
+const releaseLock = () => {
+  try {
+    unlinkSync(LOCK_FILE);
+  } catch {
+    // 释放失败不改变判定，只留痕迹（下次运行会据此拒绝并说明）。
+  }
+};
+process.on("exit", releaseLock);
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    releaseLock();
+    process.exit(130);
+  });
+}
 
 const mutatedFiles = [...new Set(MUTATIONS.map(([f]) => f))];
 

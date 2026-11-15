@@ -47,10 +47,10 @@
 import { sectionContent } from "./markdown-structure.js";
 
 /** 该段的固定 H2 标题（27 §8 正文骨架第一段）。 */
-export const POSITIONING_SECTION_TITLE = "方向定位与适用范围";
+const POSITIONING_SECTION_TITLE = "方向定位与适用范围";
 
 /** 每条语句的长度上限（27 §8 第 4 条；按剥除 markdown 标记后的 UTF-16 码元计）。 */
-export const POSITIONING_MAX_CHARS = 60;
+const POSITIONING_MAX_CHARS = 60;
 
 /**
  * 两条语句共用的**授权措辞**拦截（27 §8 第 2 条点名的词）。
@@ -91,7 +91,7 @@ const BARE_LABELS = Object.freeze({
  * 取值即契约的一部分——`ldvh_norm_list` 的 `positioning_status` 与注入面
  * 的段尾披露都直接引用它们。
  */
-export const POSITIONING_UNAVAILABLE = Object.freeze({
+const POSITIONING_UNAVAILABLE = Object.freeze({
   NO_SECTION: "no-section",
   EXTRA_PARAGRAPHS: "extra-paragraphs",
   EMPTY_PARAGRAPH: "empty-paragraph",
@@ -102,6 +102,8 @@ export const POSITIONING_UNAVAILABLE = Object.freeze({
   AUTHORIZATION_GOVERNS: "authorization-wording:管什么",
   AUTHORIZATION_WHEN: "authorization-wording:何时查阅",
   ASSERTION_WHEN: "applicability-assertion:何时查阅",
+  MULTI_SENTENCE_GOVERNS: "multi-sentence:管什么",
+  MULTI_SENTENCE_WHEN: "multi-sentence:何时查阅",
 });
 
 /**
@@ -131,14 +133,19 @@ function parseLabeledParagraph(paragraph, key) {
   const startsWithLabel = folded.startsWith(LABELS[key]);
   const flat = stripMarkup(folded);
   const bare = BARE_LABELS[key];
-  const cut = flat.startsWith(bare)
-    ? (() => {
-      const rest = flat.slice(bare.length).trim();
-      const sentence = /^(.+?[。；])/.exec(rest);
-      return (sentence ? sentence[1] : rest).trim();
-    })()
-    : "";
-  return { labelOk: startsWithLabel, text: cut };
+  if (!flat.startsWith(bare)) return { labelOk: startsWithLabel, text: "", multiSentence: false };
+  const rest = flat.slice(bare.length).trim();
+  const sentence = /^(.+?[。；])/.exec(rest);
+  // **段内是否还有第二句**（2026-11-15，独立复核 MINOR-5）：契约要求「每段一条
+  // 语句」。原实现只取第一句、**其余静默丢弃**且仍报 ok——一个 150 字的第二句
+  // 不会出现在注入面，机械层却看不出任何异常。改为：检出多句即判不合契约
+  // （fail-closed），由调用方给出点名判定项。
+  const leftover = sentence ? rest.slice(sentence[1].length).trim() : "";
+  return {
+    labelOk: startsWithLabel,
+    text: (sentence ? sentence[1] : rest).trim(),
+    multiSentence: leftover !== "",
+  };
 }
 
 /**
@@ -178,6 +185,9 @@ export function normPositioningOf(raw) {
   if (!second.labelOk) return unavailable(POSITIONING_UNAVAILABLE.LABEL_MISSING_WHEN);
   if (first.text === "") return unavailable(POSITIONING_UNAVAILABLE.EMPTY_PARAGRAPH);
   if (second.text === "") return unavailable(POSITIONING_UNAVAILABLE.EMPTY_PARAGRAPH);
+  // **每段恰好一句**（契约硬要求，机械层据此 fail-closed）：段内多句即不合契约。
+  if (first.multiSentence) return unavailable(POSITIONING_UNAVAILABLE.MULTI_SENTENCE_GOVERNS);
+  if (second.multiSentence) return unavailable(POSITIONING_UNAVAILABLE.MULTI_SENTENCE_WHEN);
 
   if (first.text.length > POSITIONING_MAX_CHARS) return unavailable(POSITIONING_UNAVAILABLE.TOO_LONG_GOVERNS);
   if (second.text.length > POSITIONING_MAX_CHARS) return unavailable(POSITIONING_UNAVAILABLE.TOO_LONG_WHEN);
@@ -204,16 +214,22 @@ export function positioningExcerptLine(positioning) {
   const governs = typeof positioning?.governs === "string" ? positioning.governs.trim() : "";
   const whenToRead = typeof positioning?.whenToRead === "string" ? positioning.whenToRead.trim() : "";
   if (governs === "" || whenToRead === "") return "";
-  return `  ↳ 管什么：${governs} ｜ 何时查阅：${whenToRead}`;
+  return `${POSITIONING_EXCERPT_PREFIX}${governs}${POSITIONING_EXCERPT_SEPARATOR}${whenToRead}`;
 }
 
 /**
- * 摘录行的**头部开销**字节数（不含两句正文）。
+ * 摘录行的**格式常量**（引导前缀与分隔符）。
  *
- * 供预算规划区分「标题行（必出）」与「摘录行（可降级）」：装填时先保证
- * 全部标题行在场，再按剩余预算逐条附摘录——预算不足只丢摘录、不丢标题，
- * 否则「所有 active Norm 常驻」会随方向数增长先破（34 §8.4 常驻不减、
- * 27 §10 F1 枚举全量）。
+ * **如实说明（2026-11-15，独立复核 MINOR-4）**：原注释称本常量「供预算规划
+ * 区分标题行与摘录行」——**该用途并不存在**：预算规划（`planL0Enumeration`）
+ * 拿到的是「标题行数组」与「摘录行数组」两个分开的数据面，不靠前缀嗅探，
+ * 故它从不读这两个常量。原注释描述的是一个想象出来的消费者，属**注释说了
+ * 不存在的事**（比没写更糟）。
+ *
+ * 今后的定位：**摘录行的格式单一来源**——拼接由 `positioningExcerptLine`
+ * 完成（它用这两个常量拼行），任何再写一份 `  ↳ 管什么：… ｜ 何时查阅：…`
+ * 字面量的地方都是第二份格式定义。渲染侧当前按整行接收（前缀由数据层拼好），
+ * 仍以本处为格式权威。
  */
 export const POSITIONING_EXCERPT_PREFIX = "  ↳ 管什么：";
 export const POSITIONING_EXCERPT_SEPARATOR = " ｜ 何时查阅：";

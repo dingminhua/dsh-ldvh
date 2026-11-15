@@ -1109,7 +1109,22 @@ test("F1 基线：法定决策不得靠词面运气——零词法命中时基�
 	// 守卫既活着，又不随仓库语料态漂移。
 	const project = await mkdtemp(join(tmpdir(), "ldvh-baseline-zerohit-"));
 	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 0 });
+		// **语料须只含 ADR：无 Norm、无 Pitfall**（2026-11-15，独立复核 MAJOR-1）。
+		//
+		// 本条守的是「零词法命中时**基线**仍须使回合注入」。而注入判据有三项：
+		// 词法候选、决策基线、常驻索引。`seedFactCorpus` 的 `norms` 缺省造 2 条
+		// active Norm——那会让「常驻索引」**独立地**满足注入判据，于是本条在
+		// 「基线被短路」时照样通过：守卫变成假通过（复核方实测：该变异在隔离
+		// 运行时存活）。故此处显式传 `norms: []`、`pitfallCount: 0`，使基线是
+		// 唯一的注入理由——它一旦短路，本条必须转红。
+		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 0, norms: [] });
+		// 前提自证：语料里确实只有 ADR（否则上面的推理不成立）。
+		const premise = await recallForAction({ action: "让动画快一点", root: project, limit: 3 });
+		assert.equal(
+			premise.facts.filter((f) => f.type === "norm" || f.type === "pitfall").length,
+			0,
+			"前提：本语料不得含 Norm/Pitfall——否则基线不是唯一的注入理由，本条会退化为假通过",
+		);
 		// **输入必须真零命中**（2026-10-25，第四十次审核 M-3）：旧用例用
 		// 「把这个函数改成异步的」，实测该 query specs=1 + facts=3 = **4 条命中**——
 		// 前提不成立，断言在「零命中」从未发生的情况下恒真，守不住它声称的不变量。
@@ -1953,11 +1968,16 @@ test("L0 常驻：定位摘录降级须留痕，且「不静默」不变量在�
 			if (segment === undefined || segment.yielded === true) continue;  // 整段让位另有痕迹用例
 			const degraded = (segment.excerptOmitted ?? 0) > 0 || (segment.excerptUnavailable ?? 0) > 0;
 			if (!degraded) continue;
-			const truncNote = (segment.lines ?? []).some((l) => l.includes("本档预算仅容"));
+			// **摘录降级必须由披露行本身承担**（2026-11-15，独立复核 MAJOR-2）。
+			// 原不变量是「披露行**或**截断段尾二者必居其一」——但截断段尾只讲
+			// **标题数**，读者据此无法分辨「这些规范没有定位」与「定位摘录被预算
+			// 挤掉」；于是降级实际是静默的（复核方实测：10240 档 60 条时
+			// `excerptOmitted=59` 而 `excerptDisclosed=false`）。
+			// 今后的口径：**降级必披露**；披露放不下时整段让位（另有用例守住）。
 			assert.ok(
-				segment.excerptDisclosed === true || truncNote,
+				segment.excerptDisclosed === true,
 				`预算 ${budgetBytes}：摘录被降级（om=${segment.excerptOmitted} unav=${segment.excerptUnavailable}）时，` +
-					`披露行或截断段尾二者必居其一，不得静默。lines=${JSON.stringify(segment.lines)}`,
+					`必须由披露行显式说明，不得只靠讲标题数的截断段尾。lines=${JSON.stringify(segment.lines)}`,
 			);
 			// 四者互斥：在场标题数 = 已附摘录 + 降级 + 不可用（计数不得重叠）。
 			assert.equal(
@@ -1974,6 +1994,97 @@ test("L0 常驻：定位摘录降级须留痕，且「不静默」不变量在�
 				`预算 ${budgetBytes}：实际注入 ${Buffer.byteLength(r.text, "utf8")}B 不得超预算`,
 			);
 		}
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+// 标题行必出（Human 2026-11-15 决定 + 独立复核 MAJOR-2）：
+// 摘录全数降级时，**标题一行都不能少**——标题是「常驻不减」与 F1 全量枚举的
+// 载体；而降级本身必须被披露（读者要能分辨「没有定位」与「定位被挤掉」）。
+test("L0 常驻：摘录全数降级时标题仍全部在场，且降级必披露", async () => {
+	const project = await mkdtemp(join(tmpdir(), "ldvh-normtitles-"));
+	try {
+		const norms = [];
+		for (let i = 1; i <= 20; i += 1) {
+			norms.push({
+				title: `合成方向规范${String(i).padStart(2, "0")}`,
+				directionKey: `fixture-direction-${String(i).padStart(2, "0")}`,
+				governs: "本方向管合成语料第${i}号方向的准入边界与例外处理口径。".replace("${i}", String(i)),
+				whenToRead: "改动合成语料第${i}号方向前查阅本规范。".replace("${i}", String(i)),
+			});
+		}
+		await seedFactCorpus(project, { adrCount: 0, pitfallCount: 0, norms });
+		const r = await buildRecallInjection({
+			userText: "把 34 号规范改名成双源召回",
+			projectRoot: project,
+			limit: 99,
+			budgetBytes: 10240,
+		});
+		const segment = r.result?.l0Enumeration?.segments?.find((s) => s.type === "norm");
+		assert.ok(segment, "Norm 段须在");
+		assert.notEqual(segment.yielded, true, "默认档下 20 条不该整段让位");
+		assert.equal(segment.shown, 20, "标题行须全部在场——摘录降级不得牵连标题");
+		assert.ok(segment.excerptOmitted > 0, "本档下摘录须确有降级（否则本用例失去意义）");
+		assert.equal(segment.excerptDisclosed, true, "降级必须被披露");
+		// 降级计数在**段尾**里（预留空间内）——读者据此能分辨「没有定位」与
+		// 「定位摘录被挤掉」。
+		assert.match(
+			segment.note ?? "",
+			/定位摘录未附出/,
+			`段尾须说明摘录被降级。note=${segment.note}`,
+		);
+		// 标题行确实全在场（逐条核对，不是只看计数）。
+		for (const norm of norms) {
+			assert.ok(
+				r.text.includes(norm.title),
+				`标题「${norm.title}」须在场`,
+			);
+		}
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+// 摘录降级时**标题一行都不牺牲**，且降级计数进**段尾**（预留空间内，必然放得下）。
+// （独立复核 MAJOR-2：原实现会为腾披露位置撤掉标题，且降级静默；中间方案
+// 「披露放不下就整段让位」更糟——整段让位会让纯读取回合连基线都不注入。）
+test("L0 常驻：低档下标题不牺牲、摘录全数降级且段尾带计数", async () => {
+	const project = await mkdtemp(join(tmpdir(), "ldvh-normdegraded-"));
+	try {
+		const norms = [];
+		for (let i = 1; i <= 12; i += 1) {
+			norms.push({
+				title: `合成方向规范${String(i).padStart(2, "0")}`,
+				directionKey: `fixture-direction-${String(i).padStart(2, "0")}`,
+				governs: "本方向管合成语料第${i}号方向的准入边界与例外处理口径。".replace("${i}", String(i)),
+				whenToRead: "改动合成语料第${i}号方向前查阅本规范。".replace("${i}", String(i)),
+			});
+		}
+		await seedFactCorpus(project, { adrCount: 0, pitfallCount: 0, norms });
+		const r = await buildRecallInjection({
+			userText: "把 34 号规范改名成双源召回",
+			projectRoot: project,
+			limit: 99,
+			budgetBytes: 2400,
+		});
+		const segment = r.result?.l0Enumeration?.segments?.find((s) => s.type === "norm");
+		assert.ok(segment, "Norm 段须在");
+		assert.notEqual(segment.yielded, true, "低档下也不该整段让位（宁降摘录也不丢标题）");
+		// **标题只因「自己放不下」而少，不会因摘录降级而少**（27 §10 标题行必出）。
+		// 少了就必须有截断段尾说明——标题被撤是「未列全」，不是静默。
+		if (segment.shown < 12) {
+			assert.match(segment.note ?? "", /本档预算仅容前 \d+ 条，共 12 条/, "标题被撤须由截断段尾说明");
+		}
+		assert.ok(segment.excerptOmitted > 0, "低档下摘录须确有降级（否则本用例失去意义）");
+		// 计数自洽：在场标题数 = 已附摘录 + 降级 + 不可用。
+		assert.equal(
+			segment.shown,
+			segment.excerptShown + segment.excerptOmitted + segment.excerptUnavailable,
+			"计数须互斥且自洽",
+		);
+		assert.equal(segment.excerptDisclosed, true, "降级必须被披露");
+		assert.match(segment.note ?? "", /定位摘录未附出/, "段尾须带降级计数");
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}

@@ -588,6 +588,40 @@ test("list: 合规标签但「管什么」超 60 字时须 unavailable", async (
 	});
 });
 
+// 负向守卫（2026-11-15 独立复核 MINOR-5）：契约要求「每段一条语句」，而机械层
+// 原实现只取第一句、**其余静默丢弃**且仍报 ok——一个 150 字的第二句根本不会
+// 出现在注入面，机械层却看不出任何异常。改为：段内多句即判不合契约
+// （fail-closed），并点名判定项。
+test("list: 定位段内出现第二句时须 unavailable（不得静默丢弃）", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		const body = `## 方向定位与适用范围
+
+**管什么**：本方向管甲事项的准入与边界。另一句本不该被静默丢弃的长句子在这里。
+
+**何时查阅**：改动该事项前查阅本规范。
+
+## 核心规则体系
+
+规则一。
+
+## 约束与反模式
+
+禁止项。
+
+## 验证与遵从性检查
+
+核对方式。
+`;
+		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
+		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === created.value.object_uid);
+		assert.equal(item.positioning, "", "段内多句时两句都不得外发");
+		assert.equal(item.when_to_read, "", "段内多句时两句都不得外发");
+		assert.match(item.positioning_status, /unavailable/);
+		assert.match(item.positioning_status, /multi-sentence/, "须点名不可用的判定项");
+	});
+});
+
 // 负向守卫（2026-11-15 新增）：「何时查阅」句写成**适用性断言**（「适用于…」）
 // 时须 unavailable。该句的职责是描述行动场景（何时来读），不是宣告适用结论——
 // 后者会让注入面出现一句可被直接读成「已判定适用」的话（34 §13、34 §8.4 第 3 项）。
