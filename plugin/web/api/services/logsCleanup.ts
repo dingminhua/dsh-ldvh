@@ -49,19 +49,8 @@ export const LOGGABLE_TARGETS = [
     timeField: 'at',
     note: '每次检查点的结局（环形，本就只保留最近 50 条）。',
   },
-  {
-    id: 'experience-buffer',
-    label: '经验观察',
-    // **按项目分区的目录**（11 §12bis 载体段 2026-10 修订：`ldvh/experience-buffers/<projectId>.jsonl`）。
-    // 旧填写的是 `ldvh/observation-buffer.jsonl`——那是**已废弃的全局载体**，现行
-    // 生产路径根本不写它。后果不是报错而是**静默失效**：清理页显示 0 条、真删删 0 条，
-    // 而真实的经验观察材料一条也没被清（反过来，如果谁把旧结构件捡回来写，反而会被清掉）。
-    relativePath: ['ldvh', 'experience-buffers'],
-    kind: 'jsonlDir' as const,
-    // 载体是**追加事件日志**：两条路径缺一不可（见 `recordTime` 的说明）。
-    timeField: ['record.at', 'at', 'settled_at'],
-    note: '**待审核的经验素材**。清理后这些材料不可恢复（除备份），未审核过的将永久失去。',
-  },
+  // **2026-11-16**：`experience-buffer` 清理项已删除——经验留观缓冲（11 §12bis）随
+  // 审核层整层取消，载体不再产生。`friction-observations` 不受影响。
   {
     id: 'friction-observations',
     label: '摩擦观察',

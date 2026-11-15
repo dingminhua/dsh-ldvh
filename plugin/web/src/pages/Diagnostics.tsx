@@ -18,20 +18,19 @@ import { useI18n } from '@/i18n/context';
 import {
   fetchCleanupPreview,
   fetchFrictionObservationReport,
-  fetchExperienceBufferReport,
   fetchGateReport,
   fetchIdleReport,
   runCleanup,
   type CleanupPlan,
   type FrictionObservationReport,
-  type ExperienceBufferReport,
   type GateReport,
   type IdleReport,
 } from '@/utils/api';
 import { LDVH_ERROR_TEXT_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 import type { LocaleKey } from '@/i18n/locales';
 
-type Tab = 'gate' | 'idle' | 'observations' | 'experience' | 'cleanup';
+// **2026-11-16**：`experience` 页签已删除（经验留观缓冲随审核层取消）。
+type Tab = 'gate' | 'idle' | 'observations' | 'cleanup';
 
 /** 与 i18n context 的 `t` 同签名（可带插值参数）。 */
 type Translation = (key: LocaleKey, params?: Record<string, string>) => string;
@@ -510,97 +509,8 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
 }
 
 /**
- * 经验观察面板（11 §12bis）。
- *
- * ## 与摩擦观察面板（`ObservationPanel`）的结构对齐
- *
- * 两块是**并列的两类观察载体**（§12bis vs §12bis.1），呈现口径由规范给成同一套：
- * 只可展示存在与数量 + 现象/时间/来源/状态四项（§12bis 读取纪律第 2 条）。故本面板
- * 的骨架与摩擦面板一致——四张指标卡、数据边界声明、正常初态说明、条目列表；读者
- * 不必学两套版式。
- *
- * ## 与摩擦侧**必要**的三处差异（不是版式漂移）
- *
- * 1. **没有「攒到几分」**：经验缓冲没有聚合键与阈值（§12bis 闭集 9 项没有 `group`）。
- *    经验不需要攒够次数才成立——给它画一个进度条就是凭空造出一个规范里不存在的判据。
- * 2. **多出「待审核」与「最老一条」**：读者最关心「还有多少等着被审、最老的等了多久」。
- *    摩擦侧关心的是「哪组快攒够了」，两边的核心问题不同。
- * 3. **条目列表只四列**（时间/现象+来源/状态）：**不含** `evidence`（属内容）、
- *    不含 `candidate_question`（属判断输入）、不含对象身份。
- *
- * ## 不得做的事（规范红线，不是遗漏）
- *
- * 不提供「点击进入详情」——条目没有对象身份；不提供导出/复制/搜索——那等于把非事实
- * 材料搬出诊断面（§12bis 读取纪律第 2 条）。
- */
-function ExperienceBufferPanel({ report, t }: { report: ExperienceBufferReport; t: Translation }) {
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="ldvh-metric-grid">
-        <MetricCard
-          label={t('diagnostics.experience.entries')}
-          value={String(report.totals.entries)}
-          hint={t('diagnostics.experience.projects', { count: String(report.totals.projects) })}
-        />
-        <MetricCard
-          label={t('diagnostics.experience.pending')}
-          value={String(report.pendingCount)}
-          hint={t('diagnostics.experience.pendingHint')}
-          tone={report.pendingCount > 0 ? 'warning' : undefined}
-        />
-        <MetricCard
-          label={t('diagnostics.experience.oldest')}
-          value={report.oldestPendingAt ? report.oldestPendingAt.slice(0, 10) : '—'}
-          hint={report.oldestPendingAt ?? t('diagnostics.experience.oldestNone')}
-        />
-        <MetricCard
-          label={t('diagnostics.experience.discarded')}
-          value={String(report.totals.byStatus.find((row) => row.status === 'discarded')?.count ?? 0)}
-          hint={t('diagnostics.experience.discardedHint')}
-        />
-      </div>
-
-      <ScopeNotice limits={report.scope.limits ?? []} />
-
-      {/* 目录不存在是**正常初态**（还没有任何观察落地）。须与「读失败」区分开。 */}
-      {!report.scope.bufferDirExists ? (
-        <div className="rounded-lg border border-dashed border-ldvh-border bg-ldvh-panel px-4 py-6 text-center">
-          <p className="ldvh-body-muted">{t('diagnostics.experience.noBufferDir')}</p>
-          <p className="ldvh-meta mt-1 font-mono text-ldvh-text-secondary">{report.scope.bufferDir}</p>
-          <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.experience.noBufferDirHint')}</p>
-        </div>
-      ) : null}
-
-      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
-        <h2 className="ldvh-card-title">{t('diagnostics.experience.entriesTitle')}</h2>
-        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.experience.entriesHint')}</p>
-        <div className="mt-2 flex flex-col">
-          {report.recent.length === 0 ? (
-            <p className="ldvh-body-muted py-2">{t('diagnostics.experience.empty')}</p>
-          ) : report.recent.map((row, index) => (
-            <div
-              key={`${row.at ?? ''}-${index}`}
-              className="grid grid-cols-[9.5rem_minmax(0,1fr)_5.5rem] items-start gap-2 border-b border-ldvh-border/40 py-1.5 last:border-0"
-            >
-              <span className="ldvh-meta font-mono text-[11px] text-ldvh-text-secondary">
-                {row.at ?? '—'}
-              </span>
-              <div className="min-w-0">
-                <p className="ldvh-meta truncate text-ldvh-text-primary">{row.phenomenon ?? '—'}</p>
-                <p className="ldvh-meta truncate font-mono text-[11px] text-ldvh-text-secondary">
-                  {row.anchor ?? '—'}
-                </p>
-              </div>
-              <span className="ldvh-meta text-right text-[11px] text-ldvh-text-secondary">
-                {row.status ?? '—'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
+// **2026-11-16**：经验观察面板已删除——经验留观缓冲（11 §12bis）随审核层整层取消，
+// 该面板对应的载体已不存在。摩擦观察面板（`ObservationPanel`）不受影响。
 
 /**
  * 运行账清理面板。
@@ -636,7 +546,7 @@ function CleanupPanel({
     'pending-queue': true,
     'idle-runs': true,
     'queue-backups': false,
-    'experience-buffer': false,
+    // **2026-11-16**：经验缓冲清理项已删除（载体不存在）。
     'friction-observations': false,
   });
   const [busy, setBusy] = useState(false);
@@ -704,7 +614,6 @@ function CleanupPanel({
                 { id: 'pending-queue', label: t('diagnostics.cleanup.t.pendingQueue'), note: t('diagnostics.cleanup.n.pendingQueue') },
                 { id: 'idle-runs', label: t('diagnostics.cleanup.t.idleRuns'), note: t('diagnostics.cleanup.n.idleRuns') },
                 { id: 'queue-backups', label: t('diagnostics.cleanup.t.queueBackups'), note: t('diagnostics.cleanup.n.queueBackups') },
-                { id: 'experience-buffer', label: t('diagnostics.cleanup.t.experienceBuffer'), note: t('diagnostics.cleanup.n.experienceBuffer') },
                 { id: 'friction-observations', label: t('diagnostics.cleanup.t.frictionObservations'), note: t('diagnostics.cleanup.n.frictionObservations') },
               ].map((row) => (
                 <label key={row.id} className="flex items-start gap-2">
@@ -793,9 +702,7 @@ function CleanupPanel({
 export default function Diagnostics() {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('gate');
-  // 经验留观区（11 §12bis）。与摩擦区同页签并列——Human 2026-10-26：「留观区一样
-  // 出现在诊断 tab 里，和摩擦一样」。两者是两个载体，故各取各的报告。
-  const [experienceBuffer, setExperienceBuffer] = useState<ExperienceBufferReport | null>(null);
+  // **2026-11-16**：经验留观区状态已删除（载体随审核层取消）。
   const [gate, setGate] = useState<GateReport | null>(null);
   const [idle, setIdle] = useState<IdleReport | null>(null);
   const [observations, setObservations] = useState<FrictionObservationReport | null>(null);
@@ -812,18 +719,14 @@ export default function Diagnostics() {
       setCleanup(null);
       return () => { cancelled = true; };
     }
-    // 摩擦观察与经验观察是**两个载体、两个页签**（Human 2026-10-27：拆开，各自一个）。
-    // 此前两者叠在同一页签里上下排列，经验区要往下滚动才看得到，等于被摩擦区盖住。
-    // 各自独立读取：一个读失败不该让另一个也空白。
-    if (tab === 'observations' || tab === 'experience') {
-      const loadObservations =
-        tab === 'observations'
-          ? fetchFrictionObservationReport().then((value) => setObservations(value))
-          : fetchExperienceBufferReport().then((value) => setExperienceBuffer(value));
-      loadObservations.catch((e: unknown) => {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-      });
+    // **2026-11-16**：经验观察页签已删除，此处只剩摩擦观察一个载体。
+    if (tab === 'observations') {
+      fetchFrictionObservationReport()
+        .then((value) => setObservations(value))
+        .catch((e: unknown) => {
+          if (cancelled) return;
+          setError(e instanceof Error ? e.message : String(e));
+        });
       return () => { cancelled = true; };
     }
     const load =
@@ -845,12 +748,11 @@ export default function Diagnostics() {
     };
   }, [tab]);
 
-  const current = tab === 'gate' ? gate : tab === 'idle' ? idle : tab === 'observations' ? observations : tab === 'experience' ? experienceBuffer : (cleanup ?? true);
+  const current = tab === 'gate' ? gate : tab === 'idle' ? idle : tab === 'observations' ? observations : (cleanup ?? true);
   const tabs = useMemo(() => ([
     { key: 'gate' as Tab, label: t('diagnostics.tab.gate') },
     { key: 'idle' as Tab, label: t('diagnostics.tab.idle') },
     { key: 'observations' as Tab, label: t('diagnostics.tab.observations') },
-    { key: 'experience' as Tab, label: t('diagnostics.tab.experience') },
     { key: 'cleanup' as Tab, label: t('diagnostics.tab.cleanup') },
   ]), [t]);
 
@@ -888,8 +790,6 @@ export default function Diagnostics() {
         <IdlePanel report={idle} t={t} />
       ) : tab === 'observations' && observations ? (
         <ObservationPanel report={observations} t={t} />
-      ) : tab === 'experience' && experienceBuffer ? (
-        <ExperienceBufferPanel report={experienceBuffer} t={t} />
       ) : tab === 'cleanup' ? (
         <CleanupPanel report={cleanup} setReport={setCleanup} t={t} />
       ) : null}

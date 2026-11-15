@@ -16,7 +16,6 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   buildFrictionObservationReport,
-  buildExperienceBufferReport,
   buildGateReport,
   dshHomeFromEnvironment,
   invalidateGateReportCache,
@@ -250,15 +249,8 @@ router.get('/idle', async (_req: Request, res: Response) => {
  * 为什么在诊断页：缓冲条目**不是事实对象**（非事实、无对象身份），混进事实列表会造成
  * 「它们是候选」的误读。这里与水位、待处置队列、运行记录同层——都是本机运行状态。
  */
-router.get('/experience-observations', async (_req: Request, res: Response) => {
-  try {
-    const report = await buildExperienceBufferReport()
-    res.json(report)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    fail(res, 500, 'EXPERIENCE_BUFFER_REPORT_FAILED', message)
-  }
-})
+// **2026-11-16**：`/diagnostics/experience-observations` 路由已删除——经验留观缓冲随
+// 审核层整层取消。摩擦观察路由（`/diagnostics/observations`）不受影响。
 
 router.get('/observations', async (_req: Request, res: Response) => {
   try {

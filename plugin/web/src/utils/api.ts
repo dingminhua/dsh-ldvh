@@ -1112,31 +1112,8 @@ export interface ExperienceBufferRow {
  * 是规范红线：前两者属「内容」与「判断输入」，后两者属对象身份与去向，都不在
  * Human 查阅面的允许范围。把它们写进类型就等于给未来的误用开了口子。
  */
-export interface ExperienceBufferReport {
-  ok: boolean;
-  generatedAt: string;
-  scope: {
-    ldvhHome: string;
-    bufferDir: string;
-    bufferDirExists: boolean;
-    files: string[];
-    limits: string[];
-  };
-  totals: {
-    entries: number;
-    byStatus: { status: string; count: number }[];
-    projects: number;
-  };
-  /** 未审核条目数——「还有多少材料等着被审」。 */
-  pendingCount: number;
-  /** 最旧一条 pending 的时刻。 */
-  oldestPendingAt: string | null;
-  recent: ExperienceBufferRow[];
-}
-
-export async function fetchExperienceBufferReport(): Promise<ExperienceBufferReport> {
-  return request<ExperienceBufferReport>('/diagnostics/experience-observations');
-}
+// **2026-11-16**：`ExperienceBufferReport` 与 `fetchExperienceBufferReport` 已删除——
+// 经验留观缓冲随审核层整层取消。摩擦观察的类型与取数不受影响。
 
 export async function fetchFrictionObservationReport(): Promise<FrictionObservationReport> {
   return request<FrictionObservationReport>('/diagnostics/observations');
