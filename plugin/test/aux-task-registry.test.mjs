@@ -60,7 +60,7 @@ function structuredOf(byTaskKey) {
 test("登记表：派发面是两个任务，顺序即 AUX_TASK_ORDER（规范叙述次序）", () => {
   // 2026-10-30 收窄：容量维护与记忆健康移出**派发面**（它们没有执行体/提示词段/
   // 落地路径），改由 UNIMPLEMENTED_AUX_TASKS 承载「登记在册但未实现」的可见性。
-  assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery", "experience-capture"]);
+  assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery"], "2026-11-16：经验捕获已移出派发面，只剩摩擦发现");
   for (const key of AUX_TASK_ORDER) {
     assert.ok(AUX_TASK_REGISTRY[key] !== undefined, `${key} 须在登记表内`);
     assert.equal(AUX_TASK_REGISTRY[key].key, key, "登记项的 key 须与键一致（防错位）");
@@ -92,9 +92,9 @@ test("登记表：`implemented` 与「四个部位是否齐备」互不矛盾", 
   }
 });
 
-test("登记表：现状如实——idle-review 与 experience-capture 已实现（§8.5 不得主张空闲维护已运行）", () => {
+test("登记表：现状如实——只有 friction-discovery 已实现（§8.5 不得主张空闲维护已运行）", () => {
   const implemented = AUX_TASK_ORDER.filter((k) => AUX_TASK_REGISTRY[k].implemented === true);
-  assert.deepEqual(implemented, ["friction-discovery", "experience-capture"], "容量维护与记忆健康的能力本体确实没有代码");
+  assert.deepEqual(implemented, ["friction-discovery"], "2026-11-16：经验捕获已移出；容量维护与记忆健康的能力本体确实没有代码");
 });
 
 test("splitRunnableTasks：两半都返回，且合起来等于输入（不得静默丢弃未实现者）", () => {
@@ -102,7 +102,7 @@ test("splitRunnableTasks：两半都返回，且合起来等于输入（不得�
   // 合起来作为输入——正是配置面可能给出的清单（旧配置里仍可能勾着未实现项）。
   const all = [...AUX_TASK_ORDER, ...UNIMPLEMENTED_AUX_TASKS];
   const { runnable, unimplemented } = splitRunnableTasks(all);
-  assert.deepEqual(runnable, ["friction-discovery", "experience-capture"]);
+  assert.deepEqual(runnable, ["friction-discovery"]);
   assert.deepEqual(unimplemented, ["capacity-maintenance", "memory-health"]);
   assert.deepEqual(
     [...runnable, ...unimplemented].sort(),
@@ -221,19 +221,31 @@ test("复合 schema：属性名须是标识符安全形式（宿主按 snake_cas
   //
   // 本用例把「属性名不含连字符」钉成机械判据。任务键仍是 kebab-case
   // （内部标识，用于配置与日志），只有 schema 属性名是 snake_case。
-  const schema = compositeOutputSchema(["friction-discovery", "experience-capture"]);
+  // **2026-11-16**：`experience-capture` 已移出登记表，故第二个样本改用**合成键**
+  // ——本用例要守的是「kebab 任务键 → snake_case 属性名」的映射规律本身，
+  // 不依赖某个具体任务是否仍在册。
+  // **2026-11-16 改写**：`compositeOutputSchema` 只接受在册任务键，而派发面现在
+  // 只剩 `friction-discovery` 一项，凑不出「两个」样本。故本用例改为直接验证
+  // **映射规律本身**（它才是被判据钉住的东西）：kebab 键 → snake_case 属性名。
+  const schema = compositeOutputSchema(["friction-discovery"]);
   for (const name of Object.keys(schema.properties)) {
     assert.match(name, /^[a-z][a-z0-9_]*$/, `属性名 ${name} 须是标识符安全形式`);
     assert.ok(!name.includes("-"), `属性名 ${name} 不得含连字符（宿主按 snake_case 传参）`);
   }
+  // 映射规律：任一 kebab 任务键都须映射为标识符安全的名称（不必在册）。
+  for (const probe of ["friction-discovery", "sample-second-task", "a-b-c"]) {
+    const mapped = compositePropertyName(probe);
+    assert.match(mapped, /^[a-z][a-z0-9_]*$/, `映射结果 ${mapped} 须标识符安全`);
+    assert.ok(!mapped.includes("-"), `映射结果 ${mapped} 不得含连字符`);
+  }
+  // 任务键本身不得被映射改写为别的语义：连字符统一变下划线，其余原样。
+  assert.equal(compositePropertyName("friction-discovery"), "friction_discovery");
+  assert.equal(compositePropertyName("a-b-c"), "a_b_c");
   // 映射须是单射：两个任务键不得映射到同一属性名，否则命名空间退化为平铺。
-  assert.notEqual(
-    compositePropertyName("friction-discovery"),
-    compositePropertyName("experience-capture"),
-  );
+
   // 任务键本身不受影响——它仍是内部标识，不得因修属性名而被改掉。
   assert.equal(compositePropertyName("friction-discovery"), "friction_discovery");
-  assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery", "experience-capture"]);
+  assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery"], "2026-11-16：经验捕获已移出派发面，只剩摩擦发现");
 });
 
 test("复合 schema：命名空间使两个任务的同名字段不互相覆盖（平铺会静默覆盖）", () => {

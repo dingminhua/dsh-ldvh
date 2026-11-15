@@ -702,7 +702,10 @@ const CAPTURE_SLICE_OK = {
   reason: "本次没有观察到失败现象。",
 };
 
-test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则成功者也被重覆盖）", async () => {
+test("F-1：有任务失败时，`watermarkTurn` 仍须给出（否则成功者也被重覆盖）", async () => {
+  // **2026-11-16 改写**：原用例用「摩擦成功 + 经验失败」构造两任务并存。经验捕获已
+  // 移出派发面，故改为**单任务但结论缺失**的形态——它同样能验证本条的判据：
+  // `watermarkTurn` 是「本次区间上界」，不得因某个任务没给出结论而整体缺席。
   const subagents = fakeSubagents({
     providers: [providerNamed("exec")],
     startImpl: () => ({
@@ -711,10 +714,7 @@ test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则�
       result: Promise.resolve({
         stopReason: "completed",
         structured: {
-          // 摩擦成功
-          [compositePropertyName("friction-discovery")]: VERDICT_SLICE,
-          // 经验失败：引证不在窗口内（真实高频失败：引证核对按材料正文做字符串比对）
-          [compositePropertyName("experience-capture")]: { ...CAPTURE_SLICE_OK, quote: "这段引证根本不在材料里面呀" },
+          // 摩擦任务**不给结论**（等价于该任务失败/缺结论）
         },
       }),
     }),
@@ -732,11 +732,10 @@ test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则�
     candidates: [],
     sessionSignature: null,
     window: { from: 0, to: 5 },
-    tasks: ["friction-discovery", "experience-capture"],
+    tasks: ["friction-discovery"],
   });
 
-  assert.deepEqual(out.failedTasks, ["experience-capture"], "经验积累应失败、摩擦应成功");
-  assert.ok(out.taskVerdicts["friction-discovery"] !== undefined, "成功者的结论须可取用");
+  assert.deepEqual(out.failedTasks, ["friction-discovery"], "缺结论的任务须如实记为失败");
   assert.equal(
     out.watermarkTurn, 5,
     "**watermarkTurn 不得因有任务失败而缺席**——它是「本次区间上界」，由调用方按任务分别"

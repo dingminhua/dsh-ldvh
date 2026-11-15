@@ -35,9 +35,6 @@ import { join } from "node:path";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { buildNormDirectoryForRoot, normDirectoryDigest, NORM_DIRECTORY_BUDGET_CHARS, NORM_DIRECTORY_SECTION_NAME } from "./norm-directory.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
-import { runReviewStage } from "./experience-review-stage.js";
-import { runReviewExclusive } from "./experience-review-trigger.js";
-import { resolveArchiveServices } from "./archived-lineage.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { recallLimitForBudget } from "./source-recall.js";
@@ -46,7 +43,6 @@ import { createTurnTriggers } from "./triggers.js";
 import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, pendingReasonFromLanding, residualFromLandingError } from "./friction-landing.js";
-import { landCaptureVerdict, residualFromCaptureError } from "./experience-landing.js";
 import { advanceWatermark, recordActivity, admitAndRecordDispatch, releaseDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun, readRuns } from "./idle-runlog.js";
@@ -244,7 +240,8 @@ import { recordJudgementForGuard } from "./host-seams.js";
  *
  * 故正确的采集点是**对实现本身的可复现断言**：检查审核段的导出接口是否接受
  * 风险层／快通道／预检结论等裁量参数。**没有**这种参数，才说明裁量入口不存在。
- * 这是可证伪的：一旦有人给 `runReviewStage` 加上 `tier` 参数，该断言立即失败。
+ * 这是可证伪的：一旦有人给该入口加上 `tier` 参数，该断言立即失败。（原针对
+ * `runReviewStage`；该模块已随 review 层整层删除，2026-11-16。）
  *
  * @returns {{structural: object}} 逐项探测结论
  */
@@ -293,7 +290,8 @@ export function probeFunctionForDiscretion(fn) {
 export function probeStructuralFacts() {
 
 
-  return probeStructuralFactsWith([["runReviewStage", runReviewStage]], DISCRETION_NAMES);
+  // review 层已整层删除（2026-11-16），故此处不再有可探测的审核入口。
+  return probeStructuralFactsWith([], DISCRETION_NAMES);
 }
 
 /** 探测逻辑本体（供导出入口与测试共用，避免两套判据）。 */
@@ -1311,84 +1309,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const sessionId = agent?.session?.header?.id;
           const scope = await resolve(cwd);
 
-          // ── 两条时机形态分流（2026-10-26，Human：两件事分开设置）────────────
+          // ── 两条时机形态分流已合并为一条（2026-11-16 Human 决定）─────────
           //
-          //   `session-silence`（形态 1，一次延迟）→ 摩擦发现 + 经验**捕获**（+ 审核到期则一并）
-          //   `experience-review`（形态 2，固定间隔）→ **只**做审核段
-          //
-          // **2026-10-27 改动**：形态 2 不再由宿主周期任务投递驱动。宿主投递必须绑定
-          // 一个会话，而那个「专属会话」是普通对话，会被人当工作对话使用（实测：
-          // `session-2827e177` 03:22 被创建为审核落点，03:29 Human 就在里面提问）。
-          // 于是审核提醒直接投进 Human 正在工作的对话。
-          //
-          // 现在形态 2 改由**静置检查点**驱动：静置到期时，若「距上次审核已满一个间隔」
-          // 且「没有审核在跑」，就在同一次检查点内单独派发一次零上下文审核执行体。
-          // `source === "experience-review"` 这条入口**保留**——它仍然可能被显式投递
-          // 触发（例如 Human 手动触发一次），只是不再是常规路径。
-          if (source === "experience-review") {
-            const reviewScope = await resolve(cwd);
-            if (reviewScope.state !== "governed" || reviewScope.project === undefined || reviewScope.project === null) {
-              lifecycle.activity?.record("review/skipped", { reason: "not-governed" });
-              return;
-            }
-            const reviewCfg = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
-            if (reviewCfg?.enabled === false || reviewCfg?.review?.enabled !== true) {
-              // 开关在运行期被关掉：如实记账，不静默继续跑。
-              lifecycle.activity?.record("review/skipped", { reason: "disabled" });
-              return;
-            }
-            const reviewOutcomes = {};
-            await runReviewStage({
-              subagents: (() => {
-                try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
-              })(),
-              // 名册是「查谁」的候选清单；可用性仍由 picker 现查 getProvider 判定。
-              roster: providerRosterRef,
-              parent: agent,
-              sessionPersistence: ctx.get("sessionPersistence") ?? null,
-              // 归档血缘守卫所需（2026-10-31），与静置检查点路径同一口径。
-              ...resolveArchiveServices(ctx),
-              scope: reviewScope,
-              lifecycle,
-              taskOutcomes: reviewOutcomes,
-              dshHomePath,
-              // 审核执行体的模型（Human 2026-10-26 要求）：null = 沿用宿主默认路由。
-            });
-            try {
-              const reviewOutcome = reviewOutcomes["experience-review"];
-              // **落盘 stage 必须由机械审核结论决定**（2026-11-03 复核修复，第 1 项阻断）。
-              //
-              // 初版把 `verification` 与 `stage` 并列写入，两者互不约束：独立复算证实
-              // `transfer_failed` 非空时 `verification.stage` 为 `blocked`，而落盘的
-              // `stage` 仍是 `landed`。那正是本单要消除的形态——审核结论躺在旁边，
-              // 结论行本身不动。故此处改为：verification 说 blocked，stage 就**不得**是
-              // `landed`，降为 `land-failed`（既有闭集内的值，不改闭集）并把阻断项带出。
-              const reviewVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId), probeStructuralFacts());
-              const baseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
-              const reviewStage = reviewVerification !== null && reviewVerification.stage === "blocked" && baseStage === "landed"
-                ? "land-failed"
-                : baseStage;
-              await recordRun(dshHomePath, {
-                at: new Date().toISOString(),
-                task: "experience-review",
-                tasks: ["experience-review"],
-                unimplemented: [],
-                // stage 派生收敛到 deriveStage（run-stage.js）：此前是三处各自的
-                // 三元式，per_task.outcome=partial 会被记成 land-failed（「部分完成」
-                // 记成「失败」）。
-                stage: reviewStage,
-                action: reviewOutcome?.action,
-                per_task: reviewOutcomes,
-                // **机械审核结论随痕迹带出**（11 §18）：`stage=landed` 此前只证明
-                // 「落地被调用了」。现在同时带出逐行核对结果，使「那次运行到底
-                // 核对过什么」可从 `idle-checkpoint-runs.json` 回读。
-                ...(reviewVerification === null ? {} : { verification: reviewVerification }),
-              });
-            } catch {
-              // 诊断旁路不得打断机制（与安静期路径同一纪律）。
-            }
-            return;
-          }
+          // 原分流：`session-silence`（形态 1）做摩擦发现+经验捕获；
+          // `experience-review`（形态 2）单独派发审核段。
+          // 现况：review 层整层删除，经验捕获也从本任务移出（经验积累改由主控
+          // 派生代理完成）。本检查点只剩**摩擦发现**一条路径，其阈值晋升在本次
+          // 派发内完成（见下方「摩擦缓冲的机械收尾」）。
 
           // 受管辖是运行前提（32 §137：git 层操作要求当前管辖）。
           if (scope.state !== "governed" || scope.project === undefined || scope.project === null) {
@@ -1422,9 +1349,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 提示词（隐藏耦合）。
           const idleSettingsForPick = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
           // 审核段的现值（每次检查点现读，故设置改动下一个检查点即生效）。
-          const reviewEnabledAtCheckpoint = idleSettingsForPick?.review?.enabled === true;
-          const reviewScopeState = scope;
-          const reviewOutcomesForCheckpoint = {};
           const pickedTasks = pickEnabledAuxTasks(idleSettingsForPick);
           // 本次要跑的全部任务；痕迹与提示词都取它。
           const tasksForThisCheckpoint = pickedTasks.tasks;
@@ -1664,67 +1588,12 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // **静置到了、审核该跑，却因「距上次只过了 40 分钟」不跑，而界面上看不出来**
           // ——一个不可见的「应该跑但没跑」状态。故连同 `reviewTiming()` /
           // `markReviewCompleted()` / `isReviewDue()` 一并删除，不是只把值调小。
-          if (reviewEnabledAtCheckpoint) {
-            // **2026-10-30：互斥改为项目级跨进程文件锁**（11 §6.1「一个项目同一
-            // 时间只允许有一个在工作」）。原先的进程内布尔只能挡住本进程，两个宿主
-            // 进程同时静置会各自看到「空闲」并并发派发。
-            //
-            // 锁需要 projectId，故先判管辖：未管辖时没有项目可锁，直接跳过。
-            if (reviewScopeState.state !== "governed" || reviewScopeState.project === undefined || reviewScopeState.project === null) {
-                lifecycle.activity?.record("review/skipped", { reason: "not-governed" });
-              } else {
-                const exclusive = await runReviewExclusive({
-                  dshHomePath,
-                  projectId: reviewScopeState.project.id,
-                  sessionId: reviewScopeState.project.path ?? null,
-                  fn: async () => runReviewStage({
-                  subagents: (() => {
-                    try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
-                  })(),
-                  roster: providerRosterRef,
-                  parent: agent,
-                  sessionPersistence: ctx.get("sessionPersistence") ?? null,
-                  // 归档血缘守卫所需（2026-10-31）：宿主的 ArchivedSessionGate 无条件
-                  // 挂在 agent/pre-step，归档血缘下的执行体必然 blocked。
-                  ...resolveArchiveServices(ctx),
-                  scope: reviewScopeState,
-                  lifecycle,
-                  taskOutcomes: reviewOutcomesForCheckpoint,
-                  dshHomePath,
-                  }),
-                });
-                if (exclusive.skipped) {
-                  lifecycle.activity?.record("review/skipped", { reason: exclusive.reason });
-                } else {
-                  const reviewOutcome = reviewOutcomesForCheckpoint["experience-review"];
-                  lifecycle.activity?.record("review/dispatched", {
-                    trigger: "idle-checkpoint",
-                    outcome: reviewOutcome?.outcome ?? null,
-                    action: reviewOutcome?.action ?? null,
-                  });
-                  // 与上面那处同一绑定纪律：verification 说 blocked，stage 就不得是 landed。
-                  const cpVerification = verifyReviewRun(reviewOutcome, await readTimerEvidence(dshHomePath, sessionId), probeStructuralFacts());
-                  const cpBaseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
-                  const cpStage = cpVerification !== null && cpVerification.stage === "blocked" && cpBaseStage === "landed"
-                    ? "land-failed"
-                    : cpBaseStage;
-                  try {
-                    await recordRun(dshHomePath, {
-                      at: new Date().toISOString(),
-                      task: "experience-review",
-                      tasks: ["experience-review"],
-                      unimplemented: [],
-                      stage: cpStage,
-                      action: reviewOutcome?.action,
-                      per_task: reviewOutcomesForCheckpoint,
-                      ...(cpVerification === null ? {} : { verification: cpVerification }),
-                    });
-                  } catch {
-                    // 诊断旁路不得打断机制（与安静期路径同一纪律）。
-                  }
-                }
-              }
-          }
+          // ── 审核段已整体取消（2026-11-16 Human 决定）──────────────────────
+          //
+          // review 层整层删除：宿主不再派发任何审核执行体，也不再存在审核开关。
+          // 经验积累改由主控派生代理完成（见 23 §13 主控主动记录通道）；摩擦的
+          // 阈值晋升已在本次捕获派发内完成（见下方「摩擦缓冲的机械收尾」）。
+          // 故此处只剩捕获派发一条路径。
 
           const checkpoint = await runIdleCheckpoint({
             dshHomePath,
@@ -1755,11 +1624,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // `checkpoint.value.decision.verdict`。写错这一层会让落地**永不触发**，
           // 而那正是缺陷 D2 的形态（静默不落地），故有回归护栏守着它。
           const verdict = checkpoint?.ok === true ? checkpoint.value?.decision?.verdict : undefined;
-          // 经验积累（11 §10）的结论——与摩擦的 verdict **并列**，由各自的落地函数
-          // 处理。它取自逐任务结论表而非兼容字段 `verdict`（后者只承载摩擦）。
-          const captureVerdict = checkpoint?.ok === true
-            ? (checkpoint.value?.decision?.taskVerdicts?.["experience-capture"] ?? null)
-            : null;
           // ── 多任务：任务级失败按 §8.3 入队，不落地、不推进水位 ────────────
           //
           // provider 现在**不再**对任务级校验失败抛错（那会使一次可用的运行被整条
@@ -1820,7 +1684,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 现改为：只要**本任务自己**取得了结论就落地它，与其它任务的成败无关——
           // 这正是 11 §11「跨任务不混排、各任务独立成轮各持水位」与 §12 第 1 项
           // 「同派发下的任务各自成立、互不牵连」的机械形态。
-          if (checkpoint?.ok === true && (verdict != null || captureVerdict != null)) {
+          if (checkpoint?.ok === true && verdict != null) {
             const ledgerRoot = join(scope.project.path, "ldvh-base");
             // 受控写入需要**权威路由签名**（02 §10.5 / 09 §5.1「当次实际」）。
             // 取不到签名时**不落地**——宁可停在这里，也不写一条签名缺失的账目（那会
@@ -2000,102 +1864,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               // ── 经验积累（11 §10.1）的落地：机械通道只写**留观缓冲条目** ──────
               //
               // 缓冲条目不是事实对象（§12bis 定性），故这里**不建 Pitfall**、
-              // **不需要执行体署名**（§12bis 字段闭集 9 项里没有署名位）——
-              // 建 `draft` 候选是审核段的事（§10.2 第 3 项）。
-              if (captureVerdict != null) {
-                // `anchor` 取 §11 的序键区间（本次观察区间的轮次范围）：它是
-                // 机械可得的来源位置，使审核段能回到区间去看原话。具体出处
-                // （会话 id + 位置 / 文件:行 / 命令引文）由捕获段写进条目的
-                // `evidence` 里（§12bis：evidence 须附来源引用）。
-                const anchorFrom = checkpoint.value?.window?.from;
-                const anchorTo = checkpoint.value?.window?.to;
-                const anchor = `turn ${anchorFrom ?? "?"}..${anchorTo ?? "?"}`;
-                const captured = await landCaptureVerdict({
-                  dshHomePath,
-                  verdict: captureVerdict,
-                  observationAt: checkpoint.value.at,
-                  sessionId,
-                  anchor,
-                  // **按管辖项目分载体**（§12bis 载体段 2026-10 修订）：不传会让条目
-                  // 写进所有项目共用的旧全局载体，即该修订要纠正的已知缺陷。
-                  projectId: scope.project.id,
-                });
-                if (!captured.ok) {
-                  // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
-                  await appendPendingEntry(dshHomePath, {
-                    task: "experience-capture",
-                    reason: `经验积累落地失败（${captured.error?.stage ?? "unknown"}）：${captured.error?.message ?? "unknown"}`,
-                    // 完整诊断（含逐条 issues），不把明细丢掉。
-                    residual: residualFromCaptureError(captured.error),
-                    at: new Date().toISOString(),
-                  });
-                  lifecycle.activity?.record("session/checkpoint/landed", {
-                    task: "experience-capture",
-                    action: "failed",
-                    watermark_advanced: false,
-                  });
-                  landedAction ??= "failed";
-                  taskOutcomes["experience-capture"] = { outcome: "land-failed" };
-                } else {
-                  lifecycle.activity?.record("session/checkpoint/landed", {
-                    task: "experience-capture",
-                    action: captured.value.action,
-                    // 缓冲条目不是事实对象，故这里记 `entry_id` 而不是 `object_uid`
-                    // （留痕字段名照实：缓冲条目没有 object_uid，写一个不存在的
-                    // 标识会让读者以为它进了事实源）。
-                    entry_id: captured.value.entry_id,
-                  });
-                  // 整轮字段取摩擦的动作（若两件都跑，摩擦是主项）；只在摩擦未
-                  // 产出动作时用经验积累的动作填充，使「本次做了什么」仍可见。
-                  //
-                  // **F-5 修复（`??=` 遮蔽）**：原写法在「摩擦也跑出动作」时把
-                  // 经验的动作**整个抹掉**——两件任务的处置是不同的，被抹掉后
-                  // 持久痕迹只剩摩擦那一个，经验侧做了什么在落盘面上**不可区分**。
-                  // 整轮字段仍只有一份（兼容既有 reader），但**真相进 per_task**：
-                  // 逐任务结局表把经验的动作一体一记，不再靠遮蔽竞争。
-                  //
-                  // 2026-10-20 两段式后经验侧的动作只有三种：`buffer-appended`
-                  // （写入一条留观缓冲条目）、`none`（本次没有观察到失败现象）、
-                  // `failed`（落地失败，见上面的分支）——不再有查重命中或建候选。
-                  landedAction ??= captured.value.action;
-                  taskOutcomes["experience-capture"] = {
-                    outcome: "landed",
-                    action: captured.value.action,
-                    ...(captured.value.entry_id ? { entry_id: captured.value.entry_id } : {}),
-                  };
-                  // **推进经验积累自己的水位**（逐任务水位的意义所在）：它与摩擦
-                  // 互不牵连——摩擦失败不会使经验积累被重覆盖，反之亦然。
-                  const pendingTurn = checkpoint.value?.pending_watermark_turn;
-                  if (Number.isInteger(pendingTurn)) {
-                    const advanced = await advanceWatermark(dshHomePath, {
-                      projectRoot: scope.project.path,
-                      sessionId,
-                      task: "experience-capture",
-                      turn: pendingTurn,
-                    });
-                    if (!advanced.ok) {
-                      await appendPendingEntry(dshHomePath, {
-                        task: "experience-capture",
-                        reason: `水位推进失败（缓冲条目已写入，下次将重覆盖同一区间，可能再写一条同现象条目）：${advanced.error.message}`,
-                        residual: [`水位键 ${advanced.error.code}`, `重覆盖区间终点 turn=${pendingTurn}`],
-                        at: new Date().toISOString(),
-                      });
-                      lifecycle.activity?.record("session/checkpoint/watermark", {
-                        task: "experience-capture", advanced: false, code: advanced.error.code, turn: pendingTurn,
-                      });
-                      if (taskOutcomes["experience-capture"]) taskOutcomes["experience-capture"].watermark_advanced = false;
-                    } else {
-                      lifecycle.activity?.record("session/checkpoint/watermark", {
-                        task: "experience-capture", advanced: true, turn: pendingTurn,
-                      });
-                      if (taskOutcomes["experience-capture"]) {
-                        taskOutcomes["experience-capture"].watermark_advanced = true;
-                        taskOutcomes["experience-capture"].watermark_turn = pendingTurn;
-                      }
-                    }
-                  }
-                }
-              }
+              // **2026-11-16**：经验捕获落地分支已删除——`experience-capture` 从辅助
+              // 任务移出，经验积累改由主控派生代理完成（23 §13 主控主动记录通道）。
 
               // ── 摩擦缓冲的机械收尾（2026-11-16：§9 第 3／4 项从审核段迁入本拍）──
               //
@@ -2104,11 +1874,11 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               //
               // 为什么可以放在这里：晋升本身是纯机械的（阈值 N=3 固定内嵌、`group`
               // 相等比较、标题/依据/归因已随观察条目落进缓冲），不需要派生执行体；
-              // 它此前只是在 `runReviewStage` 里顺带跑（见该文件 1bis 段的迁移说明）。
+              // 它此前只是在审核段里顺带跑（该段已整层删除，2026-11-16）。
               //
               // **必须过项目级锁**：晋升「读就绪组 → 建账 → 结算」三步之间没有原子性，
               // 两个会话并发进入会各建一条重复 `open` 账目（`friction-review-promotion.js`
-              // 模块头与 `experience-review-trigger.js` 的锁说明）。锁的层级高于
+              // 模块头与 `friction-promotion-lock.js` 的锁说明）。锁的层级高于
               // `admitAndRecordDispatch` 的会话级准入，两者叠加且锁序单向，不会死锁。
               //
               // **署名取主控会话**：本拍由主控发起（11 §4），执行体尚未派生，故取
@@ -2117,7 +1887,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               // **失败如实登记、不判整轮失败**：晋升/补充的失败记进 runlog 的
               // `friction_promotion` 面（§12：不静默跳过），不使本次发现结论作废。
               try {
-                const { runReviewExclusive } = await import("./experience-review-trigger.js");
+                const { runFrictionPromotionExclusive } = await import("./friction-promotion-lock.js");
                 const { runFrictionReviewPromotion } = await import("./friction-review-promotion.js");
                 const { resolveSignatureDetailed } = await import("./experience-review-stage.js");
                 // **先看有没有活可干，再读署名**：署名要打开会话日志（大会话可达
@@ -2134,7 +1904,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   ctx.get("sessionPersistence") ?? null,
                   mainSessionId,
                 );
-                const locked = await runReviewExclusive({
+                const locked = await runFrictionPromotionExclusive({
                   dshHomePath,
                   projectId: scope.project.id,
                   sessionId: mainSessionId,

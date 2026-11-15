@@ -1,5 +1,10 @@
 /**
- * 闲置审核的互斥（11 §6.1 / §10.2）——**项目级、跨进程**。
+ * 摩擦阈值晋升的互斥（11 §9 第 3／4 项）——**项目级、跨进程**。
+ *
+ * **2026-11-16 改名与改用途**：原名为「闲置审核的互斥」，服务于审核段的派发。
+ * 审核层已整层删除，摩擦的阈值晋升改由捕获派发内的机械收尾执行，但**互斥要求
+ * 不变**——晋升的「读就绪组 → 建账 → 结算」三步之间没有原子性，两个会话并发
+ * 进入会各建一条重复 `open` 账目。故本模块保留，用途收窄为「摩擦晋升互斥」。
  *
  * ## 2026-10-30 重写：从进程内布尔改为文件锁
  *
@@ -13,7 +18,7 @@
  *
  * ## 判据与边界
  *
- * 锁文件在 `~/.dsh/ldvh/review-locks/<projectId>.lock`，用 `open(path, "wx")`
+ * 锁文件在 `~/.dsh/ldvh/friction-promotion-locks/<projectId>.lock`，用 `open(path, "wx")`
  * 原子排他创建。**同一项目至多一个**；不同项目互不影响（它们的缓冲与事实源本就
  * 分区）。
  *
@@ -40,7 +45,7 @@ import { dirname, join } from "node:path";
 const LOCK_STALE_MS = 30 * 60 * 1000;
 
 /** 心跳间隔的参考值（由持有者自行决定是否写，本模块只在 acquire 时写一次）。 */
-const LOCK_RELATIVE_DIR = ["ldvh", "review-locks"];
+const LOCK_RELATIVE_DIR = ["ldvh", "friction-promotion-locks"];
 
 function lockPath(dshHomePath, projectId) {
   const base = typeof dshHomePath === "function" ? dshHomePath(...LOCK_RELATIVE_DIR) : null;
@@ -72,7 +77,7 @@ async function readLock(path) {
  * @returns `{busy:boolean, reason:string, startedAt:string|null, holder?:object}`。
  *   读不出时返回 `busy:true`（fail-closed：宁可跳过也不并发）。
  */
-export async function isReviewRunning(dshHomePath, projectId) {
+export async function isFrictionPromotionRunning(dshHomePath, projectId) {
   const path = lockPath(dshHomePath, projectId);
   if (path === null) {
     // 没有 dsh home 就无法判定——fail-closed，按「正在跑」处理。
@@ -108,7 +113,7 @@ export async function isReviewRunning(dshHomePath, projectId) {
  * @param {string} args.sessionId - 持有者会话标识（写进锁，供诊断）。
  * @param {Function} args.fn - 拿到锁后要执行的动作。
  */
-export async function runReviewExclusive({ dshHomePath, projectId, sessionId, fn }) {
+export async function runFrictionPromotionExclusive({ dshHomePath, projectId, sessionId, fn }) {
   const path = lockPath(dshHomePath, projectId);
   if (path === null) {
     return { skipped: true, reason: "no-home-cannot-lock" };
@@ -139,7 +144,7 @@ export async function runReviewExclusive({ dshHomePath, projectId, sessionId, fn
       return { skipped: true, reason: `lock-unavailable:${error?.code ?? "unknown"}` };
     }
     // 已存在：判断它是不是崩溃残留。**只有确认过期才回收**，否则跳过。
-    const state = await isReviewRunning(dshHomePath, projectId);
+    const state = await isFrictionPromotionRunning(dshHomePath, projectId);
     if (state.busy) {
       return { skipped: true, reason: state.reason };
     }
@@ -179,7 +184,7 @@ export async function runReviewExclusive({ dshHomePath, projectId, sessionId, fn
 }
 
 /** 供测试与诊断：锁文件路径（不在公开 API 里暴露内部常量）。 */
-export function reviewLockPath(dshHomePath, projectId) {
+export function frictionPromotionLockPath(dshHomePath, projectId) {
   return lockPath(dshHomePath, projectId);
 }
 
@@ -187,7 +192,7 @@ export function reviewLockPath(dshHomePath, projectId) {
 export const REVIEW_LOCK_STALE_MS = LOCK_STALE_MS;
 
 /** 供测试与诊断：直接写一个锁（模拟另一方持有）。 */
-export async function writeReviewLockForTest(dshHomePath, projectId, payload) {
+export async function writeFrictionPromotionLockForTest(dshHomePath, projectId, payload) {
   const path = lockPath(dshHomePath, projectId);
   if (path === null) return null;
   await mkdir(dirname(path), { recursive: true });

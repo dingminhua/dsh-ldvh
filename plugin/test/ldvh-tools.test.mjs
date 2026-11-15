@@ -550,10 +550,7 @@ test("discover-ldvh-capabilities enumerates all operations", async () => {
 	const keys = envelope.result.operations.map((o) => o.operation_key).sort();
 	assert.deepEqual(keys, [
 		"discover-ldvh-capabilities",
-		// 11 §12ter 的三条公开操作，声明在承担语义的来源自己文件里（05 §6.1 明许
-		// 「声明位置由承担语义的来源自定」），故 discovery 仍从 36 解析到它们。
-		"observation-buffer-list",
-		"observation-buffer-review",
+		// **2026-11-16**：两个留观缓冲操作已随 §12bis 删除（review 层整层取消）。
 		// 2026-11-03：§12 第 5 条的结案通道，声明同批落在 §12ter 表里。
 		"pending-queue-resolve",
 		"precheck-git-commit",

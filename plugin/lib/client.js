@@ -544,8 +544,6 @@ window.__ModuleLoader__.load({
       "row.reviewAskSilentHint": "打开后，AI 判定当次属「复杂任务」时不再问你，直接派一个独立子代理做那次审查／复核，做完在结论里留一行「静默执行」的痕迹。**它同样要等方案成形才安排**：判为复杂但还没有任何方案时不派、不跑一次空核对——静默只免掉征询，不免掉「有对象才能核对」这个前提（specs/32 §6.4）。**它只免掉询问，不免掉核对**，也只作用于上面两项；上面那三类点位排除命中时，两处都不派发（免的是询问，前提是该问的那一次）。火花、管辖项目这些真正要你点头的事照旧请示。上面两项都没开时，这项不起作用。",
       "row.idleCapture": "闲置捕获",
       "row.idleCaptureHint": "会话静置时派发一次发现：把反复出现的阻碍与已解决的失败机制**只写进观察缓冲**（已实现）。摩擦与经验同属这一层，一起跑——只开一半会产生半套材料，所以合并为一个开关。**摩擦观察在同一次派发内直接结算**：同源阻碍攒够 3 次即建成待修账目，不再另派审核。",
-      "row.auxReview": "闲置审核",
-      "row.auxReviewHint": "静置时派发一次**经验**审核：把经验留观缓冲里够格的材料写成经验草稿（草稿是否入档仍需你确认）。同一项目同一时间至多一个审核在跑。**摩擦已不在此列**——摩擦观察攒够 3 次即在上面的捕获派发内直接建成待修账目（2026-11-16 决定），关掉本项不影响摩擦入账。",
 "row.injectionBudgetTier": "召回预算档位（K 字节）",
       "row.injectionBudgetTierHint": "行动前召回的体量上限，可选 10/20/30/40/50（K 字节）。档位值本身是受控常量（改档位集合须走受控提交），此处只做选择；提高上限属 Human 决定事项。引导面（管辖判定与最小规则引导）是固定内容，不参与本档位。",
       "row.idleSilenceMs": "安静时长（分钟）",
@@ -639,8 +637,6 @@ window.__ModuleLoader__.load({
       "row.frictionDiscoveryHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
       "row.idleCapture": "Idle capture",
       "row.idleCaptureHint": "When the conversation goes quiet, runs one discovery pass that writes recurring obstacles and resolved failure mechanisms into the observation buffers only (implemented). Friction and experience belong to this same layer and run together — enabling only half would produce half the material, so they share one switch. **Friction is settled inside this same pass**: a group reaching 3 sightings becomes a to-be-fixed ledger entry, with no separate review dispatch.",
-      "row.auxReview": "Idle review",
-      "row.auxReviewHint": "When the conversation goes quiet, runs one **experience** review pass that turns qualifying buffered material into experience drafts (filing a draft still needs your confirmation). At most one review runs per project at a time. **Friction is no longer part of this**: friction observations reaching 3 sightings become ledger entries inside the capture pass above (decision of 2026-11-16), so turning this switch off does not affect friction.",
 "row.injectionBudgetTier": "Recall budget tier (KiB)",
       "row.injectionBudgetTierHint": "Size cap for pre-action recall: choose 10/20/30/40/50 (KiB). The tier set itself is a controlled constant (changing it requires a controlled commit); this field only selects. Raising the cap is a Human decision. The guidance surface (jurisdiction verdict + minimal guidance) is fixed and does not share this tier.",
       "row.idleSilenceMs": "Silence duration (minutes)",
@@ -1026,7 +1022,6 @@ window.__ModuleLoader__.load({
       // 读侧仍兼容旧键：旧键任一被显式设置过即生效（与服务端 resolveIdleSettings
       // 同一判据），使升级后 Human 此前的选择不会静默丢失。
       var idleCaptureState = React.useState(idleCaptureValueOf(value));
-      var idleReviewState = React.useState(idleReviewValueOf(value));
       // 数值参数在客户端用**字符串**存放，使空串与非法输入可被辨认
       //（数字类型无法表达「用户把它删空了」）。
       // **两处把关询问**（2026-11-13 Human 决定：改为「要不要安排代理
@@ -1049,11 +1044,6 @@ window.__ModuleLoader__.load({
         return (value.frictionDiscoveryEnabled !== undefined || value.experienceCaptureEnabled !== undefined)
           ? (value.frictionDiscoveryEnabled !== false && value.experienceCaptureEnabled !== false)
           : value.idleCaptureEnabled !== false;
-      }
-      function idleReviewValueOf(value) {
-        return (value.experienceReviewEnabled !== undefined || value.idleReviewEnabled !== undefined)
-          ? (value.experienceReviewEnabled === true || value.idleReviewEnabled === true)
-          : value.auxReviewEnabled === true;
       }
       // 数值参数的界面态（分钟文本）——读侧与回退侧共用。
       function idleLimitsTextOf(value) {
@@ -1144,7 +1134,6 @@ window.__ModuleLoader__.load({
         convTabState[1](next.showInConversationTab !== false);
         sidebarTabState[1](next.showInSidebarTab !== false);
         idleCaptureState[1](idleCaptureValueOf(next));
-        idleReviewState[1](idleReviewValueOf(next));
         injectionBudgetState[1](
           injectionBudgetTierOk(next.injectionBudgetTier) ? Number(next.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT
         );
@@ -1329,13 +1318,10 @@ window.__ModuleLoader__.load({
               // 旧键不再写入——它们保留在 schema 里仅为读取存量配置；继续写会使
               // 「旧键是否被显式设置过」这个迁移判据永远为真，新键反而被架空。
               { op: "set", path: ["idleCaptureEnabled"], value: !!idleCaptureState[0] },
-              // 审核开关独立提交：漏掉这一行，界面上勾了也存不进去，且看不出来
-              // （勾选态来自本地 state，保存后仍显示已勾选，重开才归零）。
-              { op: "set", path: ["auxReviewEnabled"], value: !!idleReviewState[0] },
               { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) },
               // 两处把关询问开关：**逐个独立提交**。漏写任一行则界面上勾了也存不进去，
               // 且看不出来（勾选态来自本地 state，保存后仍显示已勾选，重开才归零）——
-              // 同一失效形态在 `auxReviewEnabled` 那行已经踩过一次（见其上注释）。
+              // 同一失效形态此前在已删除的审核开关那行踩过一次。
               { op: "set", path: ["preActionReviewAskEnabled"], value: !!preActionReviewState[0] },
               { op: "set", path: ["postWorkReviewAskEnabled"], value: !!postWorkReviewState[0] },
               // 静默执行开关：**同一失效形态的第三处**（漏写＝界面上勾了也存不进去，
@@ -1382,7 +1368,6 @@ window.__ModuleLoader__.load({
         convTabState[1](next.showInConversationTab !== false);
         sidebarTabState[1](next.showInSidebarTab !== false);
         idleCaptureState[1](idleCaptureValueOf(next));
-        idleReviewState[1](idleReviewValueOf(next));
         preActionReviewState[1](next.preActionReviewAskEnabled === true);
         postWorkReviewState[1](next.postWorkReviewAskEnabled === true);
         reviewSilentState[1](next.reviewAskSilentRunEnabled === true);
@@ -1641,8 +1626,7 @@ window.__ModuleLoader__.load({
             // **未实现**的职责，没有执行体可开关。§8.5「已启用但未实现须如实登记」
             // 由登记表的 `UNIMPLEMENTED_AUX_TASKS` 承载，不由设置面承载。
             [
-              { key: "idleCaptureEnabled", state: idleCaptureState, label: "row.idleCapture", hint: "row.idleCaptureHint" },
-              { key: "auxReviewEnabled", state: idleReviewState, label: "row.auxReview", hint: "row.auxReviewHint" }
+              { key: "idleCaptureEnabled", state: idleCaptureState, label: "row.idleCapture", hint: "row.idleCaptureHint" }
             ].map(function (task) {
               // 这两项**恒渲染**（总闸已撤除）；若 profile 里仍写着
               // `idleAssistEnabled: false`，它们显示为禁用——服务端确实不派发，

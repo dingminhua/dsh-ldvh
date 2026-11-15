@@ -205,24 +205,17 @@ export function resolveIdleSettings(config) {
     config?.frictionDiscoveryEnabled,
     config?.experienceCaptureEnabled,
   ]);
-  const reviewLegacy = pickLegacyBoolean([
-    config?.experienceReviewEnabled,
-    config?.idleReviewEnabled,
-  ]);
 
   const captureEnabled = captureLegacy === undefined
     ? readBool(config?.idleCaptureEnabled, true)
     : captureLegacy;
-  const reviewEnabled = reviewLegacy === undefined
-    ? readBool(config?.auxReviewEnabled, false)
-    : reviewLegacy;
 
   const tasks = {
     // 发现层的两个任务**同生同灭**：它们同属捕获层，由 `idleCaptureEnabled` 一个
     // 开关控制。分开读会让「合并后的开关」在任务层失效。
     "friction-discovery": captureEnabled,
-    // 积累经验（experience-capture，11 §10）：与摩擦发现同属发现层。
-    "experience-capture": captureEnabled,
+    // **2026-11-16**：`experience-capture` 已从本表移除——经验积累改由主控派生代理
+    // 完成，宿主辅助任务只负责摩擦发现。
     // 容量维护与记忆健康体检：**未实现**（§8 登记在册的占位职责）。它们不再有
     // 独立开关——§8.5「已启用但未实现须如实登记」由 `aux-task-registry` 的
     // `unimplemented` 投影承载，不由配置面控制。
@@ -232,19 +225,7 @@ export function resolveIdleSettings(config) {
   return {
     enabled: readBool(config?.idleAssistEnabled, true),
     tasks,
-    /**
-     * 经验审核（11 §10.2）的设置。**与 `tasks` 分开**：§8 明写捕获段与审核段
-     * 「不是新增一个任务类型」，故它不进 `AUX_TASK_ORDER`；它是同一职责的第二拍。
-     *
-     * 2026-10-30 起它与摩擦缓冲升级共用 `auxReviewEnabled` 一个开关——两者同属
-     * 审核层，在同一次审核派发里处理两个缓冲。
-     */
-    review: {
-      // **没有 intervalMs**（2026-10-27 二次修订）：审核随静置触发，不存在时间间隔。
-      // 删掉这个字段而不是「读一个 0 当无间隔」——一个恒为 0 的间隔值会让后来者以为
-      // 「间隔机制还在、只是值很小」，从而在某次调参时重新把它变成真闸门。
-      enabled: reviewEnabled,
-    },
+    // **2026-11-16**：`review` 字段已删除——审核层整层取消，不再有审核开关。
     limits: {
       // 安静时长（11 §6.1）：读取侧回落默认（容忍存量脏数据）。
       //
@@ -399,11 +380,11 @@ export function admitIdleDispatch({ settings, task }) {
  * ## 为什么这里没有间隔值（2026-10-27 二次修订）
  *
  * 间隔原本是给「每小时往专属会话投一次提醒」定频用的；落点会话已被整体移除
- * （见 `experience-review-trigger.js`），就没有东西需要定频。Human 2026-10-27：
+ * （见 `friction-promotion-lock.js`），就没有东西需要定频。Human 2026-10-27：
  * 「==，这个不存在时间了呀，随静置触发」。故本模块**不再有** `intervalMs`，
  * `REVIEW_DEFAULTS` 与 `validateReviewIntervalMs` 一并删除——保留一个「恒为 0 的
  * 间隔」比直接删掉更危险：它看起来像间隔机制还在，某次调参就会把真闸门装回去。
  *
- * 时机的实际判据在 `experience-review-trigger.js`：**静置到期 + 无审核在跑**，
+ * 时机的实际判据在 `friction-promotion-lock.js`：**静置到期 + 无审核在跑**，
  * 两个条件，没有第三个。
  */

@@ -24,11 +24,8 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
 import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
-import { authoritativeSignature } from "./signature-channel.js";
-import { BUFFER_STATUSES, bufferRelativePath, readBufferEntries } from "./observation-buffer.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
-import { isReviewRunning } from "./experience-review-trigger.js";
-import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
+import { isFrictionPromotionRunning } from "./friction-promotion-lock.js";
 import { QUEUE_RELATIVE_PATH, readPendingQueue, resolvePendingEntry } from "./pending-queue.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
 // friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
@@ -98,16 +95,7 @@ const OPERATIONS = {
   // 待确认态，创建即 `active`，不再有「入档」这一刻），本模块不做也不声明这件事
   // ——把它标成 awaitsHumanDecision 会让宿主对一条**不提问**的
   // 工具撤掉超时上限（toolDescriptor 的 timeoutMs 逻辑），反而制造挂死窗口。
-  "observation-buffer-list": {
-    toolName: "ldvh_observation_buffer_list",
-    summary: "Read the observation buffer entries and their status; declaring no entry as a fact or an experience (specs/11 §12ter.1 input contract, §12ter.2 result contract)",
-    effect: "read"
-  },
-  "observation-buffer-review": {
-    toolName: "ldvh_observation_buffer_review",
-    summary: "Run one experience-accumulation review pass: form at most one experience candidate from the pending buffer entries and settle that entry's status (specs/11 §12ter.1 input contract, §12ter.2 result contract)",
-    effect: "may_change_state"
-  },
+  // **2026-11-16**：两个留观缓冲工具已随 §12bis 删除。
   // ── 宿主能力探针（2026-10-26）─────────────────────────────────────────
   //
   // **为什么它是一个工具而不是一个诊断路由**：探针要调宿主的 `schedule` 与
@@ -637,9 +625,8 @@ function makeExecute(deps) {
     const declarations = await parseOperationDeclarations(governed.state === "governed" ? governed.project.path : null, workspaceRoot);
     const declarationReporter = [];
     const entries = Object.entries(OPERATIONS)
-      // **探针不进 discovery**（2026-10-26）：它不在任何规范声明表里（§12ter 只声明
-      // observation-buffer-list 与 observation-buffer-review 两个），是**实现侧诊断
-      // 工具**。若让它出现在这里，它会被显示为「已声明=false」——而读者会据以认为
+      // **探针不进 discovery**（2026-10-26）：它不在任何规范声明表里（原 §12ter 声明
+      // 的两个缓冲操作已随 review 层删除），是**实现侧诊断工具**。若让它出现在这里，它会被显示为「已声明=false」——而读者会据以认为
       // 「这是一条规范要求但实现没声明」的缺口，那是假缺口。05 §6.2 明写「操作目录
       // 不等于许可白名单」，反向亦然：不在目录里不等于它不存在。
       // **实现侧诊断工具不进 discovery**：`probe-host-automation`（上面已述）与
@@ -1275,295 +1262,9 @@ function makeExecute(deps) {
     });
   }
 
-  /**
-   * 11 §12ter.1 只读入口：读取留观缓冲条目及其状态。
-   *
-   * **返回不构成事实读取**（§12ter.2）：条目是事实源之外的中间产物（§12bis），
-   * 除审核段外任何消费方都不得把它当作依据（§12bis 写入与读取纪律第 2 条）。
-   * 本 handler **不做语义裁量**——不按调用方身份筛选语义内容，只按闭集参数
-   * 过滤 status 与降低返回条数；`limit` 不得绕过 §12bis 的容量上限与淘汰规则
-   * （读取本身已含惰性结算，`limit` 只切返回窗口，见 observation-buffer.js）。
-   */
-  async function executeObservationBufferList(args, exec) {
-    const status = args?.status === undefined ? null : args.status;
-    if (status !== null && !BUFFER_STATUSES.includes(status)) {
-      return envelope("observation-buffer-list", "invalid_request", {
-        result: null,
-        scope: { requested: status, completed: [], not_completed: ["status"] },
-        sources: [],
-        gaps: [`status must be one of ${BUFFER_STATUSES.join(", ")} (11 §12bis field closed set); got ${JSON.stringify(status)}`],
-        verification: { checks: ["status-closed-set"], passed: false },
-        follow_up: ["retry with a status member or omit the argument"]
-      });
-    }
-    const limit = args?.limit === undefined ? null : args.limit;
-    if (limit !== null && (!Number.isInteger(limit) || limit < 1)) {
-      return envelope("observation-buffer-list", "invalid_request", {
-        result: null,
-        scope: { requested: limit, completed: [], not_completed: ["limit"] },
-        sources: [],
-        gaps: [`limit must be a positive integer (11 §12ter.1: it may only lower the number of entries returned); got ${JSON.stringify(limit)}`],
-        verification: { checks: ["limit-positive-integer"], passed: false },
-        follow_up: ["retry with a positive integer or omit the argument"]
-      });
-    }
-    const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
-    if (governed.state !== "governed") {
-      return envelope("observation-buffer-list", "unavailable", {
-        result: null,
-        scope: { requested: status ?? "all", completed: [], not_completed: [status ?? "all"] },
-        sources: [],
-        gaps: [`governance state is ${governed.state}: the observation buffer serves governed sessions only (11 §12ter.1 common precondition)`],
-        verification: { checks: ["governance-scope"], passed: false },
-        follow_up: []
-      });
-    }
-    const read = await readBufferEntries(dshHomePath, { status, limit, projectId: governed.project.id });
-    if (!read.ok) {
-      // §12bis 写入与读取纪律第 4 条：不可读即 fail-closed，不得降级为内存或日志。
-      return envelope("observation-buffer-list", "unavailable", {
-        result: null,
-        scope: { requested: status ?? "all", completed: [], not_completed: [status ?? "all"] },
-        sources: sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
-        gaps: [`${read.error?.code ?? "observation_buffer/unreadable"}: ${read.error?.message ?? "unknown"} (11 §12bis item 4: fail-closed, never degrade to memory or a log)`],
-        verification: { checks: ["buffer-read"], passed: false },
-        follow_up: ["restore the buffer carrier and retry; do not substitute another carrier"]
-      });
-    }
-    const value = read.value;
-    const complete = value.complete === true;
-    return envelope("observation-buffer-list", complete ? "completed" : "partial", {
-      result: {
-        entries: value.items,
-        total: value.total,
-        live_total: value.live_total,
-        by_status: value.by_status,
-        at_capacity: value.at_capacity,
-        capacity: value.capacity,
-        carrier: value.carrier
-      },
-      scope: { requested: status ?? "all", completed: [status ?? "all"], not_completed: [] },
-      sources: sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
-      gaps: complete
-        ? []
-        : [
-            `${value.invalid?.length ?? 0} defect line(s) in the buffer carrier were not consumed as entries (11 §18: an unreadable or unwritable buffer entry is fail-closed, never silently dropped)`,
-            ...(value.invalid ?? []).map((item) => `line ${item.line}: ${item.reason}`)
-          ],
-      verification: { checks: ["status-closed-set", "limit-positive-integer", "buffer-read", "retention-settlement"], passed: complete },
-      follow_up: complete ? [] : ["repair or remove the defect line(s) by hand; the read is partial and must not be treated as a complete inventory"]
-    });
-  }
-
-  /**
-   * 11 §12ter.1 审核段入口：一次派发逐条判定，交出的每一条都必须有结论。
-   *
-   * ## 为什么本操作接收 `proposals`（内容输入，不是策略参数）
-   *
-   * 审核段的语义判断由调用方执行体作出（11 §10.2：查重是 AI 语义判断、某段是否可写
-   * 是材料筛选语义判断），机械侧只做结构校验与结算。故本操作必须收到该判断的**结构化
-   * 产物**，否则「形成的候选」无从产生——本模块是确定性的，它自己写不出七段。
-   *
-   * 这与 §12ter.1「无其它可调参数」不冲突：该句的射程是**不得用参数改变策略**——
-   * 不得改变条目处理顺序、不得跳过 §10.2 六项中的任何一项。提案不改变上述任何一件；
-   * 它还要过 §12bis「证据不留在缓冲」的逐字引证复制校验，引证不回指条目者一律拒绝。
-   *
-   * **逐条落地、已落保留（2026-10-27 二次修订）**：本操作本次交出的条目**逐条**处理
-   * ——可成文则建 `active` Pitfall（2026-11-03 起创建即入档）、不足则结算为
-   * `discarded`；**已落地的保留，不回滚**。
-   * 某一条不合格（缺提案、字段不齐、正文不合规、缺署名、处置理由不可追溯）只影响
-   * **该条**：它留在 `pending`、记入返回值的 `unsettled`（带精确原因），并使整次调用
-   * 的结局为 `partial`；其余已判定条目照常结算。
-   *
-   * **原「全或无」口径已废止**（同日早些时候的修订）：它曾要求缺任一条即整次调用
-   * fail-closed 且拒绝早于任何写入。实测代价：2026-10-27 审核执行体触发 9 次仅 1 次
-   * 产出，其中 3 次被执行体掐断——按「全或无」那 3 次即使已判对 11 条也一条都不写。
-   * Human 改定：「一个一个审核，要么草稿要么作废，相同问题不能审核第二次」。
-   * **「同题不二审」由状态推进保证**：本操作只读 `status=pending`，已结算的条目退出
-   * 候选集，不会被再次判定的。
-   */
-  async function executeObservationBufferReview(args, exec) {
-    const entryId = args?.entry_id === undefined ? null : args.entry_id;
-    if (entryId !== null && (typeof entryId !== "string" || entryId.length === 0)) {
-      return envelope("observation-buffer-review", "invalid_request", {
-        result: null,
-        scope: { requested: entryId, completed: [], not_completed: ["entry_id"] },
-        sources: [],
-        gaps: ["entry_id must be a non-empty string when given (11 §12ter.1)"],
-        verification: { checks: ["entry-id-form"], passed: false },
-        follow_up: ["retry with a buffer entry id or omit the argument"]
-      });
-    }
-    if (args?.proposals !== undefined && !Array.isArray(args.proposals)) {
-      return envelope("observation-buffer-review", "invalid_request", {
-        result: null,
-        scope: { requested: null, completed: [], not_completed: ["proposals"] },
-        sources: [],
-        gaps: ["proposals must be an array of per-entry review proposals (11 §10.2); a non-array cannot be interpreted"],
-        verification: { checks: ["proposals-form"], passed: false },
-        follow_up: ["retry with the proposals array produced by the review judgement"]
-      });
-    }
-    const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
-    if (governed.state !== "governed") {
-      return envelope("observation-buffer-review", "unavailable", {
-        result: null,
-        scope: { requested: entryId ?? "next", completed: [], not_completed: [entryId ?? "next"] },
-        sources: [],
-        gaps: [`governance state is ${governed.state}: the review pass serves governed sessions only (11 §12ter.1 common precondition)`],
-        verification: { checks: ["governance-scope"], passed: false },
-        follow_up: []
-      });
-    }
-    const factSourceRoot = join(governed.project.path, "ldvh-base");
-    // 03 §6.1 / 06 §6：change_log 的 provider/model 由 Code 从权威会话取得，不得由
-    // 调用方参数承载、也不得自填（§12ter.1）。取不到即拒绝，不做静默降级。
-    const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
-    const sessionSignature = route?.ok === true
-      ? authoritativeSignature({ provider: route.value?.provider, model: route.value?.model })
-      : null;
-    if (sessionSignature === null) {
-      return envelope("observation-buffer-review", "unavailable", {
-        result: null,
-        scope: { requested: entryId ?? "next", completed: [], not_completed: ["signature", "candidate-formation"] },
-        sources: [],
-        gaps: [
-          `observation_review/signature_unavailable: the authoritative session route is unavailable (${route?.reason ?? "unknown"}); 11 §12ter.1 — provider/model are not carried by parameters and an unsigned change_log entry must not be written (03 §6.1 / 06 §6). REPORT TO HUMAN`
-        ],
-        verification: { checks: ["signature-authoritative"], passed: false },
-        follow_up: ["restore the authoritative session route, then retry; do not pass provider/model as arguments"]
-      });
-    }
-    const existing = await collectExistingPitfalls({ factSourceRoot });
-    if (!existing.ok) {
-      return envelope("observation-buffer-review", "unavailable", {
-        result: null,
-        scope: { requested: entryId ?? "next", completed: [], not_completed: ["dedup-baseline", "candidate-formation"] },
-        sources: sources({ kind: "fact-source", path: "ldvh-base/pitfalls", fingerprint: null }),
-        gaps: [`${existing.error?.code ?? "observation_review/list_failed"}: ${existing.error?.message ?? "unknown"} (11 §10.2 item 6 / §12: the dedup baseline could not be read — fail-closed, never form a candidate without it)`],
-        verification: { checks: ["dedup-baseline"], passed: false },
-        follow_up: ["repair the Pitfall carrier read path, then retry"]
-      });
-    }
-    const reviewed = await reviewPendingEntries({
-      dshHomePath,
-      factSourceRoot,
-      entryId,
-      // **必须给 projectId**：缓冲按管辖项目分载体（11 §12bis 载体段 2026-10 修订），
-      // 缺了它 `reviewPendingEntries` 会拒绝（否则会拿全体项目的材料在本项目建候选）。
-      // 这里漏传曾使本入口恒以 project_missing 失败——本文件的测试没覆盖到这条调用，
-      // 故在此显式标注，避免再次漏掉。
-      projectId: governed.project.id,
-      existingPitfalls: existing.value.items,
-      proposals: args?.proposals ?? null,
-      sessionSignature
-    });
-    if (!reviewed.ok) {
-      // §12ter.2：回读不完整或校验不可用时不得返回成功形状；已发生的结算如实带出。
-      const partial = reviewed.error?.partial ?? {};
-      return envelope("observation-buffer-review", "unavailable", {
-        result: {
-          formed: partial.formed ?? null,
-          duplicate: partial.duplicate ?? null,
-          discarded: partial.discarded ?? [],
-          transferred: partial.transferred ?? [],
-          transfer_failed: partial.transfer_failed ?? [],
-          remaining_pending: partial.remaining_pending ?? null,
-          fail_closed: reviewed.error?.fail_closed ?? { code: reviewed.error?.code ?? null, message: reviewed.error?.message ?? null, stage: reviewed.error?.stage ?? null }
-        },
-        // **已发生的转写在失败分支同样要进 scope 与 gaps**（2026-11-01 第三轮审核第 13 条）：
-        // 早先该分支一律 `completed: []`，于是「转写成功了一条、随后 recount 失败」时
-        // 那条已落地的摩擦缓冲条目在 Human 面完全无痕。其余 unavailable 分支保持
-        // `completed: []` 是因为它们都发生在任何写入之前——本分支不同，它是唯一
-        // **在副作用之后**才失败的分支。
-        scope: {
-          requested: entryId ?? "next",
-          completed: (partial.transferred ?? []).length > 0 ? ["friction-transfer"] : [],
-          not_completed: [
-            "review-pass",
-            ...((partial.transfer_failed ?? []).length > 0 ? ["friction-transfer"] : []),
-          ],
-        },
-        sources: sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
-        gaps: [
-          `${reviewed.error?.code ?? "observation_review/failed"}: ${reviewed.error?.message ?? "unknown"}`,
-          ...((partial.transferred ?? []).length > 0
-            ? [`${partial.transferred.length} transfer(s) already landed in the friction observation buffer before this failure; they are NOT rolled back (11 §10.2 item 5)`]
-            : []),
-          ...((partial.transfer_failed ?? []).length > 0
-            ? [`${partial.transfer_failed.length} transfer(s) failed and were registered in the §12 pending queue`]
-            : []),
-        ],
-        verification: { checks: ["review-pass"], passed: false },
-        follow_up: ["resolve the reported fail-closed condition, then retry; the settlement already made is reported above and must not be treated as success"]
-      });
-    }
-    const value = reviewed.value;
-    const formedAll = Array.isArray(value.formed_all) ? value.formed_all : (value.formed === null ? [] : [value.formed]);
-    return envelope("observation-buffer-review", "completed", {
-      result: {
-        formed: value.formed,
-        formed_all: formedAll,
-        duplicate: value.duplicate,
-        duplicates_all: Array.isArray(value.duplicates_all) ? value.duplicates_all : (value.duplicate === null ? [] : [value.duplicate]),
-        discarded: value.discarded,
-        transferred: value.transferred ?? [],
-        transfer_failed: value.transfer_failed ?? [],
-        remaining_pending: value.remaining_pending,
-        fail_closed: value.fail_closed
-      },
-      scope: {
-        requested: entryId ?? "next",
-        completed: [
-          "read-pending", "judge-every-entry", "dedup", "candidate-formation", "read-back", "settle",
-          // 转写是结算之后的独立一步：成功进 completed，失败进 not_completed，
-          // **两步必居其一**（§18 的「转写条目的合法性」是机械校验，它跑过就要记账）。
-          ...(Array.isArray(value.transferred) && value.transferred.length > 0 ? ["friction-transfer"] : []),
-        ],
-        not_completed: Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0
-          ? ["friction-transfer"]
-          : [],
-      },
-      sources: [
-        ...sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
-        ...formedAll.map((item) => sources({ kind: "pitfall-object", path: item.file ?? item.object_uid, fingerprint: null })[0])
-      ],
-      // **投影缺口与账本读取范围进 gaps**（2026-11-01 第三轮审核第 12 条）：
-      // 只在提示词里对执行体说「可能不是全部」不够——Human 读的是这条返回体。
-      gaps: [
-        ...(value.friction_projection_gap === null || value.friction_projection_gap === undefined
-          ? []
-          : [`friction projection incomplete: ${value.friction_projection_gap} (11 §7.1 — the review executor saw a possibly partial friction-side projection; group attribution and dedup were judged against it)`]),
-        ...(value.friction_projection_scope?.ledger_limit_starved === true
-          ? [`friction ledger truncated at limit=200 (open=${value.friction_projection_scope.open_total ?? "?"}, all=${value.friction_projection_scope.all_total ?? "?"}); entries beyond the limit were not in the review's comparison set (11 §15 交还第 2 项)`]
-          : []),
-        ...(Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0
-          ? [`${value.transfer_failed.length} transfer(s) failed and were registered in the §12 pending queue: ${value.transfer_failed.map((item) => item.code).join(", ")}`]
-          : []),
-      ],
-      // **§18 的「转写条目的合法性」是机械校验，跑过就要在 checks 里有位**
-      // （2026-11-01 审核 N8 修）：只有本轮真发生了转写（成功或失败）才列该项——
-      // 没转写时列为空与「校验未执行」是两件事，不该混。失败时 passed 为 false：
-      // 那是真的有一条没转成，§17 要求它可见。
-      verification: {
-        checks: [
-          "buffer-read", "judgement-completeness", "dedup-record", "evidence-copy", "read-back", "settle",
-          ...(
-            (Array.isArray(value.transferred) && value.transferred.length > 0)
-            || (Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0)
-              ? ["friction-transfer-legality"]
-              : []
-          ),
-        ],
-        passed: !(Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0),
-      },
-      follow_up: formedAll.length > 0
-        ? ["the created Pitfall objects are `active` (23 §13; the draft candidate state was cancelled 2026-11-03) — abolishing them is the 23 §16 Human Gate, which this pass does not and cannot perform"]
-        : (value.remaining_pending > 0
-            ? ["pending entries remain outside this dispatch's delivery range; the next dispatch judges that batch (11 §10.2 — there is no per-run output quota)"]
-            : [])
-    });
-  }
+  // **2026-11-16**：`observation-buffer-list` 与 `observation-buffer-review` 两个
+  // 只读／成文工具随经验留观缓冲（11 §12bis）一并删除——review 层整层取消，
+  // 经验积累改由主控派生代理完成（23 §13 主控主动记录通道）。
 
   /**
    * 宿主能力探针（见 OPERATIONS 的注释）。
@@ -1618,7 +1319,7 @@ function makeExecute(deps) {
       // **2026-10-30：互斥改为项目级跨进程文件锁**，故查询也须按项目问。
       // 这里已解析出 `governedScope`，用它给出 projectId——否则诊断报的是「本进程
       // 有没有在跑」，而真实判据是「这个项目有没有在跑」（跨进程）。
-      const running = await isReviewRunning(dshHomePath, governedScope.project.id);
+      const running = await isFrictionPromotionRunning(dshHomePath, governedScope.project.id);
       return envelope("probe-host-automation", "completed", {
         result: {
           settings: state,
@@ -1630,7 +1331,7 @@ function makeExecute(deps) {
             : "disabled",
         },
         scope: { requested: "reconcile", completed: ["settings", "trigger", "running"], not_completed: [] },
-        sources: sources({ kind: "host-services", path: "getIdleSettings / experience-review-trigger", fingerprint: null }),
+        sources: sources({ kind: "host-services", path: "getIdleSettings / friction-promotion-lock", fingerprint: null }),
         gaps: state.enabled === true ? [] : ["review is disabled by settings, so nothing should run — this is not a failure"],
         verification: { checks: ["settings", "trigger", "running"], passed: true },
         follow_up: [],
@@ -1803,8 +1504,6 @@ function makeExecute(deps) {
     "precheck-git-commit": executePrecheckGitCommit,
     "register-governed-project": executeRegisterGovernedProject,
     "unregister-governed-project": executeUnregisterGovernedProject,
-    "observation-buffer-list": executeObservationBufferList,
-    "observation-buffer-review": executeObservationBufferReview,
     "probe-host-automation": executeProbeHostAutomation,
     "pending-queue-resolve": executePendingQueueResolve
   };
@@ -2093,58 +1792,6 @@ function parameterSchemaFor(operationKey) {
       // 只读、无参数：结论是「磁盘上哪些模块比本进程新」，不接受任何筛选——
       // 让它可以被参数收窄，就等于给了「看不见」一条路（源于一次实测的模块陈旧度问题）。
       return { type: "object", properties: {}, additionalProperties: false };
-    case "observation-buffer-list":
-      // 11 §12ter.1：status 可选闭集四值、limit 可选正整数（只可降低返回条数，
-      // 不得绕过 §12bis 的容量上限与淘汰规则）。
-      return {
-        type: "object",
-        properties: {
-          status: {
-            type: "string",
-            enum: [...BUFFER_STATUSES],
-            description: "Filter by buffer entry status (11 §12bis closed set); omit for all"
-          },
-          limit: {
-            type: "integer",
-            minimum: 1,
-            description: "Lower the number of entries returned; it may not bypass the §12bis capacity limit or the eviction order, and it does not change the buffer"
-          }
-        },
-        additionalProperties: false
-      };
-    case "observation-buffer-review":
-      // 11 §12ter.1：唯一可调参数是 entry_id（可选，指定优先处理的条目）。
-      // `proposals` 是**内容输入不是策略参数**（见 handler 注释）：它不改变处理
-      // 顺序、不跳过六项中的任何一项，且提交的正文仍须过 §12bis「证据不留在缓冲」
-      // 的逐字引证复制校验。没有它，确定性的机械侧无从获得审核段的语义判断产物，
-      // 也就无法形成任何候选——那不是更严格的机械性，只是把「审核段」变成
-      // 「什么都不做」。
-      //
-      // **2026-10-27 修订**：§10.2 的「一次运行至多 1 条候选」配额已废止。现行口径
-      // 是「本次交出的每一条都必须有结论」——缺任一条整次调用 fail-closed 且零写入。
-      // 故这里既不能说 proposals「不能放大配额」（配额已不存在），也不能暗示
-      // 「不给结论就会留到下次」（那正是被废止的形态）。
-      return {
-        type: "object",
-        properties: {
-          entry_id: { type: "string", description: "Review this pending buffer entry first (§12ter.1); omit to process in buffer order" },
-          proposals: {
-            type: "array",
-            description: "Structured review conclusions, one per reviewed entry: entry_id plus either insufficient:{reason} (optionally + transfer:{title,basis,attribution,group,target_uid} to carry an unresolved failure into the friction observation buffer) or dedupe:{checked,compared,conclusion,duplicate_of} with title/scope/body. Content input, not a policy parameter. Every entry handed to this call MUST carry a conclusion (11 §10.2, 2026-10-27: no per-run output quota — a missing judgement fails the whole pass closed with zero writes), and proposals cannot reorder entries or skip a step.",
-            items: { type: "object", additionalProperties: true }
-          }
-        },
-        additionalProperties: false
-      };
-    case "precheck-git-commit":
-      return {
-        type: "object",
-        properties: {
-          message: { type: "string", description: "The full candidate commit message text" }
-        },
-        required: ["message"],
-        additionalProperties: false
-      };
     case "pending-queue-resolve":
       // 11 §12 第 5 条：结案按 entry 身份定位（不按位置），note 必填。
       return {

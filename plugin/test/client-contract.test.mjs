@@ -519,14 +519,13 @@ test("settings footer carries the 鼓励一下 cheer link (family-wide pattern)"
 // 闲时辅助设置面（04 §8.1 / 32 §10；形态参照 dsh-mnemon 的 idleReview）
 // ---------------------------------------------------------------------------
 
-test("闲时辅助设置面：**两个**子项 + 一个参数；总开关已撤除，关只关子项", () => {
-  // 2026-10-30 配置面合并（Human 决定）：六个开关 → 两个（闲置捕获 / 闲置审核）。
+test("闲时辅助设置面：**一个**子项 + 参数；总开关已撤除，关只关子项", () => {
+  // **2026-11-16**：审核层整层取消，设置面只剩「闲置捕获」一个子项。
   // 各开关须各自成 state（而非一个数组）——它们绑定到不同的 Config 字段，
   // 且 dsh-mnemon 的形态是「总开关关掉就整块不展开」。
   for (const field of [
     "idleAssistEnabled",
     "idleCaptureEnabled",
-    "auxReviewEnabled",
   ]) {
     assert.ok(source.includes(field), `设置面须含开关字段 ${field}`);
   }
@@ -586,9 +585,9 @@ test("闲时辅助设置面：**两个**子项 + 一个参数；总开关已撤�
     false,
     "审核间隔已整体删除（随静置触发，无间隔可配）；该字段名不得再出现在设置面",
   );
-  // 审核**开关**与捕获开关分开（两层各一个）。
-  assert.ok(source.includes("auxReviewEnabled"), "设置面须含审核开关");
-  assert.ok(source.includes("row.auxReview"), "设置面须有审核开关文案");
+  // 审核开关与文案**均不得存在**（审核层已整层取消，2026-11-16）。
+  assert.ok(!source.includes("auxReviewEnabled"), "设置面不得再有审核开关");
+  assert.ok(!source.includes("row.auxReview"), "设置面不得再有审核开关文案");
 });
 
 test("§8.5：未实现的职责移出设置面后仍须在登记里可见", async () => {

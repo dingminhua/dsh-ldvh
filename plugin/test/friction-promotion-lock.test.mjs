@@ -26,7 +26,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isReviewRunning, runReviewExclusive } from "../lib/experience-review-trigger.js";
+import { isFrictionPromotionRunning, runFrictionPromotionExclusive } from "../lib/friction-promotion-lock.js";
 
 test("**没有「到期」这个概念**：模块不导出任何间隔/记时函数", async () => {
   // 这是本组最重要的一条之一。它守的**不是某个函数的返回值**，而是「间隔这个机制
@@ -36,13 +36,13 @@ test("**没有「到期」这个概念**：模块不导出任何间隔/记时函
   // 为什么必须用「不存在」而不是「返回值正确」来守：一个恒返回 `{due:true}` 的
   // isReviewDue 在行为上与「没有间隔」等价，但它把「间隔机制还在」写成了代码事实，
   // 下一次有人要「调小间隔」时就会把它接回派发路径——那是本条要防的形态。
-  const mod = await import("../lib/experience-review-trigger.js");
+  const mod = await import("../lib/friction-promotion-lock.js");
   for (const gone of ["isReviewDue", "reviewTiming", "markReviewCompleted"]) {
     assert.equal(gone in mod, false, `trigger 模块不得导出 ${gone}——审核随静置触发，没有间隔可判定`);
   }
   // 保留的机制仍须在（去掉的是间隔，不是互斥）。
-  assert.equal(typeof mod.isReviewRunning, "function", "isReviewRunning 必须保留");
-  assert.equal(typeof mod.runReviewExclusive, "function", "runReviewExclusive 必须保留");
+  assert.equal(typeof mod.isFrictionPromotionRunning, "function", "isFrictionPromotionRunning 必须保留");
+  assert.equal(typeof mod.runFrictionPromotionExclusive, "function", "runFrictionPromotionExclusive 必须保留");
 });
 
 test("**设置面不得有审核间隔字段**（间隔数值属已废止的量）", async () => {
@@ -93,18 +93,18 @@ async function waitUntil(check, { timeoutMs = 2000, stepMs = 5 } = {}) {
 
 test("互斥：空闲时不忙，跑完之后恢复空闲", async () => {
   await withLockHome(async ({ home }) => {
-    assert.equal((await isReviewRunning(home, "proj")).busy, false, "初态须空闲");
-    const r = await runReviewExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s", fn: async () => "done" });
+    assert.equal((await isFrictionPromotionRunning(home, "proj")).busy, false, "初态须空闲");
+    const r = await runFrictionPromotionExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s", fn: async () => "done" });
     assert.equal(r.skipped, false);
     assert.equal(r.value, "done");
-    assert.equal((await isReviewRunning(home, "proj")).busy, false, "跑完后必须恢复空闲——否则审核从此再也不触发");
+    assert.equal((await isFrictionPromotionRunning(home, "proj")).busy, false, "跑完后必须恢复空闲——否则审核从此再也不触发");
   });
 });
 
 test("互斥：**并发第二枪被跳过**，不排队、不并发执行", async () => {
   await withLockHome(async ({ home }) => {
     let aStarted = false;
-    const first = runReviewExclusive({
+    const first = runFrictionPromotionExclusive({
       dshHomePath: home, projectId: "proj", sessionId: "s1",
       fn: async () => {
         aStarted = true;
@@ -114,7 +114,7 @@ test("互斥：**并发第二枪被跳过**，不排队、不并发执行", asyn
     });
     // 等第一枪确实进入执行体（轮询真实状态，不按固定时长猜），再发第二枪。
     assert.equal(await waitUntil(async () => aStarted), true, "前提：第一枪已在执行");
-    const second = await runReviewExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s2", fn: async () => "B" });
+    const second = await runFrictionPromotionExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s2", fn: async () => "B" });
 
     assert.equal(second.skipped, true, "第二次必须被跳过");
     assert.equal(second.reason, "review-in-flight");
@@ -126,10 +126,10 @@ test("互斥：**并发第二枪被跳过**，不排队、不并发执行", asyn
 test("互斥：执行体抛错时锁仍须释放（否则一次失败会永久卡死审核）", async () => {
   await withLockHome(async ({ home }) => {
     await assert.rejects(
-      () => runReviewExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s", fn: async () => { throw new Error("boom"); } }),
+      () => runFrictionPromotionExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s", fn: async () => { throw new Error("boom"); } }),
       /boom/,
     );
-    assert.equal((await isReviewRunning(home, "proj")).busy, false, "抛错后必须释放——否则审核再也跑不起来，且外观像「没配置」");
+    assert.equal((await isFrictionPromotionRunning(home, "proj")).busy, false, "抛错后必须释放——否则审核再也跑不起来，且外观像「没配置」");
   });
 });
 
@@ -137,16 +137,16 @@ test("互斥是**项目级**：另一个项目不受本项目持锁影响（11 �
   await withLockHome(async ({ home }) => {
     let releaseA;
     const aRunning = new Promise((resolve) => { releaseA = resolve; });
-    const first = runReviewExclusive({
+    const first = runFrictionPromotionExclusive({
       dshHomePath: home, projectId: "proj-a", sessionId: "s",
       fn: async () => { await aRunning; return "A"; },
     });
-    await waitUntil(async () => (await isReviewRunning(home, "proj-a")).busy);
+    await waitUntil(async () => (await isFrictionPromotionRunning(home, "proj-a")).busy);
 
-    assert.equal((await isReviewRunning(home, "proj-a")).busy, true, "A 项目在跑");
-    assert.equal((await isReviewRunning(home, "proj-b")).busy, false, "B 项目不受影响——互斥按项目分区");
+    assert.equal((await isFrictionPromotionRunning(home, "proj-a")).busy, true, "A 项目在跑");
+    assert.equal((await isFrictionPromotionRunning(home, "proj-b")).busy, false, "B 项目不受影响——互斥按项目分区");
 
-    const second = await runReviewExclusive({ dshHomePath: home, projectId: "proj-b", sessionId: "s", fn: async () => "B" });
+    const second = await runFrictionPromotionExclusive({ dshHomePath: home, projectId: "proj-b", sessionId: "s", fn: async () => "B" });
     assert.equal(second.skipped, false, "另一个项目可以同时跑");
     assert.equal(second.value, "B");
 
@@ -157,13 +157,13 @@ test("互斥是**项目级**：另一个项目不受本项目持锁影响（11 �
 
 test("互斥：崩溃残留的陈旧锁可被回收，不会永久卡死", async () => {
   await withLockHome(async ({ home }) => {
-    const { writeReviewLockForTest, REVIEW_LOCK_STALE_MS } = await import("../lib/experience-review-trigger.js");
+    const { writeFrictionPromotionLockForTest, REVIEW_LOCK_STALE_MS } = await import("../lib/friction-promotion-lock.js");
     // 写一个「很久以前开始」的锁，模拟持锁者崩溃。
     const startedAt = new Date(Date.now() - REVIEW_LOCK_STALE_MS - 60_000).toISOString();
-    await writeReviewLockForTest(home, "proj", { projectId: "proj", sessionId: "dead", startedAt, pid: 1 });
+    await writeFrictionPromotionLockForTest(home, "proj", { projectId: "proj", sessionId: "dead", startedAt, pid: 1 });
 
-    assert.equal((await isReviewRunning(home, "proj")).busy, false, "过期锁不算在跑");
-    const r = await runReviewExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s", fn: async () => "ok" });
+    assert.equal((await isFrictionPromotionRunning(home, "proj")).busy, false, "过期锁不算在跑");
+    const r = await runFrictionPromotionExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s", fn: async () => "ok" });
     assert.equal(r.skipped, false, "陈旧锁被回收后应能拿到锁");
     assert.equal(r.value, "ok");
   });
@@ -190,7 +190,9 @@ test("**旧机制已整体移除**：不存在「专属会话 / 宿主周期任�
     "experience-review-reconcile.js 不得存在——它是旧机制的协调器",
   );
 
-  // 审核段仍须存在（去掉的是载体，不是功能）。
-  assert.equal(files.includes("experience-review-stage.js"), true, "审核执行体本身必须保留");
-  assert.equal(files.includes("experience-review-trigger.js"), true, "触发时机模块必须存在");
+  // **2026-11-16**：审核段本身也已随 review 层整层删除，故此处改为断言它**不得存在**
+  // ——本模块现只服务摩擦晋升互斥，不承载任何审核执行体。
+  assert.equal(files.includes("experience-review-stage.js"), false, "审核执行体已整层删除，不得存在");
+  assert.equal(files.includes("friction-promotion-lock.js"), true, "摩擦晋升互斥模块必须存在");
+  assert.equal(files.includes("experience-review-trigger.js"), false, "旧模块名已随改名消失，不得复活");
 });

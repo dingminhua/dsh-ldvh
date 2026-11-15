@@ -270,12 +270,15 @@ test("结构性探测带 scope 声明，如实标出「只在签名区、只看�
 // 真实探针（第四轮复核指出：此前从无任何测试触达 probeStructuralFacts）
 // ---------------------------------------------------------------------------
 
-test("真实探针：对生产代码 runReviewStage 的探测结果为无裁量入口", async () => {
+test("真实探针：review 层已删除，故生产代码无可探测的审核入口", async () => {
   const { probeStructuralFacts } = await import("../lib/lifecycle.js");
   const probe = probeStructuralFacts();
   assert.equal(probe.discretionFree, true, `实际检出：${JSON.stringify(probe.discretionFound)}`);
   assert.deepEqual(probe.discretionFound, []);
-  assert.ok(probe.checked.includes("runReviewStage"));
+  // **2026-11-16**：`runReviewStage` 已随 review 层整层删除，故探测列表为空。
+  // 本用例改为守住「不得再有审核入口被探测」——防止有人把它悄悄加回来。
+  assert.ok(!probe.checked.includes("runReviewStage"), "审核入口已删除，不得再被探测");
+  assert.equal(probe.checked.length, 0, "现无可探测入口（探测列表须为空）");
   assert.equal(probe.scope, "signature-only", "探测范围须如实标出，否则读者会以为它能跨过打包压缩");
 });
 

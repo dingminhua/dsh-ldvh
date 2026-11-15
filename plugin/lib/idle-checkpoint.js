@@ -133,7 +133,9 @@ export async function runIdleCheckpoint({
   // `friction-discovery`——于是「只开经验捕获（摩擦关）」时会被过滤成
   // `not-implemented`，而它的落地路径其实早已存在（`lifecycle.js` 的 capture 分支）。
   // 两层重构后两者同属发现层、同一个开关、同一次派发，故一并编排。
-  const ORCHESTRATED = ["friction-discovery", "experience-capture"];
+  // **2026-11-16**：`experience-capture` 已从辅助任务移出（经验积累改由主控派生
+  // 代理完成），故本层只编排摩擦发现一项。
+  const ORCHESTRATED = ["friction-discovery"];
   const runnable = registeredRunnable.filter((key) => ORCHESTRATED.includes(key));
   const notOrchestrated = registeredRunnable.filter((key) => !ORCHESTRATED.includes(key));
   if (runnable.length === 0) {

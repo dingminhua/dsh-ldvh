@@ -75,7 +75,7 @@ test("resolveIdleSettings：显式配置覆盖默认；2026-10-30 起两层各�
   assert.equal(s.enabled, false);
   // 旧键 frictionDiscoveryEnabled=false 生效（关闭优先），且**同层两个任务一起关**。
   assert.equal(s.tasks["friction-discovery"], false);
-  assert.equal(s.tasks["experience-capture"], false, "发现层两任务同生同灭（合并为一个开关）");
+  assert.equal(s.tasks["experience-capture"], undefined, "2026-11-16：经验捕获已移出派发面");
   // 未实现的职责不再由配置面开关控制——恒为 false，§8.5 的可见性由登记表承载。
   assert.equal(s.tasks["capacity-maintenance"], false, "不再有独立开关；恒报未启用");
   assert.equal(s.tasks["memory-health"], false);
@@ -86,16 +86,17 @@ test("resolveIdleSettings：显式配置覆盖默认；2026-10-30 起两层各�
 test("配置面合并：同层两任务由同一个新键控制，不能只开一个", () => {
   const both = resolveIdleSettings({ idleCaptureEnabled: true });
   assert.equal(both.tasks["friction-discovery"], true);
-  assert.equal(both.tasks["experience-capture"], true, "捕获层是一个开关，不能产生半套材料");
+  assert.equal(both.tasks["friction-discovery"], true, "捕获开关只控制摩擦发现");
 
   const neither = resolveIdleSettings({ idleCaptureEnabled: false });
   assert.equal(neither.tasks["friction-discovery"], false);
-  assert.equal(neither.tasks["experience-capture"], false);
+  assert.equal(neither.tasks["friction-discovery"], false);
 
   // 审核层是另一个开关，与捕获层互不影响。
-  const reviewOnly = resolveIdleSettings({ idleCaptureEnabled: false, auxReviewEnabled: true });
-  assert.equal(reviewOnly.review.enabled, true, "审核层独立于捕获层");
-  assert.equal(reviewOnly.tasks["friction-discovery"], false);
+  // **2026-11-16**：审核层整层取消，`review` 字段已删除、`auxReviewEnabled` 不再有意义。
+  const noReview = resolveIdleSettings({ idleCaptureEnabled: false, auxReviewEnabled: true });
+  assert.equal(noReview.review, undefined, "审核字段已删除，不得复活");
+  assert.equal(noReview.tasks["friction-discovery"], false);
 });
 
 
@@ -220,8 +221,8 @@ test("pickEnabledAuxTasks：**勾选几个就跑几件**——不是挑一个（
   assert.deepEqual(one.tasks, ["friction-discovery"], "只勾一个就只做一件");
 
   // 2026-10-30：派发面只剩两个任务（容量维护/记忆健康移出），故「勾两个」用它俩。
-  const two = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true, "experience-capture": true } });
-  assert.deepEqual(two.tasks, ["friction-discovery", "experience-capture"], "勾两个就做两件");
+  const onlyFriction = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true } });
+  assert.deepEqual(onlyFriction.tasks, ["friction-discovery"], "派发面只剩一件");
   // 已移出派发面的任务即使被勾上也不得进入派发清单（它们没有执行体）。
   const stale = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true, "memory-health": true } });
   assert.deepEqual(stale.tasks, ["friction-discovery"], "未实现的任务不得被派发");
@@ -314,10 +315,10 @@ test("配置改名：旧键被显式设过时以旧键为准（默认值不得�
     "旧键 false（Human 曾明确关闭）必须生效——若回落写成 `新 ?? 旧`，新键的 default(true) 会架空它",
   );
   const on = resolveIdleSettings({ experienceCaptureEnabled: true });
-  assert.equal(on.tasks["experience-capture"], true, "旧键 true 亦须生效");
+  assert.equal(on.tasks["friction-discovery"], true, "旧键 true 亦须生效");
   // 审核层的旧键同理。
   const reviewOff = resolveIdleSettings({ auxReviewEnabled: true, experienceReviewEnabled: false });
-  assert.equal(reviewOff.review.enabled, false, "审核层旧键 false 同样不得被新键默认值架空");
+  assert.equal(reviewOff.review, undefined, "审核字段已删除（2026-11-16）");
 });
 
 test("配置改名：未设旧键时用新键（含其缺省）", () => {

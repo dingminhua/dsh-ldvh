@@ -37,7 +37,6 @@
  */
 
 import { buildDiscoveryPromptSection, discoveryOutputSchema, validateDiscoveryVerdict } from "./friction-subagent-contract.js";
-import { buildCapturePromptSection, captureOutputSchema, validateCaptureVerdict } from "./experience-capture-contract.js";
 
 
 /**
@@ -53,7 +52,10 @@ import { buildCapturePromptSection, captureOutputSchema, validateCaptureVerdict 
  * §8.5 要的「如实登记」，但该登记现已由 `UNIMPLEMENTED_AUX_TASKS` 独立承载（见下），
  * 不必依赖它们占着派发位。
  */
-export const AUX_TASK_ORDER = Object.freeze(["friction-discovery", "experience-capture"]);
+// **2026-11-16 Human 决定：本任务只负责摩擦发现**。经验捕获（`experience-capture`）
+// 已从派发面移出——经验积累改由主控派生代理完成（23 §13 主控主动记录通道），
+// 宿主辅助任务不再承担经验侧任何职责。故本表只剩一项。
+export const AUX_TASK_ORDER = Object.freeze(["friction-discovery"]);
 
 /**
  * §8 登记在册、但**尚未实现**的职责（2026-10-30）。
@@ -77,7 +79,6 @@ export const UNIMPLEMENTED_AUX_TASKS = Object.freeze(["capacity-maintenance", "m
 const FRICTION_DISCOVERY_KEY = "friction-discovery";
 
 /** 经验积累（11 §10）的任务键。 */
-const EXPERIENCE_CAPTURE_KEY = "experience-capture";
 
 /**
  * 复合输出的**顶层字段名**约定。
@@ -314,21 +315,8 @@ export const AUX_TASK_REGISTRY = Object.freeze({
       windowTruncated: ctx?.windowTruncated === true,
     }),
   }),
-  [EXPERIENCE_CAPTURE_KEY]: Object.freeze({
-    key: EXPERIENCE_CAPTURE_KEY,
-    implemented: true,
-    // 与摩擦侧同构：三部位正文由契约模块提供，本表只**引用**、不复制。
-    //
-    // **捕获段（11 §10.1）**：本任务现在只判「有没有失败发生过」并写一条留观
-    // 缓冲条目，不判重复、不产正文。故 `validate` 不再接收既有 Pitfall 列表
-    // （查重已移审核段 §10.2 第 2 项），只留引证核对所需的 `windowText`。
-    promptSection: buildCapturePromptSection,
-    outputSchema: captureOutputSchema,
-    validate: (slice, ctx) => validateCaptureVerdict(slice, {
-      windowText: ctx?.windowText ?? null,
-      windowTruncated: ctx?.windowTruncated === true,
-    }),
-  }),
+  // **2026-11-16**：`experience-capture` 登记已删除——经验积累改由主控派生代理
+  // 完成，宿主辅助任务不再承担经验侧职责。故本表无该项。
   // 以下两个**在册但未实现**：能力本体（容量整理、四失败模式体检）没有代码。
   // 它们没有 promptSection / outputSchema / validate 三部位——这正是「未实现」
   // 的机械含义，`implemented: false` 与之互为印证（`splitRunnableTasks` 按本

@@ -331,7 +331,7 @@ test("闲时辅助：子项**恒渲染**；存量 idleAssistEnabled:false 时显
 	// 这些设置根本不存在（这正是撤除总开关的理由）。
 	const off = renderSettingsSection({ idleAssistEnabled: false });
 	const on = renderSettingsSection({ idleAssistEnabled: true });
-	const titles = ["闲置捕获", "闲置审核", "安静时长（分钟）", "召回预算档位（K 字节）"];
+	const titles = ["闲置捕获", "安静时长（分钟）", "召回预算档位（K 字节）"];
 	for (const [state, tree] of [["false", off], ["true", on]]) {
 		for (const title of titles) {
 			assert.ok(rowWithTitle(tree, title), `idleAssistEnabled=${state} 时仍须有「${title}」这一行`);
@@ -339,13 +339,16 @@ test("闲时辅助：子项**恒渲染**；存量 idleAssistEnabled:false 时显
 	}
 	// 存量配置仍作数：服务端确实不派发，故两个子项此时**显示为禁用**——
 	// 让它们照常可点就是让读数说谎。
-	for (const title of ["闲置捕获", "闲置审核"]) {
+	// **2026-11-16**：审核子项已删除，只剩「闲置捕获」一个子项。
+	for (const title of ["闲置捕获"]) {
 		const control = controlsOf(rowWithTitle(off, title))[0];
 		assert.equal(control.props.disabled, true, `「${title}」在 idleAssistEnabled=false 时须禁用`);
 		assert.equal(control.props.checked, false, `「${title}」在 idleAssistEnabled=false 时须显示为关`);
 		const live = controlsOf(rowWithTitle(on, title))[0];
 		assert.equal(live.props.disabled, false, `「${title}」在 idleAssistEnabled=true 时须可操作`);
 	}
+	// 审核子项不得复活。
+	assert.equal(rowWithTitle(off, "闲置审核"), null, "审核子项已删除，不得出现在设置面");
 });
 
 // ── ② 标签与输入框同处一行 ────────────────────────────────────────────────

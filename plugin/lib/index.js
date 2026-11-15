@@ -153,28 +153,18 @@ export const Config = z.object({
    */
   idleAssistEnabled: volatileField(z.boolean().default(true)),
   /**
-   * 闲置捕获（11 §9 摩擦发现 + §10.1 经验捕获）：**两层重构后合并为一个开关**
-   * （2026-10-30 Human 决定）。
+   * 闲置捕获（11 §9 摩擦发现）：**现在只管一件事**（2026-11-16 Human 决定）。
    *
-   * 原来摩擦发现与经验捕获是两个独立键。合并的理由：两者同属**发现层**——都只写
-   * 缓冲、都不写事实源、都在同一次派发里一起跑（见 `idle-checkpoint.js` 的
-   * `ORCHESTRATED`）。拆成两个开关会让「只开一个」产生半套材料：摩擦开了经验关，
-   * 派发仍在跑但有一半产出被丢弃，而痕迹里看不出为什么。
+   * **经验捕获已从本任务移出**：经验积累改由主控派生代理完成（23 §13 主控主动
+   * 记录通道），宿主辅助任务不再承担经验侧任何职责。故本开关只控制摩擦发现——
+   * 静置时派发一次，把反复出现的阻碍写进摩擦观察缓冲，同源攒够 N 即在同一次派发
+   * 内晋升为待修账目。
    *
    * **缺省开**：摩擦发现是既有行为，改成缺省关会使升级即静默停用（行为突变）。
    */
   idleCaptureEnabled: volatileField(z.boolean().default(true)),
-  /**
-   * 闲置审核（11 §10.2 经验审核 + 摩擦缓冲升级）：**合并为一个开关**
-   * （2026-10-30 Human 决定）。
-   *
-   * 合并的理由同捕获：两者同属**审核层**——都在同一次审核派发里处理两个缓冲、
-   * 都由「同一项目同一时间至多一个」的互斥保护。
-   *
-   * **缺省关**：审核会写事实源（晋升 Friction、形成 Pitfall draft），是新增能力；
-   * 默认打开会在 Human 尚未知情时就开始建账。缺省关更诚实。
-   */
-  auxReviewEnabled: volatileField(z.boolean().default(false)),
+  // **2026-11-16**：`auxReviewEnabled` 已删除——审核层整层取消，不再有审核开关。
+  // 摩擦的阈值晋升已并入捕获派发（随 `idleCaptureEnabled`）；经验侧不再由宿主承担。
   /**
    * @deprecated 已被 `idleCaptureEnabled` 取代（2026-10-30 配置面合并）。
    *
@@ -189,11 +179,11 @@ export const Config = z.object({
   /** @deprecated 见 `frictionDiscoveryEnabled`（同属捕获层，已被 `idleCaptureEnabled` 取代）。 */
   experienceCaptureEnabled: volatileField(z.boolean()),
   /**
-   * @deprecated 已被 `auxReviewEnabled` 取代（2026-10-30 配置面合并）。
+   * @deprecated 审核层已整层取消（2026-11-16），本键不再有任何语义。
    * 保留仅为使存量配置项不被判为未知字段；无 default，理由同上。
    */
   experienceReviewEnabled: volatileField(z.boolean()),
-  /** @deprecated 已被 `auxReviewEnabled` 取代。保留仅为兼容存量配置。 */
+  /** @deprecated 审核层已整层取消（2026-11-16）。保留仅为兼容存量配置。 */
   idleReviewEnabled: volatileField(z.boolean()),
   /**
    * @deprecated 已不再是独立开关（2026-10-30 配置面合并）。

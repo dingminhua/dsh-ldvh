@@ -84,8 +84,8 @@ test("每一个经 ctx.tools.register 注册的工具都在参数层拒绝非法
 	// ldvh_devlog_* 工具后为 40；2026-11-16 撤除 ADR 类型的三个 ldvh_adr_*
 	// 工具后为 37）。数量写下界失效，但**减少**工具（例如某层悄悄没注册）必须转红。
 	assert.ok(
-		registered.length >= 37,
-		`expected the full LDVH tool batch (>= 37), registered ${registered.length}`,
+		registered.length >= 35,
+		`expected the full LDVH tool batch (>= 35), registered ${registered.length}`,
 	);
 
 	const unguarded = [];
