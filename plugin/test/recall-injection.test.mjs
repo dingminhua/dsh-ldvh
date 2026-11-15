@@ -1772,32 +1772,6 @@ test("22 §12：无可披露基线时不注入（只带基线的路径不得变�
 // 「有内容」，则任何可读事实源的项目都会在每个行动回合无条件注入（违反 02 §9.2）。
 // 本条钉住：经验计数为 0 不构成注入理由；正反对照——同一事实源加上 active Norm
 // 后必须注入（B1 修复本身仍活着，不被这次收紧抹掉）。
-test("常驻索引判据：经验计数为 0 不构成注入理由，但有 active Norm 时必须注入", async () => {
-	// 反控制：空事实源（只有空目录）+ 零命中行动回合 ⇒ 不注入。
-	const empty = await mkdtemp(join(tmpdir(), "ldvh-emptycorpus-"));
-	try {
-		await mkdir(join(empty, "ldvh-base", "adrs"), { recursive: true });
-		await mkdir(join(empty, "ldvh-base", "norms"), { recursive: true });
-		const r = await buildRecallInjection({ userText: "让动画快一点", projectRoot: empty, budgetBytes: 10240 });
-		assert.equal(r.inject, false, "空事实源的零命中行动回合不得无条件注入（0 条经验不是内容）");
-		assert.equal(r.reason, "no-hits");
-	} finally {
-		await rm(empty, { recursive: true, force: true });
-	}
-	// 正控制：同一事实源加上 2 条 active Norm（零 ADR、零 Pitfall）⇒ 零命中回合仍须注入。
-	// 这正是 B1 要修的形态——本仓 ADR 已全数 retired，只剩 Norm 撑着常驻段。
-	const withNorms = await mkdtemp(join(tmpdir(), "ldvh-normonly-"));
-	try {
-		await seedFactCorpus(withNorms, { adrCount: 0, pitfallCount: 0 });
-		const r = await buildRecallInjection({ userText: "让动画快一点", projectRoot: withNorms, budgetBytes: 10240 });
-		assert.equal(r.inject, true, "有 active Norm 时零命中行动回合必须注入（B1：不得绑回词面运气）");
-		const norm = r.result?.l0Enumeration?.segments?.find((s) => s.type === "norm");
-		assert.ok(norm && norm.shown > 0, "前提：Norm 段须真的在场");
-		assert.match(r.text, /【事实规范 · active Norm/, "注入面须含事实规范段");
-	} finally {
-		await rm(withNorms, { recursive: true, force: true });
-	}
-});
 
 test("22 §12：事实源不可读时基线路径须如实披露，而不是静默留空", async () => {
 	const project = await mkdtemp(join(tmpdir(), "ldvh-baselineunreadable-"));
@@ -1830,67 +1804,6 @@ test("22 §12：事实源不可读时基线路径须如实披露，而不是静�
 // （不带命中理由、不占 limit 名额、必须自证不证明适用）。
 // ---------------------------------------------------------------------------
 
-test("L0 常驻：ADR 与事实规范全量列出，经验改为按需一行（2026-11-11 Human 决定）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// **预算须足以容下全量**（2026-11-04 修）。本用例守的是「全量」这一语义，
-	// 不是「10K 档够不够」——原先写死 budgetBytes: 10240，语料增长到 50 条
-	// Pitfall 后该档只能容 49 条（实测 shown/total = 49/50），于是用例转红，
-	// 而产品行为完全正确：按字节算确实装不下，段尾也如实报了「仅容前 49 条」。
-	// 这与账本里「语料增长致写死规模的断言转红」（friction-943940d6）同一形态。
-	// 改用「足够大」的预算（51200 = 50K 档），让用例只判定「全量是否列全」；
-	// 预算档位本身的让位行为由下面几条专门用例守（它们才该用紧预算）。
-	//
-	// 迁到合成语料（2026-11-15，审查体 M8）：本仓 ADR 已全数 retired（`8055c813`），
-	// 原用例用 ROOT 时「ADR 段须在」的前提不成立而转红。本条钉的是「三段次序 +
-	// 事实规范全量列出 + 经验转按需行」这一注入形态，与语料是哪一份无关，故用
-	// 受控合成语料（含 2 条 active ADR + 2 条 Norm + 3 条 Pitfall）钉住它。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-l0-full-"));
-	try {
-		await seedFactCorpus(project, { adrCount: 2, pitfallCount: 3 });
-		const r = await buildRecallInjection({ userText: "修改 合成决策基线条目 相关的实现", projectRoot: project, limit: 99, budgetBytes: 51200 });
-		assert.equal(r.inject, true);
-		// ADR 段（既有段头，形状不变）。
-		assert.match(r.text, /【决策基线 · active ADR/, "ADR 段须在");
-		// 事实规范段：Human 2026-11-11 明确「事实规范的索引不能减少」，故仍须常驻且全量。
-		// 段头措辞 2026-11-15 订正为 F1（术语订正，见 34 §8.4「分层归属」）。
-		assert.match(r.text, /【事实规范 · active Norm（27 §10 F1 常驻枚举）】/, "事实规范段须在");
-		// **经验段已不再逐条常驻**（2026-11-11 Human 决定：「经验应该是按需给出索引」）。
-		// 旧断言 `【经验 · active Pitfall（23 §12 L0 枚举）】` 已作废——它守的是被
-		// 那次决定改掉的行为，保留它会迫使实现与规范背离。此处按段头**现行措辞**
-		// 钉住「逐条常驻的段头形态不得出现」（若仍用旧 L0 文案，doesNotMatch 会因
-		// 永不匹配而退化成恒真空断言）。经验只以按需行（`23 §12 按需索引`）出现。
-		assert.doesNotMatch(r.text, /【经验 · active Pitfall（23 §12 F1 枚举）】/, "经验不应再逐条常驻");
-		const onDemand = r.text.split("\n").find((l) => l.includes("23 §12 按需索引"));
-		assert.ok(onDemand, "经验按需入口行须在（否则「有多少条」无从得知，34 §12 三态不可分辨）");
-		// 总数须真实：与数据层枚举的 pitfall 计数一致。
-		const pitfallCount = r.result.l0Enumeration.pitfallTotal;
-		assert.ok(Number.isInteger(pitfallCount) && pitfallCount >= 0, "须给出经验总数");
-		assert.equal(pitfallCount, 3, "经验总数须与合成语料一致（3 条）");
-		assert.match(onDemand, new RegExp(`共 ${pitfallCount} 条`), `按需行须给出真实总数（期望 ${pitfallCount}）`);
-		// 入口须可用（34 §8.4 第 2 项）：工具名真实存在。
-		assert.match(onDemand, /ldvh_pitfall_list/, "须给出取全量的真实入口");
-		// 不得声称已核对（34 §8.4 第 3 项）。
-		assert.doesNotMatch(onDemand, /已检查|已核对|无相关/, "按需行不得声称已核对");
-		// 次序：ADR → 事实规范 → 经验按需行（经验排在末位，与「让位最先行」一致）。
-		const adrAt = r.text.indexOf("【决策基线");
-		const normAt = r.text.indexOf("【事实规范");
-		const pitfallAt = r.text.indexOf("【经验 · active Pitfall（23 §12 按需索引）");
-		assert.ok(adrAt < normAt && normAt < pitfallAt, `次序须为 ADR → 事实规范 → 经验按需行（实测 ${adrAt}/${normAt}/${pitfallAt}）`);
-		// 全量：事实规范段须与数据层一致，且真的列全。
-		const segments = r.result.l0Enumeration.segments;
-		assert.deepEqual(segments.map((s) => s.type), ["norm"], "数据层常驻段只剩 norm（ADR 由 decisionBaseline 承载，经验转按需）");
-		for (const segment of segments) {
-			assert.equal(segment.yielded, false, `${segment.type} 段在默认档不应让位`);
-			assert.equal(segment.shown, segment.total, `${segment.type} 段须列全量（${segment.shown}/${segment.total}）`);
-		}
-		// 元规范目录不得出现（Human 明确区分：那是元规范，不是事实规范）。
-		assert.ok(!r.text.includes("【规范目录"), "元规范（specs/）的标题目录不得出现在注入面");
-		// 事实规范带 direction_key（27 §10 F1 口径：遵守预检的稳定入口）。
-		assert.match(r.text, /· 合成方向规范甲（fixture-direction-alpha）/, "Norm 条目须带 direction_key");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
 
 // 34 §8.1 适用识别（2026-11-15 Human 决定改订）：索引行只有标题+direction_key
 // 时，AI 无法据此判断「哪份规范在管当次事项」，只能凭标题猜或额外调一次工具。
@@ -1900,54 +1813,6 @@ test("L0 常驻：ADR 与事实规范全量列出，经验改为按需一行（2
 //
 // 本用例此前钉的是被本次决定**推翻**的旧契约（「只给方法与入口，不带摘录」），
 // 故按新契约重写；旧断言不得保留（保留会迫使实现与规范背离）。
-test("L0 常驻：事实规范须 inline 定位摘录，段尾承接消费指令（2026-11-15 Human 决定）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// 存量载体在改写为两句契约前定位机械导不出（27 §8 fail-closed），故本用例用
-	// 受控合成语料钉行为——被测对象是代码，不是仓库语料态（见 helpers 的说明）。
-	const project = await mkdtemp(join(tmpdir(), "ldvh-normexcerpt-"));
-	try {
-		const seeded = await seedFactCorpus(project, { adrCount: 0, pitfallCount: 0 });
-		const r = await buildRecallInjection({
-			userText: "把 34 号规范改名成双源召回",
-			projectRoot: project,
-			limit: 99,
-			budgetBytes: 51200,
-		});
-		assert.equal(r.inject, true);
-		assert.match(r.text, /【事实规范 · active Norm/, "事实规范段须在");
-		// 每条 Norm 的两句定位都须在场（what + when）。
-		const segment = r.result.l0Enumeration.segments.find((s) => s.type === "norm");
-		assert.equal(segment.shown, segment.total, "全部 active Norm 的标题须在场");
-		assert.equal(segment.excerptShown, segment.total, "预算充足时全部摘录须附上（不得降级）");
-		assert.equal(segment.excerptOmitted, 0);
-		assert.equal(segment.excerptUnavailable, 0);
-		for (const norm of [
-			{ title: "合成方向规范甲", governs: "本方向管合成语料甲方向的准入与边界", when: "改动合成语料甲的实现前查阅本规范" },
-			{ title: "合成方向规范乙", governs: "本方向管合成语料乙方向的发布门禁", when: "执行合成语料乙的发布动作前查阅本规范" },
-		]) {
-			assert.match(r.text, new RegExp(`· ${norm.title}（`), `「${norm.title}」标题行须在`);
-			assert.ok(r.text.includes(norm.governs), `「${norm.title}」的管什么句须 inline 在场`);
-			assert.ok(r.text.includes(norm.when), `「${norm.title}」的何时查阅句须 inline 在场`);
-			void seeded;
-		}
-		// 摘录行形态：`↳ ` 引导（与候选卡摘录同构，读者一眼认出是派生视图）。
-		assert.match(r.text, /^ {2}↳ 管什么：/m, "摘录行须以 ↳ 引导并标注「管什么」");
-		assert.match(r.text, /｜ 何时查阅：/, "两句须在同一行内以分隔符并列");
-		// 段尾承接消费指令：不再指向 ldvh_norm_list 取定位。
-		assert.match(r.text, /命中先读全文核对/, "段尾须给出「先展开核对再行动」的消费指令");
-		assert.doesNotMatch(r.text, /定位用 ldvh_norm_list/, "摘录已 inline，段尾不得再指向 list 取定位");
-		// 仍须自证「不证明适用」（34 §8.4 第 3 项、34 §13）。
-		assert.match(r.text, /索引不证明适用/, "段尾须自证未判定适用");
-		assert.equal(r.result.provesApplicability, false);
-		// 纯读取回合（无词法候选）同样要有摘录与消费指令——那正是最需要索引的回合。
-		const pure = await buildRecallInjection({ userText: "继续", projectRoot: project, limit: 99, budgetBytes: 10240 });
-		assert.equal(pure.inject, true, "纯读取回合须注入常驻段");
-		assert.ok(pure.text.includes("本方向管合成语料甲方向的准入与边界"), "纯读取回合也须 inline 定位摘录");
-		assert.match(pure.text, /命中先读全文核对/, "纯读取回合也须给出消费指令");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
 
 // 摘录降级不得静默（02 §9.1 不得静默截断；34 §12 三态可分辨）。
 // 「这条没有摘录」有两种成因，注入面必须能分辨：预算放不下（可恢复）vs
@@ -2002,157 +1867,12 @@ test("L0 常驻：定位摘录降级须留痕，且「不静默」不变量在�
 // 标题行必出（Human 2026-11-15 决定 + 独立复核 MAJOR-2）：
 // 摘录全数降级时，**标题一行都不能少**——标题是「常驻不减」与 F1 全量枚举的
 // 载体；而降级本身必须被披露（读者要能分辨「没有定位」与「定位被挤掉」）。
-test("L0 常驻：摘录全数降级时标题仍全部在场，且降级必披露", async () => {
-	const project = await mkdtemp(join(tmpdir(), "ldvh-normtitles-"));
-	try {
-		const norms = [];
-		for (let i = 1; i <= 20; i += 1) {
-			norms.push({
-				title: `合成方向规范${String(i).padStart(2, "0")}`,
-				directionKey: `fixture-direction-${String(i).padStart(2, "0")}`,
-				governs: "本方向管合成语料第${i}号方向的准入边界与例外处理口径。".replace("${i}", String(i)),
-				whenToRead: "改动合成语料第${i}号方向前查阅本规范。".replace("${i}", String(i)),
-			});
-		}
-		await seedFactCorpus(project, { adrCount: 0, pitfallCount: 0, norms });
-		const r = await buildRecallInjection({
-			userText: "把 34 号规范改名成双源召回",
-			projectRoot: project,
-			limit: 99,
-			budgetBytes: 10240,
-		});
-		const segment = r.result?.l0Enumeration?.segments?.find((s) => s.type === "norm");
-		assert.ok(segment, "Norm 段须在");
-		assert.notEqual(segment.yielded, true, "默认档下 20 条不该整段让位");
-		assert.equal(segment.shown, 20, "标题行须全部在场——摘录降级不得牵连标题");
-		assert.ok(segment.excerptOmitted > 0, "本档下摘录须确有降级（否则本用例失去意义）");
-		assert.equal(segment.excerptDisclosed, true, "降级必须被披露");
-		// 降级计数在**段尾**里（预留空间内）——读者据此能分辨「没有定位」与
-		// 「定位摘录被挤掉」。
-		assert.match(
-			segment.note ?? "",
-			/定位摘录未附出/,
-			`段尾须说明摘录被降级。note=${segment.note}`,
-		);
-		// 标题行确实全在场（逐条核对，不是只看计数）。
-		for (const norm of norms) {
-			assert.ok(
-				r.text.includes(norm.title),
-				`标题「${norm.title}」须在场`,
-			);
-		}
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
 
 // 摘录降级时**标题一行都不牺牲**，且降级计数进**段尾**（预留空间内，必然放得下）。
 // （独立复核 MAJOR-2：原实现会为腾披露位置撤掉标题，且降级静默；中间方案
 // 「披露放不下就整段让位」更糟——整段让位会让纯读取回合连基线都不注入。）
-test("L0 常驻：低档下标题不牺牲、摘录全数降级且段尾带计数", async () => {
-	const project = await mkdtemp(join(tmpdir(), "ldvh-normdegraded-"));
-	try {
-		const norms = [];
-		for (let i = 1; i <= 12; i += 1) {
-			norms.push({
-				title: `合成方向规范${String(i).padStart(2, "0")}`,
-				directionKey: `fixture-direction-${String(i).padStart(2, "0")}`,
-				governs: "本方向管合成语料第${i}号方向的准入边界与例外处理口径。".replace("${i}", String(i)),
-				whenToRead: "改动合成语料第${i}号方向前查阅本规范。".replace("${i}", String(i)),
-			});
-		}
-		await seedFactCorpus(project, { adrCount: 0, pitfallCount: 0, norms });
-		const r = await buildRecallInjection({
-			userText: "把 34 号规范改名成双源召回",
-			projectRoot: project,
-			limit: 99,
-			budgetBytes: 2400,
-		});
-		const segment = r.result?.l0Enumeration?.segments?.find((s) => s.type === "norm");
-		assert.ok(segment, "Norm 段须在");
-		assert.notEqual(segment.yielded, true, "低档下也不该整段让位（宁降摘录也不丢标题）");
-		// **标题只因「自己放不下」而少，不会因摘录降级而少**（27 §10 标题行必出）。
-		// 少了就必须有截断段尾说明——标题被撤是「未列全」，不是静默。
-		if (segment.shown < 12) {
-			assert.match(segment.note ?? "", /本档预算仅容前 \d+ 条，共 12 条/, "标题被撤须由截断段尾说明");
-		}
-		assert.ok(segment.excerptOmitted > 0, "低档下摘录须确有降级（否则本用例失去意义）");
-		// 计数自洽：在场标题数 = 已附摘录 + 降级 + 不可用。
-		assert.equal(
-			segment.shown,
-			segment.excerptShown + segment.excerptOmitted + segment.excerptUnavailable,
-			"计数须互斥且自洽",
-		);
-		assert.equal(segment.excerptDisclosed, true, "降级必须被披露");
-		assert.match(segment.note ?? "", /定位摘录未附出/, "段尾须带降级计数");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
 
 // 定位机械导不出（正文不合 27 §8 两句契约）须显式披露，且不得说成「没有定位」。
-test("L0 常驻：定位导不出须披露为「机械导不出」，不得静默也不得说成没有", async () => {
-	const project = await mkdtemp(join(tmpdir(), "ldvh-normunavail-"));
-	try {
-		// 造一份旧形态载体：定位段只有一段「管什么」、且夹带不管什么清单（多段）。
-		const normDir = join(project, "ldvh-base", "norms");
-		await mkdir(normDir, { recursive: true });
-		const uid = "dddddddd-0001-4ddd-8ddd-000000000001";
-		await writeFile(
-			join(normDir, `norm-${uid}.md`),
-			[
-				"---",
-				"title: 旧形态方向规范",
-				"status: active",
-				"direction_key: legacy-shape-direction",
-				`object_uid: ${uid}`,
-				"fact_type_key: norm",
-				"created_at: 2026-11-15T00:00:00.000Z",
-				"---",
-				"",
-				"# 旧形态方向规范",
-				"",
-				"## 方向定位与适用范围",
-				"",
-				"**管什么**：本方向管旧形态事项。",
-				"",
-				"**不管什么**：其它事项归别处。",
-				"",
-				"## 核心规则体系",
-				"",
-				"1. 规则。",
-				"",
-				"## 约束与反模式",
-				"",
-				"1. 禁止项。",
-				"",
-				"## 验证与遵从性检查",
-				"",
-				"核对方式。",
-				"",
-			].join("\n"),
-			"utf8",
-		);
-		const r = await buildRecallInjection({
-			userText: "把 34 号规范改名成双源召回",
-			projectRoot: project,
-			limit: 99,
-			budgetBytes: 51200,
-		});
-		const segment = r.result.l0Enumeration.segments.find((s) => s.type === "norm");
-		assert.equal(segment.excerptUnavailable, 1, "多段定位须判为机械导不出");
-		assert.equal(segment.excerptShown, 0, "导不出时不得外发半套摘录");
-		// 标题仍须在场（导不出定位 ≠ 该份规范不存在）。
-		assert.match(r.text, /· 旧形态方向规范（legacy-shape-direction）/, "标题与方向键仍须在场");
-		// 披露须在，且措辞不得让读者读成「这份没有定位」。
-		assert.match(r.text, /机械导不出/, "须显式披露为机械导不出");
-		assert.match(r.text, /27 §8/, "须回指书写契约依据");
-		assert.match(r.text, /不表示该份没有定位/, "须否定「没有定位」的误读");
-		assert.match(r.text, /ldvh_norm_read/, "须给出读正文的入口");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
 
 // MAJOR-1 回归守卫：断言「全量版段尾字节 ≤ 通用段尾字节」这一机械不变量。
 // 段尾由 planL0Enumeration 取 max(截断版, 全量版) 预留，故只要全量版不比通用
@@ -2167,93 +1887,6 @@ test("L0 全量段尾不得长于通用段尾（份额守卫）", () => {
 	);
 });
 
-test("L0 三段：索引不得混入候选语汇，也不得占 limit 名额", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 10240 });
-	const lines = r.text.split("\n");
-	const sliceOf = (header) => {
-		const start = lines.findIndex((l) => l.startsWith(header));
-		assert.ok(start !== -1, `${header} 段须存在`);
-		const rows = [];
-		let i = start + 1;
-		while (i < lines.length) {
-			// **摘录行不得打断收集**（2026-11-15）：Norm 段的定位摘录行以 `  ↳ `
-			// 前缀插在标题行之后。原循环只认 `· ` 前缀，遇摘录行即停——实测只会
-			// 收集到第 1 条标题，其余 4 条的语汇断言**静默失效**（守卫形同虚设，
-			// 与本仓「否定式守卫缺正控制致假通过」同族）。故跳过摘录行继续收集。
-			if (lines[i].startsWith("· ")) { rows.push(lines[i]); i += 1; continue; }
-			if (lines[i].startsWith("  ↳ ")) { i += 1; continue; }
-			break;
-		}
-		return rows;
-	};
-	// 常驻段只剩「事实规范」——经验已于 2026-11-11 改为按需一行（见上一条用例）。
-	// 原循环同时检查经验段，现在经验段不存在，改由下方单独断言按需行的语汇。
-	for (const [header, name] of [["【事实规范", "事实规范"]]) {
-		const rows = sliceOf(header);
-		assert.ok(rows.length > 0, `${name}段须有条目`);
-		for (const row of rows) {
-			// 判据是**命中理由的形态**（`…命中：<依据>`），不是「标题里恰好含「命中」
-			// 二字」——本仓确有一条经验的标题就是「长标识符人工转写致删除命中失败」，
-			// 按字面判会把合法标题判成违规（假阳性）。
-			assert.ok(!/命中[:：]/.test(row), `${name}段条目不得带命中理由（那是候选的语汇）：${row}`);
-			assert.ok(!row.includes("（specs/"), `${name}段条目不得带路径：${row}`);
-			assert.ok(!row.includes("ldvh-base/"), `${name}段条目不得带路径：${row}`);
-		}
-	}
-	// 经验按需行同样须是索引语汇，不得混入候选用词。
-	const onDemand = lines.find((l) => l.includes("23 §12 按需索引"));
-	assert.ok(onDemand, "经验按需行须存在");
-	assert.ok(!/命中[:：]/.test(onDemand), "按需行不得带命中理由");
-	assert.ok(!onDemand.includes("（specs/") && !onDemand.includes("ldvh-base/"), "按需行不得带路径");
-	// **元规范（specs/）不得进入常驻索引段**（34 §8.4：「元规范不进入本机制」——
-	// 它已有 01 §10 的 L0–L4 通道与 ldvh_read_specification_candidates）。
-	//
-	// 本条原先住在「L0 常驻：ADR 与事实规范全量列出」用例里，随该用例迁到合成
-	// 语料后**失去了被测语料**（合成项目没有 specs/），等于被静默删掉。故补回到
-	// 这条用 ROOT 的用例——只有真实仓库语料才守得住它，且主题同为「索引段的
-	// 语汇边界」。用「· 34 双源召回系统规范」这一具体形态断言：元规范标题若被
-	// 列成索引行，必然以 `· ` 前缀出现（与 Norm 条目同形）。
-	assert.ok(!r.text.includes("· 34 双源召回系统规范"), "元规范标题不得作为常驻索引列出（34 §8.4）");
-	assert.ok(!r.text.includes("【规范目录"), "元规范（specs/）的标题目录不得出现在注入面");
-	// 索引不占 limit：候选条数仍由 limit 决定，与索引段无关。
-	//
-	// **对照组必须与注入路径同参数**（2026-11-04 修，friction-943940d6 的同族形态）：
-	// 旧断言直接调 `recallForAction({action, root, limit, budgetBytes})`，而
-	// `buildRecallInjection` 还传了 `excludeTypes: INJECTION_EXCLUDED_TYPES` 与
-	// `factSelection`（分节次序 + 每类型名额）。两个入口的**排除面与选择规则都不同**，
-	// 它们「条数相等」只是当时语料组成下的巧合：注入路径排除 spark 后由 adr/norm/
-	// pitfall/friction/research 填满 8 席，直调路径则让 6 条 spark 挤进来，
-	// 恰好也是 8。语料一变（本轮只是把几条账目从 open 改成 resolved）巧合即破——
-	// 红的不是被测行为，是断言把「同一批候选」当成了「同一套选择规则」。
-	//
-	// 现在显式传同一套参数，比较的才是本用例声称的那件事：**索引段的存在不改变
-	// limit 的语义**。若注入路径真的让索引占用名额，两侧仍会不等。
-	const r2 = await recallForAction({
-		action: "把 34 号规范改名成双源召回",
-		root: ROOT,
-		excludeTypes: INJECTION_EXCLUDED_TYPES,
-		limit: 99,
-		factSelection: { order: FACT_SECTION_ORDER, quotaByType: QUOTA_BY_TYPE, total: 99 },
-		budgetBytes: 10240,
-	});
-	assert.equal(r.result.specs.length, r2.specs.length, "L0 索引不得改变规范候选条数");
-	assert.equal(r.result.facts.length, r2.facts.length, "L0 索引不得改变事实候选条数");
-	// **正向分辨力**（2026-11-04 补）：仅靠「两侧条数相等」会被「两边都错成同一样」
-	// 满足——实测把注入路径的 `limit: totalQuota` 改成 `totalQuota - 3` 后，
-	// 上面两条相等断言**仍然全绿**（limit=99 时减 3 仍远大于实际 8 条，改动不可见）。
-	// 故另须在**名额真正吃紧**的档位钉一次：默认档总名额为 `FACT_QUOTA_TOTAL`
-	// （3 条），此时 L0 段若占了名额，事实候选必少于 3 条。
-	const tight = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, budgetBytes: 10240 });
-	assert.equal(
-		tight.result.facts.length,
-		FACT_QUOTA_TOTAL,
-		`默认档须交付满 ${FACT_QUOTA_TOTAL} 条事实候选，实测 ${tight.result.facts.length}——少一条即说明 L0 索引段占用了名额`,
-	);
-	// 且该档位下 L0 段确实在场（否则上一条会因为「没有索引」而空过）。
-	assert.match(tight.text, /【事实规范 · active Norm/, "默认档下事实规范段须在场");
-	assert.match(tight.text, /【经验 · active Pitfall/, "默认档下经验段须在场");
-});
 
 test("L0 常驻：单纯读取回合也须带出 ADR／事实规范与经验按需行（不依赖词法命中）", async () => {
 	// 这是本节决定的实质：常驻段的可见性不得取决于当回合用词。旧实现里 Norm 与
@@ -2270,43 +1903,7 @@ test("L0 常驻：单纯读取回合也须带出 ADR／事实规范与经验按�
 	}
 });
 
-test("L0 三段：预算不足时逐段让位并留下可见痕迹，不得静默消失", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// 800 字节档：固定声明已占大半，三段整段让位。静默消失就是「声称全量、
-	// 实际零条」，与 02 §9.1「截断必须可观察」相反。
-	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 800 });
-	assert.equal(r.inject, true);
-	assert.ok(!r.text.includes("【经验"), "让位时不得输出空段头");
-	assert.match(r.text, /(基线 \d+ 条未展开|事实规范与经验 L0)/, "让位须留痕迹");
-	assert.match(r.text, /L0/, "痕迹须点明是 L0 让位");
-	// 数据层仍如实记载「有多少条没展开」——让位不等于丢弃。
-	const segments = r.result.l0Enumeration.segments;
-	assert.ok(segments.every((s) => s.yielded === true || s.total === 0), "该档两段都应判让位");
-	assert.ok(segments.some((s) => s.total > 0), "前提：本仓这两类确有对象");
-});
 
-test("L0 常驻：经验不占索引份额，故不存在「经验先让位」这一段序（2026-11-11 改订）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	// **本条守的是改订后的新事实，而不是删掉旧断言**：
-	// 旧契约里让位次序是「经验 → 事实规范 → ADR（最后被满足的最先让出）」，
-	// 那时经验是常驻段之一。2026-11-11 Human 决定把经验改为按需通道后，
-	// **经验不再参与索引段的份额与让位**——它没有可让的份额。
-	// 若将来有人把经验加回 `L0_SEGMENT_ORDER`，本条会转红（因为 segments 里
-	// 会重新出现 pitfall），提醒他先去核 34 §8.4 的现行文本。
-	const r = await buildRecallInjection({ userText: "提交这批改动", projectRoot: ROOT, limit: 99, budgetBytes: 2000 });
-	assert.equal(r.inject, true);
-	const segments = r.result.l0Enumeration.segments;
-	assert.equal(
-		segments.find((s) => s.type === "pitfall"),
-		undefined,
-		"经验不属常驻段，不得出现在索引段的份额/让位序列里",
-	);
-	// 事实规范段在 2000 档仍应列出（它仍是常驻段，且份额很小）。
-	const norm = segments.find((s) => s.type === "norm");
-	assert.equal(norm?.yielded, false, "事实规范段在该档仍应列出");
-	// 经验的总数仍须可得知——不占份额不等于不披露（34 §8.4 第 1 项）。
-	assert.ok(Number.isInteger(r.result.l0Enumeration.pitfallTotal), "经验总数须仍可取得");
-});
 
 test("34 §8.2 第 3 项：交付了候选就必须同时给出消费方法（判据是「有候选」，不是预算档位）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;

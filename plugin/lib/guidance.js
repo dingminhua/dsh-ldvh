@@ -32,7 +32,8 @@
 //      gate, reject/abort pass-through and ownRequest stub are all in place
 //      and tested before content ever flows.
 
-import { buildGuidance, guidanceSizeAlerts, reportGuidanceSize } from "./guidance-budget.js";
+import { buildGuidance, guidanceSizeAlerts, reportGuidanceSize, GUIDANCE_CHAR_BUDGET } from "./guidance-budget.js";
+import { buildNormDirectoryForRoot } from "./norm-directory.js";
 import { currentUserText } from "./recall-injection.js";
 import { GUIDANCE_SECTION_NAME, migrationLineFor, noticeTextFor } from "./guidance-text.js";
 import { REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
@@ -119,6 +120,32 @@ export function createAssembleHandler(agent, { resolve, syncTools, recordScope }
       const migrationLine = migrationLineFor(lastState, scope.state);
       text = `${migrationLine}\n${text}`;
       noticeText = `${migrationLine}\n${noticeText}`;
+    }
+    // **事实规范目录**（2026-11-15，Human 决定）：目录从召回注入块搬到**引导层**
+    // （宿主框架层，每回合组装、不受召回预算约束、措辞由本插件负责）。原来它在
+    // 召回块里与候选区共用一套「命中不等于适用」的免责声明，而目录是按类型枚举
+    // 的、不是候选——那套措辞把「每回合在场」读成了「列着但未必适用」。
+    //
+    // **体量口径**：引导层有硬预算（`GUIDANCE_CHAR_BUDGET`），超限是必停而非
+    // 警告，故目录按**剩余额度**装填；放不下的规范**不静默丢弃**（目录尾注
+    // 披露条数与全量入口）。
+    //
+    // **不进 notice 行**：notice 是给 Human 看的可见行，目录是给模型读的框架层
+    // 内容，两者受众不同。
+    if (scope.state === "governed") {
+      const budgetChars = GUIDANCE_CHAR_BUDGET.governed;
+      const remaining = budgetChars - text.length - 1;
+      const projectRoot = scope.project?.path ?? cwd;
+      const directory = await buildNormDirectoryForRoot({ root: projectRoot, budgetChars: remaining });
+      if (directory.text !== "") {
+        text = `${text}\n${directory.text}`;
+        scope.normDirectory = {
+          shown: directory.shown,
+          total: directory.total,
+          truncated: directory.truncated,
+          unavailable: directory.unavailable,
+        };
+      }
     }
     if (lastState === null) lastState = scope.state;
     else if (lastState !== scope.state) lastState = scope.state;

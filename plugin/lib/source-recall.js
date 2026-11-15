@@ -3740,8 +3740,13 @@ export async function recallForAction(input = {}) {
   // 经验已不在其中——它按需而不常驻。但它仍须给出真实总数（`34 §8.4` 第 1 项），
   // 故此处按与枚举同源的默认状态集另行计数，口径一致、不引入第二种判定。
   const l0PitfallTotal = countActivePitfalls(scopedFacts);
+  // **Norm 段不进召回计划**（2026-11-15，Human 决定）：规范目录搬到**引导层**
+  // （`norm-directory.js`，宿主框架层、每回合组装、不受召回预算约束）。召回块里
+  // 不再并列同一份目录——两份目录会形成第二权威，且召回块那份仍带候选区的
+  // 「命中不等于适用」措辞（对按类型枚举的目录是误述）。ADR 段照旧由决策基线
+  // 承载、经验照旧按需，故此处只余空计划：召回预算全部回到候选区。
   const l0Plan = planL0Enumeration(
-    l0AllSegments.filter((segment) => segment.type !== "adr"),
+    l0AllSegments.filter((segment) => segment.type !== "adr" && segment.type !== "norm"),
     budgetBytes,
     RENDER_FIXED_OVERHEAD_BYTES + baselineBytes,
   );
