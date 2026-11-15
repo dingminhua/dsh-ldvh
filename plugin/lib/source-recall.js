@@ -66,6 +66,7 @@ import { parse as parseYaml } from "yaml";
 // **机器可读召回判据表**（02 §12.4）：类型通道（类型点名／核心语义字段／
 // 关系展开）的唯一输入。解析失败的类型一律停用机器判据，不回落默认值。
 import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
+import { normPositioningOf, positioningExcerptLine } from "./norm-positioning.js";
 
 // ---------------------------------------------------------------------------
 // 分词：中文二元组 + ASCII 词，零依赖
@@ -1052,11 +1053,20 @@ export const PITFALL_ON_DEMAND_ENTRYPOINT = "ldvh_pitfall_list";
  */
 export const PITFALL_ON_DEMAND_HEADER = "【经验 · active Pitfall（23 §12 按需索引）】";
 
-/** 各段的段头（逐字含类型与 active 口径；`adr` 沿用既有措辞以保引用稳定）。 */
+/**
+ * 各段的段头（逐字含类型与 active 口径；`adr` 沿用既有措辞以保引用稳定）。
+ *
+ * **措辞用 F1 不用 L0**（2026-11-15 术语订正，34 §8.4「分层归属」）：本段是
+ * **事实源侧的 F1 常驻枚举**，不是规范源侧的 L0 发现层——`02 §9.1` 明写两套
+ * 分层「不能混用」。注入面是模型每回合读的文本，故可见措辞必须与规范一致。
+ * **内部常量名仍为 `L0_*`**：它们是标识符、不被读者看见，全量改名会波及
+ * 变异锚点与数十处测试断言而无行为收益；此处以注释登记对应关系，避免读者
+ * 把「常量名 L0」读成「分层 L0」。
+ */
 export const L0_SEGMENT_HEADERS = Object.freeze({
   adr: "【决策基线 · active ADR（22 §12 义务披露）】",
-  norm: "【事实规范 · active Norm（27 §10 L0 枚举）】",
-  pitfall: "【经验 · active Pitfall（23 §12 L0 枚举）】",
+  norm: "【事实规范 · active Norm（27 §10 F1 常驻枚举）】",
+  pitfall: "【经验 · active Pitfall（23 §12 F1 枚举）】",
 });
 
 /** 各段的取全量入口（段尾披露「另有 N 条未列出」时一并给出）。 */
@@ -1085,25 +1095,33 @@ export const L0_SEGMENT_ENTRYPOINTS = Object.freeze({
  */
 export const L0_SHARE_DIVISOR = 3;
 
-/** 段尾声明（无条目被省略时）。刻意压短：它每回合常驻。 */
-export const L0_FULL_NOTE = "（L0 索引：只标「有哪些」，不证明适用。）";
+/**
+ * 段尾声明（无条目被省略时）。刻意压短：它每回合常驻。
+ * 措辞用「索引」不点分层名（F1／L0）：它是自证「只标有哪些、不证明适用」，
+ * 分层归属由段头承接（见 `L0_SEGMENT_HEADERS` 的术语订正注释）。
+ */
+export const L0_FULL_NOTE = "（索引：只标「有哪些」，不证明适用。）";
 
 /**
- * Norm 段的段尾声明：与通用段尾等长的「方向定位取用入口」改写。
+ * Norm 段的段尾声明：摘录已 inline，故不再指向 `ldvh_norm_list` 取定位
+ * （内容就在眼前，再让读者去别处取会自相矛盾——审查体 MINOR 6）。
  *
- * 索引行只有标题与方向键，AI 仅凭标题无法判断哪份规范在管当次事项；
- * `ldvh_norm_list` 返回每份的方向定位摘录（`positioning`），据此判断该展开哪份，
- * 再用 `ldvh_norm_read` 读详情。本行只给方法与入口，不携带定位内容本身——
- * 故仍是 L0 索引语汇，不带摘录、不构成第二规则源，也不把「看得见」说成
- * 「已判定适用」。展开详情的下一步由 `ldvh_norm_list` 工具摘要与 27 §10 承接。
+ * 改为承接**消费指令**：摘录只用于判断「该读哪份」，命中者须先展开正文
+ * 核对再行动。这一句是 Human「让 AI 在需要的时候可以先去查看对应的规范」
+ * 的落点——注入的是判断材料，不是「已判定适用」的结论（34 §13），也不是
+ * 「读了照做」的保证（常驻注入只提高概率，不构成机械保障）。
  *
- * **长度硬约束**：必须 ≤ `L0_FULL_NOTE`（60B）。`planL0Enumeration` 的段尾预算取
- * max(截断版, 全量版)；本句若在 60B 与 102B 之间，omitted=0 档虽不超截断版预留，
- * 却仍比基线通用段尾多出字节，会在临界预算档（实测 2070）挤掉 1 条 spec 候选。
- * 故本句压到 60B：与通用段尾等长、完全不挤候选，同时守住 §8.4 第 3 项的
- * 「L0 索引/不证明适用」自证并点名 `ldvh_norm_list` 入口。修改须同步量字节。
+ * **长度硬约束：≤ `L0_FULL_NOTE`（当前 57B），不得更长。**
+ * `planL0Enumeration` 的段尾预算取 max(截断版, 全量版)，故写长不会静默超
+ * 预算——但每多一字节就少一字节候选区。「Norm 全量段尾不得长于通用段尾」是
+ * 一条真实不变量（份额守卫用例钉着它），故本句压到 ≤ 通用段尾：既承接消费
+ * 指令，又完全不吃候选份额。修改须同步量字节并跑该守卫用例。
+ *
+ * 工具名不在本句里点名（点名 `ldvh_norm_read` 会超出该约束）：它已由摘录降级
+ * 披露行、`ldvh_norm_list` 工具摘要与 27 §10 义务召回段承接，此处只给
+ * 「先展开核对再行动」这个动作要求。
  */
-export const L0_NORM_NOTE = "（L0 索引不证明适用；定位用 ldvh_norm_list。）";
+export const L0_NORM_NOTE = "（索引不证明适用；命中先读全文核对。）";
 
 /**
  * **规划 L0 常驻枚举**（纯函数，字节账与渲染逐字同源）。
@@ -1113,11 +1131,25 @@ export const L0_NORM_NOTE = "（L0 索引不证明适用；定位用 ldvh_norm_l
  * 提前扣掉本段，否则候选会按「没有 L0 段」来装填，渲染时再挤进来——正是
  * 2026-10-25 基线落地时踩过的欠预留缺陷（实测多裁 2 条候选且裁剪原因归错）。
  *
+ * ── 两段装填：标题行必出、摘录可降级（2026-11-15，Human 决定）──────────────
+ *
+ * Norm 段每条有两个部件：标题行（`· 标题（direction_key）`）与定位摘录行
+ * （`  ↳ 管什么：… ｜ 何时查阅：…`）。**先保证全部标题行在场，再用剩余预算
+ * 逐条附摘录**。理由（审查体 M3）：拼成一行时预算不足会整行丢弃，连标题与
+ * direction_key 一起消失，与 `27 §10` 的 F1 全量枚举、`34 §8.4`「常驻不减」
+ * 直接冲突；分开后预算紧张只丢摘录——AI 仍知道有这份规范、仍可
+ * `ldvh_norm_read` 展开。
+ *
+ * 摘录被降级与定位不可导出是**两件不同的事**，分别计数披露：
+ *   · `excerptOmitted`——契约合规但预算放不下（可恢复：提高档位）；
+ *   · `excerptUnavailable`——正文不合 27 §8 书写契约，机械导不出（须改载体）。
+ * 二者都不得静默（`02 §9.1` 不得静默截断；`34 §12` 三态可分辨）。
+ *
  * 装填次序即 Human 指定的次序：ADR 先，其次 Norm；前一段装不下才
  * 轮到后一段。每段超出的部分如实计数披露（`02 §9.1` 不得静默截断）。
  * 经验已于 2026-11-11 移出本序列（`34 §8.4` 重订），改由按需行承载。
  *
- * @param {Array<{type: string, entries: string[], total: number}>} segments 按次序排好的常驻段
+ * @param {Array<{type: string, entries: string[], excerpts?: string[], total: number}>} segments 按次序排好的常驻段
  * @param {number|null} budgetBytes 当次注入预算；`null` = 调用方不设字节约束
  * @param {number} reserveBytes 已被固定开销占掉的字节
  * @returns {{segments: object[], bytes: number, yielded: boolean, note: string}}
@@ -1147,6 +1179,7 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
   if (hasBudget && budgetBytes < BASELINE_YIELD_BELOW_BYTES) return yieldAll();
   if (cap <= 0) return yieldAll();
 
+  const lineBytes = (line) => Buffer.byteLength(line, "utf8") + 1;
   let used = 0;
   const planned = [];
   for (const segment of ordered) {
@@ -1157,31 +1190,44 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
       planned.push({ type: segment.type, lines: [], total: 0, shown: 0, omitted: 0, bytes: 0, yielded: false });
       continue;
     }
-    const headerBytes = Buffer.byteLength(header, "utf8") + 1;
+    const headerBytes = lineBytes(header);
     // 段尾两版：全量版短，截断版要报「共几条、去哪儿取全量」。逐条装填时按
     // **最坏**那版判容量，装填完再取真实版本——宁可少列一条，不得列完才发现
     // 段尾放不下（那会静默超预算）。
-    // 全量版（尤其含方向定位入口的 L0_NORM_NOTE）必须 ≤ 截断版字节数，否则
-    // omitted=0 时实际渲染更长的段尾、却只按截断版扣预算，差额会静默挤掉候选区
-    // （实测 2070–2260 档 specs 少 1 条）。这里做机械守卫：超了就按「少列一条」
-    // 处理，而不是放宽预留（那会让 1500/1600 档整段让位）。
     const noteOf = (shown) =>
-      `（本档预算仅容前 ${shown} 条，共 ${total} 条；全量用 ${entry}。L0 索引不证明适用。）`;
+      `（本档预算仅容前 ${shown} 条，共 ${total} 条；全量用 ${entry}。索引不证明适用。）`;
     const fullNote = segment.type === "norm" ? L0_NORM_NOTE : L0_FULL_NOTE;
-    const truncNoteBytes = Buffer.byteLength(noteOf(total), "utf8") + 1;
-    const fullNoteBytes = Buffer.byteLength(fullNote, "utf8") + 1;
+    const truncNoteBytes = lineBytes(noteOf(total));
+    const fullNoteBytes = lineBytes(fullNote);
     // 守卫：取两版较长者预留。全量版若写长，表现为少列条目（不静默超预算），
     // 而非丢弃段尾——宁可少列一条的既有纪律。
     const worstNoteBytes = Math.max(truncNoteBytes, fullNoteBytes);
     // 连「段头 + 段尾 + 一条」都放不下 ⇒ 本段整段让位，痕迹由调用方并入披露行。
-    if (cap - used < headerBytes + worstNoteBytes + Buffer.byteLength(segment.entries[0] ?? "", "utf8") + 1) {
+    if (cap - used < headerBytes + worstNoteBytes + lineBytes(segment.entries[0] ?? "")) {
       planned.push({ type: segment.type, lines: [], total, shown: 0, omitted: total, bytes: 0, yielded: true });
       continue;
     }
+    // ── 第二段：定位摘录（标题行必出、摘录可降级）──────────────────────
+    //
+    // 逐条判定而非「全有或全无」：预算刚好够前几条摘录时，后面的降级并计数，
+    // 使「哪些条有定位、哪些条被降级」在数据层可观察（渲染层据此披露）。
+    const excerpts = Array.isArray(segment.excerpts) ? segment.excerpts : [];
+    const hasExcerpts = segment.type === "norm" && excerpts.length > 0;
+    const excerptDisclosureLine = (omittedCount, unavailableCount) => {
+      const out = [];
+      if (omittedCount > 0) {
+        out.push(`（事实规范另有 ${omittedCount} 条的**定位摘录**因本档预算不足未附出——标题与方向键仍全部在场，定位用 ${entry} 或 ldvh_norm_read 展开；提高档位（10 §5.3）可全量附上。）`);
+      }
+      if (unavailableCount > 0) {
+        out.push(`（事实规范另有 ${unavailableCount} 条的定位**机械导不出**——正文「方向定位与适用范围」段不合 27 §8 两句契约（管什么／何时查阅），须改写载体；**不表示该份没有定位**，用 ldvh_norm_read 读正文。）`);
+      }
+      return out;
+    };
+
     const kept = [];
     let segmentUsed = headerBytes + worstNoteBytes;
     for (const line of segment.entries) {
-      const size = Buffer.byteLength(line, "utf8") + 1;
+      const size = lineBytes(line);
       if (used + segmentUsed + size > cap) break;
       segmentUsed += size;
       kept.push(line);
@@ -1190,21 +1236,126 @@ export function planL0Enumeration(segments, budgetBytes, reserveBytes = 0) {
       planned.push({ type: segment.type, lines: [], total, shown: 0, omitted: total, bytes: 0, yielded: true });
       continue;
     }
+    const keptExcerpts = new Map();
+    for (let i = 0; i < kept.length; i += 1) {
+      const excerptLine = excerpts[i];
+      if (typeof excerptLine !== "string" || excerptLine === "") continue;  // 计数稍后统一重算
+      const size = lineBytes(excerptLine);
+      if (used + segmentUsed + size > cap) continue;
+      segmentUsed += size;
+      keptExcerpts.set(i, excerptLine);
+    }
+
+    // ── 降级披露与「不静默」不变量（2026-11-15 实测缺陷）──────────────────
+    //
+    // 「这条没有摘录」有两种成因，都不得静默（`02 §9.1` 不得静默截断；
+    // `34 §12` 三态可分辨）：
+    //   · excerptOmitted——契约合规但本档预算放不下（可恢复：标题仍在场，
+    //     提高档位即可全量附上）；
+    //   · excerptUnavailable——正文不合 27 §8 两句契约、机械导不出（须改写
+    //     载体；不表示该份没有定位）。
+    //
+    // **计数一律从当前状态重算，不增量维护**：驱逐会同时改变「在场标题」与
+    // 「已附摘录」，增量加减极易让两个计数重叠——实测 tier=2000 时
+    // `shown=4/5` 而 `excerptOmitted=5`，披露说「另有 5 条摘录未附出」而截断
+    // 段尾说「仅容前 4 条」，读者重复计数。重算保证四者互斥恒成立：
+    //   在场标题数 = 已附摘录 + 降级 + 不可用。
+    const recount = () => {
+      // **adr 段没有摘录这个部件**：`excerpts` 为空数组时不得把标题全数报成
+      // 「摘录降级」——那会让 ADR 段每回合多出一行毫无意义的披露，并把
+      // 「本类没有摘录概念」与「摘录被降级」混成一件事（34 §12 三态纪律）。
+      if (!hasExcerpts) return { unavailable: 0, omitted: 0 };
+      let unavailable = 0;
+      for (let i = 0; i < kept.length; i += 1) {
+        const excerptLine = excerpts[i];
+        if (typeof excerptLine !== "string" || excerptLine === "") unavailable += 1;
+      }
+      return { unavailable, omitted: kept.length - keptExcerpts.size - unavailable };
+    };
+
+    // 初版把披露行「先装填、放不下就不出」，实测 tier=2000：5 条标题全在场、
+    // 摘录全被降级、披露行放不下、且 omitted=0 故截断段尾也不出现——读者只看到
+    // 5 行光标题，**完全不知道定位摘录存在却被丢了**。
+    //
+    // 改为后置驱逐而非前置预留：预留会按最坏披露（两行、计数取上限）扣额，实测
+    // 把 2000 档整段挤成让位（0/5）——那比静默更违背「所有 active Norm 必须在场」
+    // （34 §8.4 常驻不减）。故先照常装填，再按下面的**不变量**收敛：
+    //
+    //   **本段要么有披露行在场，要么有截断段尾在场（omitted>0），二者必居其一。**
+    //
+    // 收敛手段按代价从小到大：先逐条撤摘录，撤完仍放不下才撤标题（omitted 增 →
+    // 截断段尾出现，它本身就是「未列全」的披露）。
+    let disclosureLines = [];
+    let disclosureBytes = 0;
+    const fitsDisclosure = (lines) => used + segmentUsed + lines.reduce((sum, l) => sum + lineBytes(l), 0) <= cap;
+    let counts = recount();
+    if (counts.omitted > 0 || counts.unavailable > 0) {
+      disclosureLines = excerptDisclosureLine(counts.omitted, counts.unavailable);
+      // 撤摘录：从最后一条已附的摘录开始（确定性次序，不引入权重）。
+      while (!fitsDisclosure(disclosureLines) && keptExcerpts.size > 0) {
+        const lastIndex = [...keptExcerpts.keys()].sort((a, b) => b - a)[0];
+        segmentUsed -= lineBytes(keptExcerpts.get(lastIndex));
+        keptExcerpts.delete(lastIndex);
+        counts = recount();
+        disclosureLines = excerptDisclosureLine(counts.omitted, counts.unavailable);
+      }
+      // 撤标题：摘录撤完仍放不下时，让截断段尾接管披露（omitted>0）。
+      while (!fitsDisclosure(disclosureLines) && kept.length > 1) {
+        segmentUsed -= lineBytes(kept.pop());
+        const droppedIndex = kept.length;
+        if (keptExcerpts.has(droppedIndex)) {
+          segmentUsed -= lineBytes(keptExcerpts.get(droppedIndex));
+          keptExcerpts.delete(droppedIndex);
+        }
+        counts = recount();
+        disclosureLines = excerptDisclosureLine(counts.omitted, counts.unavailable);
+        // 标题被撤 ⇒ omitted>0 ⇒ 截断段尾出现；此时即便披露行仍放不下也不静默。
+        if (total - kept.length > 0) break;
+      }
+    }
+    if (fitsDisclosure(disclosureLines)) {
+      for (const line of disclosureLines) segmentUsed += lineBytes(line);
+      disclosureBytes = disclosureLines.reduce((sum, l) => sum + lineBytes(l), 0);
+    } else {
+      // 连一条都放不下：清空披露行，靠截断段尾兜（不变量的后半）。
+      disclosureLines = [];
+      disclosureBytes = 0;
+    }
+    const excerptOmitted = counts.omitted;
+    const excerptUnavailable = counts.unavailable;
+
+    // 标题行与摘录行交错排版：摘录紧跟其标题行（与候选卡的 `↳ ` 形态同构）。
+    const interleaved = [];
+    kept.forEach((line, i) => {
+      interleaved.push(line);
+      const excerptLine = keptExcerpts.get(i);
+      if (excerptLine !== undefined) interleaved.push(excerptLine);
+    });
     const omitted = total - kept.length;
     const note = omitted > 0 ? noteOf(kept.length) : fullNote;
     const bytes = headerBytes
-      + kept.reduce((sum, line) => sum + Buffer.byteLength(line, "utf8") + 1, 0)
-      + Buffer.byteLength(note, "utf8") + 1;
+      + interleaved.reduce((sum, line) => sum + lineBytes(line), 0)
+      + Buffer.byteLength(note, "utf8") + 1
+      + disclosureBytes;
     used += bytes;
     planned.push({
       type: segment.type,
-      lines: [header, ...kept, note],
+      // 披露行由**数据层**排进 lines、字节已计入 bytes：渲染层只拼接、不做第二次
+      // 字节决策——若由渲染层追加就成了未预留字节，正是本仓踩过的「固定行落在
+      // 候选裁剪之前致超预算」缺陷类（2026-11-11 经验按需行实测超 318 字节）。
+      lines: [header, ...interleaved, note, ...disclosureLines],
       total,
       shown: kept.length,
       omitted,
       bytes,
       yielded: false,
       note,
+      // 摘录降级与不可用的分离计数（不得静默，见上）。
+      excerptShown: keptExcerpts.size,
+      excerptOmitted,
+      excerptUnavailable,
+      // 「不静默」不变量的可观察面：二者至少一真。
+      excerptDisclosed: disclosureLines.length > 0,
     });
   }
   return {
@@ -1242,7 +1393,23 @@ export function l0EnumerationOf(facts) {
       }
       return `· ${fact.title}`;
     });
-    return { type, entries, total: entries.length };
+    // **定位摘录（仅 norm 段）**：与 `entries` 一一对应，空串表示该条定位不可
+    // 机械导出（27 §8 书写契约不合）。分列而不是拼进 `entries`，是为了让
+    // `planL0Enumeration` 能做**两段装填**——标题行必出、摘录可降级。
+    //
+    // 为什么标题行必出（审查体 M3）：拼成一行时预算不足会**整行丢弃**，连标题
+    // 与 direction_key 一起消失；而 `27 §10` 的 F1 枚举与 `34 §8.4`「常驻不减」
+    // 要求全部 active Norm 可见。分开装填后，预算紧张只丢摘录（AI 仍知道有这
+    // 份规范、仍可 `ldvh_norm_read` 展开），不丢对象本身。
+    //
+    // 提取器与 `ldvh_norm_list` 共用 `norm-positioning.js`（单一实现，M6）。
+    const excerpts = type === "norm"
+      ? picked.map((fact) => {
+        const extracted = normPositioningOf(fact.body ?? fact.fullText ?? "");
+        return extracted.available ? positioningExcerptLine(extracted) : "";
+      })
+      : [];
+    return { type, entries, excerpts, total: entries.length };
   });
 }
 

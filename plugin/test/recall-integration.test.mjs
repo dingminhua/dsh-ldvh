@@ -19,7 +19,7 @@ import {
 	recallForAction,
 } from "../lib/source-recall.js";
 import { buildRecallInjection, renderRecallRow } from "../lib/recall-injection.js";
-import { skipWithoutCorpus } from "./helpers.mjs";
+import { skipWithoutCorpus, seedFactCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 // **默认按注入路径的声明范围调用**（2026-10-30）：`q` 是「模拟一次注入会看到什么」
@@ -57,8 +57,30 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	assert.ok(named.specs[0]?.title?.includes("Pitfall"), "类型点名须居首");
 
 	// 第 29 轮：ADR/Pitfall 事实优先。
-	const adr = await q({ action: "写一个 ADR", limit: 3, budgetBytes: 24000 });
-	assert.ok(adr.facts.some((f) => f.type === "adr"), "须召回 adr");
+	//
+	// 本断言须有 active ADR 才守得住，而本仓 17 条 ADR 已全数 retired（`8055c813`），
+	// `DEFAULT_STATUSES_BY_TYPE.adr = ["active"]` 是规范明定的候选口径，故 ROOT 语料
+	// 下该前提不可能成立（已在改动前基线 `a9d6741b` 上实证同样失败——既有缺口，非
+	// 本次引入）。改用受控合成语料单独守这一断言，其余历轮断言仍用真实语料
+	// （它们不依赖 active ADR，且真实语料的分辨力更强）。
+	const adrCorpus = await mkdtemp(join(tmpdir(), "ldvh-integ-adr-"));
+	try {
+		await seedFactCorpus(adrCorpus, {
+			adrCount: 2,
+			adrTitles: ["合成 ADR 决策基线甲", "合成 ADR 决策基线乙"],
+			pitfallCount: 1,
+		});
+		const adr = await recallForAction({
+			action: "写一个 ADR",
+			root: adrCorpus,
+			limit: 3,
+			budgetBytes: 24000,
+			excludeTypes: INJECTION_EXCLUDED_TYPES,
+		});
+		assert.ok(adr.facts.some((f) => f.type === "adr"), "须召回 adr（义务召回，22 §12）");
+	} finally {
+		await rm(adrCorpus, { recursive: true, force: true });
+	}
 
 	// 第 31 轮：中间产物白名单。
 	// **2026-11-01 改为不写死条数**（第 6 次同类转红，friction-943940d6）：
@@ -88,11 +110,15 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	assert.ok((await q({ action: "代码", limit: 3 })).specs.length > 0, "短查询可召回");
 
 	// 第 45 轮：正文层不吃 frontmatter 字段名。
-	assert.equal(
-		(await q({ action: "positioning", limit: 99, budgetBytes: 400000 })).specs.length,
-		0,
-		"positioning 属纯 frontmatter，不得命中",
-	);
+	//
+	// 原断言「查 `positioning` 命中 0 篇」在 2026-11-15 转为**假前提**：本次改订把
+	// 该字段名正当地写进了 `specs/27 §14`（验证入口要点名机械投影的字段）与
+	// `specs/34 §8.4` 的正文，于是它命中 1 篇。该断言本就是空的（`positioning`
+	// 不参与匹配面，无论剥离与否都 0 命中——见 source-recall.test.mjs 同主题用例的
+	// 2026-10-24 变异测试记录）。行为现由那条用例的**夹具判据**双向承担（探针词
+	// 只在 frontmatter ⇒ 0 命中；写进正文 ⇒ 命中），本处不再重复一条会随语料措辞
+	// 演进而失效的断言——重复守同一行为不增加检测力，只把「规范正文里能不能出现
+	// 这个字段名」变成隐式依赖（同 friction-943940d6 的形态）。
 
 	// 第 46 轮：事实正文全文参与匹配（「规避」在被截断过的后半段）。
 	//

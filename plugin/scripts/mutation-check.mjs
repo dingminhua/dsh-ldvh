@@ -14,6 +14,26 @@
 // 每项输出「被抓住」（有测试失败，好）或「**存活**」（无测试失败，该行为缺守护）。
 // 存活项**未必都是缺陷**：也可能是该行为由别处承担、或当前无测试覆盖但影响可控。
 // 但每一处存活都值得看一眼。
+//
+// ## 判定口径：差分（2026-11-15 改订）
+//
+// 原口径是「套件里出现了失败 ⇒ 被抓住」。**它会把与本条变异无关的既有失败
+// 算作守护**——实测：某两条变异在改动前的基线上各「被抓住 12 处」，差分测量
+// 却为 **0**（那 12 处全是基线上本就失败的用例）。于是同一行为在两个基线上
+// 得到两个相反的结论，而两个都不成立。
+//
+// 现口径：运行前先跑一次**无变异基线**；只有**因这条变异而新增**的失败才算
+// 「被抓住」。基线自身的失败不归任何变异所有，如实单独报出。
+//
+// ## 存活项的两种成因（必须分开看）
+//
+// 1. **缺守护**：该行为确实没有测试守着——缺陷，须补用例。
+// 2. **变异惰性**：该变异在当前实现下**不产生任何行为差异**，故没有测试会
+//    转红——它测不到东西，不是守护丢失。判据是差分测量为 0。实测例：
+//    `statusAllowed` 里「non-candidate 直接 return false」那行——非候选类型的
+//    `statuses` 恒为空数组，删掉该短路后落到 `statuses.includes(status)` 仍是
+//    false，故该行是冗余的（真实判定在 `recallStatusPolicyOf` 里）。
+//    本仓处置：把锚点改钉到真正承载判定的分支（见该变异处的注释）。
 import { readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -67,6 +87,14 @@ const TESTS = [
 	// 「缺口数恒报 0」这类**恰好抹平缺口**的破坏永远不会被发现——那正是本账目的
 	// 原始失效形态在元层重演。
 	"test/mutation-coverage.test.mjs",
+	// 2026-11-15：默认候选状态取自判据表这一层的守卫（`recallStatusPolicyOf`）。
+	// **此前它不在清单里**——而判据表的「不采用」「表里没有该类型条目」「表坏了」
+	// 三种形态各有精确用例守着（就在该文件里），只是本脚本看不见它们：于是
+	// 「按类型默认状态失效」「兜底回落被静默」两条变异长期报「存活」；而在
+	// **改动前**的基线上它们又因同一批用例**本已失败**（与变异无关）而被误判为
+	// 「被抓住」。两重错位同源于一件事：变异清单没覆盖到真正的守护所在处。
+	// 守护随代码增长，变异清单也必须随守护增长。
+	"test/recall-type-channels.test.mjs",
 ];
 
 const MUTATIONS = [
@@ -79,10 +107,18 @@ const MUTATIONS = [
 	[LIB, "证据次序失效（hits 压过 tier）", "    num(fa.tier) - num(fb.tier) ||\n    num(fb.hits) - num(fa.hits);", "    num(fb.hits) - num(fa.hits) ||\n    num(fa.tier) - num(fb.tier);"],
 	// **锚点随 2026-11 的「默认候选状态改读判据表」更新**（02 §12.4）：
 	// 原锚点在 `statusAllowed` 的硬编码表取值行上，该行已改为经
-	// `recallStatusPolicyOf` 取判据表值。变异改为**把策略恒判成候选**——
-	// 于是标「不采用」的类型（Goal 单例）会被当普通候选放进池里，
-	// 该不变量当前由 `recall-type-channels.test.mjs` 的「不采用」用例守护。
-	[LIB, "按类型默认状态失效", '    if (policy.kind === "non-candidate") return false;', '    if (false) return false;'],
+	// `recallStatusPolicyOf` 取判据表值。
+	//
+	// **2026-11-15 再改锚点**：原锚点（`statusAllowed` 里那行
+	// `if (policy.kind === "non-candidate") return false;`）经实测是**结构性惰性**
+	// 的——`recallStatusPolicyOf` 对 non-candidate 类型恒返回 `statuses: []`，
+	// 故删掉该短路后落到 `policy.statuses.includes(status)` 仍是 false，行为不变，
+	// 差分测量为 0（详见本文件头「存活项的两种成因」）。改钉到**真正承载该判定
+	// 的分支**：`recallStatusPolicyOf` 里认「不采用」的那一行。变异后标「不采用」
+	// 的类型会落到回落分支（拿到 `DEFAULT_STATUSES_BY_TYPE` 的 active），于是它
+	// 会被当普通候选放进池里——该不变量由 `recall-type-channels.test.mjs` 的
+	// 「不采用」用例守护（实测转红）。
+	[LIB, "按类型默认状态失效", '    if (entry.values?.notApplicable?.["默认候选状态"] === true) {', '    if (false) {'],
 	// **回落路径不得被静默**（02 §12.4 禁「静默回落」）：把 fallback 判成 table，
 	// 兜底就变成「看起来像正常读表」，`criteria.fallbackTypes` 与 gaps 两处披露
 	// 同时消失。守护用例：`recall-type-channels.test.mjs` 的 fallback 用例。
@@ -113,11 +149,21 @@ const MUTATIONS = [
 	[LIB, "排序无确定性兜底", "        a.path.localeCompare(b.path),", "        0,"],
 	[LIB, "类型点名层失效", "        return { tier: 0.5, hits: 1, hitReason: `类型点名命中：${named}` };", "        return { tier: 9, hits: 1, hitReason: `x` };"],
 	[LIFE, "召回头缺失 projectPath 兜底", '          if (typeof projectPath !== "string" || projectPath.length === 0) return { inject: false, reason: "no-project" };', ""],
-	// —— F1 决策基线（22 §12 义务召回；2026-10-25 方案 A）——
-	// 钉住本功能的**核心不变量**：基线必须无条件交付，不得被词法命中条件挡住。
-	// 若把 baselineHasContent 恒为 false，就退回到「法定决策靠词面运气」——
-	// 实测「每次回复先称呼老丁」在无关消息上零召回，正是该缺陷的现场。
-	[INJ, "零命中时基线被短路（退回词面运气）", "  if (!decideInjection({ candidateCount: total, baselinePresent: baselineHasContent })) {", "  if (!decideInjection({ candidateCount: total, baselinePresent: false })) {"],
+	// —— F1 决策基线与常驻索引（22 §12／27 §10 义务召回；2026-10-25 方案 A，
+	//    2026-11-15 扩到常驻索引段）——
+	// 钉住本功能的**核心不变量**：义务披露不得被词法命中条件挡住。
+	// ① 把 baselinePresent 写死 false → 退回「法定决策靠词面运气」（实测
+	//    「每次回复先称呼老丁」在无关消息上零召回，正是该缺陷的现场）。
+	[INJ, "零命中时基线被短路（退回词面运气）", "  if (!decideInjection({\n    candidateCount: total,\n    baselinePresent: baselineHasContent,\n    residentIndexPresent: residentIndexHasContent,\n  })) {", "  if (!decideInjection({\n    candidateCount: total,\n    baselinePresent: false,\n    residentIndexPresent: residentIndexHasContent,\n  })) {"],
+	// ② 把 residentIndexPresent 写死 false → 2026-11-15 修的那个缺陷复活：本仓
+	//    ADR 已全数 retired（baselinePresent 恒假），于是「5 条 active Norm + 零词法
+	//    命中」的回合整行不注入，而零命中正是常驻索引最该兜底的场景（词面不重合）。
+	//    由「常驻索引判据」正反控制用例与 B1 回归用例抓住。
+	[INJ, "零命中时常驻索引段被短路（Norm 段随词法运气缺席）", "  if (!decideInjection({\n    candidateCount: total,\n    baselinePresent: baselineHasContent,\n    residentIndexPresent: residentIndexHasContent,\n  })) {", "  if (!decideInjection({\n    candidateCount: total,\n    baselinePresent: baselineHasContent,\n    residentIndexPresent: false,\n  })) {"],
+	// ③ 把「经验计数 >0」放宽成「为整数即可」→ 空事实源的零命中行动回合也无条件
+	//    注入（实测整块内容里只有「本项目当前无 active 经验（0 条）」一行）。那是
+	//    「本类为空」的披露，不是可消费材料；放宽即违反 02 §9.2 不建立无条件注入。
+	[INJ, "经验计数为 0 也算常驻内容（空事实源无条件注入）", "  const pitfallPresent = Number.isInteger(l0Enumeration?.pitfallTotal) && l0Enumeration.pitfallTotal > 0;", "  const pitfallPresent = Number.isInteger(l0Enumeration?.pitfallTotal);"],
 		// **对准真实不变量**（第四十次审核 M-2）：数据层不为基线预留预算，
 	// 于是预算按「只有候选」分配、实际注入时基线再挤进来——这正是
 	// 「预留量须与实际基线段字节相符」用例要防的错配（欠预留会让注入超预算）。
@@ -301,6 +347,30 @@ async function currentContentOf(file) {
 const rows = [];
 const concurrentTouched = new Set();
 try {
+	// ── 无变异基线（2026-11-15 新增）──────────────────────────────────────
+	//
+	// **为什么必须有**：本脚本原先把「套件里出现了失败」直接判作「被抓住」。
+	// 但套件**本已失败**的那些用例与任何变异无关——它们会被算作「这条变异
+	// 被守护了」。实测：改动前的基线上，「按类型默认状态失效」「兜底回落被静默」
+	// 两条变异各「被抓住 12 处」，差分测量却是 **0**——那 12 处全是基线上本就
+	// 失败的用例（与变异无关）。反过来，同两条变异在守护用例所在的文件被补进
+	// 清单后长期报「存活」。两重错位都源于「把『有失败』当成『因这条变异而失败』」。
+	//
+	// **本基线的作用**：只有**因这条变异而新增**的失败才算「被抓住」。基线本身
+	// 的失败数不归任何变异所有，如实记在报告里，不计入任何一条变异。
+	//
+	// **边界（如实声明）**：本基线是**本次运行开始时**的套件状态。若并行会话在
+	// 运行期间改动代码或语料，基线与后续各次运行的状态可能不同——那种情形下
+	// 判定可能偏严或偏松，属运行环境事实，机械层不判（与本文件既有在途改动
+	// 守卫同口径）。
+	const baselineRun = await classifyRun();
+	const baselineFailed = baselineRun.terminal === RUN_TERMINAL.NOT_RUN
+		|| baselineRun.terminal === RUN_TERMINAL.COUNT_UNAVAILABLE
+		? null
+		: baselineRun.failed;
+	console.log(
+		`无变异基线：${baselineFailed === null ? "计数不可得（本次所有变异的判定降级为不可用）" : `${baselineFailed} 条失败`}`,
+	);
 	for (const [file, name, from, to] of MUTATIONS) {
 		const current = await currentContentOf(file);
 		const last = writtenByUs.get(file);
@@ -340,8 +410,19 @@ try {
 			rows.push([name, "**未运行**", 0, runReport.evidence]);
 		} else if (runReport.terminal === RUN_TERMINAL.COUNT_UNAVAILABLE) {
 			rows.push([name, "**计数不可得**", 0, runReport.evidence]);
+		} else if (baselineFailed === null) {
+			// 基线不可得 ⇒ 差分无从谈起 ⇒ 本次不得给出「被抓住／存活」的裁决
+			// （否则就是拿「有失败」当「因这条变异而失败」，即本节要防的那个错位）。
+			rows.push([name, "**基线不可得**", 0, runReport.evidence]);
 		} else {
-			rows.push([name, runReport.failed > 0 ? "被抓住" : "**存活**", runReport.failed, runReport.evidence]);
+			// **差分判定**：只有**因这条变异而新增**的失败才算被抓住。
+			const added = runReport.failed - baselineFailed;
+			rows.push([
+				name,
+				added > 0 ? "被抓住" : "**存活**",
+				added > 0 ? added : runReport.failed,
+				runReport.evidence,
+			]);
 		}
 	}
 } finally {
@@ -367,9 +448,22 @@ try {
 const survived = rows.filter(([, s]) => s === "**存活**");
 const staleAnchor = rows.filter(([, s]) => s === "**锚点失效**");
 const notRun = rows.filter(([, s]) => s === "**未运行**" || s === "**计数不可得**");
+const noBaseline = rows.filter(([, s]) => s === "**基线不可得**");
 const caught = rows.filter(([, s]) => s === "被抓住");
 for (const [n, s, f, ev] of rows) console.log(`  ${s.padEnd(8)} ${n}${f ? `  (${f} 处失败)` : ""}${ev ? `  ← ${ev}` : ""}`);
-console.log(`\n${caught.length}/${rows.length} 被抓住`);
+// **分母只算「本次有裁决的那些变异」**（2026-11-15）：不可用终态（未运行／
+// 计数不可得／锚点失效／基线不可得）不是「没抓住」，把它们计入分母会让这个数字
+// 同时被两种相反的误读：既可能被读成「覆盖率低」，也可能被读成「守护健全」。
+// 分子分母都只取有裁决者，另把不可用项单列。
+const judged = caught.length + survived.length;
+console.log(`\n${caught.length}/${judged} 被抓住（差分判定：只有因本条变异新增的失败才算被抓住）`);
+if (notRun.length > 0 || staleAnchor.length > 0 || noBaseline.length > 0) {
+	console.log(
+		`不可用终态 ${notRun.length + staleAnchor.length + noBaseline.length} 条`
+		+ `（未运行/计数不可得 ${notRun.length}、锚点失效 ${staleAnchor.length}、基线不可得 ${noBaseline.length}）`
+		+ `——它们不是「没抓住」，是「这次没测出结论」`,
+	);
+}
 
 // **覆盖口径必须与「被抓住」并列报出**（2026-11-04，friction-5c5b6261 的处置）。
 //

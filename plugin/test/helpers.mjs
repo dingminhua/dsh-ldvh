@@ -361,3 +361,199 @@ export async function skipWithoutCorpus(t, root = repoRoot) {
 		`语料不在的检出任（如 main 发布线，adr-62d3e2d8）不应判为代码缺陷`);
 	return true;
 }
+
+// ---------------------------------------------------------------------------
+// 受控合成语料（常驻索引与基线用例的夹具）
+//
+// 一批用例钉的是**代码行为**——零命中回合仍须注入、基线字节须从候选预算扣除、
+// F1 枚举不受 limit/types 过滤、极小预算让位须留痕——但初版把**本仓库自己的
+// 事实源**当夹具。后果是：这些守卫随仓库的语料态漂移，而不是随代码漂移。
+//
+// 实证（2026-11-15）：`8055c813` 把 2 条 active ADR 转为 Norm 后，全仓 17 条 ADR
+// 均为 retired，于是 10 条 ADR 基线守卫一起转红——红的是「仓库现在没有 active
+// ADR」这个语料事实，不是基线代码坏了。把它们 skip 掉等于让活代码失去守卫；
+// 往事实源里造一条 active ADR 则是污染真实语料。故改用本夹具：临时目录里造
+// 受控语料，守卫既活着又不随仓库漂移。
+// ---------------------------------------------------------------------------
+
+/** 合成语料里 active ADR 的固定 uid（1-based → uid）。 */
+export function fixtureAdrUid(n) {
+	return `aaaaaaaa-${String(n).padStart(4, "0")}-4aaa-8aaa-${String(n).padStart(12, "0")}`;
+}
+
+/** 合成语料里 active Norm 的固定 uid（1-based → uid）。 */
+export function fixtureNormUid(n) {
+	return `bbbbbbbb-${String(n).padStart(4, "0")}-4bbb-8bbb-${String(n).padStart(12, "0")}`;
+}
+
+/**
+ * 造一份**受控合成语料**目录（`ldvh-base/adrs` + `ldvh-base/norms`），返回其根路径。
+ *
+ * 调用方须在用完后 `rm(dir, {recursive:true, force:true})`（或用 `withTemp`）。
+ *
+ * @param {string} base 承载目录（通常是 `mkdtemp` 的结果）
+ * @param {object} [options]
+ * @param {number} [options.adrCount=2] active ADR 条数（0 = 模拟「ADR 全数退役」态）
+ * @param {string[]} [options.adrTitles] 逐条覆盖 ADR 标题（长度须 ≤ adrCount）。
+ *   标题须含「ADR」字样时可被类型点名层命中（`recallForAction` 的
+ *   `matchCandidate` 类型点名通道）——「写一个 ADR 须召回 adr」这类用例依赖它。
+ * @param {Array<{title:string, directionKey:string, governs:string, whenToRead:string}>} [options.norms]
+ *   active Norm 清单；缺省造两条合 27 §8 两句契约的定位段
+ * @param {number} [options.pitfallCount=0] active Pitfall 条数（经验按需行的计数来源）
+ * @returns {Promise<{root: string, adrTitles: string[], normTitles: string[]}>}
+ */
+export async function seedFactCorpus(base, { adrCount = 2, adrTitles = null, norms = null, pitfallCount = 0 } = {}) {
+	const root = base;
+	const adrDir = join(root, "ldvh-base", "adrs");
+	const normDir = join(root, "ldvh-base", "norms");
+	await mkdir(adrDir, { recursive: true });
+	await mkdir(normDir, { recursive: true });
+
+	const seededAdrTitles = [];
+	for (let i = 1; i <= adrCount; i += 1) {
+		const uid = fixtureAdrUid(i);
+		const title = Array.isArray(adrTitles) && typeof adrTitles[i - 1] === "string"
+			? adrTitles[i - 1]
+			: `合成决策基线条目${i}`;
+		seededAdrTitles.push(title);
+		const fm = [
+			`title: ${title}`,
+			"status: active",
+			`decision: 合成决策 ${i} 的决定句。`,
+			`scope: 适用于合成语料的注入范围。`,
+			`object_uid: ${uid}`,
+			"fact_type_key: adr",
+			"created_at: 2026-11-15T00:00:00.000Z",
+		].join("\n");
+		const body = [
+			`# ${title}`,
+			"",
+			"## 决策背景",
+			"",
+			"合成语料。",
+			"",
+			"## 决定",
+			"",
+			`合成决策 ${i} 的决定句。`,
+			"",
+			"## 备选与理由",
+			"",
+			"合成语料。",
+			"",
+			"## 后果",
+			"",
+			"合成语料。",
+			"",
+			"## 适用范围",
+			"",
+			"适用于合成语料的注入范围。",
+			"",
+		].join("\n");
+		await writeFile(join(adrDir, `adr-${uid}.md`), `---\n${fm}\n---\n\n${body}`, "utf8");
+	}
+
+	const normList = norms ?? [
+		{
+			title: "合成方向规范甲",
+			directionKey: "fixture-direction-alpha",
+			governs: "本方向管合成语料甲方向的准入与边界。",
+			whenToRead: "改动合成语料甲的实现前查阅本规范。",
+		},
+		{
+			title: "合成方向规范乙",
+			directionKey: "fixture-direction-beta",
+			governs: "本方向管合成语料乙方向的发布门禁。",
+			whenToRead: "执行合成语料乙的发布动作前查阅本规范。",
+		},
+	];
+	const normTitles = [];
+	for (const [i, norm] of normList.entries()) {
+		const uid = fixtureNormUid(i + 1);
+		normTitles.push(norm.title);
+		const fm = [
+			`title: ${norm.title}`,
+			"status: active",
+			`direction_key: ${norm.directionKey}`,
+			`object_uid: ${uid}`,
+			"fact_type_key: norm",
+			"created_at: 2026-11-15T00:00:00.000Z",
+		].join("\n");
+		// 定位段按 27 §8 两句契约（2026-11-15）：恰好两段，各以固定标签起首。
+		const body = [
+			`# ${norm.title}`,
+			"",
+			"## 方向定位与适用范围",
+			"",
+			`**管什么**：${norm.governs}`,
+			"",
+			`**何时查阅**：${norm.whenToRead}`,
+			"",
+			"## 核心规则体系",
+			"",
+			"1. 合成规则条目。",
+			"",
+			"## 约束与反模式",
+			"",
+			"1. 合成禁止项。",
+			"",
+			"## 验证与遵从性检查",
+			"",
+			"合成验证行。",
+			"",
+		].join("\n");
+		await writeFile(join(normDir, `norm-${uid}.md`), `---\n${fm}\n---\n\n${body}`, "utf8");
+	}
+
+	if (pitfallCount > 0) {
+		const pitfallDir = join(root, "ldvh-base", "pitfalls");
+		await mkdir(pitfallDir, { recursive: true });
+		for (let i = 1; i <= pitfallCount; i += 1) {
+			const uid = `cccccccc-${String(i).padStart(4, "0")}-4ccc-8ccc-${String(i).padStart(12, "0")}`;
+			const title = `合成经验条目${i}`;
+			const fm = [
+				`title: ${title}`,
+				"status: active",
+				"scope: 适用于合成语料的经验范围。",
+				`object_uid: ${uid}`,
+				"fact_type_key: pitfall",
+				"created_at: 2026-11-15T00:00:00.000Z",
+			].join("\n");
+			const body = [
+				`# ${title}`,
+				"",
+				"## 症状",
+				"",
+				"合成症状。",
+				"",
+				"## 触发条件",
+				"",
+				"合成触发条件。",
+				"",
+				"## 根因",
+				"",
+				"合成根因。",
+				"",
+				"## 解决",
+				"",
+				"合成解决。",
+				"",
+				"## 规避",
+				"",
+				"合成规避。",
+				"",
+				"## 验证",
+				"",
+				"合成验证。",
+				"",
+				"## 影响与适用范围",
+				"",
+				"适用于合成语料的经验范围。",
+				"",
+			].join("\n");
+			await writeFile(join(pitfallDir, `pitfall-${uid}.md`), `---\n${fm}\n---\n\n${body}`, "utf8");
+		}
+	}
+
+	// 返回**实际落盘的标题**（可能与入参不同：入参为 null 时用缺省名）。
+	return { root, adrTitles: seededAdrTitles, normTitles };
+}

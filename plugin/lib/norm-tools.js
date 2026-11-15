@@ -70,7 +70,7 @@ const OPERATIONS = {
   },
   "norm-list-objects": {
     toolName: "ldvh_norm_list",
-    summary: "Enumerate Norm fact objects (F0/F1 discovery): direction_key/title/status AND a bounded 方向定位与适用范围 excerpt (positioning) per Norm, so the consumer can decide which Norm governs the current matter before opening it with ldvh_norm_read; active-only by default; a collision on one direction_key withholds every colliding Norm and reports direction_collision (fail-closed, specs/27 §11 item 3 / §10)",
+    summary: "Enumerate Norm fact objects (F0/F1 discovery): direction_key/title/status AND the two bounded 方向定位与适用范围 sentences per Norm (positioning = 管什么, when_to_read = 何时查阅), so the consumer can decide which Norm governs the current matter before opening it with ldvh_norm_read; either sentence breaking the specs/27 §8 writing contract withholds BOTH and reports positioning_status=unavailable (never a truncated half-sentence); active-only by default; a collision on one direction_key withholds every colliding Norm and reports direction_collision (fail-closed, specs/27 §11 item 3 / §10)",
     effect: "read"
   },
   "norm-write-object": {

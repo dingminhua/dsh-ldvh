@@ -35,7 +35,7 @@ import {
 	compareFactHits,
 } from "../lib/source-recall.js";
 import { RECALL_RENDER_CHAR_LIMIT, renderCharLimitFor } from "../lib/recall-injection.js";
-import { skipWithoutCorpus } from "./helpers.mjs";
+import { skipWithoutCorpus, seedFactCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 // 本文件内统一用 `joinPath` 指代 `join`（与 lib 中的命名一致，避免与测试变量重名）。
@@ -1264,7 +1264,15 @@ test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要�
 	// 即「所需的 ADR/Pitfall 召回」被无关类型挤掉了。
 	assert.deepEqual([...REQUIRED_RECALL_TYPES], ["adr", "pitfall"]);
 
-	// 关键：ADR/Pitfall 必须**排在最前**，不能被 research 等无关类型挤掉。
+	// ── a) 必需类型不得被挤掉（须有 active ADR 才守得住）─────────────────────
+	//
+	// 迁到合成语料（2026-11-15，审查体 M8）：本仓 17 条 ADR 已全数 retired
+	// （`8055c813`），原用例拿 ROOT 当夹具时「须召回 adr」的前提**不可能成立**，
+	// 而 `DEFAULT_STATUSES_BY_TYPE.adr = ["active"]` 是规范明定的候选口径
+	// （retired 不入普通候选），故实现无退化、红的只是语料态。已在改动前的
+	// 基线检出（`a9d6741b`）上实证同一条逐字同样失败——属既有缺口，不是本次引入。
+	// 把它 skip 掉等于让「ADR 不被无关类型挤掉」这条真实守卫消失，故改用受控
+	// 合成语料（标题含「ADR」字样，可被类型点名层命中）。
 	//
 	// **2026-10-30 补上 `excludeTypes`**：本条守的是「注入路径里 ADR/Pitfall 不被
 	// 无关类型挤掉」，而注入路径（`buildRecallInjection`）会传
@@ -1272,34 +1280,51 @@ test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要�
 	// spark 退出自动注入。此前不传，测的就不是注入路径：spark 占满 limit=3，
 	// 一条 adr 都进不来（实测无参时为 `spark,friction,spark`，加参后
 	// `friction,adr,adr`）。这是**测试与实现路径失配**，不是实现退化。
-	const r = await recallForAction({
-		action: "写一个 ADR",
-		root: ROOT,
-		limit: 3,
-		budgetBytes: 24000,
-		excludeTypes: INJECTION_EXCLUDED_TYPES,
-	});
-	assert.ok(r.facts.length > 0, "应召回到事实");
-	assert.ok(
-		r.facts.some((f) => f.type === "adr"),
-		`「写一个 ADR」须召回 adr，实际：${r.facts.map((f) => f.type).join(",")}`,
-	);
+	const { mkdtemp, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const project = await mkdtemp(join(tmpdir(), "ldvh-requiredtypes-"));
+	try {
+		await seedFactCorpus(project, {
+			adrCount: 2,
+			// 标题须含「ADR」字样：类型点名层按类型词命中，否则该 query 打不到 ADR。
+			adrTitles: ["合成 ADR 决策基线甲", "合成 ADR 决策基线乙"],
+			pitfallCount: 1,
+		});
+		const r = await recallForAction({
+			action: "写一个 ADR",
+			root: project,
+			limit: 3,
+			budgetBytes: 24000,
+			excludeTypes: INJECTION_EXCLUDED_TYPES,
+		});
+		assert.ok(r.facts.length > 0, "应召回到事实");
+		assert.ok(
+			r.facts.some((f) => f.type === "adr"),
+			`「写一个 ADR」须召回 adr（义务召回，22 §12），实际：${r.facts.map((f) => f.type).join(",")}`,
+		);
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+
+	// ── b) 证据并列时名次只由状态/时间/路径决定，不得由类型决定 ──────────────
+	//
 	// **2026-10-31 改写（类型轴已删除）**：本条此前守「证据相同时必需类型在前」，
 	// 而该性质由 `typeRank` 提供；`typeRank` 族按 Human 裁定删除后，**类型不再是
 	// 排序键**，「必需类型同分在前」既无实现也无规范依据（02 §9.2 明禁跨类型共用
 	// 的相关性分数）。保留它只会变成一条靠当前语料路径顺序碰巧通过的假断言。
 	//
-	// 故改守新设计**真实成立**的性质：
-	//   a) 必需类型**不得被过滤掉**（`22 §12` 义务召回：active ADR 必须出现）；
-	//   b) 证据并列时，名次只由状态／更新时间／路径决定——不得由类型决定。
-	//     机械判据：并列相邻项的（状态序, updatedAt, path）必须非降。
-	assert.ok(
-		r.facts.some((f) => f.type === "adr"),
-		`「写一个 ADR」须召回 adr（义务召回），实际：${r.facts.map((f) => f.type).join(",")}`,
-	);
-	for (let i = 1; i < r.facts.length; i += 1) {
-		const prev = r.facts[i - 1];
-		const cur = r.facts[i];
+	// 这一段**不依赖 active ADR**（它守的是排序键的构成），故仍用真实仓库语料：
+	// 语料越丰富，并列项越多，本段的分辨力越强——换成合成语料反而会削弱它。
+	const ranked = await recallForAction({
+		action: "把 34 号规范改名成双源召回",
+		root: ROOT,
+		limit: 12,
+		budgetBytes: 24000,
+		excludeTypes: INJECTION_EXCLUDED_TYPES,
+	});
+	for (let i = 1; i < ranked.facts.length; i += 1) {
+		const prev = ranked.facts[i - 1];
+		const cur = ranked.facts[i];
 		const sameEvidence =
 			prev.weakHit === cur.weakHit && prev.tier === cur.tier && prev.hits === cur.hits;
 		if (!sameEvidence) continue;
@@ -1648,40 +1673,70 @@ test("正文层匹配不得吃 frontmatter 字段名（元数据形状不是规�
 	// 报成「正文命中」——那是元数据形状，不是规范内容（`02 §9.1`「机械有效不能
 	// 替代语义相关」）。现正文层改用剥离 frontmatter 的 `bodyText`。
 	//
-	// 判据须选一个**正文从不提及、只作为 YAML 键存在**的字段名。
-	// 注意 `spec_key`／`parent_spec` **不是**这样的词——前者在 01/02/05 正文里
-	// 真实出现，后者在 01 正文出现 7 次（它是规范模型的字段定义），都是真命中。
-	// 本地实测：`positioning` 只在 frontmatter 里出现，正文无一处。
-	const metadataOnly = await recallForAction({
-		action: "positioning",
-		root: ROOT,
-		limit: 99,
-		budgetBytes: 400000,
-	});
-	assert.equal(
-		metadataOnly.specs.length,
-		0,
-		`仅存在于 frontmatter 的字段名不得命中任何规范，实际命中：${metadataOnly.specs.map((s) => `${s.title}(${s.hitReason})`).join("、")}`,
-	);
-
-	// **上面那条 `positioning` 断言其实是空的**（2026-10-24 变异测试发现）：
-	// `positioning` 只作为**返回字段**存在（source-recall.js:835），并不参与匹配面
-	// （匹配面是 scope／detail／title／bodyText），故它无论剥离与否都是 0 命中。
-	// 实测：把 frontmatter 剥离去掉（`const body = text`）后该断言照样通过。
+	// ── 为什么改用夹具（2026-11-15 订正，我自己引入的连带失效）──────────────
 	//
-	// 改用真正能分辨的判据：`spec_kind` —— 正文 **0 篇**提及、全文 **27 篇**出现。
-	// 剥离有效时命中 0；剥离失效时会命中 27。这条才有分辨力。
-	const specKind = await recallForAction({
-		action: "spec_kind",
-		root: ROOT,
-		limit: 99,
-		budgetBytes: 400000,
-	});
-	assert.equal(
-		specKind.specs.length,
-		0,
-		`frontmatter 字段名 spec_kind（正文 0 篇、全文 27 篇）不得命中；实际命中 ${specKind.specs.length} 篇——若为 27 篇说明正文层未剥离 frontmatter`,
-	);
+	// 本用例原先在**真实仓库语料**上断言两个探针词的命中数：
+	//   · `positioning` 命中 0 篇——该断言**从来是空的**（本文件 2026-10-24 变异
+	//     测试已发现：`positioning` 只作为返回字段存在、不参与匹配面，无论剥离
+	//     与否都 0 命中）；而它在本次改订后变成**假断言**——`specs/27 §14` 与
+	//     `specs/34 §8.4` 的正文正当地写出了这个字段名（验证入口要点名机械投影的
+	//     字段），于是命中 1 篇、用例转红，红的不是被测代码而是探针词绑定了一个
+	//     会合法变动的语料事实（friction-943940d6 的形态）。
+	//   · `spec_kind` 命中 0 篇——实测它已**同样失效**：本仓已无任何 frontmatter
+	//     键满足「正文 0 篇」（最少者是 `spec_kind` 自己，正文 1 篇：
+	//     `01.Att.02-规范身份字段表` 正当列出该字段）。它命中 0 是因为正文层的
+	//     单词命中门槛，**不是因为剥离有效**——把剥离去掉它照样命中 0，故这条
+	//     断言也是空的，不能作为守法写进用例。
+	//
+	// 夹具的判据才有分辨力：同一份规范载体，字段名**只写在 frontmatter** 时须
+	// 0 命中，**写进正文**时须命中。剥离失效 ⇒ 前者命中（转红）；正文层被过度
+	// 剥离 ⇒ 后者不命中（转红）。两个方向都守，且不依赖真实语料的措辞演进。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const tmp = await mkdtemp(join(tmpdir(), "recall-fmstrip-"));
+	try {
+		const specsDir = join(tmp, "specs");
+		await mkdir(specsDir, { recursive: true });
+		// 夹具专用字段名：真实规范语料里不存在，故不会被别处命中。
+		const PROBE = "zz_fixture_metadata_key";
+		const identity = (key) => [
+			"---",
+			"ldvh_spec:",
+			`  spec_key: "${key}"`,
+			'  spec_id: "99"',
+			'  spec_kind: "spec"',
+			`  title: "夹具规范 ${key}"`,
+			`  canonical_path: "specs/${key}.md"`,
+			`  ${PROBE}: "只作为 YAML 键存在的值"`,
+			"---",
+		].join("\n");
+		// 甲：探针词**只在 frontmatter**（元数据形状，不得命中）。
+		await writeFile(
+			join(specsDir, "zz-meta-only.md"),
+			`${identity("zz-meta-only")}\n\n# 夹具规范 zz-meta-only\n\n## 1. 价值判断\n\n本夹具只验证元数据不进入正文匹配面。\n\n## 2. 职责边界\n\n夹具内容，与探针无关。\n`,
+			"utf8",
+		);
+		// 乙：探针词**写进正文**（真内容，须命中）。
+		await writeFile(
+			join(specsDir, "zz-in-body.md"),
+			`${identity("zz-in-body")}\n\n# 夹具规范 zz-in-body\n\n## 1. 价值判断\n\n本夹具验证正文里的 ${PROBE} 一词照常参与匹配。\n\n## 2. 职责边界\n\n夹具内容。\n`,
+			"utf8",
+		);
+
+		const metaOnly = await recallForAction({ action: PROBE, root: tmp, limit: 99, budgetBytes: 400000 });
+		assert.equal(
+			metaOnly.specs.filter((s) => s.specKey === "zz-meta-only").length,
+			0,
+			`仅以 YAML 键形态存在的 ${PROBE} 不得命中该规范（命中即说明正文层未剥离 frontmatter）`,
+		);
+		const inBody = await recallForAction({ action: PROBE, root: tmp, limit: 99, budgetBytes: 400000 });
+		assert.ok(
+			inBody.specs.some((s) => s.specKey === "zz-in-body"),
+			`写进正文的 ${PROBE} 仍须命中（过度剥离会让真内容消失）`,
+		);
+	} finally {
+		await rm(tmp, { recursive: true, force: true });
+	}
 });
 
 test("正文层仍须能命中真正写在正文里的术语", async () => {

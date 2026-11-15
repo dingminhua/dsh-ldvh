@@ -436,13 +436,18 @@ test("list: active-only by default; retired surfaces only with status=all (27 §
 // 34 §8.1 适用识别：AI 仅凭标题无法判断哪份规范在管当次事项，故 list 投影
 // 须给出「方向定位与适用范围」段的确定性摘录，供其决定展开哪份（ldvh_norm_read）。
 // 该摘录是正文的派生视图、不是新增 frontmatter 字段（27 §7 载体内聚不破）。
-test("list: projections carry a bounded, deterministic 方向定位 excerpt", async () => {
+//
+// 2026-11-15 Human 决定：契约从「首句 60 字」改为**两句**（管什么 + 何时查阅），
+// 两句都要投影——注入面与 list 共用 `norm-positioning.js`（单一实现）。
+test("list: projections carry bounded, deterministic 方向定位 two-sentence excerpts", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
-		// 直接以带「管什么」标记的四段正文创建，模拟真实 Norm 的方向定位段。
+		// 按 27 §8 两句契约：段内恰好两段，各以固定标签起首。
 		const body = `## 方向定位与适用范围
 
 **管什么**：本方向管示例事务的准入与边界，不回答其它方向的判定。
+
+**何时查阅**：改动示例事务的准入实现前查阅本规范。
 
 ## 核心规则体系
 
@@ -462,22 +467,31 @@ test("list: projections carry a bounded, deterministic 方向定位 excerpt", as
 		const listed = await listNormObjects({ factSourceRoot: root });
 		const item = listed.value.items.find((i) => i.object_uid === uid);
 		assert.ok(item, "the created Norm must be listed");
+		assert.equal(item.positioning_status, "ok", "两句合契约时须可用");
 		assert.equal(typeof item.positioning, "string");
 		assert.match(item.positioning, /本方向管示例事务的准入与边界/);
-		assert.ok(!item.positioning.includes("管什么"), "markdown 标记须剥除");
+		assert.ok(!item.positioning.includes("管什么"), "markdown 标签须剥除");
 		assert.ok(!item.positioning.includes("**"), "强调标记须剥除");
-		// 27 §8 契约：≤60 字、无截断（超限即不合格、不外发）。断言具体长度而非
+		// 第二句：触发场景（what + when 的 when 侧）。
+		assert.equal(typeof item.when_to_read, "string");
+		assert.match(item.when_to_read, /改动示例事务的准入实现前查阅本规范/);
+		assert.ok(!item.when_to_read.includes("何时查阅"), "markdown 标签须剥除");
+		// 27 §8 契约：各 ≤60 字、无截断（超限即不合格、不外发）。断言具体长度而非
 		// 恒真的上界，使「实现把上限放宽」时本用例会红（06 §7 断言检测力）。
-		assert.ok(item.positioning.length <= 60, "摘录须 ≤60 字（27 §8 书写契约）");
+		assert.ok(item.positioning.length <= 60, "管什么句须 ≤60 字（27 §8 书写契约）");
+		assert.ok(item.when_to_read.length <= 60, "何时查阅句须 ≤60 字（27 §8 书写契约）");
 		assert.ok(!item.positioning.endsWith("…"), "合契约时不得出现截断省略号");
-		// 确定性：同一载体两次调用逐字相同。
+		assert.ok(!item.when_to_read.endsWith("…"), "合契约时不得出现截断省略号");
+		// 确定性：同一载体两次调用逐字相同（两句都要稳）。
 		const again = await listNormObjects({ factSourceRoot: root });
-		assert.equal(again.value.items.find((i) => i.object_uid === uid).positioning, item.positioning);
+		const second = again.value.items.find((i) => i.object_uid === uid);
+		assert.equal(second.positioning, item.positioning);
+		assert.equal(second.when_to_read, item.when_to_read);
 	});
 });
 
-// 27 §8 书写契约 / M1 防线：不合契约的首段（无标签、含授权措辞、超长）
-// 绝不外发成「定位」摘录，须显式标 unavailable 并指引读正文（34 §12 三态）。
+// 27 §8 书写契约 / M1 防线：不合契约的定位段绝不外发成摘录，须显式标
+// unavailable 并指引读正文（34 §12 三态：不可导出 ≠ 没有定位）。
 // 旧「上游更新跟进规程」的整段首句是「…AI 无须另行请示即可按本规程跟进」，
 // 回退取首段会把一句脱离上下文的授权抛给 AI。
 test("list: 方向定位不合契约时不外发摘录、显式标 unavailable", async () => {
@@ -502,20 +516,24 @@ test("list: 方向定位不合契约时不外发摘录、显式标 unavailable",
 		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
 		const uid = created.value.object_uid;
 		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === uid);
-		assert.equal(item.positioning, "", "无「管什么」标签且含授权措辞时不得外发摘录");
+		assert.equal(item.positioning, "", "无「管什么」标签时不得外发摘录");
+		assert.equal(item.when_to_read, "", "第一句不合契约时两句都不得外发（不取半套）");
 		assert.match(item.positioning_status, /unavailable/, "须显式标注不可用");
 		assert.match(item.positioning_status, /ldvh_norm_read/, "须指引读正文，不静默当成没有定位");
 	});
 });
 
-// MAJOR-3 负向守卫：带合规「**管什么**：」标签、但首句含 §8 第 2 条点名的
-// 授权措辞「可直接」时，须 unavailable（禁词判定的机械承载不得形同虚设）。
-test("list: 合规标签但首句含「可直接」时须 unavailable", async () => {
+// 负向守卫：两句标签齐备、但「管什么」含 §8 第 2 条点名的授权措辞「可直接」
+// 时，须 unavailable（禁词判定的机械承载不得形同虚设）。
+// **须带齐两段**：否则用例会因「段数不合契约」提前返回，测不到授权措辞判定。
+test("list: 合规标签但含「可直接」授权措辞时须 unavailable", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const body = `## 方向定位与适用范围
 
 **管什么**：本方向管甲事项，AI 可直接执行。
+
+**何时查阅**：改动甲事项前查阅本规范。
 
 ## 核心规则体系
 
@@ -531,14 +549,16 @@ test("list: 合规标签但首句含「可直接」时须 unavailable", async ()
 `;
 		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
 		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === created.value.object_uid);
-		assert.equal(item.positioning, "", "首句含授权措辞时不得外发摘录");
+		assert.equal(item.positioning, "", "含授权措辞时不得外发摘录");
+		assert.equal(item.when_to_read, "", "一句不合契约即整套不可用");
 		assert.match(item.positioning_status, /unavailable/);
+		assert.match(item.positioning_status, /authorization-wording/, "须点名不可用的判定项");
 	});
 });
 
-// MAJOR-3 负向守卫：带合规标签、但首句 >60 字时，须 unavailable（≤60 字
-// 长度判定的机械承载不得形同虚设；合契约用例只有 30 字，删掉上限也全绿）。
-test("list: 合规标签但首句超 60 字时须 unavailable", async () => {
+// 负向守卫：两句标签齐备、但「管什么」>60 字时须 unavailable（长度判定的
+// 机械承载不得形同虚设；合契约用例只有 30 字，删掉上限也全绿）。
+test("list: 合规标签但「管什么」超 60 字时须 unavailable", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const long = "本方向管".repeat(16) + "事项。";  // 67 字，>60
@@ -546,6 +566,8 @@ test("list: 合规标签但首句超 60 字时须 unavailable", async () => {
 
 **管什么**：${long}
 
+**何时查阅**：改动该事项前查阅本规范。
+
 ## 核心规则体系
 
 规则一。
@@ -560,8 +582,102 @@ test("list: 合规标签但首句超 60 字时须 unavailable", async () => {
 `;
 		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
 		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === created.value.object_uid);
-		assert.equal(item.positioning, "", "首句超 60 字时不得外发摘录（不截断外发半句）");
+		assert.equal(item.positioning, "", "超 60 字时不得外发摘录（不截断外发半句）");
 		assert.match(item.positioning_status, /unavailable/);
+		assert.match(item.positioning_status, /too-long/, "须点名不可用的判定项");
+	});
+});
+
+// 负向守卫（2026-11-15 新增）：「何时查阅」句写成**适用性断言**（「适用于…」）
+// 时须 unavailable。该句的职责是描述行动场景（何时来读），不是宣告适用结论——
+// 后者会让注入面出现一句可被直接读成「已判定适用」的话（34 §13、34 §8.4 第 3 项）。
+test("list: 「何时查阅」写成适用性断言时须 unavailable", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		const body = `## 方向定位与适用范围
+
+**管什么**：本方向管甲事项的准入与边界。
+
+**何时查阅**：本规范适用于一切甲事项相关的改动。
+
+## 核心规则体系
+
+规则一。
+
+## 约束与反模式
+
+禁止项。
+
+## 验证与遵从性检查
+
+核对方式。
+`;
+		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
+		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === created.value.object_uid);
+		assert.equal(item.when_to_read, "", "适用性断言不得外发（会被读成已判定适用）");
+		assert.match(item.positioning_status, /applicability-assertion/, "须点名不可用的判定项");
+	});
+});
+
+// 负向守卫（2026-11-15 新增）：段内多出第三段（不管什么清单、双源声明、沿革等
+// 旧形态）时须 unavailable——本次精简的核心就是「段内恰好两段」。按「取前两段」
+// 宽容处理会让「段里还塞着别的东西」静默通过。
+test("list: 定位段多出第三段时须 unavailable（段内恰好两段）", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		const body = `## 方向定位与适用范围
+
+**管什么**：本方向管甲事项的准入与边界。
+
+**何时查阅**：改动甲事项前查阅本规范。
+
+**不管什么**：乙事项归另一方向。
+
+## 核心规则体系
+
+规则一。
+
+## 约束与反模式
+
+禁止项。
+
+## 验证与遵从性检查
+
+核对方式。
+`;
+		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
+		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === created.value.object_uid);
+		assert.equal(item.positioning, "", "多出段落时不得外发摘录");
+		assert.match(item.positioning_status, /extra-paragraphs/, "须点名不可用的判定项");
+	});
+});
+
+// 正控制（防判据写成恒假）：两句都缺标签时须 unavailable，且原因点名缺失的标签。
+test("list: 缺「何时查阅」标签时须 unavailable 并点名缺失项", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		const body = `## 方向定位与适用范围
+
+**管什么**：本方向管甲事项的准入与边界。
+
+改动甲事项前查阅本规范。
+
+## 核心规则体系
+
+规则一。
+
+## 约束与反模式
+
+禁止项。
+
+## 验证与遵从性检查
+
+核对方式。
+`;
+		const created = await createNormObject(createArgs(root, { bodyMarkdown: body }));
+		const item = (await listNormObjects({ factSourceRoot: root })).value.items.find((i) => i.object_uid === created.value.object_uid);
+		assert.equal(item.when_to_read, "");
+		assert.match(item.positioning_status, /label-missing:何时查阅/, "须点名缺的是哪个标签");
 	});
 });
 
