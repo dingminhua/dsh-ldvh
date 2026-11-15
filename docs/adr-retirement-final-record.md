@@ -164,9 +164,9 @@ informs->spark\|norm\|pitfall\|report\|friction\|subgoal, paired-with->pitfall
 1. `plugin/lib/friction-writer.js` 的 `INFORMS_TARGET_DIRS` 只列 `sparks/pitfalls/reports/frictions/norms` **五项，缺 `subgoals`**——六类里唯一「机械值宣告可展开、但受控写入直接判不可解析」的一类。同型先例见 `spark-writer.js` 的 refs 目标表曾漏 `subgoals`。
 2. `26:271` 与 `26 §18` 第 4 项写「不建 Friction 间关联边／不建 F-F 关系网络」，而机械值（正确地）列出 `friction` 可为目标。**读法**：该禁项禁的是「账与账织网」（F-F 关联边网络），`informs` 的「解药边」不在此禁；当前 0 条 F-F `informs` 实例，行为无差。
 
-### 4.3 `32 §4.2:101` 的 F10 过渡缺口句
+### 4.3 `32 §4.2:101` 的 F10 过渡缺口句（**已订正**）
 
-该句写明「`plugin/lib/review-ask.js` 的 `GATE_POINT_EXCLUSIONS`、`review-ask.test.mjs` 的 `length === 4`、`client.js` 的四类提示文案属代码层批次，本批登记为已知过渡缺口」。**本批落盘后该句已过时**（三处均已改）。按 `00 §4.6` 如实登记为「待下一规范批订正」，不默认本批已消解。
+原句登记「`review-ask.js` 的 `GATE_POINT_EXCLUSIONS`、`review-ask.test.mjs` 的 `length === 4`、`client.js` 的四类提示文案属代码层批次，本批登记为已知过渡缺口」。三处实现已随本任务同步（实测：`GATE_POINT_EXCLUSIONS` 三条、`length === 4` 残留 0、四类文案残留 0），该登记的对象消失，**本批删除该句**（属 `01 §11.1` 第 2 项的「更正表达」，非实质修改）。旧规则的去向由本节承载（`01 §11.3`）；`32 §4.2` 的正文清单本身仍是权威，代码须跟随（`review-ask.test.mjs` 有守卫）。
 
 ### 4.4 其它已查明但不属本批的漂移
 
