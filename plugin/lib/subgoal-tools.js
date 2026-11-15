@@ -203,8 +203,8 @@ async function deriveServingObjects(factSourceRoot, objectUid) {
     // Use each type's OWN list projection (their fields and status filters are
     // type authority, 20 §13 / 21 §13) rather than a bespoke directory scan:
     // a second reader here would drift from those writers.
-    // **该分支已随其类型撤除**（Human 2026-11-13 决定；该项决定的原件已按
-    // 2026-11-15 根决定归档到 `docs/adr-archive/`，此处只留归档位置的指引）。
+    // **该分支已随其类型撤除**（Human 2026-11-13 决定；该项决定的原件与归档
+    // 副本已按 2026-11-16 决定删除，逐字内容仅 git 历史可回取）。
     // 此前这里有一处动态 import 取它——该文件随类型一并删除后，这个动态 import 抛
     // ERR_MODULE_NOT_FOUND，被下面 catch 吞成一条 gap，于是本列表的 serves
     // 派生**静默失效**（结果为空、看上去只是「没有对象服务于它」，而那与
