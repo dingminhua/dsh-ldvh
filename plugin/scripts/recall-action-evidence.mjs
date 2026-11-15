@@ -188,7 +188,22 @@ for (const dir of allDirs) {
     continue;
   }
   if (!text.includes(INJECTION_MARK)) continue;
-  scannedSessions += 1;
+  // **分母口径必须与分子同源**（2026-11-16 修）。
+  //
+  // 原实现：只要**文件文本**里出现过标记就 `scannedSessions += 1`。而分子
+  // （`turns`）只在**真实的 user/message 注入事件**出现时才生成。两者判据不同，
+  // 于是产生了系统性差额——实测 30 个命中文件里只有 20 个切得出回合。
+  //
+  // 差额的来源不是数据噪声：本文件自己的源码里有 `lines.push("【双源召回…】")`，
+  // 当某会话读过这个脚本，标记就以 **tool/result 的内容**出现，而不是注入事件。
+  // 这类会话一个回合都不该算，却被计进了「含注入的会话数」。
+  //
+  // 后果：那条「回合数不应明显少于会话数」的守卫会持续变红，而它本要守的是
+  // 「注入被切分逻辑吞掉」——一个真缺陷被一个口径错误长期掩盖，两边都失去意义。
+  //
+  // 现改为：先解析，**确认确有 user/message 注入事件**才计入分母。判据与分子
+  // 完全同源（同一个 `INJECTION_MARK`、同一种事件类型），差额只可能来自切分逻辑
+  // 本身的缺陷——那正是守卫要抓的东西。
   const rawLines = text.split("\n").filter(Boolean);
   const events = [];
   for (const l of rawLines) {
@@ -198,6 +213,11 @@ for (const dir of allDirs) {
       unparsableLines += 1;
     }
   }
+  const hasRealInjection = events.some(
+    (e) => e.type === "user/message" && textOf(e).includes(INJECTION_MARK),
+  );
+  if (!hasRealInjection) continue;
+  scannedSessions += 1;
 
   // **分组口径（2026-11-11 修）**：召回块是**单独一条 `user/message` 事件**，
   // 不拼在用户提问里。初版按「含注入的 user/message 起一个新回合」分组，结果
