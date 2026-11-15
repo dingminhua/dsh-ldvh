@@ -52,7 +52,7 @@ const OPERATIONS = {
   "pitfall-write-object": {
     toolName: "ldvh_pitfall_write",
     writeShaped: true,
-    summary: "Controlled write of Pitfall fact objects: create (after Human-confirmed proposal) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
+    summary: "Controlled write of Pitfall fact objects: create (受控创建，通道与授权依 23 §13：机械通道/主控主动记录通道无须事前 Human 确认、Human 入口经确认) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
     effect: "may_change_state"
   }
 };

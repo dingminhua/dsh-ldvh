@@ -171,7 +171,8 @@ export const GUIDANCE_BILLING_BASIS = Object.freeze({
  * 更新本记录属普通（非受保护）文件改动，不受 `00 §3.3` 约束。
  */
 export const GUIDANCE_MEASURED_LENGTH = Object.freeze({
-  // 2026-11-13 实测：1554。记录值只作报警参照，不阻断注入。
+  // 2026-11-15 实测：1652（新增「经验主动记录」一行后由 1554 增至 1652）。
+  // 记录值只作报警参照，不阻断注入。
   //
   // **本次同时追平了两段历史漂移**（如实登记，不把它说成「改文本后才不准」）：
   // 该值自 `8852463` 记为 1339 后，`7c35734f`（引导锚点对齐重构后的 00）与
@@ -184,7 +185,7 @@ export const GUIDANCE_MEASURED_LENGTH = Object.freeze({
   // 消费点（`guidanceBudgetReport` 的 `withinEarlyWarning`/`drift`）没有以「记录值
   // 与实测不符」为失败条件——故它持续报告而不影响任何测试。这是刻意的（阻断会
   // 让每次受保护文本改动都卡住注入），代价是漂移只能靠人看。本次即由人手发现。
-  governed: 1554,
+  governed: 1652,
   unavailable: 323,
   not_governed: 90,
 });
