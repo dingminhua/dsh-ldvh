@@ -14,6 +14,8 @@ import {
   extractFindingUnits,
   validateIndexBodyCoherence,
   validateResearchRelations,
+  validateInternalSourceAnchors,
+  INTERNAL_SOURCE_KINDS,
 } from "../lib/report-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
@@ -954,4 +956,104 @@ test("correct ⑥: 同改 confirmed_statements 与正文 H3 标题 → 通过（
   assert.ok(read2.value.body.includes(newTitle));
   assert.equal(read2.value.frontmatter.status, "retired");
   assert.equal(read2.value.body_valid, true);
+});
+
+// ---------------------------------------------------------------------------
+// 24 §10.2/§10.3 — 内部来源锚点机械校验（summary/audit）
+// ---------------------------------------------------------------------------
+
+test("internal-source: kind 闭集与 locator 形态 — 四个合法 kind", () => {
+  const body = [
+    "来源：commit（0123456789abcdef0123456789abcdef01234567）",
+    "来源：object（11111111-1111-4111-8111-111111111111）",
+    "来源：session（session-abc-123）",
+    "来源：run-record（npm test @ 2026-11-17T02:00:00Z）",
+  ].join("\n");
+  const r = validateInternalSourceAnchors(body, { requireAny: true });
+  assert.equal(r.ok, true, JSON.stringify(r.issues));
+  assert.equal(r.anchors.length, 4);
+});
+
+test("internal-source: kind 不在闭集 → 拒绝（旧 summary 的「代码」即此类）", () => {
+  const r = validateInternalSourceAnchors("来源：代码（plugin/lib/foo.js）", { requireAny: true });
+  assert.equal(r.ok, false);
+  assert.ok(r.issues.some((i) => i.includes("代码") && i.includes("closed set")), JSON.stringify(r.issues));
+});
+
+test("internal-source: commit locator 必须是 40 位小写 hex", () => {
+  const bad = validateInternalSourceAnchors("来源：commit（abc123）", { requireAny: true });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.issues.some((i) => i.includes("40 lowercase hex")));
+  const upper = validateInternalSourceAnchors("来源：commit（ABCDEF0123456789ABCDEF0123456789ABCDEF01）", { requireAny: true });
+  assert.equal(upper.ok, false, "uppercase hex must be rejected");
+});
+
+test("internal-source: object locator 必须是规范 UUID", () => {
+  const r = validateInternalSourceAnchors("来源：object（not-a-uuid）", { requireAny: true });
+  assert.equal(r.ok, false);
+  assert.ok(r.issues.some((i) => i.includes("canonical object_uid")));
+});
+
+test("internal-source: object locator 可解析性由 resolveObject 回调判定", () => {
+  const line = "来源：object（11111111-1111-4111-8111-111111111111）";
+  const bad = validateInternalSourceAnchors(line, { requireAny: true, resolveObject: () => false });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.issues.some((i) => i.includes("does not resolve")));
+  const good = validateInternalSourceAnchors(line, { requireAny: true, resolveObject: () => true });
+  assert.equal(good.ok, true);
+});
+
+test("internal-source: docs/ 路径与绝对路径不得作 locator", () => {
+  const docs = validateInternalSourceAnchors("来源：run-record（docs/devlog-archive/foo.md）", { requireAny: true });
+  assert.equal(docs.ok, false);
+  assert.ok(docs.issues.some((i) => i.includes("docs/ path")));
+  const abs = validateInternalSourceAnchors("来源：run-record（/Users/me/foo.log）", { requireAny: true });
+  assert.equal(abs.ok, false);
+  assert.ok(abs.issues.some((i) => i.includes("absolute/local path")));
+});
+
+test("internal-source: requireAny 时空正文被拒绝，非 requireAny 时放行", () => {
+  const strict = validateInternalSourceAnchors("正文无任何锚点行", { requireAny: true });
+  assert.equal(strict.ok, false);
+  assert.ok(strict.issues.some((i) => i.includes("at least one")));
+  const loose = validateInternalSourceAnchors("正文无任何锚点行", { requireAny: false });
+  assert.equal(loose.ok, true);
+  assert.equal(loose.anchors.length, 0);
+});
+
+test("internal-source: 闭集恰好四值，无多无少", () => {
+  assert.deepEqual([...INTERNAL_SOURCE_KINDS].sort(), ["commit", "object", "run-record", "session"]);
+});
+
+test("internal-source: create summary 缺锚点被拒绝，带合法锚点通过", async () => {
+  const summaryDraft = {
+    title: "内部过程总结测试",
+    status: "active",
+    report_form: "summary",
+    research_purpose: "验证内部来源锚点校验",
+    stopping_reason: "no-gain",
+    uncertain: [{ issue: "仅测试锚点校验", reason: "非真实调研" }],
+    change_summary: "测试 summary 创建",
+  };
+  const summaryBodyNoAnchor = `## 范围与目的\n验证锚点校验。\n\n## 工作与结论\n做了一些工作。\n\n## 证据摘录\n摘录内容。\n\n## 遗留与下一步\n无。`;
+  const noAnchor = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: summaryDraft,
+    analysisBody: summaryBodyNoAnchor,
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(!noAnchor.ok, JSON.stringify(noAnchor));
+  assert.equal(noAnchor.error.code, "research/internal_source_anchor_invalid");
+
+  const summaryBodyWithAnchor = summaryBodyNoAnchor.replace(
+    "摘录内容。",
+    "摘录内容。\n来源：commit（0123456789abcdef0123456789abcdef01234567）"
+  );
+  const ok = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: summaryDraft,
+    analysisBody: summaryBodyWithAnchor,
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(ok.ok, JSON.stringify(ok.error));
 });

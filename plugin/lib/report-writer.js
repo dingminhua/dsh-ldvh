@@ -569,6 +569,100 @@ export function validateIndexBodyCoherence(frontmatter, body) {
 }
 
 // ---------------------------------------------------------------------------
+// 内部来源锚点校验 (24 §10.2 / §10.3 — summary / audit 专用)
+// ---------------------------------------------------------------------------
+
+/** 24 §10.2 内部来源 kind 闭集。 */
+export const INTERNAL_SOURCE_KINDS = new Set(["commit", "object", "session", "run-record"]);
+
+/** 40 位小写十六进制 commit 哈希（24 §10.2：commit 是首选形态）。 */
+const COMMIT_LOCATOR_PATTERN = /^[0-9a-f]{40}$/;
+
+/** 内部来源锚点行：`来源：<kind>（<locator>）`。全角括号、行首尾允许空白。 */
+const INTERNAL_SOURCE_PATTERN = /^\s*来源：([^\s（]+)（(.+?)）\s*$/;
+
+/**
+ * 扫描正文中的内部来源锚点行并校验 24 §10.2 的机械可判部分：
+ *   - kind 属闭集 {commit, object, session, run-record}；
+ *   - locator 形态：commit=40 位小写 hex；object=规范 UUID 且可解析（解析由
+ *     create/update 流程承担，本函数只校验形态）；session/run-record 只校验非空；
+ *   - locator 不得是 docs/ 路径或本机/会话内绝对路径（§10.2 禁止事项 1/2）。
+ *
+ * 边界（如实声明）：
+ *   - 本函数**只校验出现的锚点行**，不强制数量；是否有锚点由 requireAny 决定。
+ *   - 不校验 session/run-record 的真实性（属 AI 据实声明，00 §4.6）；
+ *   - 不校验摘录是否忠实于来源、锚点处原文现在是否一致（属 AI 语义审核与 F4）。
+ *
+ * @param {string} body — 报告正文
+ * @param {{requireAny?: boolean, resolveObject?: (uid: string) => boolean}} opts
+ * @returns {{ok: boolean, issues: string[], anchors: Array<{kind, locator}>}}
+ */
+export function validateInternalSourceAnchors(body, { requireAny = false, resolveObject = null } = {}) {
+  const issues = [];
+  const anchors = [];
+  if (typeof body !== "string") {
+    return { ok: false, issues: ["internal-source: body must be a string"], anchors };
+  }
+  for (const line of body.split(/\r?\n/)) {
+    const m = line.match(INTERNAL_SOURCE_PATTERN);
+    if (!m) continue;
+    const kind = m[1];
+    const locator = m[2].trim();
+    anchors.push({ kind, locator });
+    if (!INTERNAL_SOURCE_KINDS.has(kind)) {
+      issues.push(`internal-source: kind "${kind}" not in closed set {${[...INTERNAL_SOURCE_KINDS].join(", ")}} (24 §10.2)`);
+      continue;
+    }
+    if (kind === "commit") {
+      if (!COMMIT_LOCATOR_PATTERN.test(locator)) {
+        issues.push(`internal-source: commit locator must be 40 lowercase hex chars, got ${JSON.stringify(locator)} (24 §10.2)`);
+      }
+    } else if (kind === "object") {
+      if (!UUID_PATTERN.test(locator)) {
+        issues.push(`internal-source: object locator must be a canonical object_uid, got ${JSON.stringify(locator)} (24 §10.2)`);
+      } else if (typeof resolveObject === "function" && resolveObject(locator) === false) {
+        issues.push(`internal-source: object locator does not resolve to an existing object: ${locator} (24 §10.2)`);
+      }
+    } else {
+      // session / run-record：只校验非空，真实性属 AI 据实声明范围。
+      if (locator.length === 0) {
+        issues.push(`internal-source: ${kind} locator must be non-empty (24 §10.2)`);
+      }
+    }
+    // 禁止项 1/2：docs/ 路径与本机/会话内绝对路径不得作 locator（§10.2）。
+    if (/(^|\/)docs\//.test(locator)) {
+      issues.push(`internal-source: docs/ path must not be used as locator — quote the content verbatim into the body instead (24 §10.2 禁止事项 1)`);
+    }
+    if (/^(\/|~|[A-Za-z]:[\\/])/.test(locator)) {
+      issues.push(`internal-source: absolute/local path must not be used as locator (24 §10.2 禁止事项 2)`);
+    }
+  }
+  if (requireAny && anchors.length === 0) {
+    issues.push("internal-source: summary/audit body must carry at least one 来源：<kind>（<locator>） anchor (24 §10.2)");
+  }
+  return { ok: issues.length === 0, issues, anchors };
+}
+
+/**
+ * 解析内部锚点中的 object locator 是否指向存在的报告对象（24 §10.2）。
+ * 只查本类型目录——「事实对象只相互引用」允许跨类型，但该闭集的机械解析
+ * 目前落在同目录（与 updates 目标的解析口径一致）；跨类型解析属 F4 展开。
+ * 返回附加的 issues（仅 object 型、形态合法但文件不存在的）。
+ */
+async function resolveInternalObjectLocators(factSourceRoot, anchors) {
+  const issues = [];
+  for (const { kind, locator } of anchors) {
+    if (kind !== "object" || !UUID_PATTERN.test(locator)) continue;
+    try {
+      await access(objectFilePath(factSourceRoot, locator));
+    } catch {
+      issues.push(`internal-source: object locator does not resolve to an existing report object: ${locator} (24 §10.2)`);
+    }
+  }
+  return issues;
+}
+
+// ---------------------------------------------------------------------------
 // 终态事实更正 (24 §13 `correct`; 24 §8 第 4 项「只允许配套更正或退出说明的更新」)
 // ---------------------------------------------------------------------------
 
@@ -979,6 +1073,16 @@ export async function createResearchObject(args) {
     return failure("research/substage_mismatch", `body structure implies ${bodyCheck.exploratory ? "exploratory" : "directed"} but surveyBody says ${exploratory ? "exploratory" : "directed"}`);
   }
 
+  // 24 §10.2/§10.3：summary/audit 的内部来源锚点机械校验。
+  if (frontmatter.report_form === "summary" || frontmatter.report_form === "audit") {
+    const anchorCheck = validateInternalSourceAnchors(body, { requireAny: true });
+    const resolved = await resolveInternalObjectLocators(factSourceRoot, anchorCheck.anchors);
+    const allIssues = [...anchorCheck.issues, ...resolved];
+    if (allIssues.length > 0) {
+      return failure("research/internal_source_anchor_invalid", "internal source anchors failed mechanical checks", { issues: allIssues });
+    }
+  }
+
   // Index-body coherence (24 §8 invariants 2/7): statements ↔ units ↔ anchors
   const coherenceCheck = validateIndexBodyCoherence(frontmatter, body);
   if (!coherenceCheck.ok) {
@@ -1205,6 +1309,16 @@ export async function updateResearchObject(args) {
   }
   if (bodyCheck.exploratory !== isExploratory) {
     return failure("research/substage_mismatch", "updated body structure does not match declared sub-stage");
+  }
+
+  // 24 §10.2/§10.3：summary/audit 的内部来源锚点机械校验（形态与骨架不可变）。
+  if (fm.report_form === "summary" || fm.report_form === "audit") {
+    const anchorCheck = validateInternalSourceAnchors(body, { requireAny: true });
+    const resolved = await resolveInternalObjectLocators(factSourceRoot, anchorCheck.anchors);
+    const allIssues = [...anchorCheck.issues, ...resolved];
+    if (allIssues.length > 0) {
+      return failure("research/internal_source_anchor_invalid", "internal source anchors failed mechanical checks on update", { issues: allIssues });
+    }
   }
 
   // Index-body coherence on update
