@@ -8,7 +8,7 @@ ldvh_spec:
   parent_spec: ""
   relation: ""
   positioning: "定义 DSH 宿主下的插件接入（manifest/工具注册/引导面/事件时机/交互面）、机械守护部署（Git Gate/不变量/沙箱）、发布与项目门面（版本号/README/CHANGELOG）、编排接入点（委派/工作流扇出/通信与中断回收/结果回收）"
-  scope: "适用于 DSH 宿主下 LDVH 插件的接入、部署、发布与公共门面与编排接入点；不定义 LDVH CLI 服务契约、事实模型、业务系统规范、Web 呈现或 Code 实现细节"
+  scope: "适用于 DSH 宿主下 LDVH 插件的接入、部署、发布（release/tag/发版/出版本）与公共门面与编排接入点；不定义 LDVH CLI 服务契约、事实模型、业务系统规范、Web 呈现或 Code 实现细节"
   basis:
     - "ldvh-root"
     - "specification-model-foundation"
