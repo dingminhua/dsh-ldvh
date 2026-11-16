@@ -331,7 +331,9 @@ test("闲时辅助：子项**恒渲染**；存量 idleAssistEnabled:false 时显
 	// 这些设置根本不存在（这正是撤除总开关的理由）。
 	const off = renderSettingsSection({ idleAssistEnabled: false });
 	const on = renderSettingsSection({ idleAssistEnabled: true });
-	const titles = ["闲置捕获", "安静时长（分钟）", "召回预算档位（K 字节）"];
+	// **2026-11-17**：安静时长已删除（无时间参数可配），故不在本清单。
+	// **2026-11-17**：「闲置捕获」改名为「发现摩擦」，并新增「积累经验」子项。
+	const titles = ["积累经验", "发现摩擦", "召回预算档位（K 字节）"];
 	for (const [state, tree] of [["false", off], ["true", on]]) {
 		for (const title of titles) {
 			assert.ok(rowWithTitle(tree, title), `idleAssistEnabled=${state} 时仍须有「${title}」这一行`);
@@ -340,7 +342,7 @@ test("闲时辅助：子项**恒渲染**；存量 idleAssistEnabled:false 时显
 	// 存量配置仍作数：服务端确实不派发，故两个子项此时**显示为禁用**——
 	// 让它们照常可点就是让读数说谎。
 	// **2026-11-16**：审核子项已删除，只剩「闲置捕获」一个子项。
-	for (const title of ["闲置捕获"]) {
+	for (const title of ["积累经验", "发现摩擦"]) {
 		const control = controlsOf(rowWithTitle(off, title))[0];
 		assert.equal(control.props.disabled, true, `「${title}」在 idleAssistEnabled=false 时须禁用`);
 		assert.equal(control.props.checked, false, `「${title}」在 idleAssistEnabled=false 时须显示为关`);
@@ -355,13 +357,18 @@ test("闲时辅助：子项**恒渲染**；存量 idleAssistEnabled:false 时显
 
 test("参数行：标签与输入框**同处一行**，且输入框不在折叠区", () => {
 	const tree = renderSettingsSection({ idleAssistEnabled: true });
-	const row = rowWithTitle(tree, "安静时长（分钟）");
-	assert.ok(row, "须有「安静时长」这一行");
-	// 同一行内既有标题文本，也有那个数值输入框。
+	// **2026-11-17**：安静时长行已删除。改用仍存在的「召回预算档位」行验证同一组
+	// 不变量（标签与控件同处一个行头、不折叠）——该行是下拉档位而非数值框，
+	// 故下面不再断言 type === "number"。
+	const row = rowWithTitle(tree, "召回预算档位（K 字节）");
+	assert.ok(row, "须有「召回预算档位」这一行");
+	assert.doesNotMatch(
+		JSON.stringify(tree),
+		/安静时长/,
+		"安静时长行须已删除（2026-11-17 起无时间参数可配）",
+	);
 	const controls = controlsOf(row);
-	assert.equal(controls.length, 1, "该行须恰有一个控件（数值输入框）");
-	assert.equal(controls[0].type, "input", "该控件须是输入框");
-	assert.equal(controls[0].props.type, "number", "安静时长须用数值输入框");
+	assert.ok(controls.length >= 1, "该行须有控件");
 	// **标题与控件同处一个「行头」**（2026-11-13 可读性改版后：控件紧随标题，
 	// 说明另起一行）。这一条钉的是「控件与它的标题相邻」这个绑定关系——
 	// 只断言「同处一个 .ldv-row」太宽：控件被放回行的另一端也照样通过。
@@ -515,7 +522,10 @@ test("每行的控件与标题**相邻**，说明**独占一行**（本轮可读
 	// 覆盖**所有**控件容器，不只是有 input/select 的行——读数行（Web 呈现状态）
 	// 的控件是文字，用「找 input」的方式会把它整行漏掉（复核指出过这个盲区）。
 	const holders = allByClass(tree, "ldv-row-control");
-	assert.ok(holders.length >= 8, `须检查到足够多的行（实际 ${holders.length}）`);
+	// **2026-11-17**：下限由 8 降为 7——安静时长行已删除，少一个控件容器。
+	// 该下限的作用是防「树取错/提前返回导致一行都没检查到」，故随实际行数同步即可；
+	// 调低不等于放宽，真正的断言是下面逐行检查的那两条绑定关系。
+	assert.ok(holders.length >= 7, `须检查到足够多的行（实际 ${holders.length}）`);
 	for (const holder of holders) {
 		// 控件容器（.ldv-row-control）的父节点须是行头（.ldv-row-head）——
 		// 即控件与标题同处行头，二者相邻。

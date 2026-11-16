@@ -41,7 +41,7 @@ test("id 派生：去日期括注", () => {
 });
 
 test("id 派生：去非日期括注", () => {
-  assert.equal(deriveRowId("延迟的取消（回合开始即清掉计时）"), "延迟的取消");
+  assert.equal(deriveRowId("发起不构成执行完成（2026-11-17 新增）"), "发起不构成执行完成");
 });
 
 test("id 派生：全角斜线原样保留，不归一", () => {
@@ -88,7 +88,7 @@ test("机械行与不可判行不重叠，且合计 19", () => {
 
 test("四道机械可核对行不得登记为 not-checkable", () => {
   // 11 §18 该四行的验证入口是回读、对照与核对——登记为不可判等于免掉四道闸门
-  for (const id of ["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"]) {
+  for (const id of ["发起不构成执行完成", "主控发起的观察频次如实登记", "路径约定落实", "判断责任不归主控时的预检落实"]) {
     assert.equal(id in NOT_CHECKABLE_ROWS, false, `${id} 属机械可核对行，不得列入 NOT_CHECKABLE_ROWS`);
     assert.ok(MECHANICAL_ROWS.includes(id), `${id} 应出现在 MECHANICAL_ROWS`);
   }
@@ -302,22 +302,22 @@ test("严格缺口行填 pass → 阻断（本轮确实没证据，填 pass 即�
 });
 
 test("条件式行填 pass → 不阻断（条件出现时本就该给真结论）", () => {
-  // 「延迟的取消」等四行是条件式：有证据时应能给出 pass，不得被一并拦下。
-  const rows = completeRows().map((r) => (r.id === "延迟的取消" ? { ...r, verdict: "pass" } : r));
+  // 「发起不构成执行完成」等四行是条件式：有证据时应能给出 pass，不得被一并拦下。
+  const rows = completeRows().map((r) => (r.id === "发起不构成执行完成" ? { ...r, verdict: "pass" } : r));
   const r = verifyRun({ rows });
   assert.equal(r.stage, "landed", `fail=${JSON.stringify(r.fail)} misreported=${JSON.stringify(r.misreported)}`);
 });
 
 test("缺口表内的行现在全部是严格缺口（四行条件式已有真采集点，已移出）", () => {
   // 2026-11-03：Human 选「补真正的采集点」后，延迟的取消／二次确认空闲／
-  // 路径约定落实／无主控预检落实 四行都有了可证伪的采集点，故**不再**登记为
+  // 路径约定落实／判断责任不归主控时的预检落实 四行都有了可证伪的采集点，故**不再**登记为
   // 缺口（scope 第 5 条也明令不得登记）。留下的应全部是严格缺口。
   const entries = Object.entries(DEFERRED_ROWS);
   assert.ok(entries.length > 0, "缺口表不应为空");
   for (const [id, v] of entries) {
     assert.ok(String(v).startsWith(DEFERRED_STRICT), `${id} 应为严格缺口（带标记）`);
   }
-  for (const id of ["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"]) {
+  for (const id of ["发起不构成执行完成", "主控发起的观察频次如实登记", "路径约定落实", "判断责任不归主控时的预检落实"]) {
     assert.equal(DEFERRED_ROWS[id], undefined, `${id} 已有采集点，不应再留在缺口表`);
   }
 });

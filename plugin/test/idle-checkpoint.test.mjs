@@ -11,7 +11,15 @@ import {
   runIdleCheckpoint,
   AUX_TASKS,
 } from "../lib/idle-checkpoint.js";
-import { readPendingQueue } from "../lib/pending-queue.js";
+// 2026-11-17：待处置队列已删除（11 §12）；留痕断言改读运行痕迹。
+import { readRuns } from "../lib/idle-runlog.js";
+
+/** 队列时代的「登记条数」现对应 runlog 里的 stopped 留痕条数。 */
+async function stoppedRuns(home) {
+  const runs = await readRuns(home, {});
+  if (!runs.ok) throw new Error(JSON.stringify(runs.error));
+  return runs.value.runs.filter((r) => r.stage === "stopped");
+}
 import { testSignature } from "./helpers.mjs";
 
 const TEST_SIGNATURE = testSignature();
@@ -107,9 +115,8 @@ test("§8.5：容量/体检尚未实现时如实报告 not-implemented，不假�
       assert.ok(result.ok, JSON.stringify(result.error));
       assert.equal(result.value.outcome, "not-implemented");
     }
-    // 未实现的任务不入队、不记账。
-    const queue = await readPendingQueue(home);
-    assert.equal(queue.value.items.length, 0);
+    // 未实现的任务不留痕。
+    assert.equal((await stoppedRuns(home)).length, 0);
   });
 });
 
@@ -161,7 +168,7 @@ test("§8.4：有子代理时把机械前提交给它，并上抛其结论", asy
 // §8.3：fail-closed 与待处置登记
 // ---------------------------------------------------------------------------
 
-test("§8.3：账本有不可读载体时停止，并把原因与残留追加进待处置队列", async () => {
+test("§8.3：账本有不可读载体时停止，并把原因与残留追加进运行痕迹", async () => {
   await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     // 造一个坏载体：文件名合法但无 frontmatter。
     const { mkdir } = await import("node:fs/promises");
@@ -172,17 +179,15 @@ test("§8.3：账本有不可读载体时停止，并把原因与残留追加进
     const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     assert.ok(!result.ok, "an incomplete dedup input must stop the run");
     assert.equal(result.error.code, "idle_checkpoint/stopped");
-    assert.ok(typeof result.error.pending_entry_id === "string", "the stop is registered in the pending queue");
-
-    const queue = await readPendingQueue(home);
-    assert.equal(queue.value.items.length, 1);
-    assert.equal(queue.value.items[0].task, "friction-discovery");
-    assert.match(queue.value.items[0].reason, /查重输入不完整/);
-    assert.ok(queue.value.items[0].residual.length > 0, "the residual scope names the unreadable carrier");
+    const rows = await stoppedRuns(home);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].task, "friction-discovery");
+    assert.match(rows[0].reason, /查重输入不完整/);
+    assert.ok(rows[0].residual.length > 0, "the residual scope names the unreadable carrier");
   });
 });
 
-test("§8.3 第 6 条：队列不可写时不得降级登记，且如实上报 queue_unavailable", async () => {
+test("§8.3 第 6 条：留痕不可写时不得降级登记，且如实上报 runlog_unavailable", async () => {
   await withHome(async ({ factSourceRoot, base, projectId, projectRoot }) => {
     // 用一个把 DSH home 指向普通文件的 home 函数 → 队列必然不可写。
     const fileAsDir = join(base, "blocked");
@@ -196,8 +201,8 @@ test("§8.3 第 6 条：队列不可写时不得降级登记，且如实上报 q
 
     const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     assert.ok(!result.ok);
-    assert.equal(result.error.code, "idle_checkpoint/queue_unavailable");
-    assert.equal(result.error.queue_unavailable, true, "the caller must be able to tell the stop was NOT registered");
+    assert.equal(result.error.code, "idle_checkpoint/runlog_unavailable");
+    assert.equal(result.error.runlog_unavailable, true, "the caller must be able to tell the stop was NOT registered");
     assert.match(result.error.message, /未登记|不得降级/);
   });
 });
@@ -212,12 +217,11 @@ test("§8.3 第 3 项：停止后不自行重试——同一失败再跑一次�
     await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
 
-    const queue = await readPendingQueue(home);
-    assert.equal(queue.value.items.length, 2, "each stop is its own append (仅追加, no silent overwrite)");
+    assert.equal((await stoppedRuns(home)).length, 2, "each stop is its own append (仅追加, no silent overwrite)");
   });
 });
 
-test("§8.3：执行体抛错时入队，且错误不逃逸到宿主事件分发", async () => {
+test("§8.3：执行体抛错时留痕，且错误不逃逸到宿主事件分发", async () => {
   await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const result = await runIdleCheckpoint({
       dshHomePath: home,
@@ -234,9 +238,9 @@ test("§8.3：执行体抛错时入队，且错误不逃逸到宿主事件分发
     assert.ok(!result.ok, "a throwing subagent stops the run");
     assert.equal(result.error.code, "idle_checkpoint/stopped");
 
-    const queue = await readPendingQueue(home);
-    assert.equal(queue.value.items.length, 1);
-    assert.match(queue.value.items[0].reason, /子代理中断/);
+    const rows = await stoppedRuns(home);
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].reason, /子代理中断/);
   });
 });
 
@@ -248,11 +252,10 @@ test("§8.3：缺 factSourceRoot 时拒绝并说明（不自造路径），且�
     // 11 §12：fail-closed 停止须登记待处置队列（不得只在返回值里报一声就消失）。
     // 此前这三条前置是裸 return failure，一条都没入队——实测 2026-10-19 重启后
     // 六次 no_current_turn 在队列里查无记录。
-    const queue = await readPendingQueue(home);
-    assert.equal(queue.value.items.length, 1, "前置校验失败同样要入队");
-    assert.equal(queue.value.items[0].task, "friction-discovery");
-    assert.match(queue.value.items[0].reason, /factSourceRoot is required/);
-    assert.ok(result.error.pending_entry_id, "返回值须带 entry_id，使「已登记」可核对");
+    const rows = await stoppedRuns(home);
+    assert.equal(rows.length, 1, "前置校验失败同样要留痕");
+    assert.equal(rows[0].task, "friction-discovery");
+    assert.match(rows[0].reason, /factSourceRoot is required/);
   });
 });
 
@@ -367,7 +370,6 @@ test("执行体产出失败须携带可诊断信息（不得只留 stopReason）
   // 可诊断线索的承载随之从队列条目搬到返回值的 `residual`——再经 lifecycle 写进
   // 运行痕迹的 `note`。本用例的判据不变：线索必须存在且可读。
   await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
-    const { readPendingQueue } = await import("../lib/pending-queue.js");
     const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
@@ -387,10 +389,8 @@ test("执行体产出失败须携带可诊断信息（不得只留 stopReason）
     assert.ok(!r.ok);
 
     // 分流：产出失败不入队，且明确以 null 标明「没有对应队列条目」。
-    const queue = await readPendingQueue(home);
-    assert.equal(queue.value.items.length, 0, "执行体产出失败不入队（11 §11 条件式：校验未坏）");
+    assert.equal((await stoppedRuns(home)).length, 0, "执行体产出失败不留 stopped 痕（11 §11 条件式：校验未坏）");
     assert.equal(r.error.code, "idle_checkpoint/executor_failed");
-    assert.equal(r.error.pending_entry_id, null, "null 明确表示「按分流不入队」，与「没有失败」区分");
 
     // 线索本身仍须存在——不入队不等于不留痕。
     const residual = Array.isArray(r.error.residual) ? r.error.residual : [];
@@ -435,7 +435,6 @@ test("能力不可用（no provider）仍须入队——分流只放行产出失
   // 反向半边：分流若放行过宽，「宿主这轮根本派不出执行体」就会从队列里消失，
   // 而 11 §11 的条件式恰恰点名这种情形**须**登记。本用例钉住那条边界。
   await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
-    const { readPendingQueue } = await import("../lib/pending-queue.js");
     const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
@@ -452,10 +451,9 @@ test("能力不可用（no provider）仍须入队——分流只放行产出失
     });
     assert.ok(!r.ok);
 
-    const queue = await readPendingQueue(home);
-    const entry = queue.value.items[0];
+    const rows = await stoppedRuns(home);
+    const entry = rows[0];
     assert.ok(entry, "能力不可用须入队（11 §12 第 2 条：不得因无运行在途而不登记）");
-    assert.equal(r.error.pending_entry_id, entry.entry_id, "返回值须指向那条登记");
     assert.ok(Array.isArray(entry.residual) && entry.residual.length > 0, "登记须带 residual");
   });
 });
@@ -470,15 +468,12 @@ test("§8.4 水位：缺 sessionId / currentTurn 时 fail-closed（不得退化�
     assert.ok(!noTurn.ok);
     assert.equal(noTurn.error.code, "idle_checkpoint/no_current_turn");
 
-    // 11 §12：两条前置失败都须入待处置队列。实测 2026-10-19 重启后六次
-    // no_current_turn 在队列里查无记录——「已停止」与「已登记」是两件事，
-    // 只做前者等于让失败凭空消失。
-    const queue = await readPendingQueue(home);
-    assert.equal(queue.value.items.length, 2, "每次停止各追加一条（仅追加，不覆盖）");
-    assert.match(queue.value.items[0].reason, /sessionId is required/);
-    assert.match(queue.value.items[1].reason, /currentTurn \(the turn published by the host event payload\) is required/);
-    assert.ok(noSession.error.pending_entry_id);
-    assert.ok(noTurn.error.pending_entry_id);
+    // 11 §12：两条前置失败都须留痕（2026-11-17 起载体为运行痕迹）。
+    // 「已停止」与「已留痕」是两件事，只做前者等于让失败凭空消失。
+    const rows = await stoppedRuns(home);
+    assert.equal(rows.length, 2, "每次停止各追加一条（仅追加，不覆盖）");
+    assert.match(rows[0].reason, /sessionId is required/);
+    assert.match(rows[1].reason, /currentTurn \(the turn published by the host event payload\) is required/);
   });
 });
 

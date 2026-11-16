@@ -11,47 +11,36 @@
 //   system-prompt/assemble   guidance injection + tools guard           [ACTIVE]
 //   agent/pre-step           resident-enumeration channel               [SKELETON: gates live, no content]
 //   agent/session-start      priming + session-scope record             [ACTIVE]
-//   agent/turn-stopping      session activity → reset silence window    [ACTIVE]
-//   agent/status             idle → arm silence timer (NOT a trigger)   [ACTIVE]
+//   agent/turn-stopping      session activity + turn bookkeeping        [ACTIVE]
+//   agent/status             idle → observation counter (NOT a trigger) [ACTIVE]
 //   session/event turn/end   turn-close bookkeeping + activity refresh  [ACTIVE]
 //   agent/disposed           (fiber-owned cleanup — no hook needed)     [implicit]
 //
-// 触发判据（11 §6.1）：「会话确已空闲」= **距最后一次会话活动已持续不短于
-// 安静时长**。故本模块的形态是：
-//   - `agent/turn-stopping` / `session/event turn/end`：**刷新活动时刻并重置**
-//     安静期计时（对话在继续就不倒计时）；
-//   - `agent/status: idle`：**只负责武装**计时（宿主 idle 说明「此刻没有在跑的
-//     驱动」，但**不说明会话已安静多久**，故它本身不是触发的成立点）；
-//   - 计时到期且**再次确认确已安静** → 调度辅助任务。
+// 触发判据（11 §6.1，**2026-11-17 修订**）：**触发锚是主控发起**。主控在当次
+// 行动中判定出现阻碍现象时，整理材料并经 `requestCheckpoint()` 交派一个执行体；
+// 本模块**不再有任何计时器、安静时长、到期二次确认或周期调度**。
 //
-// **计时载体：每个会话一个进程内 `setTimeout`（2026-10-24 回退）**——2026-10-22
-// 曾把计时改由宿主定时任务承载（`ctx.schedule` 排期，宿主到点把
-// `[SCHEDULE REMINDER]` 投递回会话）。该形态在真实宿主上实测连续多次投递均未
-// 走到派发、且识别与判定环节要靠在每处早退落盘才能归因；Human 于 2026-10-24
-// 决定停用宿主投递，改回本仓 `c7384a9` 之前的进程内计时形态。回退的代价按
-// 11 §6.1 如实登记：计时器随宿主重启/插件热重载消失；计时状态不可被第三方从
-// 宿主任务表回读，回读面只剩运行痕迹。回退**不放松**判据：安静时长、到期二次
-// 确认、一次安静期至多触发一次、不得自行重试，均与承载方式无关。
+// 故本模块现在的形态是：
+//   - `agent/turn-stopping` / `session/event turn/end`：刷新活动时刻、记账轮次
+//     与区间材料（**不再武装任何计时**）；
+//   - `agent/status: idle`：只记一次观察计数，**不派发**；
+//   - `requestCheckpoint(source)`：**唯一的派发入口**，由主控显式调用。
 //
-// **重启使安静期作废（2026-10-27，Human 决定）**：装载时**不重建**计时。跨重启
-// 的那段安静期一律作废，一段时间内一次都不会到期；只有**装载之后真实结束的
-// 回合**才能重新起算。此前（2026-10-19 起）装载时按持久化活动时刻「按剩余量
-// 重建」，判据上没错，但把**已经结束的安静期**重新读回内存：旧锚点的剩余量恒为
-// 0，于是每次插件重载、每次**重新打开一个旧对话**都会在同一个早已结束的安静期
-// 上再触发一次，实测单日重复派发数十次（quietFor 达 44–166 小时）。这与 §6.1
-// 「不得在同一目标时刻上反复触发」直接冲突，故取消重建：**计时只有一个起点——
-// 回合结束**。代价如实登记：重启窗口内安静期不成立（不主张恰好一次）。
+// **为什么计时器整体删除、而不是留作退路**（11 §6.1）：计时器的语义是「没人盯着
+// 时也要跑」，主控发起的语义是「主控在干活时顺带发现」。两者并存会产生**第二套
+// 观察来源**——同一阻碍被两侧各记一次，而两侧的观察区间与 group 键互不知情，
+// 于是同源阻碍被拆成两组、阈值永远凑不满。11 §19.1 第 3 项禁止恢复任何周期触发
+// 形态（含计时器、静置检查点、宿主定时任务或任何等效结构）；**保留一个恒不触发
+// 的计时器同样不算合规**，那会让「机制还在、只是不起作用」成为表面事实。
 //
-// **回合进行中不存在倒计时**（2026-10-23 定下的纪律，本次随载体一并保留）：
-// `turn/start` 清掉计时器，`turn/end` 按「结束时刻 + 安静时长」重新武装。
-// 进程内计时器使这条纪律**真正成立**（`clearTimeout` 同步生效、其状态可本地
-// 回读），不再有「撤掉未生效」的残留窗口。
+// **随之删除的四套纪律**（其规范对象已不存在，不是被放宽）：安静时长取值、到期
+// 二次确认、一次安静期至多触发一次、重启使安静期作废。原「重启后按旧锚点重建
+// 计时」曾导致每次插件重载/重开旧对话都在同一早已结束的安静期上再触发一次
+// （实测 quietFor 达 44–166 小时）；该缺陷随计时器删除而整体消失。
 //
-// `turnInFlight` 仍作为末道防线保留：若到期回调与回合开始交错（事件落盘晚于
-// 事实），回调内再判一次，禁止在回合进行中派发。
-//
-// 一次安静期**至多触发一次**（`silenceFired`）：触发后须有**新的会话活动**才
-// 重新计时。这同时是 11 §12「不得自行重试」的机械形态——失败后不得自动再试。
+// **本形态的代价如实登记**：观察频次由主控的行动密度决定，不再由时间决定；主控
+// 当次未判定出的阻碍**当次不被记录**，且不存在事后补扫通道。攒不够 N=3 即留在
+// 缓冲，不构成失败（11 §6.1 发起侧纪律第 4 条）。
 //
 // Skeleton points evaluate their gate (governance state) and record
 // observability markers, but deliberately DO NO work: the content of
@@ -68,40 +57,13 @@ function eventTurn(event) {
   return typeof turn === "number" ? turn : undefined;
 }
 
-/**
- * 本次用户消息是否是**本插件审核周期任务的投递**（11 §6.1 形态 2）。
- *
- * ## 为什么必须识别
- *
- * 宿主把到期任务渲染成 `[SCHEDULE REMINDER]` 投进专属会话的收件箱，随即开启一个
- * **新回合**（`turn/start`）。若不识别，这个回合会被算作「会话活动」——而审核投递
- * 本身**不是**人的活动，把它当活动会让安静期重新起算（形态 1 被审核投递无谓推迟）。
- *
- * ## 判据是「宿主框架 + 本插件标签」
- *
- * 宿主框架是稳定字面量 `[SCHEDULE REMINDER]`；但用户自己写的消息也可能以它开头，
- * 故还要求正文带本插件独有标签。两者同时成立才认作本插件投放。
- *
- * 与安静期投递的区别：那条的标签是 `dsh-ldvh:session-silence`（本仓现已不用宿主
- * 承载形态 1，故该标签只用于识别历史残留投递）。
- */
-const HOST_REMINDER_FRAMING = "[SCHEDULE REMINDER]";
-const REVIEW_DELIVERY_TAG = "dsh-ldvh:experience-review";
-
-function textOfMessageContent(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((block) => block !== null && typeof block === "object" && block.type === "text")
-    .map((block) => (typeof block.text === "string" ? block.text : ""))
-    .join("");
-}
-
-function isReviewDelivery(userMessage) {
-  if (userMessage === null || userMessage === undefined) return false;
-  const text = textOfMessageContent(userMessage.content ?? userMessage);
-  return text.startsWith(HOST_REMINDER_FRAMING) && text.includes(REVIEW_DELIVERY_TAG);
-}
+// 2026-11-17：原「审核周期任务投递识别」（`HOST_REMINDER_FRAMING` /
+// `REVIEW_DELIVERY_TAG` / `isReviewDelivery` / `textOfMessageContent`）已整体删除。
+//
+// 它识别的是宿主把到期任务渲染成 `[SCHEDULE REMINDER]` 投进会话的那条投递，
+// 用于让该回合走「审核路径」而不是安静期路径。两个前提都已不存在：审核层整层
+// 删除（2026-11-16），计时器与静置检查点删除（2026-11-17）。留着它会让读者以为
+// 仍有一条「宿主定时投递 → 审核」的通道。
 
 /**
  * Create the turn-level trigger set for one agent.
@@ -110,14 +72,15 @@ function isReviewDelivery(userMessage) {
  * falls back to a local one for direct/test usage); `activity` optionally
  * receives hook-action entries. `log` is the host logger.
  *
- * `onSessionCheckpoint` is invoked when the **silence window has expired**
- * AND the session has been re-confirmed idle (11 §6.1 的两步：活动之后须安静满
- * 一个安静时长). It receives `{ turn, source }` and is expected to return a
- * promise; the hook does not await it (the host event is a synchronous emit)
- * — rejections are logged and never escape into the host's event dispatch.
+ * `onSessionCheckpoint` 由 **`requestCheckpoint()`** 调用——即主控在当次行动中
+ * 发现阻碍时显式发起（11 §6.1「触发锚是主控发起」，2026-11-17）。它收到
+ * `{ turn, source }` 并返回 promise；本模块不 await（宿主事件是同步 emit），
+ * 拒绝被收口为日志，绝不逃逸进宿主的事件分发。
  *
- * `readSilenceMs()` 取安静时长（毫秒）；`persistActivityAt(ms)` 落持久化活动时刻
- * ——两者由编排层注入，使本模块不直接依赖配置读取与文件写入（可测）。
+ * `persistActivityAt(ms)` 落持久化活动时刻（留作事后复算的材料，**不被读回重建
+ * 计时**）；由编排层注入，使本模块不直接依赖文件写入（可测）。
+ * **`readSilenceMs` 已不再被消费**：没有计时器就没有安静时长可取；该形参若仍被
+ * 传入也不产生任何效果（triggers-idle.test.mjs 钉住这一点）。
  *
  * `registerDiagnostic(entry)` 是**诊断痕迹**注入点（2026-10-23，2026-10-24 回退
  * 时保留）：每个到期早退分支与派发调用都落一条，使「到点了却没有派发」可事后
@@ -140,17 +103,15 @@ function isReviewDelivery(userMessage) {
  * @param {boolean|null} a.handleDestroyed 句柄的 `_destroyed`
  * @returns {{handleCleared: boolean, idleCancelled: boolean}}
  */
-export function judgeClear({ hadTimer, slotEmpty, handleIdleTimeout, handleDestroyed }) {
-  const idleCancelled = handleIdleTimeout === -1;
-  if (hadTimer !== true) {
-    // 没有计时器：不存在「清理」这回事，只如实反映状态槽为空。
-    return { handleCleared: slotEmpty === true, idleCancelled: false };
-  }
-  return {
-    handleCleared: slotEmpty === true && idleCancelled && handleDestroyed !== false,
-    idleCancelled,
-  };
-}
+// 2026-11-17：`judgeClear` 已删除。
+//
+// 它的全部语义是「判断安静期计时器的句柄是否真被清理」（三重观察：状态槽已空、
+// `_idleTimeout === -1`、`_destroyed !== false`）。计时器随触发锚改为主控发起而
+// 删除后，没有句柄可观察，该判定失去输入。
+//
+// **不得保留一个恒返回 `{handleCleared: true}` 的空壳**：那会让 §18 的「延迟的
+// 取消」一行看起来仍被机械采集，而实际上没有任何东西可失败——这正是本仓反复
+// 记载的「空壳机制」失效形态。
 
 export function createTurnTriggers(agent, { getScopeState, turns, activity, log, onSessionCheckpoint, readSilenceMs, persistActivityAt, now, registerDiagnostic }) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
@@ -158,7 +119,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
   /**
    * 尽力而为地写一条日志——**日志绝不能影响控制流**。
    *
-   * 存在的理由：`armSilenceTimer` 的到期回调在 `setTimeout` 顶层执行，那里一旦
+   * 存在的理由：诊断与派发路径上有若干 fire-and-forget 的回调，那里一旦
    * 抛异常就会逃逸成未捕获异常（可能带崩进程）。而 logger 是外部注入的，它的
    * 实现未必不抛（参数序列化、被替换成抛错桩等），`log?.info?.()` 只防了「没有
    * log / 没有该方法」，防不住「方法自己抛」。故一律经本函数吞掉日志自身的
@@ -221,7 +182,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     turnEndSeen: 0,
     lastTurn: undefined,
     lastReflectionGate: undefined,
-    // ── 2026-10-14：触发判据由「idle 事件 + 待办位」改为「安静期计时」──────
+    // ── 触发判据沿革：idle+待办位 → 安静期计时 → **主控发起**（2026-11-17）──
     //
     // `checkpointPending` 已**删除**：它服务的旧语义（「检查点到达」由 idle 消费）
     // 正是被 11 §6.1 判为偏离的形态——宿主在回合刚结束时就报 idle，故那等于
@@ -234,13 +195,9 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 材料——注意：截至 2026-10-27 仓内没有它的生产读取面，不得据此声称诊断页已消费），
     // 但**不再被读回来重建计时**——理由见文件头「重启使安静期作废」段。
     lastActivityAt: null,
-    // 安静期计时器句柄（进程内 `setTimeout` 的返回值）；null 表示当前没有在计时。
-    // **它是唯一的计时载体**（2026-10-24 回退后不再有宿主任务）。
+    // 原安静期计时器句柄位。**恒为 null**（2026-11-17 计时器已删除）；保留该键
+    // 只为让既有清理路径与快照读法不至于读到 undefined，不得再被写入句柄。
     silenceTimer: null,
-    // **本段安静期是否已触发过**：`false` 表示未触发，触发后置 `true`，直到下一次
-    // 出现新的会话活动才复位。这是「一次安静期至多触发一次」的机械形态——
-    // 同时是 §12「不得自行重试」的实现：失败后没有新活动就不得自动再试。
-    silenceFired: false,
     // **已销毁**：`dispose()` 置真后不得再武装。存在的理由见 `dispose()`：宿主在
     // 会话卸载途中仍可能派发状态事件，若无此标记，已销毁的对象会重新得到计时器，
     // 到期后对死对象派发一次。
@@ -249,8 +206,6 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 用途有二——回合开始时清掉计时器（对话进行中不倒计时），以及到期回调内
     // 的末道防线（事件落盘晚于事实时，到期回调仍不得派发）。
     turnInFlight: false,
-    /** 当前回合是否由审核周期任务的投递开启（见 isReviewDelivery）。 */
-    reviewDeliveryTurn: false,
     lastIdleSeen: 0,
     lastCheckpointDispatch: undefined
   };
@@ -269,12 +224,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     return Number.isFinite(n) ? n : Date.now();
   }
 
-  /** 取安静时长（毫秒）。缺省/非法一律回落 300000（5 分钟，与 IDLE_DEFAULTS 同值）——但**保存侧**须已拒绝非法值。 */
-  function silenceMs() {
-    const raw = typeof readSilenceMs === "function" ? readSilenceMs() : undefined;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : 300000;
-  }
+  // 2026-11-17：`silenceMs()` 已删除——没有计时器，就没有「安静时长」可取。
 
   /**
    * 清掉进程内计时器。**同步生效**——清完之后 `silenceTimer === null` 即可本地回读。
@@ -289,99 +239,36 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
    * 故清理后**立刻回读** `state.silenceTimer === null`，并把结果作为
    * `handleCleared` 随诊断记录带出。这不是新增判据，而是给已有的回读结果一个载体。
    */
+  /**
+   * 原「清理安静期计时器并采集清理证据」已随计时器删除（2026-11-17）。
+   *
+   * **为什么保留这个空壳**：`touchActivity`、`turn/start`、`dispose` 三处仍调用它
+   * （共 4 个调用点）。计时器不再武装，故这里无事可做——`state.silenceTimer`
+   * 恒为 null，没有句柄可清、也没有「清理是否生效」可采集。
+   *
+   * **为什么不留 `judgeClear`**：那个函数的全部语义是「判断计时器句柄是否真被
+   * 清理」。没有计时器，它无从判断；留一个恒真实现会让读者以为清理仍被采集，
+   * 这正是本仓反复记载的「空壳机制」失效形态（friction-277d7479 同族）。
+   */
   function clearSilenceTimer(reason) {
-    let hadTimer = false;
-    // **清理前先捕获句柄**（2026-11-03 第四轮复核修正）。
-    //
-    // 初版是「无条件置 null，再读它是否为 null」——那恒为真，是自证：既证明不了
-    // 清理生效，也区分不了「本来没有」与「清理失败」。第三轮判为伪造，成立。
-    // 现在保留句柄引用，清理后**对句柄本身**做一次可失败的观察。
-    let captured = null;
-    if (state.silenceTimer !== null) {
-      hadTimer = true;
-      captured = state.silenceTimer;
-      try {
-        clearTimeout(captured);
-      } catch {
-        // 已失效的句柄：清不掉也没有残留的计时。
-      }
-      state.silenceTimer = null;
-    }
-    // **清理后回读**：句柄是否真的为空。这是 §18 该行要的证据本身。
-    //
-    // **两种情况都必须记录**（2026-11-03 自查修正）：
-    //   - `hadTimer: true`  → 确有计时器被清掉，回读证明清干净了；
-    //   - `hadTimer: false` → 本来就没有计时器，无从清理。
-    // 后者若也走同一行判定，会被读成「清理未验证」而记缺口；但 §18 该行的条件
-    // 是「回合开始时清掉计时」，**没有计时器时该行不适用**而非「没核对」。
-    // 故把 hadTimer 一并带出，供判定方区分「清过且干净」与「本来就没有」。
-    // **可失败的回读**：三重观察，任一不成立即说明清理没生效。
-    //   ① 状态槽已空（这是我们自己的记账，单独看是自证，故只算一项）；
-    //   ② 捕获到的句柄确实已失效（`_destroyed`，Node 的 timer 在 clearTimeout 后置位）；
-    //   ③ 句柄不再被 ref（不阻止退出）。
-    // ②③ 是对**句柄对象**的独立观察，不是读我们刚写的那个变量，故可失败。
-    // **已知边界**：`_destroyed` 是 Node 的内部字段（非稳定 API）。它在这里只作为
-    // 「比纯自证多一道独立观察」的辅助证据，不单独承担结论；将来 Node 若移除该字段，
-    // 观察退化为不可判定，届时本行会如实落缺口而不是判 pass（见 lifecycle 侧判定）。
-    const slotEmpty = state.silenceTimer === null;
-    let handleDestroyed = null;
-    let handleIdleTimeout = null;
-    if (captured !== null && typeof captured === "object") {
-      if (typeof captured._destroyed === "boolean") handleDestroyed = captured._destroyed;
-      if (typeof captured._idleTimeout === "number") handleIdleTimeout = captured._idleTimeout;
-    }
-    // **`handleCleared` 现在有真正独立的第二腿**（2026-11-03 第五轮复核后重测）。
-    //
-    // 我此前在这里写过一条「实测」结论：称 clearTimeout 与自然到期之后的可观察量
-    // 相同、无法区分——**那条结论是错的**。重测结果：
-    //   - `clearTimeout` 之后：`_destroyed === true` 且 **`_idleTimeout === -1`**
-    //   - **自然到期之后**：`_destroyed === true` 但 **`_idleTimeout` 保持原 delay**
-    // 故 `_idleTimeout` 能区分「被清掉」与「自己到期」，正是该行需要的独立观察。
-    // 上一版因为抱着错误结论，把这一腿当成不可用而放弃了。
-    //
-    // 判定（三重）：
-    //   ① `slotEmpty`——清理动作真的把状态槽置空了（失败路径：忘了置 null）；
-    //   ② `_idleTimeout === -1`——句柄是被**取消**的，不是自然到期（失败路径：
-    //      clearTimeout 未生效 / 清理跑在到期之后）；
-    //   ③ `_destroyed !== false`——句柄已失效（辅助，不单独承担结论）。
-    // **已知边界**：`_idleTimeout` / `_destroyed` 是 Node 内部字段（非稳定 API）。
-    // 若某版本不再提供，观察退化为「只剩 slotEmpty」，届时本行只证「槽已空」，
-    // 不得外推「清理生效」——trace 里的 proves/cannotProve 会如实反映当时的能力。
-    // **没有计时器时不存在「清理」这回事**（2026-11-03 第五轮后修正）：
-    // `handleIdleTimeout` 为 null 是因为我们没有捕获到句柄，不是清理失败。
-    // 此时该行的条件未出现——如实标 hadTimer:false，`handleCleared` 只反映
-    // 「状态槽为空」这一事实，不假装发生了清理。
-    const { handleCleared, idleCancelled } = judgeClear({
-      hadTimer, slotEmpty, handleIdleTimeout, handleDestroyed,
-    });
-    const observesClear = handleDestroyed !== null && handleIdleTimeout !== null;
-    trace("silence-cleared", reason ?? "cleared", {
-      handleCleared, idleCancelled, hadTimer, slotEmpty, handleDestroyed, handleIdleTimeout,
-      observesClear,
-      // **如实写明这条观察的实际判别力**（2026-11-03 第六轮自查）：
-      // 实测 `clearTimeout` 之后 `_idleTimeout` **恒为 -1**（1000 次抽样无例外），
-      // 故「_idleTimeout !== -1」在生产中不会出现——`handleCleared:false` 的实际
-      // 触发条件只剩「清理后状态槽仍非空」，即实现忘了置 null。那是一条**真实的
-      // 缺陷形态**（可失败），但只有一条，不能把这条腿说成两道独立防线。
-      proves: observesClear
-        ? "状态槽已空，且句柄确已被取消（_idleTimeout=-1）；本行可失败的路径是「状态槽仍非空」"
-        : "仅证明状态槽已空（本 Node 版本未提供 timer 内部字段）",
-      cannotProve: observesClear
-        ? "不证明清理在进程异常退出时仍然成立；亦不区分「被清理」与「自然到期」（两者 _idleTimeout 表现相同）"
-        : "无法区分「被清理」与「自然到期」——本环境未提供可区分的可观察量",
-    });
-    return handleCleared;
+    // 计时器已不再武装（见 armSilenceTimer），无句柄可清。
+    state.silenceTimer = null;
+    // **仍留一条诊断**：`dispose()` 需要一条「排空期内在飞的落盘写入」，否则
+    // 「stop 会等待写入落盘」这件事无从观测，调用方（含测试）在 dispose 后立刻
+    // 清目录就会撞 ENOTEMPTY。它记录的是「清理动作被要求过」这一事实，**不是**
+    // 「计时器被清掉了」——后者随计时器一并消失，不得在这条记录里暗示。
+    trace("silence-cleared", reason ?? "cleared", { timerPresent: false });
   }
 
   /**
-   * 刷新「最后一次活动时刻」并**重置**安静期（11 §6.1：计时自活动发生时重新开始）。
+   * 刷新「最后一次活动时刻」（11 §6.1）。
    *
-   * 对话在继续时不得处于倒计时状态——故本函数必先清掉既有计时器。
+   * **不再重置任何计时**（2026-11-17 计时器已删除）：本函数只记活动时刻并落
+   * 持久化戳，供事后复算材料时机；`clearSilenceTimer` 的调用是空转清理。
    */
   function touchActivity(nowMsInput) {
     const at = Number.isFinite(nowMsInput) ? nowMsInput : nowMs();
     state.lastActivityAt = at;
-    state.silenceFired = false;
     clearSilenceTimer("activity");
     // 持久化（尽力而为，不阻塞事件流；失败只记日志）。
     if (typeof persistActivityAt === "function") {
@@ -396,94 +283,21 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
   }
 
   /**
-   * 武装安静期计时：到期且**再次确认确已安静**后派发（11 §6.1 二次确认的实现）。
+   * 原「武装安静期计时器」已整体删除（2026-11-17，11 §6.1「触发锚是主控发起」）。
    *
-   * **不重复武装已触发过的安静期**：`silenceFired` 为真时直接返回——这使
-   * 「一次安静期至多触发一次」成立，并使失败后不会自动重试（§12）。
+   * **为什么连函数体一起删、而不留一个早退的空壳**：空壳会让「计时机制还在、只是
+   * 不起作用」成为表面事实，而 11 §6.1 明文「保留一个恒不触发的计时器不算合规」。
+   * 计时器与主控发起是**语义互斥**的两种形态：并存会产生第二套观察来源，同一阻碍
+   * 被两侧各记一次、而两侧的 group 键可能不同，于是同源阻碍被拆成两组、阈值永远
+   * 凑不满。11 §19.1 第 3 项禁止恢复任何周期触发形态（含计时器、静置检查点、宿主
+   * 定时任务或任何等效结构）。
    *
-   * **按「剩余安静时长」而非整段时长武装**（2026-10-19 独立审核）：原实现无条件
-   * `setTimeout(fn, idleMs)`，于是恢复一个久远锚点后还要再白等一整个安静时长才
-   * 轮到到期判定——而 11 §6.1 的判据是「距最后一次会话活动已持续不短于安静
-   * 时长」，该判据当时**已经被满足**。延迟取剩余量即可。
+   * **函数名保留为空操作**：`onAgentStatus` / `onSessionEvent` 仍在调用它。保留一个
+   * 明确标注「无计时器可武装」的空函数，比让调用点指向 undefined 安全；它**不做任何
+   * 事**，也不得被重新填回计时逻辑（triggers-idle.test.mjs 的守卫会失败）。
    */
   function armSilenceTimer() {
-    // **销毁是终局**：`dispose()` 之后不得再武装。这条检查**可达**——`onAgentStatus`
-    // 收到 idle 就会调本函数，而宿主在会话卸载途中仍可能派发状态事件；不拦的话，
-    // 已销毁的对象会重新得到计时器，到期后对死对象派发一次。
-    if (state.disposed === true) return;       // 已销毁：不得再武装
-    if (state.silenceFired === true) return;   // 本段安静期已触发，等新活动复位
-    if (state.lastActivityAt === null) return; // 无从计时
-    if (state.silenceTimer !== null) return;   // 已在计时
-    const idleMs = silenceMs();
-    const startedAt = state.lastActivityAt;
-    // 剩余量取非负：锚点若在未来（时钟回拨等），按「立即到期」处理，由到期
-    // 判定里的 `quietFor < idleMs` 早退兜住，不在这里猜。
-    const remainingMs = Math.max(0, idleMs - (nowMs() - startedAt));
-    state.silenceTimer = setTimeout(() => {
-      state.silenceTimer = null;
-      // 到期时**再确认**一次（11 §6.1 的二次确认）：
-      //   ① 回合进行中不得派发——事件落盘可能晚于事实，故此处独立再判；
-      //      此处**不重排**：回合结束时会重启计时（§6.3 硬约束）。
-      //   ② 期间若有过新活动，计时已被 `touchActivity` 清掉，本回调不会走到这里；
-      //      保留 `quietFor` 判定是为兜住时钟与事件交错的残余情形。
-      if (state.disposed === true) {
-        trace("silence-expiry", "disposed");
-        return;
-      }
-      if (state.turnInFlight === true) {
-        note("info", "[dsh-ldvh] silence timer expired during a running turn: refusing to dispatch");
-        activity?.record("session/checkpoint/refused-turn-in-flight", { turn: state.lastTurn });
-        trace("silence-expiry", "turn-in-flight");
-        return;
-      }
-      const current = state.lastActivityAt;
-      if (current === null) {
-        note("info", "[dsh-ldvh] silence timer expired but no activity anchor exists: nothing to confirm");
-        trace("silence-expiry", "no-activity-anchor");
-        return;
-      }
-      const quietFor = nowMs() - current;
-      if (quietFor < idleMs) {
-        note("info", "[dsh-ldvh] silence timer expired but NOT quiet enough: quietFor=%dms threshold=%dms — re-arming", quietFor, idleMs);
-        trace("silence-expiry", "not-quiet-enough", { quietFor, idleMs });
-        armSilenceTimer();
-        return;
-      }
-      if (!governed()) {
-        note("warn", "[dsh-ldvh] silence timer expired but the scope is no longer governed: no checkpoint dispatched");
-        trace("silence-expiry", "not-governed");
-        return;
-      }
-      state.silenceFired = true; // 先置位：此后除非有新活动，不得再触发
-      // **三项确认的实际结论**（11 §18「二次确认空闲」的可接受依据）：
-      //   ① 无进行中回合——走到这里已由上面的 `turnInFlight` 早退保证；
-      //   ② 距最近一次回合结束已足延迟——即 `quietFor >= idleMs`，已由上面保证；
-      //   ③ 除本次到期项外无其他待触发计时——本会话的计时器是单例
-      //      （`state.silenceTimer` 非空即不再武装，见 `armSilenceTimer` 的早退），
-      //      且此处正在回调内、`silenceTimer` 已在回调开头置 null，故为 0。
-      // 逐项带出，使该行在运行结束时**可判**而不是靠猜。
-      const confirmedAt = new Date().toISOString();
-      // **记录观测值而非结论**（2026-11-03 第四轮复核修正）。
-      //
-      // 初版记 confirmNoTurn:true 等布尔常量——它们由上方的早退检查保证必然为真，
-      // 于是「记下来的都是 true」，与「常量」无异，不可证伪。如实做法是把**当时
-      // 的观测值**带出（quietFor 实测值、idleMs 阈值、lastActivityAt 锚点），
-      // 使运行结束时能复算「当时的判定是否成立」；复算不成立即说明采集有问题。
-      trace("silence-expiry", "dispatching", {
-        quietFor,
-        idleMs,
-        lastActivityAt: current,
-        turnInFlightObserved: state.turnInFlight,
-        silenceFiredBefore: false, // 走到这里时尚未置位（见上一行注释）
-        confirmedAt,
-        confirmNoTurn: true,
-        confirmQuiet: quietFor >= idleMs,
-        confirmNoOtherTimer: state.silenceTimer === null,
-      });
-      dispatchCheckpoint("silence:timer");
-    }, remainingMs);
-    // 不阻止进程退出：计时器纯属后台检修，宿主退出时无须等它。
-    if (typeof state.silenceTimer?.unref === "function") state.silenceTimer.unref();
+    // 无计时器可武装：派发只由主控经 requestCheckpoint 发起。
   }
 
   /** 调度辅助任务；不 await（宿主事件是同步 emit），失败只登记不外抛。 */
@@ -513,15 +327,13 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      * agent/turn-stopping — 会话活动（触发的**计时起点**）。
      *
      * **2026-10-14 语义变更（11 §6.1 修订）**：本事件不再「置位一次待办」而由
-     * idle 消费，而是**刷新「最后一次会话活动时刻」并（重新）武装安静期计时**。
+     * idle 消费，而是**刷新「最后一次会话活动时刻」**（2026-11-17 起不再武装计时）。
      * 原实现把它当「检查点已到达」的标记，真正的调度由 `agent/status:idle`
      * 触发——而宿主在**回合刚结束**时即进入 idle，故那等于「回合一结束就可能派发」，
      * 拿到的增量往往只有一两轮（实测 1923–7098 字符）。
      *
-     * 现行判据（§6.1）：**距最后一次会话活动已持续不短于安静时长**才可派发。
-     * 故本事件的作用是**重置计时**——对话仍在继续则永不触发，这才是
-     * 「会话确已空闲」的字面含义（原实现确认的是「宿主当前没有驱动在跑」，
-     * 那是另一个量）。
+     * 现行判据（§6.1，2026-11-17）：**触发锚是主控发起**。本事件只刷新活动时刻
+     * 与轮次记账，**不派发、不武装任何计时**。
      */
     onTurnStopping(payload) {
       if (payload?.agent !== undefined && agentId !== undefined && payload.agent.id !== agentId) return;
@@ -532,32 +344,17 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       // Gate: 未受管辖时不清点，也不排期——受管辖是 11 §4 运行的前提。
       state.lastReflectionGate = governed() ? "open" : "closed";
 
-      // **审核投递开启的回合 → 走审核路径**（11 §6.1 形态 2 / §10.2，2026-10-26）。
-      //
-      // 三条与安静期路径的关键差别：
-      //   ① **不刷新活动时刻**：审核投递不是人的活动，按活动计会把安静期无谓推迟；
-      //   ② **不判空窗**：形态 2 没有二次确认（§6.1），到点即审；
-      //   ③ **不做捕获**：审核段只读留观缓冲，不读实时对话、不产生新的缓冲条目。
-      if (state.reviewDeliveryTurn === true) {
-        state.reviewDeliveryTurn = false; // 一个回合一次
-        activity?.record("review/turn-stopping", { turn: state.lastTurn, gate: state.lastReflectionGate });
-        if (state.lastReflectionGate !== "open") {
-          activity?.record("review/skipped", { reason: "not-governed" });
-          return;
-        }
-        dispatchCheckpoint("experience-review");
-        return;
-      }
+      // 2026-11-17：原「审核投递回合 → 走审核路径」分支已删除（审核层与计时器均已不存在）。
 
       if (state.lastReflectionGate === "open") {
-        // 受管辖：刷新活动时刻并重置安静期（对话在继续，就不该进入倒计时）。
+        // 受管辖：刷新活动时刻（仅记账；不再重置任何计时）。
         touchActivity(nowMs());
       }
       activity?.record("turn/stopping", { turn: state.lastTurn, gate: state.lastReflectionGate });
     },
 
     /**
-     * agent/status — **不再是触发点，只是武装安静期的一个时机**（2026-10-14）。
+     * agent/status — **不是触发点**（2026-11-17：连「武装计时的时机」也不是了）。
      *
      * 宿主对 `idle` 的语义是「no driver remains scheduled or active」——它说明
      * **此刻没有在跑的驱动**，但**不说明会话已安静多久**。原实现把该事件直接当作
@@ -565,8 +362,8 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      * 待遇（都算「已空闲」），而后者反而**永不触发**（原实现的待办位已被首次
      * idle 消费、且 idle 是迁移事件不会重放）。
      *
-     * 现行（11 §6.1）：本事件只负责在受管辖且确有活动的情况下**武装安静期计时**；
-     * 真正的派发由计时器到期时发出。故此处不再有 `checkpointPending` 的置位/消费。
+     * 现行（11 §6.1，2026-11-17）：本事件只记一次 idle 观察计数。真正的派发由
+     * 主控经 `requestCheckpoint()` 发起。故此处既无 `checkpointPending`，也无计时。
      */
     onAgentStatus(payload) {
       if (payload?.agent !== undefined && agentId !== undefined && payload.agent.id !== agentId) return;
@@ -594,12 +391,6 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       // **回合开始 = 暂停计时**（11 §6.1，2026-10-23 纪律，2026-10-24 随载体保留）：
       // 清掉进程内计时器，使对话进行中不存在倒计时。清理是同步的，清完
       // `silenceTimer === null` 可本地回读——不再有「撤掉未生效」的残留窗口。
-      // **审核周期任务的投递到达**（2026-10-26）：在 `user/message` 上识别并标记，
-      // 使该回合的 `turn/stopping` 走审核路径而不是安静期路径。
-      if (session === agent?.session && event?.type === "user/message" && isReviewDelivery(event?.data)) {
-        state.reviewDeliveryTurn = true;
-        activity?.record("review/delivery-arrived", { turn: state.lastTurn });
-      }
       if (session === agent?.session && event?.type === "turn/start") {
         state.turnInFlight = true;
         // 11 §18「延迟的取消（回合开始即清掉计时）」——这条路径正是该行所指。
@@ -612,14 +403,11 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       state.turnInFlight = false;
       state.lastTurn = eventTurn(event) ?? state.lastTurn;
       // **会话活动**（2026-10-14）：`turn/end` 也是活动——它同时是区间材料的
-      // 结算点。此处刷新活动时刻（重置安静期），使「对话还在进行」不会被误判为
-      // 安静。与 `onTurnStopping` 的刷新**不冲突**：两者都表示「有人在说话」，
-      // 任一发生都应重置计时（取最后发生者为准）。
+      // 结算点。此处刷新活动时刻（仅记账）。与 `onTurnStopping` 的刷新**不冲突**：
+      // 两者都表示「有人在说话」，取最后发生者为准。
       if (governed()) {
         touchActivity(nowMs());
-        // **回合结束 = 重启计时**（11 §6.1）：按「结束时刻 + 安静时长」重新武装。
-        // 不依赖 `agent/status:idle` 单独武装——宿主只在 status **变化**时发事件，
-        // 一个已 idle 的会话不会再发一次 idle。
+        // 2026-11-17：原「回合结束 = 重启计时」已删除——没有计时可重启。
         armSilenceTimer();
       }
       activity?.record("turn/end", { turn: state.lastTurn });
@@ -638,9 +426,53 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     },
 
     /**
+     * 取**当前轮**已累积的 assistant 正文（弱约束的判断依据，specs/06 §6）。
+     *
+     * 为什么需要它：`ldvh_review_ask` 的行动前那处，其前置时点是「方案已有候选、
+     * 尚未产生副作用」（32 §6.1）。此前这道约束只有提示文本，实测两次复发——
+     * 2026-11-14 修过一次（commit cfff33a3 加的正是「尚无候选方案时不得发起」），
+     * 之后仍然违反。
+     *
+     * **为什么不是机械闸**：`06 §5` 规定「被区分对象在形式上不可分时（同一字形
+     * 承载不同语义），不得以机械校验强制执行；此时改用弱约束」。实测语料 53 次
+     * pre-action 调用、52 次带 claims，claims 逐字出现在同轮正文的为 **0 次**；
+     * 整轮正文为空 **0 次**（最小 119 字）。即：任何「正文里必须有候选」的闸都会
+     * 100% 误拒合法询问，而对真正的空问 0 拦截力（模型空问时正文照样长篇）。
+     * 因此本入口只**交还依据**，不判定对错（06 §6 末句）。
+     *
+     * **为什么不读会话日志**：宿主活事件先进 200ms 批处理缓冲
+     * （`dsh-session-persistence-jsonl/storage.ts` 的
+     * `LIVE_WRITE_BATCH_MAX_DELAY_MS`），而工具执行发生在 `assistant/message`
+     * append 后数毫秒内——磁盘上通常还没有本步正文。本累积器消费的是
+     * `session/event` 活事件（零延迟），故此刻读得到。
+     *
+     * @param {number} [turn] 轮次；省略则取缓冲里已知的最大轮次
+     * @returns {{ok: boolean, turn: number|null, assistant: string, truncated: boolean, reason?: string}}
+     */
+    currentTurnText(turn) {
+      const target = Number.isInteger(turn) ? turn : accumulator.highestTurn();
+      if (target === null || target === undefined) {
+        return {
+          ok: false, turn: null, assistant: "", truncated: false,
+          reason: "this process has not observed any assistant message yet, so the current turn's text is unavailable (the live event stream has not reached this session)",
+        };
+      }
+      // `windowFrom(target - 1)` 恰好只返回 target 这一轮（`filter(turn > floor)`）。
+      const window = accumulator.windowFrom(target - 1);
+      const item = window.items.find((entry) => entry.turn === target);
+      return {
+        ok: true,
+        turn: target,
+        assistant: typeof item?.assistant === "string" ? item.assistant : "",
+        truncated: item?.truncated === true,
+      };
+    },
+
+    /**
      * 清计时器（会话结束 / 插件卸载时由 lifecycle 的清理函数调用）。
      *
-     * **不清 `lastActivityAt`**：`silenceFired` 亦不清——它属于**本段安静期**，
+     * **不清 `lastActivityAt`**：它是事后复算的材料，不随轮次边界清空。（原
+     * `silenceFired` 的说明随计时器删除而失效——该键现已无消费方。
      * 随对象销毁自然消失。清理只负责不留下「进程已退出仍在计时的定时器」这一
      * 泄漏，不对任何已发生的派发构成撤回（11 §6.1）。
      */
@@ -684,7 +516,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      * **为什么需要它**（2026-10-19）：`lastTurn` 只在回合边界事件里被赋值
      * （`onTurnStopping` 的载荷、`onSessionEvent` 的 `turn/end`），**没有任何
      * 持久化载体**。于是进程重启/插件热重载之后，只要该会话尚未开启新回合，
-     * `lastTurn` 就是 `undefined`；安静期到期时派发拿不到区间端点，按 11 §12
+     * `lastTurn` 就是 `undefined`；主控发起派发时拿不到区间端点，按 11 §12
      * fail-closed——重启后的第一次闲时派发**必然**失败。
      *
      * 位置来源只能是宿主会话记录（11 §11「切分依据只能是宿主会话记录中的位置」），
@@ -709,6 +541,30 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       if (state.lastTurn !== undefined) return false;
       state.lastTurn = turn;
       note("info", "[dsh-ldvh] last turn restored from the host session record: turn=%d", turn);
+      return true;
+    },
+
+    /**
+     * **主控发起一次检查点**（2026-11-17，11 §6.1「触发锚是主控发起」）。
+     *
+     * 这是计时器删除后**唯一的派发入口**：主控在当次行动中发现阻碍或已查明验证的
+     * 失败机制时，调本方法把材料交给检查点，由它派代理去处理。
+     *
+     * 参数 `source` 只用于留痕与事后归因，**不参与任何判据**——不存在「某些 source
+     * 才允许派发」的白名单，也不存在基于时间的节流（11 §6.2 现为空集）。调用方
+     * 给什么就记什么，使痕迹能回答「这一次是谁发起的」。
+     *
+     * **本方法不判定「值不值得记」**：那是主控的判断（00 §4.5 代理辅助任务），
+     * 机械层不判定。此处只做「把请求送进检查点」这一件事，并把异常收口为日志
+     * ——与 dispatchCheckpoint 同一纪律，不使调度失败污染调用方。
+     *
+     * @param {string} [source] 发起来源标签（缺省 `"controller"`）
+     * @returns {boolean} 是否真的送进了检查点（无回调时 false）
+     */
+    requestCheckpoint(source = "controller") {
+      if (state.disposed === true) return false;
+      if (typeof onSessionCheckpoint !== "function") return false;
+      dispatchCheckpoint(source);
       return true;
     },
 

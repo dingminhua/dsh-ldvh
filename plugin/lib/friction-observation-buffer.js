@@ -70,7 +70,10 @@
 import { readFile, mkdir, appendFile, writeFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { appendPendingEntry, readPendingQueue, resolvePendingEntry } from "./pending-queue.js";
+// 2026-11-17：待处置队列已删除（Human 决定，11 §12）。淘汰登记改走运行痕迹
+// （runlog）——§12 新形态的持久承载。查重与「回写失败须声明未生效」两条纪律
+// 保留，只是载体换了（见 registerEvictedPending 与两处 writeback-failed 分支）。
+import { recordRun, readRuns } from "./idle-runlog.js";
 
 /** DSH home 下摩擦观察缓冲的目录（**不在事实源内**，与经验缓冲分开）。 */
 export const FRICTION_OBSERVATION_DIR = Object.freeze(["ldvh", "friction-observations"]);
@@ -263,22 +266,36 @@ async function registerEvictedPending(dshHomePath, evicted, reason) {
     bucket.count = Math.max(bucket.count, item.pending_count_at_eviction);
   }
 
-  // **登记前查重（第四轮审核 F1）**：读不到队列就不能确认「这条淘汰事实是否已登记过」，
-  // 也就无法保证不重复登记——按 §18 同一失败处置 fail-closed，拒绝淘汰。
-  const existing = await readPendingQueue(dshHomePath);
+  // **登记前查重（第四轮审核 F1；2026-11-17 载体换为 runlog）**：读不到留痕载体
+  // 就不能确认「这条淘汰事实是否已登记过」，也就无法保证不重复登记——按 §18
+  // 同一失败处置 fail-closed，拒绝淘汰。
+  //
+  // **查重的有效性窗口如实登记**：runlog 是 50 条环形缓冲，早于窗口的登记会被
+  // 覆盖——那之后的重复判定会再登记一次。这**不构成重复淘汰**（条目已被移除，
+  // 第二次判定时无条目可淘汰），只是留痕多一条；原队列的「永不重复」承诺随
+  // 队列删除一并收回（11 §12），不得据本函数主张跨任意时段的登记唯一性。
+  // 查重时跳过已声明「未生效」的登记（回写失败分支写入的 correction）。
+  const existing = await readRuns(dshHomePath, {});
   if (!existing.ok) {
     return failure(
       "friction_observation/eviction_unregistered",
-      `refusing to evict: the pending queue cannot be read to check for an existing registration `
+      `refusing to evict: the run log cannot be read to check for an existing registration `
       + `(${existing.error?.code ?? "unknown"}: ${existing.error?.message ?? "unknown"}). `
       + `§18 该行的失败处置是「不得淘汰」——the eviction was aborted in full, no entry was removed.`,
     );
   }
+  const voidedKeys = new Set();
+  for (const run of existing.value.runs) {
+    if (run?.stage === "eviction-registration-voided" && typeof run.voided_key === "string") {
+      voidedKeys.add(run.voided_key);
+    }
+  }
   const liveKeys = new Map();
-  for (const item of existing.value.items) {
-    for (const line of item.residual) {
-      if (typeof line === "string" && line.startsWith(EVICTION_KEY_PREFIX)) {
-        liveKeys.set(line, item.entry_id);
+  for (const run of existing.value.runs) {
+    if (run?.stage !== "eviction-registration" || !Array.isArray(run.residual)) continue;
+    for (const line of run.residual) {
+      if (typeof line === "string" && line.startsWith(EVICTION_KEY_PREFIX) && !voidedKeys.has(line)) {
+        liveKeys.set(line, run.registration_id ?? null);
       }
     }
   }
@@ -300,8 +317,10 @@ async function registerEvictedPending(dshHomePath, evicted, reason) {
       reused.push(liveKeys.get(key));
       continue;
     }
-    const queued = await appendPendingEntry(dshHomePath, {
+    const queued = await recordRun(dshHomePath, {
       task: "friction-discovery",
+      stage: "eviction-registration",
+      registration_id: key,
       reason: `摩擦观察条目的淘汰：${head}（本次${reason}，淘汰 ${bucket.ids.length} 条，剩 ${survivors} 条）`,
       residual: [
         head,
@@ -317,12 +336,12 @@ async function registerEvictedPending(dshHomePath, evicted, reason) {
     if (!queued.ok) {
       return failure(
         "friction_observation/eviction_unregistered",
-        `refusing to evict: the §20.1 第 11 项 registration could not be written to the pending queue `
+        `refusing to evict: the §20.1 第 11 项 registration could not be written to the run log `
         + `(${queued.error?.code ?? "unknown"}: ${queued.error?.message ?? "unknown"}). `
         + `§18 该行的失败处置是「不得淘汰」——the eviction was aborted in full, no entry was removed.`,
       );
     }
-    registered.push(queued.value?.entry_id ?? null);
+    registered.push(key);
   }
   return success({ registered, reused });
 }
@@ -665,10 +684,16 @@ async function enforceCapacity(dshHomePath, projectId, capacity, { excludeId = n
       .filter((value) => typeof value === "string" && value.length > 0);
     const unresolved = [];
     for (const registrationId of pendingIds) {
-      const resolved = await resolvePendingEntry(dshHomePath, registrationId, {
+      // **2026-11-17**：原「销账」是队列的 resolvePendingEntry；队列删除后改为
+      // 追加一条 `eviction-registration-voided` 更正记录（runlog 只追加不改写，
+      // 与原队列「不改既有条目」同一纪律）。查重侧据此把该键视为未登记。
+      const resolved = await recordRun(dshHomePath, {
+        task: "friction-discovery",
+        stage: "eviction-registration-voided",
+        voided_key: registrationId,
         note: "登记未生效：载体回写失败，被淘汰条目仍在缓冲中，下次写入会重新判定",
       });
-      if (!resolved.ok && resolved.error?.code !== "pending_queue/already_resolved") {
+      if (!resolved.ok) {
         unresolved.push(`${registrationId}: ${resolved.error?.code ?? "unknown"}`);
       }
     }
@@ -737,8 +762,13 @@ export async function appendFrictionObservation(dshHomePath, entry = {}, options
     // 原实现直接把 `enforceCapacity` 的失败原样返回，而那条错误的文本是
     // 「the eviction was aborted in full, no entry was removed」——它只说淘汰没做，
     // 一个字的没提本次观察已经写进载体。调用方据此按 §12 fail-closed 处理，水位不推进，
-    // 同一区间会被重放；而发现层写入路径**没有**转写路径那样的证据幂等闸，
-    // 重放 N−1 次就能把一条真实观察凑到阈值、建出一笔本不该成立的账目。
+    // 同一区间会被重放。**注意：重放不等于「凑到阈值」**（2026-11-17 订正）——
+    // 本注释原文写「重放 N−1 次就能把一条真实观察凑到阈值」，隐含了「发现层应当
+    // 有证据幂等闸」这一前提。该前提**不成立**：证据幂等闸属**转写入口**，
+    // 而转写入口已于 2026-11-16 取消（11 §12bis.1 第 4 项已标注该条失效，
+    // Human 2026-11-17 裁定「幂等闸不做」）；且 26 §10 的入账三条件第一项正是
+    // 「重复出现（≥3 次）」，**重复计数是该机制的设计意图，不是缺陷**。
+    // 同一阻碍被写两次，其正确含义就是「出现了两次」。
     //
     // 故在这里重写错误：明说「观察已写入（id …），仅淘汰未执行」，让调用方能据
     // `written: true` 自行决定推进水位或至少不重复写入。
@@ -925,10 +955,14 @@ export async function readFrictionObservations(dshHomePath, projectId, options =
       );
       const unresolved = [];
       for (const registrationId of pendingIds) {
-        const resolved = await resolvePendingEntry(dshHomePath, registrationId, {
+        // 同上：追加更正记录而非改写既有登记（2026-11-17，队列已删除）。
+        const resolved = await recordRun(dshHomePath, {
+          task: "friction-discovery",
+          stage: "eviction-registration-voided",
+          voided_key: registrationId,
           note: "登记未生效：载体回写失败，被淘汰条目仍在缓冲中，下次读取会重新判定",
         });
-        if (!resolved.ok && resolved.error?.code !== "pending_queue/already_resolved") {
+        if (!resolved.ok) {
           unresolved.push(`${registrationId}: ${resolved.error?.code ?? "unknown"}`);
         }
       }

@@ -17,7 +17,6 @@ import {
   readBool,
   readNumber,
   resolveIdleSettings,
-  validateSilenceMs,
 } from "../lib/idle-settings.js";
 
 // ---------------------------------------------------------------------------
@@ -55,48 +54,46 @@ test("readBool：缺省按 fallback，显式 false 才是否", () => {
 // resolveIdleSettings：总开关、子项、参数
 // ---------------------------------------------------------------------------
 
-test("resolveIdleSettings：无配置时给出默认值（总开关与已实现子项为开）", () => {
+test("resolveIdleSettings：无配置时给出默认值（总开关与两个子项均为开）", () => {
   const s = resolveIdleSettings(undefined);
   assert.equal(s.enabled, true, "总开关缺省开——机制现状是常开，缺省关会是行为突变");
-  assert.equal(s.tasks["friction-discovery"], true, "已实现的子项缺省开（与现状一致）");
-  assert.equal(s.tasks["capacity-maintenance"], false, "未实现子项缺省关");
-  assert.equal(s.tasks["memory-health"], false, "未实现子项缺省关");
-  assert.deepEqual(s.limits, IDLE_DEFAULTS, "参数回落默认值");
+  assert.equal(s.tasks["experience-accumulation"], true, "积累经验缺省开");
+  assert.equal(s.tasks["friction-discovery"], true, "发现摩擦缺省开");
+  assert.equal(s.limits, undefined, "limits 已删除（原只含 silenceMs）");
 });
 
-test("resolveIdleSettings：显式配置覆盖默认；2026-10-30 起两层各一个开关，同层任务同生同灭", () => {
-  const s = resolveIdleSettings({
-    idleAssistEnabled: false,
+test("resolveIdleSettings：显式配置覆盖默认；两个子项可各自停用", () => {
+  // **2026-11-17**：两个子项的产物落点完全不同（Pitfall vs 摩擦缓冲），
+  // 故必须能各自停用——合并成一个开关会使其中一类无法单独关掉。
+  const onlyExperience = resolveIdleSettings({
+    proxyAssistEnabled: true,
+    experienceAccumulationEnabled: true,
     frictionDiscoveryEnabled: false,
-    capacityMaintenanceEnabled: true,
-    memoryHealthEnabled: false,
-    idleSilenceMs: 900_000,
   });
-  assert.equal(s.enabled, false);
-  // 旧键 frictionDiscoveryEnabled=false 生效（关闭优先），且**同层两个任务一起关**。
-  assert.equal(s.tasks["friction-discovery"], false);
-  assert.equal(s.tasks["experience-capture"], undefined, "2026-11-16：经验捕获已移出派发面");
-  // 未实现的职责不再由配置面开关控制——恒为 false，§8.5 的可见性由登记表承载。
-  assert.equal(s.tasks["capacity-maintenance"], false, "不再有独立开关；恒报未启用");
-  assert.equal(s.tasks["memory-health"], false);
-  // 2026-10-14 二次修订：limits 现只含安静时长一项——配额两键随 §6.2 收为空集而删除。
-  assert.deepEqual(s.limits, { silenceMs: 900_000 });
+  assert.equal(onlyExperience.enabled, true);
+  assert.equal(onlyExperience.tasks["experience-accumulation"], true);
+  assert.equal(onlyExperience.tasks["friction-discovery"], false, "摩擦发现被单独停用");
+
+  const neither = resolveIdleSettings({
+    proxyAssistEnabled: false,
+    experienceAccumulationEnabled: true,
+    frictionDiscoveryEnabled: true,
+  });
+  assert.equal(neither.enabled, false, "总开关关闭");
+  // 总开关关闭时子项开关的取值仍如实解析（不是被抹成 false）——调用方据
+  // `enabled` 判定，不据子项；把子项也抹掉会让「用户勾了什么」不可见。
+  assert.equal(neither.tasks["friction-discovery"], true);
 });
 
-test("配置面合并：同层两任务由同一个新键控制，不能只开一个", () => {
-  const both = resolveIdleSettings({ idleCaptureEnabled: true });
-  assert.equal(both.tasks["friction-discovery"], true);
-  assert.equal(both.tasks["friction-discovery"], true, "捕获开关只控制摩擦发现");
+test("配置面迁移：旧键 idleAssistEnabled 仍被识别为总开关（存量配置不静默失效）", () => {
+  // 存量用户配置文件里写的是 `idleAssistEnabled`。该键已改名，但**读侧必须回落**——
+  // 否则升级后他们的「关」会静默变成「开」，那是行为突变而非配置缺省。
+  const legacyOff = resolveIdleSettings({ idleAssistEnabled: false });
+  assert.equal(legacyOff.enabled, false, "旧键的关闭值必须仍然生效");
 
-  const neither = resolveIdleSettings({ idleCaptureEnabled: false });
-  assert.equal(neither.tasks["friction-discovery"], false);
-  assert.equal(neither.tasks["friction-discovery"], false);
-
-  // 审核层是另一个开关，与捕获层互不影响。
-  // **2026-11-16**：审核层整层取消，`review` 字段已删除、`auxReviewEnabled` 不再有意义。
-  const noReview = resolveIdleSettings({ idleCaptureEnabled: false, auxReviewEnabled: true });
-  assert.equal(noReview.review, undefined, "审核字段已删除，不得复活");
-  assert.equal(noReview.tasks["friction-discovery"], false);
+  // 新键优先于旧键。
+  const both = resolveIdleSettings({ idleAssistEnabled: false, proxyAssistEnabled: true });
+  assert.equal(both.enabled, true, "新键优先");
 });
 
 
@@ -106,8 +103,7 @@ test("配置面合并：同层两任务由同一个新键控制，不能只开�
 
 const OPEN_SETTINGS = {
   enabled: true,
-  tasks: { "friction-discovery": true, "capacity-maintenance": false, "memory-health": false },
-  limits: { quotaMax: 8 },
+  tasks: { "experience-accumulation": true, "friction-discovery": true },
 };
 
 test("admitIdleDispatch：开关已开即准入——**§6.2 现无约束可评估**", () => {
@@ -322,11 +318,13 @@ test("配置改名：旧键被显式设过时以旧键为准（默认值不得�
 });
 
 test("配置改名：未设旧键时用新键（含其缺省）", () => {
+  // 2026-11-17：旧键 `idleCaptureEnabled` 已随「捕获层/审核层」那套结构删除，
+  // 现子项键是 `frictionDiscoveryEnabled`（与 `experienceAccumulationEnabled` 并列）。
   assert.equal(resolveIdleSettings(undefined).tasks["friction-discovery"], true, "两者都未设 → 缺省开");
   assert.equal(resolveIdleSettings({}).tasks["friction-discovery"], true, "配置对象为空 → 缺省开");
   assert.equal(
-    resolveIdleSettings({ idleCaptureEnabled: false }).tasks["friction-discovery"], false,
-    "只设了新键 → 以新键为准",
+    resolveIdleSettings({ frictionDiscoveryEnabled: false }).tasks["friction-discovery"], false,
+    "只设了子项键 → 以它为准",
   );
 });
 
@@ -334,36 +332,16 @@ test("配置改名：未设旧键时用新键（含其缺省）", () => {
 // 安静时长（11 §6.1，2026-10-14 新增）
 // ---------------------------------------------------------------------------
 
-test("11 §6.1：安静时长须为**有限正值**——0/负数/非数一律拒绝（不得静默回落）", () => {
-  // 规范明文：该取值「须为有限正值……须在写入时被拒绝并提示，使误设当场可见」。
-  // 取 0 会使「已空闲」恒成立（等价于取消该判据），故必须拒绝而不是回落。
-  assert.equal(validateSilenceMs(600_000).ok, true, "10 分钟合法");
-  assert.equal(validateSilenceMs(1).ok, true, "1 毫秒合法（下界是「> 0」而非某个经验值）");
+test("11 §6.1（2026-11-17）：安静时长已随计时器删除——校验函数与配置载体都不得残留", async () => {
+  // 触发锚改为主控发起后，安静时长不再是任何判据。**不得保留一个恒不生效的
+  // 默认值或一个恒返回 ok 的空壳校验函数**——那会让「计时机制还在、只是不起
+  // 作用」成为表面事实，读者据它推断「仍有一道写入侧闸门」。
+  const mod = await import("../lib/idle-settings.js");
+  assert.equal(mod.validateSilenceMs, undefined, "validateSilenceMs 不得再存在");
+  assert.deepEqual(Object.keys(IDLE_DEFAULTS), [], "IDLE_DEFAULTS 不得残留 silenceMs");
 
-  for (const bad of [0, -1, -600_000]) {
-    const r = validateSilenceMs(bad);
-    assert.equal(r.ok, false, `${bad} 须被拒绝`);
-    assert.equal(r.reason, "not-positive");
-  }
-  for (const bad of [NaN, Infinity, -Infinity, "abc", null, undefined, {}]) {
-    const r = validateSilenceMs(bad);
-    assert.equal(r.ok, false, `${String(bad)} 须被拒绝`);
-  }
-  const frac = validateSilenceMs(1.5);
-  assert.equal(frac.ok, false, "非整数须被拒绝");
-  assert.equal(frac.reason, "not-an-integer");
-});
-
-
-test("11 §6.1：读取侧对非法安静时长回落默认（容忍存量脏数据）", () => {
-  // 写入侧拒绝、读取侧回落——两者分工不同：前者防新误设，后者使既有脏配置
-  // 不至于让机制失效。
-  const s = resolveIdleSettings({ idleSilenceMs: 0 });
-  assert.equal(s.limits.silenceMs, IDLE_DEFAULTS.silenceMs, "0 → 回落默认");
-  const s2 = resolveIdleSettings({ idleSilenceMs: -5 });
-  assert.equal(s2.limits.silenceMs, IDLE_DEFAULTS.silenceMs, "负数 → 回落默认");
-  const s3 = resolveIdleSettings({ idleSilenceMs: 900_000 });
-  assert.equal(s3.limits.silenceMs, 900_000, "合法值原样保留");
+  const s = resolveIdleSettings({ idleSilenceMs: 900_000 });
+  assert.equal(s.limits, undefined, "limits 不得再存在（它当时只含 silenceMs 一项）");
 });
 
 // ---------------------------------------------------------------------------
@@ -384,8 +362,9 @@ test("11 §6.2 空集：模块**不导出**任何节流判据（加回即须走 
   }
 });
 
-test("11 §6.2 空集：`IDLE_DEFAULTS` 只含安静时长一项", () => {
-  assert.deepEqual(Object.keys(IDLE_DEFAULTS), ["silenceMs"], "不得残留任何配额默认值");
+test("11 §6.2 空集：`IDLE_DEFAULTS` 不含任何默认值", () => {
+  // 2026-11-17：原断言是「只含 silenceMs 一项」；silenceMs 删除后本对象为空。
+  assert.deepEqual(Object.keys(IDLE_DEFAULTS), [], "不得残留任何配额或计时默认值");
 });
 
 test("11 §6.2 空集：`admitIdleDispatch` 只判明示开关，`evaluations` 恒为空", () => {

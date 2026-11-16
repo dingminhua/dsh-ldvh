@@ -948,8 +948,8 @@ export async function setProjectColor(projectId: string, color: string | null): 
 }
 
 // ============================================================
-// 运行时诊断（/api/diagnostics）：只读聚合「写入关卡」与「闲时辅助」的运行实况。
-// 两条数据来源不同——gate 来自宿主会话日志，idle 来自 ~/.dsh/ldvh 下插件自己的账。
+// 运行时诊断（/api/diagnostics）：只读聚合「写入关卡」与「待处置队列」的运行实况。
+// 两条数据来源不同——gate 来自宿主会话日志，queue 来自 ~/.dsh/ldvh 下插件自己的账。
 // ============================================================
 
 export interface DiagnosticsScope {
@@ -959,7 +959,6 @@ export interface DiagnosticsScope {
   sessionsScanned?: number;
   zstdAvailable?: boolean;
   ldvhHome?: string;
-  queueFileExists?: boolean;
   runsFileExists?: boolean;
   limits?: string[];
   /** 命中 /gate 缓存时的生成时刻（RFC3339）；缺席 = 本次实时计算。 */
@@ -996,20 +995,6 @@ export interface GateReport {
   recentFailures: GateFailureRow[];
 }
 
-export interface IdleQueueEntry {
-  at?: string | null;
-  task?: string | null;
-  category?: string;
-  reason?: string;
-}
-
-/** 已核查（结案）的一条登记：`note` 是核查产物，null 表示这条没有留下说明。 */
-export interface IdleSettledEntry {
-  resolved_at?: string | null;
-  task?: string | null;
-  note?: string | null;
-}
-
 export interface IdleRunRow {
   at?: string | null;
   stage?: string;
@@ -1018,24 +1003,15 @@ export interface IdleRunRow {
   task?: string | null;
   /** 「为什么 stopped」的当场说明（2026-11-03 起有生产者）。 */
   note?: string | null;
-  /** 与队列的共同键；null = 按分流不入队（不是「没有失败」）。 */
+  /** 历史字段（队列时代的共同键）；队列已删除（2026-11-17）。 */
   pending_entry_id?: string | null;
 }
 
-export interface IdleReport {
+/** 2026-11-17：待处置队列已删除（11 §12）；本报告只含运行痕迹。 */
+export interface QueueReport {
   ok: boolean;
   generatedAt: string;
   scope: DiagnosticsScope;
-  queue: {
-    total: number;
-    unresolved: number;
-    /** 已核查条数——结案通道被使用过的次数。 */
-    settled: number;
-    over24h: number;
-    byCategory: { category: string; count: number }[];
-    recent: IdleQueueEntry[];
-    settledRecent: IdleSettledEntry[];
-  };
   runs: {
     total: number;
     byStage: { stage: string; count: number }[];
@@ -1047,8 +1023,8 @@ export async function fetchGateReport(): Promise<GateReport> {
   return request<GateReport>('/diagnostics/gate');
 }
 
-export async function fetchIdleReport(): Promise<IdleReport> {
-  return request<IdleReport>('/diagnostics/idle');
+export async function fetchQueueReport(): Promise<QueueReport> {
+  return request<QueueReport>('/diagnostics/queue');
 }
 
 /**

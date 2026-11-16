@@ -90,7 +90,7 @@ app.use('/api/project-files', projectFilesRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/cognition', cognitionRoutes)
 app.use('/api/federation', federationRoutes)
-// 运行时诊断：只读地聚合「写入关卡」与「闲时辅助」的运行实况（不写任何载体）。
+// 运行时诊断：只读地聚合「写入关卡」与「待处置队列」的运行实况（不写任何载体）。
 app.use('/api/diagnostics', diagnosticsRoutes)
 
 /**

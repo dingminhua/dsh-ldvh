@@ -543,9 +543,15 @@ test("闲时辅助设置面：**一个**子项 + 参数；总开关已撤除，�
   // 存量 profile 里的 `idleAssistEnabled: false` 仍然作数——服务端确实不派发，
   // 故两个子项此时**显示为禁用**（而不是消失）。结构提示钉在这里，
   // 真正的行为断言在 client-settings-layout.test.mjs（真实执行 client.js）。
+  // **2026-11-17**：总开关改名为「代理辅助」（`proxyAssistEnabled`），且须回落
+  // 到旧键 `idleAssistEnabled`——存量配置的「关」不得静默变成「开」。
   assert.ok(
-    source.includes("var idleOn = value.idleAssistEnabled !== false;"),
-    "总开关撤除后仍须从持久值派生 idleOn（存量配置不得被静默当成全开）",
+    source.includes("value.proxyAssistEnabled !== undefined"),
+    "idleOn 须优先读新键 proxyAssistEnabled",
+  );
+  assert.ok(
+    source.includes("value.idleAssistEnabled !== false"),
+    "idleOn 须回落旧键（存量配置不得被静默当成全开）",
   );
   assert.ok(
     source.includes('cardHead("idle", "group.idle", "row.idleAssistHint", null, null)'),
@@ -556,10 +562,11 @@ test("闲时辅助设置面：**一个**子项 + 参数；总开关已撤除，�
     /idleOn && task\.state\[0\]/,
     "子项勾选态须挂在派生量 idleOn 上（而不是界面上某个可点的总开关）",
   );
-  // 2026-10-14（11 §6.2 两次修订）：数值参数由**五个收为一个**——安静时长。
-  // 第一次取消最小间隔／内容字符数／内容轮数三项；第二次取消配额上限与窗口长度
-  // 两项（§6.2 收为空集）。**设置面须恰好一个参数输入框**。
-  assert.ok(source.includes("idleSilenceMs"), "设置面须含安静时长");
+  // **2026-11-17**：子项由一项变为两项——积累经验 + 发现摩擦。
+  assert.ok(source.includes('label: "row.experienceAccumulation"'), "须有「积累经验」子项");
+  assert.ok(source.includes('label: "row.idleCapture"'), "须有「发现摩擦」子项");
+  // **2026-11-17：设置面已无任何数值参数。** 安静时长随计时器删除（触发锚改为
+  // 主控发起），该表因此清空。判据由「恰好一项」改为「恰好零项」。
   for (const gone of [
     "idleMinIntervalMs", "idleMinContentChars", "idleMinContentTurns",
     "idleMaxPerSession", "idleQuotaMax", "idleQuotaWindowMs",
@@ -578,8 +585,8 @@ test("闲时辅助设置面：**一个**子项 + 参数；总开关已撤除，�
   const limitsTable = source.match(/var IDLE_LIMITS = \[([\s\S]*?)\];/);
   assert.ok(limitsTable, "须有参数表");
   const entries = limitsTable[1].match(/\{ key: "/g) ?? [];
-  assert.equal(entries.length, 1, `设置面参数表须恰好一项（安静时长），实为 ${entries.length} 项`);
-  assert.ok(limitsTable[1].includes("idleSilenceMs"), "参数表须含 idleSilenceMs");
+  assert.equal(entries.length, 0, `设置面参数表须恰好零项（2026-11-17 安静时长已删），实为 ${entries.length} 项`);
+  assert.ok(!limitsTable[1].includes("idleSilenceMs"), "参数表不得再含 idleSilenceMs");
   assert.equal(
     source.includes("experienceReviewIntervalMs"),
     false,
@@ -611,15 +618,12 @@ test("数值参数的默认值与服务端**同源**：不得在两处各写一�
   // 2026-10 起默认值集中在一张表（此前散落在 state 初值里，改一处漏三处）。
   const defaults = source.match(/var IDLE_DEFAULT_STORED = \{([\s\S]*?)\};/) || [];
   assert.ok(defaults[1], "须有 IDLE_DEFAULT_STORED 表");
-  for (const [key, value] of [["idleSilenceMs", 300000]]) {
-    assert.match(defaults[1], new RegExp(`${key}: ${value}`), `客户端默认 ${key} 须为 ${value}`);
-  }
+  // **2026-11-17：两处都已清空。** 原断言是「客户端 300000 ≡ 服务端 300_000」；
+  // 安静时长删除后，同源要求变为「两处都不得残留该键」——留一处会让漂移重新可能。
+  assert.ok(!defaults[1].includes("idleSilenceMs"), "客户端默认表不得再含 idleSilenceMs");
 
-  // 与服务端文件逐字比对（真同源，不只是「我抄对了」）。
   const server = await readFile(new URL("../lib/idle-settings.js", import.meta.url), "utf8");
-  for (const [key, expected] of [["silenceMs", "300_000"]]) {
-    assert.ok(server.includes(`${key}: ${expected},`), `服务端 IDLE_DEFAULTS.${key} 须为 ${expected}`);
-  }
+  assert.ok(!server.includes("silenceMs"), "服务端 IDLE_DEFAULTS 不得再含 silenceMs");
 });
 
 test("参数非法时**不写入**（不得把非法值送进宿主再被静默回落）", () => {
@@ -633,14 +637,21 @@ test("参数非法时**不写入**（不得把非法值送进宿主再被静默�
 });
 
 test("时间参数以**分钟**读写，存储仍是毫秒（scale 单一来源，不得两处各写一套）", () => {
-  // 界面按分钟、存储按毫秒。两者由 IDLE_LIMITS 的 scale 单向决定，
-  // 不得在 UI 那一处再写一套换算（否则改单位时会漏改一处）。
+  // **2026-11-17：本表已无时间参数**，故原「scale 须为 60000」的断言失去对象。
+  // 改为守卫「表内不得再出现任何带 scale 的条目」——若有人加回一个时间参数，
+  // 本条会失败并提示须同时登记换算来源。
   assert.match(source, /var IDLE_LIMITS = \[/, "须有参数表");
-  // 条目还可带 `hintKey`（设置面的解释词条，见本文件末的可读性用例），故只钉 key 与 scale。
-  assert.match(source, /\{ key: "idleSilenceMs", scale: 60000/, "安静时长 scale 须为 60000（分钟↔毫秒）");
-  // 标签须写明单位是分钟（不得仍写「毫秒」）。
-  assert.match(source, /"row\.idleSilenceMs": "安静时长（分钟）"/, "中文标签单位须为分钟");
-  assert.match(source, /"row\.idleSilenceMs": "Silence duration \(minutes\)"/, "英文标签单位须为分钟");
+  const table = source.match(/var IDLE_LIMITS = \[([\s\S]*?)\];/);
+  assert.ok(table, "须能取到参数表");
+  assert.equal(
+    (table[1].match(/scale:/g) ?? []).length, 0,
+    "参数表不得含任何 scale 条目（2026-11-17 起已无时间参数）",
+  );
+  // **2026-11-17：该参数连同其标签词条已删除。** 原断言要求标签写明单位为分钟；
+  // 现改为守卫「标签词条不得残留」——留一个无输入框可绑的标签词条会误导读者。
+  assert.doesNotMatch(source, /"row\.idleSilenceMs":/, "安静时长的标签词条须一并删除");
+  // 英文标签同理须一并删除（原断言要求「Silence duration (minutes)」）。
+  assert.doesNotMatch(source, /Silence duration/, "英文标签词条须一并删除");
   assert.doesNotMatch(source, /idleSilenceMs": "[^"]*毫秒"/, "不得残留毫秒标签");
   // UI 循环须走参数表，不得再内联一份 key/label 清单。
   assert.match(source, /IDLE_LIMITS\.map\(function \(limit\) \{/, "UI 须遍历参数表");
@@ -740,7 +751,9 @@ test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDL
 
   // ② index.js 的 zod default —— 生产路径实际用它填 config
   const zod = {};
-  for (const key of ["idleSilenceMs"]) {
+  // 2026-11-17：`idleSilenceMs` 已从 zod schema 删除，本循环因此为空——
+  // 下方 JUDGE_KEY 也为空，三处比对自然通过。保留结构以便日后新增参数时复用。
+  for (const key of []) {
     // 数字**带下划线分隔**（如 `600_000`）——正则须容忍，否则守卫自身失效。
     // `idleSilenceMs` 另带 `.min(1)`（11 §6.1 的写入侧下界约束），故正则须容忍
     // 「链式方法（含带参的 min/max）再 .default(...)」。
@@ -758,7 +771,8 @@ test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDL
   // 配置键（zod / 界面）与判据键（IDLE_DEFAULTS）**名字不同**：前者带 `idle` 前缀
   // 且描述的是「设置项」，后者是判据层的内部名。映射写在这里而不是靠命名巧合——
   // 缺失映射会使断言比较 undefined 与数值，报出一个与真因无关的错。
-  const JUDGE_KEY = { idleSilenceMs: "silenceMs" };
+  // 2026-11-17：`silenceMs` 判据已删除，故本映射为空。
+  const JUDGE_KEY = {};
 
   // 三者逐一比对——任一不同即判据与生产不一致，而非「风格问题」。
   for (const [key, judgeKey] of Object.entries(JUDGE_KEY)) {
@@ -781,18 +795,19 @@ test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDL
 // 设置面的**可读性**约定（Human 2026-10-14 明确要求）
 // ---------------------------------------------------------------------------
 
-test("设置面：安静时长须有**一句话解释**，且该解释不得与实现语义相悖", () => {
-  // Human 原话：「什么是安静时长一句话解释清楚」。故该参数须带一条 hint 词条
-  // （不是只靠标签），且 hint 的**语义**须与 11 §6.1 的实现一致。
-  assert.match(source, /hintKey: "row\.idleSilenceMsHint"/, "参数表须登记其解释词条");
-  const zh = (source.match(/"row\.idleSilenceMsHint": "([^"]+)"/) || [])[1];
-  assert.ok(zh, "须有中文解释词条");
-  // 语义锚点：必须点明「距最后一次活动」（而非「距上次派发」）——这正是 §6.1 的判据，
-  // 也是本次修订纠正的那个偏离。缺之则解释会把人引回旧语义。
-  assert.ok(/对话/.test(zh) && /安静/.test(zh), "须说清「对话停了多久」这件事");
-  assert.ok(/重新开始|重来|重置/.test(zh), "须说明「有新活动就重新计时」（否则会被读成固定间隔）");
-  // 不得出现与实现相悖的表述：现实现为「一次安静期至多触发一次」。
-  assert.ok(!/每隔|每过|定期/.test(zh), "不得写成固定周期的定时任务——实现是「停下来才跑」");
+test("设置面：安静时长已删除，其解释词条不得残留", () => {
+  // Human 原话：「什么是安静时长一句话解释清楚」——该要求曾使本参数必须带 hint。
+  //
+  // **2026-11-17：该参数整体删除**（触发锚改为主控发起，无时间数值可配），
+  // 故 hint 词条一并删除。判据由「须有解释」翻转为「不得残留」：留一条解释却
+  // 没有可解释的输入框，会让读者以为设置面上还有一个他找不到的参数。
+  assert.doesNotMatch(source, /row\.idleSilenceMsHint/, "安静时长的解释词条须一并删除");
+  // 反向守卫：不得出现「每隔/定期」这类周期表述被重新引入到闲时相关文案里。
+  assert.doesNotMatch(
+    source,
+    /"row\.idle[A-Za-z]*": "[^"]*(每隔|定期)[^"]*"/,
+    "闲时相关文案不得含周期表述（机制已无周期触发）",
+  );
 });
 
 test("设置面：标签与输入框须在**同一行**，且输入框**不得**收进折叠区", () => {

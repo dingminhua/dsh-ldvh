@@ -12,13 +12,13 @@
  *
  * | 类别 | 能否按时间清理 | 为什么 |
  * |---|---|---|
- * | 流水/痕迹（待处置队列、运行痕迹） | ✅ 能 | 它们记录「过去发生了什么」，过期即失去诊断价值 |
- * | 观察材料（经验观察、摩擦观察） | ✅ 能（Human 决定 2026-10-26） | 是待审核素材，过期价值低；但删了就是丢了证据——故默认**不**选、须显式勾选 |
- * | **水位** | ❌ **绝不能** | 删水位 = 让机制重新观察已处理内容 → 重复计数、重复入账 |
+ * | 流水/痕迹（运行痕迹） | ✅ 能 | 它记录「过去发生了什么」，过期即失去诊断价值 |
+ * | 观察材料（摩擦观察） | ✅ 能（Human 决定 2026-10-26） | 是入账门的入口素材，过期价值低；但删了就是丢了证据——故默认**不**选、须显式勾选 |
+ * | 历史水位文件 | ❌ 不列出 | 该载体已随闲时机制退役（2026-11-17，11 §11 水位整节删除），无机制再读它；存量文件留作历史材料，清理它须是一次显式决定 |
  *
- * 水位（`friction-discovery-watermarks.json`）不在本模块的可清理清单里，且
- * `LOGGABLE_TARGETS` 里刻意**不列出**它——想删它必须改这个文件，那是一次显式的
- * 设计决定，不会被一次误操作带走。
+ * 原「水位绝不能删」的护栏针对的是**活水位**（删它会让机制重复观察已处理内容）。
+ * 水位机制删除后该失效面不存在了，但存量 `friction-discovery-watermarks.json`
+ * 仍不进 `LOGGABLE_TARGETS`——清历史文件与清运行流水是两件事，不混在一次误操作里。
  *
  * ## 清理前必须备份
  *
@@ -30,19 +30,12 @@ import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { dshHomeFromEnvironment } from './runtimeDiagnostics.js'
 
-/** 可清理目标（**水位不在其中**，见文件头表格）。 */
+/** 可清理目标（历史水位文件不在其中，见文件头表格）。 */
 export const LOGGABLE_TARGETS = [
+  // **2026-11-17**：`pending-queue` 清理项已删除——待处置队列随 Human 决定退役
+  // （11 §12），存量 72 条保留为历史材料，清理它须是显式决定，不进常规清单。
   {
-    id: 'pending-queue',
-    label: '待处置队列',
-    relativePath: ['ldvh', 'pending-queue.jsonl'],
-    kind: 'jsonl' as const,
-    /** 按哪一列的时间判定新旧：JSONL 的 `at`。 */
-    timeField: 'at',
-    note: '失败与缺口的登记流水（append-only）。清理后不再显示历史登记。',
-  },
-  {
-    id: 'idle-runs',
+    id: 'checkpoint-runs',
     label: '运行痕迹',
     relativePath: ['ldvh', 'idle-checkpoint-runs.json'],
     kind: 'ring' as const,
@@ -59,14 +52,9 @@ export const LOGGABLE_TARGETS = [
     timeField: 'at',
     note: '**未达阈值的观察条目**。清理会重置「攒到几分」的进度——正在攒的组会归零。',
   },
-  {
-    id: 'queue-backups',
-    label: '队列备份文件',
-    relativePath: ['ldvh'],
-    kind: 'backupGlob' as const,
-    timeField: null,
-    note: '`pending-queue.jsonl.bak-*` 这类清理前留的备份。按文件修改时间判定。',
-  },
+  // **2026-11-17**：`queue-backups` 清理项已删除——它清的是已退役待处置队列的
+  // 备份（pending-queue.jsonl.bak-*）。队列本体按「历史文件须显式决定」保护，
+  // 备份却进常规清单，口径自相矛盾（Human 指出「对不上」）；一并撤出。
 ] as const
 
 export type LogTargetId = (typeof LOGGABLE_TARGETS)[number]['id']
@@ -89,7 +77,7 @@ export type TargetPreview = {
   unparsable: number
   /** 文件字节数（展示用）。 */
   bytes: number
-  /** 该目标的硬边界说明（如「水位不在可清理范围」）。 */
+  /** 该目标的硬边界说明（如「历史水位文件不在可清理范围」）。 */
   caution?: string
 }
 
@@ -166,7 +154,9 @@ function recordTime(record: unknown, field: string | readonly string[] | null): 
 }
 
 /** 读 JSONL 文件为行数组（保留无法解析的行原文）。 */
-async function readJsonlLines(file: string): Promise<{ parsed: { line: string; value: unknown | null }[]; bytes: number }> {
+type JsonlRow = { line: string; value: unknown | null }
+
+async function readJsonlLines(file: string): Promise<{ parsed: JsonlRow[]; bytes: number }> {
   if (!existsSync(file)) return { parsed: [], bytes: 0 }
   const bytes = statSync(file).size
   const text = await readFile(file, 'utf8')
@@ -220,52 +210,7 @@ export async function planCleanup(options: {
   for (const target of selected) {
     const abs = targetPath(dshHome, target)
 
-    // ── backupGlob：按文件修改时间删备份文件 ──────────────────────────────
-    if (target.kind === 'backupGlob') {
-      const { readdir } = await import('node:fs/promises')
-      let names: string[] = []
-      try {
-        names = (await readdir(abs)).filter((n) => n.includes('.bak-'))
-      } catch {
-        names = []
-      }
-      let removing = 0
-      let keeping = 0
-      let bytes = 0
-      for (const name of names) {
-        const file = path.join(abs, name)
-        try {
-          const info = statSync(file)
-          bytes += info.size
-          if (info.mtimeMs < cutoffMs) removing += 1
-          else keeping += 1
-        } catch {
-          keeping += 1
-        }
-      }
-      targets.push({
-        id: target.id, label: target.label, note: target.note,
-        exists: names.length > 0, removing, keeping, unparsable: 0, bytes,
-      })
-      if (apply) {
-        let removed = 0
-        for (const name of names) {
-          const file = path.join(abs, name)
-          try {
-            if (statSync(file).mtimeMs < cutoffMs) {
-              await rename(file, `${file}.deleting-${now.getTime()}`)
-              const { unlink } = await import('node:fs/promises')
-              await unlink(`${file}.deleting-${now.getTime()}`)
-              removed += 1
-            }
-          } catch {
-            /* 单个删不掉不影响其余 */
-          }
-        }
-        applied.push({ id: target.id, removed, kept: names.length - removed })
-      }
-      continue
-    }
+    // 2026-11-17：backupGlob 分支已随 queue-backups 目标删除（唯一使用者）。
 
     // ── jsonlDir：目录下每个 *.jsonl 各自按时间清 ─────────────────────────
     if (target.kind === 'jsonlDir') {
@@ -280,7 +225,7 @@ export async function planCleanup(options: {
       let keeping = 0
       let unparsable = 0
       let bytes = 0
-      const perFile: { file: string; keep: typeof parsed }[] = []
+      const perFile: { file: string; keep: JsonlRow[] }[] = []
       for (const name of files) {
         const file = path.join(abs, name)
         const { parsed, bytes: size } = await readJsonlLines(file)
@@ -377,35 +322,7 @@ export async function planCleanup(options: {
       continue
     }
 
-    // ── jsonl：单个文件 ──────────────────────────────────────────────────
-    const { parsed, bytes } = await readJsonlLines(abs)
-    const keep: typeof parsed = []
-    let unparsable = 0
-    for (const row of parsed) {
-      const at = recordTime(row.value, target.timeField)
-      if (at === null) {
-        keep.push(row)
-        unparsable += 1
-      } else if (at >= cutoffMs) {
-        keep.push(row)
-      } else {
-        /* 过期 */
-      }
-    }
-    const removing = parsed.length - keep.length
-    targets.push({
-      id: target.id, label: target.label, note: target.note,
-      exists: existsSync(abs), removing, keeping: keep.length, unparsable, bytes,
-    })
-    if (apply && existsSync(abs) && backupDir) {
-      try {
-        await backupFile(abs, backupDir)
-        await writeFile(abs, keep.map((r) => r.line).join('\n') + (keep.length > 0 ? '\n' : ''), 'utf8')
-        applied.push({ id: target.id, removed: removing, kept: keep.length })
-      } catch (error) {
-        applied.push({ id: target.id, removed: 0, kept: 0, error: String((error as Error)?.message ?? error) })
-      }
-    }
+    // 2026-11-17：jsonl 单文件分支已随 pending-queue 目标删除（唯一使用者）。
   }
 
   return {

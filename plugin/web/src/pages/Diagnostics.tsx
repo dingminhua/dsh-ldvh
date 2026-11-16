@@ -7,7 +7,7 @@
  *
  * 两页数据来源不同，页面必须把它们分开呈现，不能混成一个「健康度」：
  * - 写入关卡：宿主会话日志里的 LDVH 工具调用实况（跨出 LDVH 载体的读取）；
- * - 闲时辅助：`~/.dsh/ldvh/` 下插件自己落的队列与运行记录。
+ * - 待处置队列：`~/.dsh/ldvh/` 下插件自己落的队列与检查点运行记录（11 §12）。
  *
  * 只读：本页不发任何写请求，也不提供操作按钮。
  */
@@ -19,18 +19,20 @@ import {
   fetchCleanupPreview,
   fetchFrictionObservationReport,
   fetchGateReport,
-  fetchIdleReport,
+  fetchQueueReport,
   runCleanup,
   type CleanupPlan,
   type FrictionObservationReport,
   type GateReport,
-  type IdleReport,
+  type QueueReport,
 } from '@/utils/api';
 import { LDVH_ERROR_TEXT_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 import type { LocaleKey } from '@/i18n/locales';
 
 // **2026-11-16**：`experience` 页签已删除（经验留观缓冲随审核层取消）。
-type Tab = 'gate' | 'idle' | 'observations' | 'cleanup';
+// 2026-11-17：`idle`（闲时辅助）页签改名 `queue`（待处置队列）——闲时触发
+// 机制已删除，但队列与运行记录仍是活载体，删名不删数据。
+type Tab = 'gate' | 'queue' | 'observations' | 'cleanup';
 
 /** 与 i18n context 的 `t` 同签名（可带插值参数）。 */
 type Translation = (key: LocaleKey, params?: Record<string, string>) => string;
@@ -266,54 +268,28 @@ function GatePanel({ report, t }: { report: GateReport; t: Translation }) {
   );
 }
 
-function IdlePanel({ report, t }: { report: IdleReport; t: Translation }) {
+function QueuePanel({ report, t }: { report: QueueReport; t: Translation }) {
+  // 2026-11-17：待处置队列已删除（Human 决定，11 §12）。本面板只呈现运行痕迹——
+  // 失败留痕的持久承载。原队列四块（未处置/结案/分类/最近登记）随载体一并移除。
   const stopped = report.runs.byStage.find((row) => row.stage === 'stopped');
   return (
     <div className="flex flex-col gap-4">
       <div className="ldvh-metric-grid">
+        <MetricCard label={t('diagnostics.queue.runs')} value={String(report.runs.total)} />
         <MetricCard
-          label={t('diagnostics.idle.unresolved')}
-          value={String(report.queue.unresolved)}
-          hint={t('diagnostics.idle.total', { count: String(report.queue.total) })}
-          tone="warning"
-        />
-        <MetricCard
-          label={t('diagnostics.idle.settled')}
-          value={String(report.queue.settled ?? 0)}
-          hint={t('diagnostics.idle.settledHint')}
-          tone={(report.queue.settled ?? 0) === 0 ? 'error' : undefined}
-        />
-        <MetricCard label={t('diagnostics.idle.over24h')} value={String(report.queue.over24h)} tone="error" />
-        <MetricCard label={t('diagnostics.idle.runs')} value={String(report.runs.total)} />
-        <MetricCard
-          label={t('diagnostics.idle.stopped')}
+          label={t('diagnostics.queue.stopped')}
           value={String(stopped?.count ?? 0)}
-          hint={stopped ? t('diagnostics.idle.stoppedHint') : undefined}
+          hint={stopped ? t('diagnostics.queue.stoppedHint') : undefined}
         />
       </div>
 
       <ScopeNotice limits={report.scope.limits ?? []} />
 
       <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
-        <h2 className="ldvh-card-title">{t('diagnostics.idle.byCategory')}</h2>
-        <div className="mt-3 flex flex-col gap-2">
-          {report.queue.byCategory.length === 0 ? (
-            <p className="ldvh-body-muted">{t('diagnostics.idle.empty')}</p>
-          ) : report.queue.byCategory.map((row) => (
-            <div key={row.category} className="grid grid-cols-[minmax(0,10rem)_1fr_2.5rem] items-center gap-2">
-              <span className="ldvh-meta truncate text-ldvh-text-primary">{categoryLabel(t, row.category)}</span>
-              <ShareBar value={row.count} total={report.queue.unresolved} />
-              <span className="font-mono text-right text-[12px] text-ldvh-text-secondary">{row.count}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
-        <h2 className="ldvh-card-title">{t('diagnostics.idle.recentRuns')}</h2>
+        <h2 className="ldvh-card-title">{t('diagnostics.queue.recentRuns')}</h2>
         <div className="mt-2 flex flex-col">
           {report.runs.recent.length === 0 ? (
-            <p className="ldvh-body-muted py-2">{t('diagnostics.idle.empty')}</p>
+            <p className="ldvh-body-muted py-2">{t('diagnostics.queue.empty')}</p>
           ) : report.runs.recent.map((run, index) => (
             <details key={`${run.at ?? 'na'}-${index}`} className="border-b border-ldvh-border/50 py-1.5 last:border-0">
               <summary className="flex cursor-pointer list-none items-center gap-2">
@@ -327,57 +303,7 @@ function IdlePanel({ report, t }: { report: IdleReport; t: Translation }) {
                   {run.note}
                 </pre>
               ) : null}
-              {run.pending_entry_id ? (
-                <p className="ldvh-meta mt-1 break-all text-ldvh-text-secondary">
-                  {t('diagnostics.idle.runQueueKey', { id: run.pending_entry_id })}
-                </p>
-              ) : null}
             </details>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
-        <h2 className="ldvh-card-title">{t('diagnostics.idle.queueRecent')}</h2>
-        <div className="mt-2 flex flex-col">
-          {report.queue.recent.length === 0 ? (
-            <p className="ldvh-body-muted py-2">{t('diagnostics.idle.empty')}</p>
-          ) : report.queue.recent.map((entry, index) => (
-            <details key={`${entry.at ?? 'na'}-${index}`} className="border-b border-ldvh-border/50 py-1.5 last:border-0">
-              <summary className="flex cursor-pointer list-none items-center gap-2">
-                <ChevronRight size={12} className="shrink-0 text-ldvh-text-secondary" />
-                <span className="font-mono w-[5.5rem] shrink-0 text-[11px] text-ldvh-text-secondary">{formatTime(entry.at)}</span>
-                <span className="ldvh-chip-sm shrink-0">{categoryLabel(t, entry.category ?? 'other')}</span>
-                <span className="ldvh-meta min-w-0 flex-1 truncate text-ldvh-text-secondary">{entry.task ?? '—'}</span>
-              </summary>
-              <pre className="font-mono mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-ldvh-bg p-2 text-[11px] text-ldvh-text-secondary">
-                {entry.reason || '—'}
-              </pre>
-            </details>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
-        <h2 className="ldvh-card-title">{t('diagnostics.idle.settledRecent')}</h2>
-        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.idle.settledRecentNote')}</p>
-        <div className="mt-2 flex flex-col">
-          {(report.queue.settledRecent ?? []).length === 0 ? (
-            <p className="ldvh-body-muted py-2">{t('diagnostics.idle.settledEmpty')}</p>
-          ) : (report.queue.settledRecent ?? []).map((entry, index) => (
-            <div key={`${entry.resolved_at ?? 'na'}-${index}`} className="border-b border-ldvh-border/50 py-1.5 last:border-0">
-              <div className="flex items-center gap-2">
-                <span className="font-mono w-[5.5rem] shrink-0 text-[11px] text-ldvh-text-secondary">{formatTime(entry.resolved_at)}</span>
-                <span className="ldvh-meta min-w-0 flex-1 truncate text-ldvh-text-secondary">{entry.task ?? '—'}</span>
-              </div>
-              {entry.note ? (
-                <pre className="font-mono mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-ldvh-bg p-2 text-[11px] text-ldvh-text-secondary">
-                  {entry.note}
-                </pre>
-              ) : (
-                <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.idle.settledNoNote')}</p>
-              )}
-            </div>
           ))}
         </div>
       </section>
@@ -526,10 +452,11 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
  * 删除不可逆（除自动备份）。预览与真删走后端**同一条**计算路径，故「将删除 N 条」
  * 就是真删的条数——这条由测试钉住。用户看过数字再决定。
  *
- * ## 水位为什么不在列表里
+ * ## 历史水位文件为什么不在列表里
  *
- * 后端 `LOGGABLE_TARGETS` 刻意不含它：删水位会让机制重新观察已处理内容并重复
- * 入账。本面板在页面底部把这条写明，免得用户以为「没列出来 = 忘了做」。
+ * 水位机制已随闲时触发删除（2026-11-17），存量文件无机制再读；后端
+ * `LOGGABLE_TARGETS` 仍不含它——清历史文件须是显式决定，不混进运行流水清理。
+ * 本面板在页面底部把这条写明，免得用户以为「没列出来 = 忘了做」。
  */
 function CleanupPanel({
   report,
@@ -543,9 +470,7 @@ function CleanupPanel({
   const [days, setDays] = useState<number>(3);
   const [selected, setSelected] = useState<Record<string, boolean>>({
     // 默认只勾「流水」类——观察材料须显式勾选（丢了就是丢证据）。
-    'pending-queue': true,
-    'idle-runs': true,
-    'queue-backups': false,
+    'checkpoint-runs': true,
     // **2026-11-16**：经验缓冲清理项已删除（载体不存在）。
     'friction-observations': false,
   });
@@ -611,9 +536,7 @@ function CleanupPanel({
             // 尚未预览：给出静态的目标清单（让用户先知道能清什么再点预览）。
             <div className="flex flex-col gap-2">
               {[
-                { id: 'pending-queue', label: t('diagnostics.cleanup.t.pendingQueue'), note: t('diagnostics.cleanup.n.pendingQueue') },
-                { id: 'idle-runs', label: t('diagnostics.cleanup.t.idleRuns'), note: t('diagnostics.cleanup.n.idleRuns') },
-                { id: 'queue-backups', label: t('diagnostics.cleanup.t.queueBackups'), note: t('diagnostics.cleanup.n.queueBackups') },
+                { id: 'checkpoint-runs', label: t('diagnostics.cleanup.t.checkpointRuns'), note: t('diagnostics.cleanup.n.checkpointRuns') },
                 { id: 'friction-observations', label: t('diagnostics.cleanup.t.frictionObservations'), note: t('diagnostics.cleanup.n.frictionObservations') },
               ].map((row) => (
                 <label key={row.id} className="flex items-start gap-2">
@@ -704,7 +627,7 @@ export default function Diagnostics() {
   const [tab, setTab] = useState<Tab>('gate');
   // **2026-11-16**：经验留观区状态已删除（载体随审核层取消）。
   const [gate, setGate] = useState<GateReport | null>(null);
-  const [idle, setIdle] = useState<IdleReport | null>(null);
+  const [queue, setQueue] = useState<QueueReport | null>(null);
   const [observations, setObservations] = useState<FrictionObservationReport | null>(null);
   const [cleanup, setCleanup] = useState<CleanupPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -732,12 +655,12 @@ export default function Diagnostics() {
     const load =
       tab === 'gate'
         ? fetchGateReport()
-        : fetchIdleReport();
+        : fetchQueueReport();
     load
       .then((result) => {
         if (cancelled) return;
         if (tab === 'gate') setGate(result as GateReport);
-        else setIdle(result as IdleReport);
+        else setQueue(result as QueueReport);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -748,10 +671,10 @@ export default function Diagnostics() {
     };
   }, [tab]);
 
-  const current = tab === 'gate' ? gate : tab === 'idle' ? idle : tab === 'observations' ? observations : (cleanup ?? true);
+  const current = tab === 'gate' ? gate : tab === 'queue' ? queue : tab === 'observations' ? observations : (cleanup ?? true);
   const tabs = useMemo(() => ([
     { key: 'gate' as Tab, label: t('diagnostics.tab.gate') },
-    { key: 'idle' as Tab, label: t('diagnostics.tab.idle') },
+    { key: 'queue' as Tab, label: t('diagnostics.tab.runs') },
     { key: 'observations' as Tab, label: t('diagnostics.tab.observations') },
     { key: 'cleanup' as Tab, label: t('diagnostics.tab.cleanup') },
   ]), [t]);
@@ -786,8 +709,8 @@ export default function Diagnostics() {
         </div>
       ) : tab === 'gate' && gate ? (
         <GatePanel report={gate} t={t} />
-      ) : tab === 'idle' && idle ? (
-        <IdlePanel report={idle} t={t} />
+      ) : tab === 'queue' && queue ? (
+        <QueuePanel report={queue} t={t} />
       ) : tab === 'observations' && observations ? (
         <ObservationPanel report={observations} t={t} />
       ) : tab === 'cleanup' ? (

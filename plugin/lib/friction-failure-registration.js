@@ -52,12 +52,12 @@ export const FRICTION_FAILURE_TASKS = Object.freeze({
  * 本函数**不抛错**：登记是旁路，它自己失败也不能把调用方的处理流程打断
  * （调用方那时正在处理另一件已经失败的事）。
  *
- * @param {Function} dshHomePath - 路径拼接器（`pending-queue.js` 同一约定）
+ * @param {Function} dshHomePath - 路径拼接器（`idle-runlog.js` 同一约定）
  * @param {object} failureItem - 失败项；会被就地补字段，并由调用方带出
  * @param {object} options
  * @param {"transfer"|"supplement"} options.kind - 哪个失败面
- * @param {string} options.reasonPrefix - 队列条目的 reason 前缀（人类可读）
- * @param {string} options.residualText - 队列条目的 residual 正文（要能独立读懂）
+ * @param {string} options.reasonPrefix - 留痕条目的 reason 前缀（人类可读）
+ * @param {string} options.residualText - 留痕条目的 residual 正文（要能独立读懂）
  * @param {Date} [options.now]
  * @returns {Promise<void>}
  */
@@ -71,26 +71,28 @@ export async function registerFrictionFailure(dshHomePath, failureItem, {
   const task = FRICTION_FAILURE_TASKS[kind];
   if (task === undefined) {
     // 未知 kind 是调用方的编程错误，但同样不得抛错——记为未登记并说明原因。
-    failureItem.unregistered = "pending_queue/unknown_kind";
+    failureItem.unregistered = "failure_registration/unknown_kind";
     failureItem.unregistered_message = `registerFrictionFailure got unknown kind ${JSON.stringify(kind)}`;
     return;
   }
   try {
-    const { appendPendingEntry } = await import("./pending-queue.js");
-    const queued = await appendPendingEntry(dshHomePath, {
+    // **2026-11-17：待处置队列已删除（Human 决定，11 §12）**。失败留痕改走
+    // 运行痕迹（runlog）——它是 §12 新形态的持久承载，且与回执 residual 互补：
+    // 回执当拍可见，runlog 跨会话可查。条目仍在缓冲里待重试的事实不变。
+    const { recordRun } = await import("./idle-runlog.js");
+    const queued = await recordRun(dshHomePath, {
       task,
+      stage: "failure-registration",
       reason: `${reasonPrefix}（${failureItem.code ?? "unknown"}）：${failureItem.message ?? "unknown"}`,
       residual: [residualText ?? "材料未完成处理"],
       at: now instanceof Date ? now.toISOString() : undefined,
     });
     if (!queued.ok) {
-      failureItem.unregistered = queued.error?.code ?? "pending_queue/unavailable";
+      failureItem.unregistered = queued.error?.code ?? "runlog/unavailable";
       failureItem.unregistered_message = queued.error?.message ?? "unknown";
-    } else {
-      failureItem.pending_entry_id = queued.value.entry_id;
     }
   } catch (error) {
-    failureItem.unregistered = "pending_queue/threw";
+    failureItem.unregistered = "failure_registration/threw";
     failureItem.unregistered_message = String(error?.message ?? error);
   }
 }

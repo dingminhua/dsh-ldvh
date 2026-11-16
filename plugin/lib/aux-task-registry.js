@@ -52,9 +52,23 @@ import { buildDiscoveryPromptSection, discoveryOutputSchema, validateDiscoveryVe
  * §8.5 要的「如实登记」，但该登记现已由 `UNIMPLEMENTED_AUX_TASKS` 独立承载（见下），
  * 不必依赖它们占着派发位。
  */
-// **2026-11-16 Human 决定：本任务只负责摩擦发现**。经验捕获（`experience-capture`）
-// 已从派发面移出——经验积累改由主控派生代理完成（23 §13 主控主动记录通道），
-// 宿主辅助任务不再承担经验侧任何职责。故本表只剩一项。
+// ── 2026-11-17：本表仍是**派发面**，只含摩擦发现一项 ─────────────────────
+//
+// 机制改为「主控发现 → 交派代理处理」后，**两类动作的实现路径完全不同**：
+//
+//   · 积累经验：主控调 `ldvh_pitfall_arm_delegate` 记一条开工授权 → 派生子代理
+//     → 子代理经 `registerChildSurface` 取得 Pitfall 工具面 → 直接写事实源。
+//     **它不经本表**：没有提示词拼接、没有输出 schema、没有结论回传校验——
+//     因为写入走的是受控工具（23 §13），不是「子代理交回一个 JSON 让宿主落地」。
+//
+//   · 发现摩擦：子代理写的是**观察缓冲**（非事实源，11 §12bis.1），写入后还需
+//     在同一派发内做阈值晋升与容量淘汰。这条路径历史上靠「宿主拼提示词 + 校验
+//     子代理交回的结论」实现，故留在本表。
+//
+// **曾一度把 `experience-accumulation` 加进本表，已撤回**：它在登记表里没有
+// promptSection / outputSchema / validate 三部位（那正是 `implemented: false`
+// 的机械含义），加进来会被 `splitRunnableTasks` 报成「已启用但未实现」——
+// 而它其实**完全实现**了，只是不走这条路。把已实现的职责报成未实现，比不报更糟。
 export const AUX_TASK_ORDER = Object.freeze(["friction-discovery"]);
 
 /**

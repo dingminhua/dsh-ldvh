@@ -3,7 +3,7 @@
  *
  * 两页数据形态不同、来源也不同：
  * - `/gate`：受控写入关卡的调用实况，来自宿主会话日志（见 runtimeDiagnostics.ts）；
- * - `/idle`：闲时辅助的运行记录与待处置登记，来自 `~/.dsh/ldvh/` 下插件自己落的账；
+ * - `/queue`：待处置队列与检查点运行记录，来自 `~/.dsh/ldvh/` 下插件自己落的账；
  * - `/observations`：摩擦观察缓冲（11 §12bis.1）的只读现状——**非事实对象**，与本页
  *   其余部分同理属本机运行状态（故不放在事实对象列表页）。
  *
@@ -47,34 +47,8 @@ router.get('/gate', async (req: Request, res: Response) => {
   }
 })
 
-/** 闲时辅助的未处置登记按其**原因性质**归类——比照抄原始 reason 更能回答「卡在哪」。 */
-const QUEUE_SIGNATURES: { category: string; pattern: RegExp }[] = [
-  { category: 'subagent_stopped', pattern: /stopReason|refusal|subagent run did not complete/i },
-  { category: 'observation_gap', pattern: /观察区间存在未覆盖缺口|未被本进程观察到/ },
-  { category: 'quote_not_in_window', pattern: /not present in this run/ },
-  { category: 'quote_too_short', pattern: /below the \d+-char floor/ },
-  { category: 'carrier_ineffective', pattern: /carrier coherence/i },
-  { category: 'title_too_long', pattern: /title/i },
-  { category: 'dispatch_unavailable', pattern: /is not a function|subagents\./ },
-]
-
-function classifyQueueEntry(reason: string, residual: string[]): string {
-  const haystack = `${reason} ${residual.join(' ')}`
-  for (const { category, pattern } of QUEUE_SIGNATURES) {
-    if (pattern.test(haystack)) return category
-  }
-  return 'other'
-}
-
-type QueueEntry = {
-  entry_id?: string
-  at?: string
-  task?: string
-  reason?: string
-  residual?: string[]
-  resolved_at?: string
-  resolution_note?: string
-}
+/** 待处置队列的未处置登记按其**原因性质**归类——比照抄原始 reason 更能回答「卡在哪」。 */
+// 2026-11-17：QUEUE_SIGNATURES / classifyQueueEntry / QueueEntry 已随待处置队列删除。
 
 type RunRecord = {
   at?: string
@@ -87,11 +61,7 @@ type RunRecord = {
   watermark?: unknown
   gap?: unknown
   per_task?: unknown
-  /**
-   * 2026-11-03：与待处置队列的**唯一**共同键（见 `plugin/lib/idle-runlog.js`
-   * 字段说明）。`null` = 本次失败按 11 §11 的条件式不入队；缺省 = 本次根本没
-   * 有失败。两者不得混同——那正是此前两本账无任何对应关系的原因。
-   */
+  /** 历史字段（队列时代的共同键）；队列已删除（2026-11-17），存量记录仍带它。 */
   pending_entry_id?: string | null
   /** 2026-11-03 起由 lifecycle 在失败分支填入（此前该字段定义多年、无生产者）。 */
   note?: string
@@ -106,50 +76,19 @@ async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
   }
 }
 
-async function readJsonLines<T>(filePath: string): Promise<T[]> {
-  if (!existsSync(filePath)) return []
-  const raw = await readFile(filePath, 'utf8')
-  const rows: T[] = []
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      rows.push(JSON.parse(trimmed) as T)
-    } catch {
-      // 破损行跳过而不中断——队列是 append-only 的流水，一行坏掉不该让整页空白。
-      continue
-    }
-  }
-  return rows
-}
 
-/** `/idle` —— 闲时辅助：待处置登记的分类分布 + 运行记录。 */
-router.get('/idle', async (_req: Request, res: Response) => {
+/** `/queue` —— 运行痕迹（11 §12 失败留痕的持久承载）。
+ *
+ * 2026-11-17：待处置队列已删除（Human 决定，11 §12）。本路由原为「队列 + 运行
+ * 记录」双数据源，现只报运行记录——失败可见性由当次回执 + 本载体承载。路由键
+ * 保留 `queue` 是为不改前端契约面；语义已是「运行痕迹」。存量队列文件不再被读。
+ */
+router.get('/queue', async (_req: Request, res: Response) => {
   try {
     const home = ldvhHome()
-    const queueFile = path.join(home, 'pending-queue.jsonl')
     const runsFile = path.join(home, 'idle-checkpoint-runs.json')
-    const entries = await readJsonLines<QueueEntry>(queueFile)
     const runsFileContent = await readJsonFile<{ runs?: RunRecord[] }>(runsFile, {})
     const runs = Array.isArray(runsFileContent.runs) ? runsFileContent.runs : []
-
-    const unresolved = entries.filter((entry) => !entry.resolved_at)
-    // 已核查（结案）条数：11 §12 第 5 条的结案通道**有没有被用过**，只能靠这个数
-    // 看出来。只显示「未处置 292」会让一个从未被使用的结案通道与一个用了但队列仍
-    // 在长的通道长得一模一样。
-    const settled = entries.length - unresolved.length
-    const categoryCounts = new Map<string, number>()
-    for (const entry of unresolved) {
-      const category = classifyQueueEntry(entry.reason ?? '', entry.residual ?? [])
-      categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1)
-    }
-
-    // 超 24 小时仍未处置：说明这批登记事实上没有被处理过，值得单独说。
-    const dayAgo = Date.now() - 24 * 60 * 60 * 1000
-    const over24h = unresolved.filter((entry) => {
-      const at = entry.at ? Date.parse(entry.at) : Number.NaN
-      return Number.isFinite(at) && at < dayAgo
-    }).length
 
     const stageCounts = new Map<string, number>()
     for (const run of runs) {
@@ -162,43 +101,12 @@ router.get('/idle', async (_req: Request, res: Response) => {
       generatedAt: new Date().toISOString(),
       scope: {
         ldvhHome: home,
-        queueFileExists: existsSync(queueFile),
         runsFileExists: existsSync(runsFile),
         limits: [
-          '待处置登记与运行记录均在 ~/.dsh/ldvh 下，属本机当前用户的运行账，不随仓库分发。',
+          '运行记录在 ~/.dsh/ldvh 下，属本机当前用户的运行账，不随仓库分发。',
           '运行记录是环形缓冲（保留最近 50 条），更早的轮次已被覆盖。',
           'ActivityLog 只在内存，进程退出即消失——但失败轮次的 stop_reason 与 residual 首项自 2026-11-03 起写入运行记录的 note 字段，故「为什么 stopped」在保留窗口内可回看。',
-          '已核查条数（settled）反映 11 §12 第 5 条的结案通道被使用的次数；结案说明是该通道的产物，缺说明的结案不是核查产物。',
         ],
-      },
-      queue: {
-        total: entries.length,
-        unresolved: unresolved.length,
-        settled,
-        over24h,
-        byCategory: Array.from(categoryCounts, ([category, count]) => ({ category, count }))
-          .sort((a, b) => b.count - a.count),
-        recent: unresolved
-          .slice()
-          .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
-          .slice(0, 40)
-          .map((entry) => ({
-            at: entry.at ?? null,
-            task: entry.task ?? null,
-            category: classifyQueueEntry(entry.reason ?? '', entry.residual ?? []),
-            reason: (entry.reason ?? '').slice(0, 500),
-          })),
-        // 已核查的最近若干条：结案说明（resolution_note）是核查的产物，是「这条
-        // 到底怎么被处理掉的」唯一记录。只列 id 前缀与说明，不列完整 residual。
-        settledRecent: entries
-          .filter((entry) => entry.resolved_at)
-          .sort((a, b) => (b.resolved_at ?? '').localeCompare(a.resolved_at ?? ''))
-          .slice(0, 10)
-          .map((entry) => ({
-            resolved_at: entry.resolved_at ?? null,
-            task: entry.task ?? null,
-            note: (entry.resolution_note ?? '').slice(0, 300) || null,
-          })),
       },
       runs: {
         total: runs.length,
@@ -210,9 +118,6 @@ router.get('/idle', async (_req: Request, res: Response) => {
           code: run.code ?? null,
           action: run.action ?? null,
           task: run.task ?? null,
-          // 2026-11-03：失败分支现在会带这两项。note 是「为什么 stopped」的当场
-          // 说明（此前该字段无生产者，面板上永远看不到原因）；pending_entry_id
-          // 是通往队列细节的键（null = 按分流不入队）。
           note: (run.note ?? '').slice(0, 300) || null,
           pending_entry_id: run.pending_entry_id ?? null,
         })),
@@ -224,7 +129,7 @@ router.get('/idle', async (_req: Request, res: Response) => {
       return
     }
     const message = error instanceof Error ? error.message : String(error)
-    fail(res, 500, 'IDLE_REPORT_FAILED', message)
+    fail(res, 500, 'QUEUE_REPORT_FAILED', message)
   }
 })
 
@@ -232,7 +137,7 @@ router.get('/idle', async (_req: Request, res: Response) => {
  * `/observations` —— 摩擦观察缓冲的只读现状（11 §12bis.1）。
  *
  * 为什么在诊断页而不是对象列表：缓冲条目**不是事实对象**（非事实、无对象身份），
- * 混进事实列表会造成「它们是账目」的误读。这里与水位、待处置队列、运行记录同层——
+ * 混进事实列表会造成「它们是账目」的误读。这里与待处置队列、运行记录同层——
  * 都是本机运行状态。
  *
  * 呈现口径由 11 §12bis.1 第 2 条钉死：只可展示存在与数量、以及现象/时间/来源/状态
@@ -247,7 +152,7 @@ router.get('/idle', async (_req: Request, res: Response) => {
  * §12bis.1 的读取纪律给的都是「存在与数量 + 现象/时间/来源/状态四项」。
  *
  * 为什么在诊断页：缓冲条目**不是事实对象**（非事实、无对象身份），混进事实列表会造成
- * 「它们是候选」的误读。这里与水位、待处置队列、运行记录同层——都是本机运行状态。
+ * 「它们是候选」的误读。这里与待处置队列、运行记录同层——都是本机运行状态。
  */
 // **2026-11-16**：`/diagnostics/experience-observations` 路由已删除——经验留观缓冲随
 // 审核层整层取消。摩擦观察路由（`/diagnostics/observations`）不受影响。
@@ -293,8 +198,9 @@ router.get('/logs/preview', async (req: Request, res: Response) => {
  * 前置：`days` 必须是给定选项之一（1/3/7），`targets` 非空。
  * 每次真删都在 `ldvh/cleanup-backups/<时间戳>/` 下留一份备份。
  *
- * **水位不在可清理清单里**：`LOGGABLE_TARGETS` 刻意不包含它——删水位会让机制
- * 重新观察已处理内容并重复入账（见 logsCleanup.ts 文件头）。
+ * **历史水位文件不在可清理清单里**：`LOGGABLE_TARGETS` 刻意不包含它。原护栏防的是
+ * 「删活水位让机制重新观察已处理内容并重复入账」；水位机制已随闲时触发删除
+ * （2026-11-17），存量文件只是历史材料——清它须是显式决定（见 logsCleanup.ts 文件头）。
  */
 router.post('/logs/clean', async (req: Request, res: Response) => {
   try {

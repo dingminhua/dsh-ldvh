@@ -45,7 +45,7 @@ import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, pendingReasonFromLanding, residualFromLandingError } from "./friction-landing.js";
 import { advanceWatermark, recordActivity, admitAndRecordDispatch, releaseDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
-import { recordRun, readRuns } from "./idle-runlog.js";
+import { recordRun } from "./idle-runlog.js";
 // stage 的唯一派生点：三处调用同一实现，避免「修一处漏两处」（见 run-stage.js 注释）。
 import { deriveStage } from "./run-stage.js";
 import { COMPLEXITY_CRITERIA, GATE_POINT_EXCLUSIONS, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
@@ -192,7 +192,7 @@ export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown
  * 返回 `null` 表示该次运行没有可核对的结局（如 skipped），此时痕迹里不写
  * `verification` 字段——缺席与空结果是两件事。
  */
-import { appendPendingEntry, countPendingEntries } from "./pending-queue.js";
+// 2026-11-17：待处置队列已删除（Human 决定，11 §12）。失败留痕改走 recordRun。
 import { adoptFinishedChild, createChildInstaller } from "./child.js";
 import { resolveChildFromSessionRecord } from "./child-session-record.js";
 // 11 §11「切分依据只能是宿主会话记录中的位置」：重启后从记录里取回最后轮次号
@@ -203,6 +203,7 @@ import { recordJudgementForGuard } from "./host-seams.js";
 // 经验记录分身（23 §13 代理记录通道，Human 决定 2026-11-16）：授权账与分身工具面。
 import { createExperienceArming } from "./experience-arming.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
+import { registerFrictionChildSurface } from "./friction-tools.js";
 
 
 /**
@@ -321,75 +322,15 @@ function probeStructuralFactsWith(targets, names = DISCRETION_NAMES) {
   };
 }
 
-/**
- * 取本会话最近的计时器判定记录，作为 §18「延迟的取消」「二次确认空闲」两行的证据。
- *
- * **不是重新判断**：判定发生在 `triggers.js` 的 `trace("silence-expiry", …)` 处——
- * 那一刻才知道「计时是否到期」「回合是否进行中」「quietFor 是否够」。运行结束时
- * 这些事实已过去，唯一能做的是**把当时落下的诊断记录取回来**。
- *
- * 取不到时返回 null：调用方据此把两行记为「本轮无延迟形态计时，该行不适用」，
- * 而**不是**填 pass 说「核对通过」。两者必须分清。
- */
-export async function readTimerEvidence(dshHomePath, sessionId) {
-  if (typeof sessionId !== "string" || sessionId.length === 0) return null;
-  try {
-    const read = await readRuns(dshHomePath, { limit: 200 });
-    if (read?.ok !== true) {
-      // **载体不可用 ≠ 本轮没有发生计时**（2026-11-03 第六轮自查）。
-      // 前者是真实的失败（读不到账），必须让该行阻断；后者才是「条件未出现」。
-      // 若两者都返回 null，readTimerEvidence 的 catch 会把「读不到」说成「没有」，
-      // 正是本单反复要消除的形态。故用一个显式标记区分。
-      return { unavailable: true, reason: read?.error?.code ?? "runlog/unavailable" };
-    }
-    const runs = Array.isArray(read.value?.runs) ? read.value.runs : [];
+// 2026-11-17：`readTimerEvidence` 已删除。
+//
+// 它的职责是「取本会话最近的计时器判定记录，作为 §18『延迟的取消』『二次确认
+// 空闲』两行的证据」。那两行随计时器删除而改名（现为「发起不构成执行完成」
+// 「主控发起的观察频次如实登记」），计时器判定记录也不再产生——没有可取的证据，
+// 取回来只会是一份恒空的痕迹。
+//
+// 该函数全仓无调用方（删除前 grep 确认），故不存在「调用方指向 undefined」的风险。
 
-    // **两类证据分开找**（2026-11-03）：
-    //   - `silence-cleared`：清理后回读（`handleCleared`）→ 供「延迟的取消」；
-    //   - `silence-expiry`：到期时的确认判定 → 供「二次确认空闲」。
-    // 它们发生在不同时刻，此前只找后者，于是「延迟的取消」永远拿不到自己的证据。
-    // **证据必须落在本轮时间窗内**（2026-11-03 第五轮复核指出此前无时间窗：
-    // 从最近 200 条里取同会话最后一条，于是 10 小时前的记录仍能让本次判 pass）。
-    // 窗口取「本轮开始前 30 分钟」到「现在」：到达期→派发→运行这条真实链路上，
-    // 相关诊断必然落在该区间内；更早的记录属于上一轮，不得复用。
-    const since = Date.now() - 30 * 60 * 1000;
-    const inWindow = (r) => {
-      const at = Date.parse(String(r?.at ?? ""));
-      return Number.isFinite(at) && at >= since;
-    };
-    const found = { cleared: null, expiry: null };
-    for (let i = runs.length - 1; i >= 0; i -= 1) {
-      const r = runs[i];
-      if (r?.task !== "diagnostic") continue;
-      if (r?.session !== sessionId) continue;
-      if (!inWindow(r)) continue;
-      if (r?.stage === "silence-cleared" && found.cleared === null) found.cleared = r;
-      if (r?.stage === "silence-expiry" && found.expiry === null) found.expiry = r;
-      if (found.cleared !== null && found.expiry !== null) break;
-    }
-    if (found.cleared === null && found.expiry === null) return null;
-    // 把两类证据合成一个对象，由各行的判定各取所需。
-    return {
-      handleCleared: found.cleared?.handleCleared,
-      hadTimer: found.cleared?.hadTimer,
-      clearedAt: found.cleared?.at ?? null,
-      clearedReason: found.cleared?.reason ?? null,
-      reason: found.expiry?.reason ?? null,
-      turn: found.expiry?.turn ?? null,
-      expiryAt: found.expiry?.at ?? null,
-      // 三项确认的逐项结论（triggers 在 dispatching 时带出）
-      confirmedAt: found.expiry?.confirmedAt,
-      quietFor: found.expiry?.quietFor,
-      idleMs: found.expiry?.idleMs,
-      turnInFlightObserved: found.expiry?.turnInFlightObserved,
-      confirmNoTurn: found.expiry?.confirmNoTurn,
-      confirmQuiet: found.expiry?.confirmQuiet,
-      confirmNoOtherTimer: found.expiry?.confirmNoOtherTimer,
-    };
-  } catch {
-    return null;
-  }
-}
 
 /** 本轮无延迟形态计时时，两行的「不适用」说明（条件未出现，不是没实现）。 */
 /** 未取得结构性探测结论时的理由（条件未出现）。 */
@@ -475,6 +416,38 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // 写入侧的复核靠它：过期、项目错位、未绑定一律拒（见 pitfall-tools.js）。
       experienceArming
     }, { surface: "child" }),
+    // ── 摩擦记录面（2026-11-17，00 §4.5 代理辅助任务）─────────────────────
+    //
+    // **不受授权约束**：经验面要等开工授权绑定成功才注册（`registerChildSurface`
+    // 在 bindForChild 成功后调），摩擦面只要分身受管辖就注册。理由是两者语义不同：
+    // 经验授权是「这个分身以后也能记录经验」的长期凭证；摩擦记录是主控当次交派的
+    // 一次性动作，没有「以后」这个维度。
+    //
+    // `resolveProjectId` 走与根会话同一套治理解析（`resolveGovernanceScope`），
+    // 而不是从父级继承——审核 B5 的教训：注册按父级继承判定、写入按子级 cwd 自判，
+    // 不核对项目就会把观察写进另一个受辖项目。
+    registerFrictionChildSurface,
+    frictionChildDeps: {
+      dshHomePath,
+      // 晋升建账的署名来源（与根面同一入口，见 :415）。用 getter 而非取值：
+      // 服务可能在插件装配后才注册，取值会永久拿到 undefined。
+      sessionPersistence: () => ctx.get("sessionPersistence"),
+      // **返回 {id, path} 而不只是 id**（2026-11-17）：代理记录完观察后要顺带做
+      // 阈值晋升（11 §9 第 3／4 项，同一次派发内的机械收尾），而建账需要事实源根
+      // 目录 `path`。只给 id 会让晋升侧再解析一次管辖——两次解析可能落在不同项目
+      // 上（cwd 在两次调用之间变化），那正是审核 B5 的失效形态。
+      resolveProjectId: async (agent) => {
+        const cwd = agent?.session?.header?.cwd;
+        if (typeof cwd !== "string" || cwd.length === 0) return null;
+        try {
+          const scope = await resolveGovernanceScope(dshHomePath, cwd);
+          if (scope?.project?.id === undefined) return null;
+          return { id: scope.project.id, path: scope.project.path };
+        } catch {
+          return null;
+        }
+      }
+    },
     onEvent: (hook, detail) => registryActivity.record(hook, detail)
   });
 
@@ -516,6 +489,23 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // without the service yields `undefined` at call time and the
           // Write points fail closed instead of skipping the goal.
           goals: () => ctx.get("goals"),
+          // 行动前那处的判断依据（弱约束，06 §5／§6）：读本 agent 的**活事件
+          // 累积器**里当前轮已写出的正文。
+          //
+          // **为什么用 getter 而不是传值**：`turnTriggers` 在 1041 行才创建，而
+          // `syncTools`（本函数的调用方）在其后由 `agent/created` 分发路径触发，
+          // 故调用时该 Map 已填好；传值则会在装配时取到 undefined。
+          //
+          // **为什么取不到要如实报**：读不到 ≠ 没写过候选。取不到时工具侧返回
+          // `available: false` 并说明原因，不把空串当依据（见 review-ask-tool.js）。
+          readCurrentTurnText: (agent) => {
+            const id = agentIdOf(agent);
+            if (typeof id !== "string") return { ok: false, reason: "the calling agent exposes no id, so its live turn text cannot be located" };
+            const timers = agentTimers.get(id);
+            if (timers === undefined) return { ok: false, reason: "this agent has no live turn accumulator in the current process, so its current-turn text is unavailable (the session/event stream has not been wired for it yet)" };
+            if (typeof timers.currentTurnText !== "function") return { ok: false, reason: "the live turn accumulator in this composition does not expose currentTurnText" };
+            return timers.currentTurnText();
+          },
           // 根会话侧也要拿到授权账：`ldvh_pitfall_arm_delegate` 靠它记授权。
           // 取不到时该工具按 unavailable 拒绝（pitfall-tools.js fail-closed 分支），
           // 不会退化成「记了但没人能核验」。
@@ -1054,12 +1044,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         turns: lifecycle.turns,
         activity: lifecycle.activity,
         log: ctx.logger,
-        // 取安静时长（11 §6.1）。经 `getIdleSettings` 的注入点读——与准入判据
-        // 同源，使设置面的改动对两者同时生效（不各读一份配置）。
-        readSilenceMs: () => {
-          const s = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
-          return s?.limits?.silenceMs;
-        },
+        // 2026-11-17：`readSilenceMs` 注入已删除——计时器不存在，没有安静时长可取。
         // 落「最后一次会话活动时刻」。**尽力而为**：写入失败只记日志，不阻塞
         // 宿主事件流。**它不再服务「跨热重载的计时连续性」**（2026-10-27 改）——
         // 装载路径不读回这个值、不据此重建计时（11 §6.1「重启使安静期作废」）。
@@ -1449,8 +1434,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           if (failedTasks.length > 0) {
             for (const key of failedTasks) {
               const why = checkpoint.value?.decision?.taskResults?.[key]?.error;
-              await appendPendingEntry(dshHomePath, {
-                task: key,
+              await recordRun(dshHomePath, {
+                task: key, stage: "task-failed",
                 reason: `任务「${key}」未取得结论：${why?.message ?? "unknown"}`,
                 residual: why?.code ? [String(why.code)] : [],
                 at: new Date().toISOString(),
@@ -1556,8 +1541,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 });
                 if (!landed.ok) {
                   // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
-                  await appendPendingEntry(dshHomePath, {
-                    task: "friction-discovery",
+                  await recordRun(dshHomePath, {
+                    task: "friction-discovery", stage: "land-failed",
                     reason: `闭集落地失败（${landed.error?.stage ?? "unknown"}）：${landed.error?.message ?? "unknown"}`,
                     // 提炼**完整**诊断（含逐条校验明细），不把 issues 丢掉——
                     // 详见 friction-landing.js 的 residualFromLandingError。
@@ -1592,8 +1577,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   // 人据此会以为大量观察已被静默，实际是大量补充级更新在排队。
                   // 派生函数见 friction-landing.js `pendingReasonFromLanding`。
                   if (Array.isArray(landed.value.residual) && landed.value.residual.length > 0) {
-                    await appendPendingEntry(dshHomePath, {
-                      task: "friction-discovery",
+                    await recordRun(dshHomePath, {
+                      task: "friction-discovery", stage: "supplement-pending",
                       reason: pendingReasonFromLanding(landed.value),
                       residual: landed.value.residual,
                       at: new Date().toISOString(),
@@ -1607,8 +1592,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   // 故处置是「登记 + 越过」，而不是拒不推进（那会永久停摆）。
                   const gap = checkpoint.value?.decision?.unobserved;
                   if (gap && typeof gap === "object") {
-                    await appendPendingEntry(dshHomePath, {
-                      task: tasksForThisCheckpoint[0],
+                    await recordRun(dshHomePath, {
+                      task: tasksForThisCheckpoint[0], stage: "observation-gap",
                       reason: `观察区间存在未覆盖缺口：turn ${gap.from}${gap.to === null || gap.to === undefined ? " 起（上界未知）" : `–${gap.to}`} 未被本进程观察到（宿主不回放事件，缺口不可恢复）`,
                       residual: [`缺口 ${gap.from}..${gap.to ?? "unknown"} 的内容未被观察`, "水位将越过该缺口——此为该区间的已知损失"],
                       at: new Date().toISOString(),
@@ -1635,8 +1620,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     if (!advanced.ok) {
                       // 落地已成功、水位未推进：下次会重覆盖同一区间。**重覆盖不会
                       // 重复计数**吗——会。故此处必须入队如实登记，不得静默。
-                      await appendPendingEntry(dshHomePath, {
-                        task: tasksForThisCheckpoint[0],
+                      await recordRun(dshHomePath, {
+                        task: tasksForThisCheckpoint[0], stage: "watermark-failed",
                         reason: `水位推进失败（账目已写入，下次将重覆盖同一区间，可能重复计数）：${advanced.error.message}`,
                         residual: [`水位键 ${advanced.error.code}`, `重覆盖区间终点 turn=${pendingTurn}`],
                         at: new Date().toISOString(),
@@ -1683,7 +1668,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               try {
                 const { runFrictionPromotionExclusive } = await import("./friction-promotion-lock.js");
                 const { runFrictionReviewPromotion } = await import("./friction-review-promotion.js");
-                const { resolveSignatureDetailed } = await import("./experience-review-stage.js");
+                // **署名取数从 `session-signature.js` 取**（2026-11-16 修复）：
+                // 原 import 指向 `experience-review-stage.js`，而该模块已随
+                // `ddae5f72` 整层删除——动态 import 抛 `ERR_MODULE_NOT_FOUND`，
+                // 被下面的 catch 记成 `friction-promotion-threw`，于是**每一次**
+                // 摩擦阈值晋升都失败，外部只看到「晋升失败」看不到「模块不存在」。
+                // 本 import 路径变更是该断链的修复口；`resolveSignatureDetailed`
+                // 已按职责迁回 `session-signature.js`。
+                const { resolveSignatureDetailed } = await import("./session-signature.js");
                 // **先看有没有活可干，再读署名**：署名要打开会话日志（大会话可达
                 // 数十 MB），而「无 pending 条目」时晋升根本无从发生。把读取挡在
                 // 空缓冲之后，既省掉无谓的日志读取，也不破坏本检查点既有的读取
@@ -1714,12 +1706,19 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   // 「本次没晋升」与「没跑」必须可分辨），不静默跳过。
                   frictionPromotionOutcome = { skipped: true, reason: locked.reason ?? "locked" };
                   lifecycle.activity?.record("session/checkpoint/friction-promotion", frictionPromotionOutcome);
-                } else if (locked?.result?.ok) {
+                } else if (locked?.value?.ok) {
+                  // **键名订正（2026-11-17）**：`runFrictionPromotionExclusive` 返回
+                  // `{skipped:false, value: await fn()}`——键是 `value`，不是 `result`。
+                  // 原实现读 `locked.result`，恒为 undefined，于是**每一次晋升都被记成
+                  // `friction-promotion-failed`**，即便账目其实已建成。这正是历史实测
+                  // 「50 条运行记录 0 次成功晋升」的直接成因之一（另一成因是已修的
+                  // experience-review-stage 断链）。锁的既有测试一直断言 `.value`
+                  // （friction-promotion-lock.test.mjs），故缺陷只在消费侧。
                   frictionPromotionOutcome = {
                     skipped: false,
-                    promoted: locked.result.value.promotions.length,
-                    supplemented: locked.result.value.supplemented.length,
-                    residual: locked.result.value.residual,
+                    promoted: locked.value.value.promotions.length,
+                    supplemented: locked.value.value.supplemented.length,
+                    residual: locked.value.value.residual,
                   };
                   if (frictionPromotionOutcome.promoted > 0 || frictionPromotionOutcome.supplemented > 0) {
                     lifecycle.activity?.record("session/checkpoint/friction-promotion", frictionPromotionOutcome);
@@ -1728,8 +1727,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   frictionPromotionOutcome = {
                     skipped: false,
                     failed: true,
-                    code: locked?.result?.error?.code ?? "friction-promotion-failed",
-                    reason: locked?.result?.error?.message ?? "unknown",
+                    code: locked?.value?.error?.code ?? "friction-promotion-failed",
+                    reason: locked?.value?.error?.message ?? "unknown",
                   };
                   lifecycle.activity?.record("session/checkpoint/friction-promotion", frictionPromotionOutcome);
                 }
@@ -2028,40 +2027,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           registryActivity.record("root/adopt", { agentId: adopted ?? null });
         }
       }
-      // ── 会话启动时的队列清点（11 §12 第 4 条，2026-11-02 补）────────────
-      //
-      // §12 第 4 条把「会话启动时的队列清点」列为待处置队列的**三个读取者之一**，
-      // 与「下一个接管的主控」「Human 查阅入口」并列。此前只有后两者落地：Human
-      // 查阅入口由 Web 诊断页的 IdlePanel 承载，而清点这一端**在生产路径上零调用**
-      // ——`countPendingEntries` 写好后只有测试引用过。后果是第 5 条「核查前受影响
-      // 对象不得被当作稳定事实消费」缺少执行时点：新会话开局时没人知道有多少条
-      // 未核查的登记，也就不会有人去核查（实测 269 条登记的 resolved_at 全空）。
-      //
-      // 清点**只报数、不改动**（函数名即契约）：结果写进运行痕迹，使「哪次启动、
-      // 清点到多少条」可回读。载体不可用或读失败**不阻断启动**——§12 第 6 条要求
-      // 载体不可用时 fail-closed，但那条约束的是「辅助任务不得在失去队列的情况下
-      // 继续运行」，不是「插件不得装载」；此处如实记一条读失败痕迹即可。
-      void countPendingEntries(dshHomePath).then(async (counted) => {
-        if (!counted.ok) {
-          await recordRun(dshHomePath, {
-            task: "startup-inventory", tasks: ["startup-inventory"], stage: "land-failed",
-            reason: `队列清点失败：${counted.error?.message ?? "unknown"}`,
-            at: new Date().toISOString()
-          });
-          return;
-        }
-        await recordRun(dshHomePath, {
-          task: "startup-inventory", tasks: ["startup-inventory"], stage: "landed",
-          reason: `会话启动时的队列清点（11 §12 第 4 条）：未核查 ${counted.value.unresolved} 条` +
-            `（不可读行 ${counted.value.invalid} 条；载体 ${counted.value.carrier}）`,
-          unresolved: counted.value.unresolved,
-          invalid: counted.value.invalid,
-          carrier: counted.value.carrier,
-          at: new Date().toISOString()
-        });
-      }).catch((error) => {
-        ctx.logger.warn("[dsh-ldvh] startup queue inventory failed: %s", String(error?.message ?? error));
-      });
+      // 2026-11-17：会话启动时的队列清点已随待处置队列删除（Human 决定，11 §12）。
+      // 失败可见性由当次回执 + 运行痕迹承载，不再需要开局报数。
       return () => {
         // Invalidate pending governance judgements before any asynchronous
         // disposal can yield; a late resolve must never re-register tools.
@@ -2139,6 +2106,25 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     },
     snapshotOf(agentId) {
       return agents.get(agentId)?.snapshot();
+    },
+    /**
+     * **主控发起一次检查点**（2026-11-17，11 §6.1「触发锚是主控发起」）。
+     *
+     * 计时器删除后，这是**唯一**能让检查点真正跑起来的入口。主控在当次行动中
+     * 发现阻碍或已查明验证的失败机制时调用它，由检查点派代理去处理。
+     *
+     * **不判定「值不值得记」**：那是主控的判断（00 §4.5 代理辅助任务），机械层
+     * 不判定。此处只把请求送进该 agent 的检查点，并把「该 agent 未装载」如实
+     * 报为 false——不静默成功，也不抛。
+     *
+     * @param {string} agentId 目标 agent
+     * @param {string} [source] 发起来源标签（缺省 `"controller"`）
+     * @returns {boolean} 是否真的送进了检查点
+     */
+    requestCheckpoint(agentId, source = "controller") {
+      const timers = agentTimers.get(agentId);
+      if (typeof timers?.requestCheckpoint !== "function") return false;
+      return timers.requestCheckpoint(source);
     },
     /**
      * Delegated child snapshots (2026-09-04). Previously the Web/RPC surface

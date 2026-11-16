@@ -26,7 +26,8 @@
  * 本模块**不主张机制已运行**（§8.5）：它是否具备属实现现状，由读取时的观察取得。
  */
 
-import { appendPendingEntry } from "./pending-queue.js";
+// 2026-11-17：待处置队列已删除（11 §12）；失败留痕改走运行痕迹（recordRun）。
+import { recordRun } from "./idle-runlog.js";
 // advanceWatermark 于本次改动前就已是未使用的导入（它在 `git show HEAD` 里也只
 // 出现在这一行）——水位推进由调用方（lifecycle）在落地成功后执行，本模块已不自行
 // 推进（见下方「水位推进必须以落地成功为前提」的说明）。故一并删除。
@@ -531,18 +532,19 @@ function describeExecutorFailure(error) {
 }
 
 async function recordAndFail(dshHomePath, { task, reason, residual, at, code }) {
-  const queued = await appendPendingEntry(dshHomePath, { task, reason, residual, at });
+  // **2026-11-17**：原「入待处置队列」改为写运行痕迹（11 §12 新承载）。留痕
+  // 载体不可写时仍 fail-closed 如实报「未登记」，不得静默——该纪律不随载体变。
+  const queued = await recordRun(dshHomePath, { task, stage: "stopped", reason, residual, at });
   if (!queued.ok) {
-    return failure("idle_checkpoint/queue_unavailable", `${reason}（且待处置队列不可写：${queued.error.message}——11 §12 第 6 条禁止降级登记，故本次未登记）`, {
+    return failure("idle_checkpoint/runlog_unavailable", `${reason}（且运行痕迹不可写：${queued.error.message}——11 §12 禁止降级登记，故本次未登记）`, {
       stop_reason: reason,
       residual,
-      queue_unavailable: true,
+      runlog_unavailable: true,
     });
   }
   return failure(code ?? "idle_checkpoint/stopped", reason, {
     stop_reason: reason,
     residual,
-    pending_entry_id: queued.value.entry_id,
   });
 }
 

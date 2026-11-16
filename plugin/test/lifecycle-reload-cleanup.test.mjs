@@ -547,6 +547,8 @@ test("lifecycle reload: plugin unload awaits the lifecycle stop Promise (pending
       if (
         blockStopDiagnostic &&
         typeof data === "string" &&
+        // **2026-11-17**：`silence-cleared` 诊断仍在（`dispose()` 排空期的那条
+        // 在飞落盘写入），但它现在记的是「清理动作被要求过」，不再暗示计时器存在。
         data.includes("silence-cleared") &&
         data.includes('"dispose"')
       ) {
@@ -563,7 +565,10 @@ test("lifecycle reload: plugin unload awaits the lifecycle stop Promise (pending
       harness.root.emit("agent/created", { agent: record.agent, source: "startup" });
       await waitForTools(harness, record);
 
-      // Arm one silence timer, so stop() has a real timer drain to await.
+      // **2026-11-17**：不再「武装一个安静期计时器」来给 stop() 制造排空对象
+      // ——计时器已删除，没有计时器可排空。stop() 现在要排空的是**挂起的登记写入**
+      // （`timers/cleared`），它同样会让 stop 的 Promise 保持 pending。
+      // 事件仍发一遍：它们维护活动记账，只是不再武装任何计时。
       harness.root.emit("agent/turn-stopping", { agent: record.agent, turn: 1 });
       harness.root.emit("agent/status", { agent: record.agent, status: "idle" });
       await delay(80); // let the earlier activity diagnostic writes settle

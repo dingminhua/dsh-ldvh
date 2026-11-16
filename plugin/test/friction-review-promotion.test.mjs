@@ -24,7 +24,10 @@ const PROJECT = "dsh-ldvh";
 const SIG = testSignature();
 
 function home(root) {
-  return () => join(root, "dsh-home");
+  // dshHomePath 的契约是 (...segments) => join(home, ...segments)——忽略参数会
+  // 让缓冲与 runlog 写到同一路径（2026-11-17 队列删除后 runlog 成为留痕载体，
+  // 该错误立刻以 carrier_malformed 暴露）。
+  return (...segments) => join(root, "dsh-home", ...segments);
 }
 
 function factRoot(root) {
@@ -302,7 +305,7 @@ test("项目分区：别的项目的缓冲不会被本项目晋升（§12bis.1�
 // （材料该进账目却没进），待遇必须一致。
 // ---------------------------------------------------------------------------
 
-test("补充失败：登记进待处置队列（不再只留在当拍返回体里）", async () => {
+test("补充失败：留痕进运行痕迹（不再只留在当拍返回体里；2026-11-17 队列已删除）", async () => {
   await withTemp("friction-review-promotion.", async (base) => {
     const h = home(base);
     const fsRoot = join(base, "facts");
@@ -326,23 +329,21 @@ test("补充失败：登记进待处置队列（不再只留在当拍返回体�
 
     const failure = result.value.residual.find((r) => r.stage === "supplement");
     assert.ok(failure, "补充失败须出现在 residual 里（既有行为）");
-    assert.ok(failure.pending_entry_id,
-      `补充失败须进队列；实得 pending_entry_id=${JSON.stringify(failure.pending_entry_id)} `
-      + `unregistered=${JSON.stringify(failure.unregistered)}`);
+    assert.ok(!failure.unregistered,
+      `补充失败须成功留痕；实得 unregistered=${JSON.stringify(failure.unregistered)}`);
 
-    // 队列里真的有一条，且能被读出来——这是「下一拍仍可见」的可观察形态。
-    const { readPendingQueue } = await import("../lib/pending-queue.js");
-    const queue = await readPendingQueue(h, { unresolvedOnly: true });
-    assert.ok(queue.ok, JSON.stringify(queue.error));
-    const mine = queue.value.items.filter((e) => e.entry_id === failure.pending_entry_id);
-    assert.equal(mine.length, 1, "队列里须有对应的那一条");
-    assert.match(mine[0].reason, /补充未完成/, "reason 须写明是补充失败");
+    // 运行痕迹里真的有一条，且能被读出来——这是「下一拍仍可见」的可观察形态。
+    const { readRuns } = await import("../lib/idle-runlog.js");
+    const runs = await readRuns(h, {});
+    assert.ok(runs.ok, JSON.stringify(runs.error));
+    const mine = runs.value.runs.filter((r) => r.stage === "failure-registration" && /补充未完成/.test(r.reason ?? ""));
+    assert.equal(mine.length, 1, "运行痕迹里须有对应的那一条");
     assert.match(mine[0].reason, /unknown|object_not_found|not_found/i,
       `reason 须带失败码；实得 ${mine[0].reason}`);
   });
 });
 
-test("登记实现：队列不可写时把原因写回失败项，不静默吞掉", async () => {
+test("登记实现：留痕不可写时把原因写回失败项，不静默吞掉", async () => {
   // **2026-11-04 复核后重写**：原用例把 dshHomePath 指向坏路径，结果缓冲先读取失败、
   // 断言体从未进入——变异删掉 `failureItem.unregistered` 赋值时全套仍全绿（复核实证）。
   // 现在直接驱动共享登记实现本身，绕开缓冲读取，使该分支真正可达。
@@ -363,16 +364,14 @@ test("登记实现：队列不可写时把原因写回失败项，不静默吞�
     };
     await registerSupplementFailure(brokenHome, failureItem, new Date());
 
-    assert.ok(!failureItem.pending_entry_id,
-      `队列不可写时不得给出 pending_entry_id；实得 ${JSON.stringify(failureItem.pending_entry_id)}`);
     assert.ok(failureItem.unregistered,
-      "队列不可写时必须留下 unregistered——把赋值删掉这条就会红");
+      "留痕不可写时必须留下 unregistered——把赋值删掉这条就会红");
     assert.ok(typeof failureItem.unregistered_message === "string" && failureItem.unregistered_message.length > 0,
       "必须留下原因，不静默吞掉");
   });
 });
 
-test("登记实现：队列可写时给出 pending_entry_id 且不写 unregistered", async () => {
+test("登记实现：留痕可写时不写 unregistered（2026-11-17 载体为 runlog）", async () => {
   // 正控制：证明上一条的 unregistered 不是因为实现永远写它。
   const { registerSupplementFailure } = await import("../lib/friction-failure-registration.js");
   await withTemp("friction-failure-registration.", async (base) => {
@@ -384,9 +383,11 @@ test("登记实现：队列可写时给出 pending_entry_id 且不写 unregister
       message: "cannot read object",
     };
     await registerSupplementFailure(home(base), failureItem, new Date());
-    assert.ok(failureItem.pending_entry_id,
-      `队列可写时应给出 pending_entry_id；实得 unregistered=${JSON.stringify(failureItem.unregistered)}`);
-    assert.ok(!failureItem.unregistered, "成功登记时不得写 unregistered");
+    assert.ok(!failureItem.unregistered, "成功留痕时不得写 unregistered");
+    const { readRuns } = await import("../lib/idle-runlog.js");
+    const runs = await readRuns(home(base), {});
+    assert.ok(runs.ok && runs.value.runs.some((r) => r.stage === "failure-registration"),
+      "留痕须真的落进运行痕迹");
   });
 });
 

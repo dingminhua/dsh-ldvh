@@ -49,6 +49,9 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { registerWriteShapedTool } from "./host-seams.js";
+// 2026-11-17：子代理记录面复用发现层已有的写入路径，不另造一条——两条写入口
+// 必然漂移（字段闭集、fail-closed 处置、容量淘汰都在那条路径上）。
+import { recordObservation } from "./friction-discovery.js";
 
 const OPERATIONS = {
   "friction-read-object": {
@@ -694,3 +697,210 @@ export function registerFrictionTools(ctx, deps) {
 }
 
 export { OPERATIONS };
+
+// ---------------------------------------------------------------------------
+// 子代理记录面（2026-11-17，00 §4.5 代理辅助任务「发现摩擦」）
+// ---------------------------------------------------------------------------
+
+/**
+ * 「记录摩擦观察」操作声明。
+ *
+ * **为什么需要这一面**：2026-11-17 前，摩擦观察由宿主侧的发现层在闲时派发中写入
+ * 缓冲（`friction-discovery.js` 的 `recordObservation`）。机制改为主控发起后，
+ * 写入者是**主控派出的执行体**，而该执行体此前**没有任何工具面可写缓冲**——
+ * 只有 `ldvh_friction_read/list/write` 三个操作，其中 `write` 写的是**账目**，
+ * 不写缓冲，且它要求 Human 确认（绕过 N=3 阈值，26 §16 第 1 项）。
+ *
+ * 故新增本操作，且**只注册在 child 面**：它是执行体的动作，不是主控的动作。
+ * 主控若也能直接写缓冲，则「主控只转发」这条纪律立即失效（主控可自行记录，
+ * 无须派代理），而那正是本次机制变更要避免的上下文污染。
+ *
+ * **effect 是 `may_change_state`**：它写盘（缓冲是运行状态，不构成事实对象），
+ * 但**不改任何账目状态**——阈值晋升在同一次派发内由 `runFrictionReviewPromotion`
+ * 完成，不由本操作完成（11 §9 第 3 项、36 §15.1 的机械通道边界）。
+ */
+const RECORD_OBSERVATION_OPERATION = Object.freeze({
+  toolName: "ldvh_friction_record_observation",
+  writeShaped: true,
+  childOnly: true,
+  summary:
+    "Record ONE friction observation into the observation buffer (11 §12bis.1) as the delegate of a main controller that reported an obstacle. Records always; promotion to an open ledger entry happens only when same-group count reaches N=3 within the same dispatch (26 §10). This does NOT create a Friction ledger object and does NOT change any ledger status.",
+  effect: "may_change_state",
+});
+
+/**
+ * 注册**子代理**的摩擦记录面（`surface: "child"`）。
+ *
+ * 与 `registerFrictionTools` 分开成两个函数，而不加 `surface` 参数：两者的操作集
+ * **不相交**——根面是 read/list/write（账目），子面只有 record（缓冲）。若合成一个
+ * 函数再按 surface 过滤，`OPERATIONS` 就要同时承载两种语义不同的对象（账目 vs
+ * 缓冲），而它们的字段闭集、受控写入要求、fail-closed 处置都不同。分开更清楚。
+ *
+ * @param {object} ctx - 子代理的 ctx（`agent.ctx`）。
+ * @param {object} deps - 依赖注入。
+ * @param {object} deps.dshHomePath - 宿主 home 路径（缓冲按项目分区）。
+ * @param {() => Promise<string|{id:string,path:string}|null>} deps.resolveProjectId -
+ *   解析当前项目。返回 `{id, path}` 时执行体会顺带做阈值晋升（建账需要 `path`）；
+ *   只返回裸 id 时晋升被如实跳过（`promotion.reason = "no-project-path"`）。
+ * @param {() => string|null} deps.resolveSessionId - 解析当前会话 id（写入署名）。
+ * @param {() => object|null} [deps.sessionPersistence] - 宿主会话持久化服务（晋升署名）。
+ * @returns {() => void} 释放函数。
+ */
+export function registerFrictionChildSurface(ctx, deps) {
+  const operation = RECORD_OBSERVATION_OPERATION;
+  registerWriteShapedTool(operation.toolName);
+
+  const descriptor = {
+    name: operation.toolName,
+    description: operation.summary,
+    parameters: toParameterSpec({
+      type: "object",
+      properties: {
+        phenomenon: {
+          type: "string",
+          description:
+            "One sentence stating what was observed — a non-conclusion (e.g. 「CI 平均 8 分钟」, not 「CI 太慢」). Must appear verbatim in the buffer entry's 现象 section (26 §8, §14.1).",
+        },
+        evidence: {
+          type: "string",
+          description:
+            "The verbatim fragment from the material the main controller delivered, plus its source anchor. Must be copied exactly — a paraphrase makes the observation unverifiable (11 §18「逐字引证」).",
+        },
+        group: {
+          type: "string",
+          description:
+            "Aggregation key for the same-root obstacle. Same group ⇒ same obstacle recurring; the threshold N=3 counts per group (11 §9 第 3 项). Choose it so that the SAME obstacle seen twice yields the SAME key.",
+        },
+        title: {
+          type: "string",
+          description: "≤ 30 characters; obstacle short title for locating and Human scanning.",
+        },
+        basis: {
+          type: "string",
+          description: "Why this counts as an obstacle (入账依据) — the reasoning, not the quote.",
+        },
+        attribution: {
+          type: "string",
+          description:
+            "Which subsystem/spec/process the obstacle roots in. Free text — the root is often a spec/tool/process with no object identity.",
+        },
+        target_uid: {
+          type: "string",
+          description:
+            "OPTIONAL. When the obstacle already has an OPEN ledger entry, pass its object_uid: the observation then becomes a supplement-level count increment on that entry (11 §9 第 4 项) instead of a new group. Omit when this is a new obstacle.",
+        },
+        anchor: {
+          type: "string",
+          description:
+            "Where in the session the material came from (e.g. 「turn 12..18」). Used to locate the observation later.",
+        },
+      },
+      required: ["phenomenon", "evidence", "group", "title", "basis", "attribution"],
+      additionalProperties: false,
+    }),
+    execute: async (args) => {
+      const project = await deps.resolveProjectId();
+      // 兼容两种返回：`{id, path}`（lifecycle 注入，晋升需要 path）与裸 id 字符串。
+      const projectId = typeof project === "string" ? project : project?.id;
+      const projectPath = typeof project === "object" ? project?.path : undefined;
+      if (typeof projectId !== "string" || projectId.length === 0) {
+        return {
+          ok: false,
+          error: "friction_observation/no_project",
+          message:
+            "No governed project could be resolved for this session — an observation cannot be recorded without a project partition (11 §12bis.1).",
+        };
+      }
+      const session = deps.resolveSessionId() ?? undefined;
+      const result = await recordObservation({
+        dshHomePath: deps.dshHomePath,
+        projectId,
+        session,
+        anchor: args.anchor,
+        phenomenon: args.phenomenon,
+        evidence: args.evidence,
+        group: args.group,
+        target_uid: args.target_uid,
+        title: args.title,
+        basis: args.basis,
+        attribution: args.attribution,
+      });
+      if (result?.ok !== true) {
+        return {
+          ok: false,
+          error: result?.error?.code ?? "friction_observation/record_failed",
+          message: result?.error?.message ?? "the observation could not be recorded",
+        };
+      }
+
+      // ── 机械收尾：同一次派发内的阈值晋升与补充级更新（11 §9 第 3／4 项）────
+      //
+      // **由本执行体顺带做，不再另派一个代理**（Human 2026-11-17）。晋升是纯机械的
+      // （N=3 固定内嵌、group 相等比较、标题/依据/归因已随条目落进缓冲），不需要
+      // 模型调用，故它就是「跑完后顺带」的那一步，而不是第二次派发。
+      //
+      // **记录成功不因收尾失败而作废**：观察已经落进缓冲（第 2 项已完成），收尾失败
+      // 只如实登记在回执里（§12：不静默跳过），由主控在交还时如实转述。
+      let promotion = { skipped: true, reason: "no-project-path" };
+      if (typeof projectPath === "string" && projectPath.length > 0) {
+        try {
+          const { runFrictionPromotionExclusive } = await import("./friction-promotion-lock.js");
+          const { runFrictionReviewPromotion } = await import("./friction-review-promotion.js");
+          const { resolveSignatureDetailed } = await import("./session-signature.js");
+          const sig = await resolveSignatureDetailed(deps.sessionPersistence?.() ?? null, session ?? null);
+          const locked = await runFrictionPromotionExclusive({
+            dshHomePath: deps.dshHomePath,
+            projectId,
+            sessionId: session ?? null,
+            fn: () => runFrictionReviewPromotion({
+              factSourceRoot: join(projectPath, FACT_SOURCE_ROOT_DIR),
+              dshHomePath: deps.dshHomePath,
+              projectId,
+              sessionSignature: sig.ok ? sig.value : null,
+            }),
+          });
+          if (locked?.skipped) {
+            // 锁被占用＝另一个会话正在做同一件事。如实记账，不静默跳过。
+            promotion = { skipped: true, reason: locked.reason ?? "locked" };
+          } else if (locked?.value?.ok) {
+            promotion = {
+              skipped: false,
+              promoted: locked.value.value.promotions.length,
+              supplemented: locked.value.value.supplemented.length,
+            };
+            // **residual 必须带出**（11 §12：不静默跳过）。晋升函数把单条失败记进
+            // residual 后仍返回 ok:true——若回执只报 promoted/supplemented 两个计数，
+            // 「0 条晋升」看起来与「没有达阈值的组」完全同形，而真实原因（如署名不可用）
+            // 被丢掉。那正是本仓反复记载的「看似工作而实则停滞」失效形态。
+            const residual = locked.value.value.residual ?? [];
+            if (residual.length > 0) promotion.residual = residual;
+          } else {
+            promotion = {
+              skipped: false,
+              failed: true,
+              code: locked?.value?.error?.code ?? "friction-promotion-failed",
+              reason: locked?.value?.error?.message ?? "unknown",
+            };
+          }
+        } catch (error) {
+          promotion = { skipped: false, failed: true, code: "friction-promotion-threw", reason: String(error?.message ?? error) };
+        }
+      }
+
+      return {
+        ok: true,
+        recorded: true,
+        entry_id: result.value?.entry_id ?? null,
+        group_pending_count: result.value?.group_pending_count ?? null,
+        promotion,
+        note:
+          "Observation recorded. Promotion to an open ledger entry was attempted in this same dispatch (11 §9 items 3/4); see `promotion` for the outcome. This tool does NOT create a Friction ledger object directly and does NOT change any ledger status.",
+      };
+    },
+  };
+
+  const dispose = ctx.tools.register(descriptor);
+  return () => {
+    try { dispose(); } catch { /* already removed */ }
+  };
+}

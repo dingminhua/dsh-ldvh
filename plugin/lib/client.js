@@ -61,7 +61,7 @@ window.__ModuleLoader__.load({
         { t: "line", p: { x1: 1.8, y1: 6.2, x2: 14.2, y2: 6.2 } },
         { t: "line", p: { x1: 6.2, y1: 13.4, x2: 9.8, y2: 13.4 } }
       ],
-      // 时钟：闲时派发。
+      // 时钟：代理辅助。
       idle: [
         { t: "circle", p: { cx: 8, cy: 8, r: 5.7 } },
         { t: "path", p: { d: "M8 4.7V8l2.3 1.5" } }
@@ -177,7 +177,7 @@ window.__ModuleLoader__.load({
       ".ldv-status-wait{color:var(--dsw-alias-label-tertiary,currentColor)}" +
       /* 输入框与下拉：取宿主「选择器药丸」的形制（32px 高、圆角、module-platform 底）。
          **值用等宽字**——这是本页唯一新增的字体角色，用来把「机器读出来的数」
-         与「人写的字」分开（档位 10 K、安静时长 5、计数 1）。
+         与「人写的字」分开（档位 10 K、计数 1）。
          高度 34→32（2026-11-13 第二轮）：34px 的框压在 21px 的行头上，上下各
          多出半行，读者先看见框、后看见标题；32px 与标题同处一条基线，不再抢戏。 */
       ".ldv-settings-input{box-sizing:border-box;appearance:none;width:100%;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2,color-mix(in srgb,currentColor 12%,transparent));border-radius:6px;background:var(--dsw-alias-bg-layer-2,transparent);color:var(--ldv-ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;font-variant-numeric:tabular-nums;line-height:1.5}" +
@@ -497,7 +497,7 @@ window.__ModuleLoader__.load({
       // 「这一组管什么」，与组内各行的标题（「这一项是什么」）不同层，故另立
       // group.* 词条，不复用 row.*。
       "group.services": "服务与入口",
-      "group.idle": "闲时派发",
+      "group.idle": "代理辅助",
       "group.budget": "召回预算",
       "row.addProject": "新增管辖项目",
       "row.addProjectTitle": "新增管辖项目",
@@ -533,7 +533,7 @@ window.__ModuleLoader__.load({
       "row.mountConversationTab": "加入到对话 Tab",
       "row.mountSidebarTab": "加入到侧边栏",
       "row.mountHint": "保存后刷新页面生效；两项可分别关闭，关掉哪一项，对应位置就不再出现 LDVH 入口。",
-      "row.idleAssistHint": "会话空闲时由宿主派发辅助任务；两项开关分别管捕获与经验审核，关掉哪个就少跑哪一层。",
+      "row.idleAssistHint": "主控在干活时发现值得记的事，就把上下文交给代理去处理，主控只转发、不亲自整理。两项分别管「积累经验」与「发现摩擦」，关掉哪个就不再自动记哪一类。",
       "row.reviewAsk": "把关请示",
       "row.reviewAskPre": "行动前：询问是否安排代理审查",
       "row.reviewAskPreHint": "打开后，AI 判定当次任务属「复杂任务」、**且已形成候选方案时**，会在动手改动之前问你要不要先让一个独立子代理挑错。判定为复杂但还没有任何方案时不会问——那没有可核对的对象（specs/32 §6.4）；**你答与不答都不拦住它动手**（00 §2.5），请示只决定要不要多一双眼睛。**三类情况不问**（specs/32 §4.2，Human 2026-11-14 决定；2026-11-15 随 ADR 事实类型撤除删除第 4 类）：整件只是调研取证与报告、整件只是提交推送已形成的改动、整件只是用受控工具转换既有事实对象的状态——这三类的核对分别已由 33 号审计、Git Gate、受控写入回读承担。判错了或没判，机械层不会拦——这是按开关执行的自律，不是机械保障。",
@@ -542,23 +542,21 @@ window.__ModuleLoader__.load({
       "row.reviewAskSilent": "静默执行：不问，直接安排",
       "row.reviewAskSilentBadge": "静默",
       "row.reviewAskSilentHint": "打开后，AI 判定当次属「复杂任务」时不再问你，直接派一个独立子代理做那次审查／复核，做完在结论里留一行「静默执行」的痕迹。**它同样要等方案成形才安排**：判为复杂但还没有任何方案时不派、不跑一次空核对——静默只免掉征询，不免掉「有对象才能核对」这个前提（specs/32 §6.4）。**它只免掉询问，不免掉核对**，也只作用于上面两项；上面那三类点位排除命中时，两处都不派发（免的是询问，前提是该问的那一次）。火花、管辖项目这些真正要你点头的事照旧请示。上面两项都没开时，这项不起作用。",
-      "row.idleCapture": "闲置捕获",
-      "row.idleCaptureHint": "会话静置时派发一次发现：把反复出现的阻碍与已解决的失败机制**只写进观察缓冲**（已实现）。摩擦与经验同属这一层，一起跑——只开一半会产生半套材料，所以合并为一个开关。**摩擦观察在同一次派发内直接结算**：同源阻碍攒够 3 次即建成待修账目，不再另派审核。",
+      "row.experienceAccumulation": "积累经验",
+      "row.experienceAccumulationHint": "主控在当次行动中发现已查明验证的失败机制时，把上下文交给代理起草一条经验，由主控写入。关掉后不再自动记录经验。",
+      "row.idleCapture": "发现摩擦",
+      "row.idleCaptureHint": "主控在行动中发现阻碍时，交派一个代理把该次观察**只写进观察缓冲**。**同一次派发内直接结算**：同源阻碍攒够 3 次即建成待修账目，不再另派一个代理。攒不够 3 次就留在缓冲里，不算失败。",
 "row.injectionBudgetTier": "召回预算档位（K 字节）",
       "row.injectionBudgetTierHint": "行动前召回的体量上限，可选 10/20/30/40/50（K 字节）。档位值本身是受控常量（改档位集合须走受控提交），此处只做选择；提高上限属 Human 决定事项。引导面（管辖判定与最小规则引导）是固定内容，不参与本档位。",
-      "row.idleSilenceMs": "安静时长（分钟）",
-      // **一句话解释**（Human 2026-10-14 明确要求）：说清「什么是安静时长」——
-      // 即它衡量的是「对话停了多久」，而不是「距上次跑完多久」。这句话须自足：
-      // Human 不必回读 36 号规范即可判断该填多少。
-      "row.idleSilenceMsHint": "指对话停下来后、连续安静多久才允许做一次闲时回顾：只要还有新的对话活动，计时就重新开始；真正停下来满这个时长，才回顾一次。",
-      "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
+      // 原「安静时长的一句话解释」已随该参数删除（2026-11-17）。
+      "row.idleLimitInvalid": "请填入整数；配额上限填 0 表示不限。",
       // 第十三轮：总开关撤除，故本句不再描述「关闭/开启」——没有那个控件了。
       // 改成说这一组管什么、以及结论去哪儿看（读数就在组名右侧）。
       "row.webHint": "插件自带的页面与 API；是否可用见标题旁的读数，两项投放决定入口出现在哪里。",
       // 存量配置的出口说明：`webEnabled: false` 仍作数（服务端确实不挂路由），
       // 但设置面已不提供这个开关——不写清去处，用户就只剩一个关不回来的死角。
       "row.webDisabledNote": "配置文件里关掉了 Web 呈现（webEnabled: false），故两项投放不可用。设置面已不再提供这个开关；需要时请在插件配置文件中改回 true。",
-      "row.idleDisabledNote": "配置文件里关掉了闲时派发（idleAssistEnabled: false），故这两个子项不可用。设置面已不再提供这个开关；需要时请在插件配置文件中改回 true。",
+      "row.idleDisabledNote": "配置文件里关掉了代理辅助（proxyAssistEnabled 或旧键 idleAssistEnabled 为 false），故这两个子项不可用。设置面已不再提供这个总开关；需要时请在插件配置文件中改回 true。",
       "row.status": "Web 呈现状态",
       "row.statusChecking": "检测中…",
       "row.statusOk": "运行正常",
@@ -588,7 +586,7 @@ window.__ModuleLoader__.load({
       "row.projectsPanelTitle": "Governed projects",
       // Group names (card headers) — see the Chinese table for the rationale.
       "group.services": "Service and entries",
-      "group.idle": "Idle dispatch",
+      "group.idle": "Delegate assist",
       "group.budget": "Recall budget",
       "row.addProject": "Add governed project",
       "row.addProjectTitle": "Add governed project",
@@ -624,7 +622,7 @@ window.__ModuleLoader__.load({
       "row.mountConversationTab": "Add to conversation tab",
       "row.mountSidebarTab": "Add to sidebar",
       "row.mountHint": "Takes effect after saving and reloading the page; either mount can be turned off independently — the matching LDVH entry then stops appearing.",
-      "row.idleAssistHint": "The host dispatches auxiliary tasks while the session is idle; the two switches cover capture and the experience review respectively.",
+      "row.idleAssistHint": "When the main controller spots something worth recording during its own work, it hands the context to a delegate; the controller only forwards. The two switches cover accumulating experience and discovering friction.",
       "row.reviewAsk": "Review checkpoints",
       "row.reviewAskPre": "Before acting: ask whether to arrange an agent review",
       "row.reviewAskPreHint": "When on, and the AI judges the task to be a complex task **and a candidate plan has taken shape**, it will ask you — before it starts changing anything — whether an independent subagent should look for problems first. It does not ask while it is still judging and no plan exists yet: there would be nothing to check (specs/32 §6.4). **Whether you answer or not does not hold it back** (00 §2.5); the ask only decides whether a second pair of eyes is added. **Three cases are not asked** (specs/32 §4.2, Human decision 2026-11-14; the fourth case was deleted on 2026-11-15 together with the ADR fact type): when the whole piece of work is only research evidence-gathering and reporting, only committing and pushing changes already made, or only a controlled-tool operation on an existing fact object — their checking is already carried by spec 33's citation audit, the Git Gate, and controlled-write read-back. If it judges wrongly or not at all, nothing blocks it — this is self-discipline driven by a switch, not a mechanical guarantee.",
@@ -635,16 +633,16 @@ window.__ModuleLoader__.load({
       "row.reviewAskSilentHint": "When on, and the AI judges the task to be a complex task, it no longer asks you: it dispatches an independent subagent for that review directly and leaves a one-line “silent run” trace in the result. **It also waits until a plan has taken shape**: when the task is judged complex but no plan exists yet, it dispatches nothing and runs no empty check — silent mode removes the question, not the precondition that there must be an object to check (specs/32 §6.4). **It removes the question, not the check**, and applies only to the two items above — Sparks and project registration, which genuinely need your yes, are still asked. When one of the three point-level exclusions above is hit, neither item dispatches an agent: the exclusion governs whether that check happens at all, and it takes precedence over this setting. With both items above off, this switch has nothing to act on.",
       "row.frictionDiscovery": "Friction discovery",
       "row.frictionDiscoveryHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
-      "row.idleCapture": "Idle capture",
-      "row.idleCaptureHint": "When the conversation goes quiet, runs one discovery pass that writes recurring obstacles and resolved failure mechanisms into the observation buffers only (implemented). Friction and experience belong to this same layer and run together — enabling only half would produce half the material, so they share one switch. **Friction is settled inside this same pass**: a group reaching 3 sightings becomes a to-be-fixed ledger entry, with no separate review dispatch.",
+      "row.experienceAccumulation": "Accumulate experience",
+      "row.experienceAccumulationHint": "When the main controller spots a verified failure mechanism during its own work, it hands the context to a delegate that drafts the experience entry. Turn off to stop recording automatically.",
+      "row.idleCapture": "Discover friction",
+      "row.idleCaptureHint": "When the main controller spots an obstacle during its own work, it dispatches a delegate that writes that one observation into the observation buffer only. **Settled inside the same dispatch**: a group reaching 3 sightings becomes a to-be-fixed ledger entry, with no second delegate. Fewer than 3 simply stays in the buffer — that is not a failure.",
 "row.injectionBudgetTier": "Recall budget tier (KiB)",
       "row.injectionBudgetTierHint": "Size cap for pre-action recall: choose 10/20/30/40/50 (KiB). The tier set itself is a controlled constant (changing it requires a controlled commit); this field only selects. Raising the cap is a Human decision. The guidance surface (jurisdiction verdict + minimal guidance) is fixed and does not share this tier.",
-      "row.idleSilenceMs": "Silence duration (minutes)",
-      "row.idleSilenceMsHint": "How long the conversation must stay quiet before a single idle review may run: any new activity restarts the count, and one review happens once the silence reaches this duration.",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "The plugin's own page and API; availability shows in the readout beside the title, and the two placements decide where the entry appears.",
       "row.webDisabledNote": "Web presentation is switched off in the config file (webEnabled: false), so both placements are unavailable. This switch is no longer offered in Settings; set it back to true in the plugin config file if you need it.",
-      "row.idleDisabledNote": "Idle dispatch is switched off in the config file (idleAssistEnabled: false), so these two items are unavailable. This switch is no longer offered in Settings; set it back to true in the plugin config file if you need it.",
+      "row.idleDisabledNote": "Delegate assist is switched off in the config file (proxyAssistEnabled, or the legacy idleAssistEnabled, is false), so these two items are unavailable. This master switch is no longer offered in Settings; set it back to true in the plugin config file if you need it.",
       "row.status": "Web presentation status",
       "row.statusChecking": "Checking…",
       "row.statusOk": "Running normally",
@@ -891,12 +889,11 @@ window.__ModuleLoader__.load({
 
     // ── LdvhSettingsRow: governed projects + web switch ──────────────────
     /**
-     * 闲时辅助的数值参数（**单一来源**；2026-10-14 收为**一个**：安静时长）。
+     * 数值参数的**显示单位与存储单位的比值**（`scale`）。
      *
-     * `scale` 是「**显示单位**与**存储单位**的比値」：界面上用分钟读写，而存进
-     * Config 的是**毫秒**（服务端 `idle-settings.js` 按毫秗判定）。与 mnemon 的
-     * `minIntervalMs` 用 `scale: 1000` 同法——用户不应该被要求往输入框里敲
-     * 六位数字。
+     * 现仅「召回预算档位（K 字节）」使用。历史上这里承载过「安静时长」（分钟 ↔
+     * 毫秒，`scale: 1000`）——该参数已随闲时辅助删除（2026-11-17），注释一并改写，
+     * 免得读者以为设置面还有那个输入框。
      *
      * **单位只在这里定一次**：标签文案取自 `row.<key>单位` 词条，读取与写入
      * 都过 `scale`，不得在 UI 那一段另写一套换算。
@@ -910,12 +907,17 @@ window.__ModuleLoader__.load({
       // （1 小时窗口内最多用到 3、上限 4），却要求 Human 在设置面上判断其取值
       // ——「一个参数就可以控制其他的了……否则会乱」（Human 2026-10-14）。
       //
-      // 界面用分钟，存储用毫秒。**须为正数**——写入侧另有下界判定（见
-      // idleSilenceOk）。
+      // 界面用分钟、存储用毫秒的那一项（安静时长）已删除；现存的「召回预算档位」
+      // 用 K 字节，其 0 合法（表示不限）。
       // **现只有一项**（2026-10-27 二次修订）：审核的「间隔」已整体删除——审核随
       // 静置触发，与捕获共用同一个时机，没有第二个数值可配。Human 原话：
       // 「==，这个不存在时间了呀，随静置触发」。故此处只剩形态 1 的空窗。
-      { key: "idleSilenceMs", scale: 60000, hintKey: "row.idleSilenceMsHint" }
+      // **2026-11-17：本表已清空。** 唯一一项（安静时长）随计时器删除——触发锚
+      // 改为主控发起后，没有任何「时间数值」可配。**不得保留一个空壳条目**：
+      // 那会让设置面渲染出一个「能改但不影响任何行为」的输入框。
+      //
+      // 表留空而不删除，是因为 `IDLE_LIMITS.map(...)` 等渲染与校验路径仍按空数组
+      // 正确工作（渲染为空、校验恒真），删表要改 6 处调用点且不增加任何保障。
     ];
     /**
      * 各参数的**存储单位**默认值——**必须与服务端
@@ -923,7 +925,7 @@ window.__ModuleLoader__.load({
      * 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
      */
     var IDLE_DEFAULT_STORED = {
-      idleSilenceMs: 300000
+      // 2026-11-17：原唯一的安静时长项已删除（随计时器）。
     };
     /**
      * 召回预算的**已登记档位**（K 字节）。
@@ -974,18 +976,12 @@ window.__ModuleLoader__.load({
       return stored;
     }
 
-    /**
-     * 安静时长的**下界判定**（11 §6.1，2026-10-14）。
-     *
-     * §6.1 明文：安静时长的取值**须为有限正值**——取 0 会使「已空闲」恒成立
-     * （等价于取消该判据），且该非法取值**须在写入时被拒绝并提示**，**不得**静默
-     * 回落为默认值。故本项单独拦一层：`0` 对配额上限是合法的（表示不限），
-     * 对安静时长**不合法**——两者的 0 语义相反，不能共用一条判据。
-     */
-    function idleSilenceOk(text) {
-      var stored = idleLimitToStored(text, 60000);
-      return stored !== undefined && stored > 0;
-    }
+    // 原「安静时长的合法性判定」已随该参数删除（2026-11-17）。
+    //
+    // **连空壳一并删除**：`IDLE_LIMITS` 已为空表，`idleLimitOkFor` 的分派只会
+    // 落到「表里找不到该 key → 返回 false」这一支，恒真空壳没有任何调用者。
+    // 留一个恒真实现反而危险：日后若有人把安静时长填回表里，校验会「通过」
+    // 而不给出任何提示——那是本仓反复记载的「空壳机制」失效形态。
 
     function LdvhSettingsRow(props) {
       var t = props.t;
@@ -1000,7 +996,7 @@ window.__ModuleLoader__.load({
       // 「启用 LDVH Web 呈现」与「闲时派发」这两枚 master 开关不再出现在设置面，
       // 也不再持有本地态——它们所管的东西改为**无条件生效**（web 恒挂载、
       // 闲时辅助恒可派发）；这两组里真正需要关的东西，仍由各自的子项开关表达
-      // （投放面：对话 Tab / 侧边栏；闲时：闲置捕获 / 闲置审核）。
+      // （投放面：对话 Tab / 侧边栏；代理辅助：积累经验 / 发现摩擦）。
       // 撤除的是「再套一层总闸」，不是任何一项能力：把两个投放面都关掉，界面上
       // 就不再出现 LDVH 入口（`/ldvh` 路由仍由插件服务承担，故这不等于关服务）；
       // 把两个闲时子项都关掉，就没有活儿会派发——比总闸还细一档。
@@ -1011,7 +1007,11 @@ window.__ModuleLoader__.load({
       // 什么也不发生（本仓纪律：不得让读数不可判读）。改这一层要动
       // profile 配置，不在设置面上。
       var webOn = value.webEnabled !== false;
-      var idleOn = value.idleAssistEnabled !== false;
+      // **2026-11-17**：总开关改名为「代理辅助」（`proxyAssistEnabled`）。旧键
+      // `idleAssistEnabled` 仍作数——存量配置的「关」不得静默变成「开」。
+      var idleOn = (value.proxyAssistEnabled !== undefined
+        ? value.proxyAssistEnabled !== false
+        : value.idleAssistEnabled !== false);
       var convTabState = React.useState(value.showInConversationTab !== false);
       var sidebarTabState = React.useState(value.showInSidebarTab !== false);
       // **2026-10-30 配置面合并为两项**（Human 决定）：闲置捕获（发现层）与闲置审核
@@ -1022,6 +1022,9 @@ window.__ModuleLoader__.load({
       // 读侧仍兼容旧键：旧键任一被显式设置过即生效（与服务端 resolveIdleSettings
       // 同一判据），使升级后 Human 此前的选择不会静默丢失。
       var idleCaptureState = React.useState(idleCaptureValueOf(value));
+      // **积累经验**（2026-11-17，00 §4.5 代理辅助任务之一）。
+      // 与摩擦侧**不是同一层**：产物落点是 Pitfall 事实源，而摩擦侧写观察缓冲。
+      var experienceAccumulationState = React.useState(value.experienceAccumulationEnabled !== false);
       // 数值参数在客户端用**字符串**存放，使空串与非法输入可被辨认
       //（数字类型无法表达「用户把它删空了」）。
       // **两处把关询问**（2026-11-13 Human 决定：改为「要不要安排代理
@@ -1038,7 +1041,7 @@ window.__ModuleLoader__.load({
       // ——设置面能填能存，审核执行体却一直按默认路由跑（诊断长期显示
       // `model: (default route)`）。一个「设了不生效」的选项比没有更糟。
       // 审核固定跟随宿主默认路由。
-      // 闲置捕获 / 闲置审核的读值口径（读侧与「放弃修改」回退侧共用一处）。
+      // 发现摩擦子项的读值口径（读侧与「放弃修改」回退侧共用一处）。
       // 旧键兼容：旧键任一被显式设置过即生效（与服务端 resolveIdleSettings 同一判据）。
       function idleCaptureValueOf(value) {
         return (value.frictionDiscoveryEnabled !== undefined || value.experienceCaptureEnabled !== undefined)
@@ -1070,12 +1073,9 @@ window.__ModuleLoader__.load({
       function idleLimitOk(text, scale) {
         return idleLimitToStored(text, scale) !== undefined;
       }
-      // 逐参数判据：安静时长另有**下界**要求（须 > 0，11 §6.1），配额上限的 0 合法。
+      // 逐参数判据。现存的「召回预算档位」其 0 合法（表示不限）；原「时机数值须
+      // > 0」的下界判据随安静时长与审核间隔一并删除（2026-11-17）。
       function idleLimitOkFor(key, text) {
-        // **两个时机数值都须 > 0**（2026-10-26）：审核间隔与安静时长同性质——§6.1
-        // 明文「非法取值须在写入时拒绝」，而 0 分钟会让「到点」恒成立（等价取消时机
-        // 约束）。配额类的 0 合法（表示不限），故不能共用同一条判据。
-        if (key === "idleSilenceMs") return idleSilenceOk(text);
         var limit = IDLE_LIMITS.filter(function (l) { return l.key === key; })[0];
         return limit !== undefined && idleLimitOk(text, limit.scale);
       }
@@ -1133,6 +1133,7 @@ window.__ModuleLoader__.load({
         var next = (snap && snap.status === "ready" && snap.value) || {};
         convTabState[1](next.showInConversationTab !== false);
         sidebarTabState[1](next.showInSidebarTab !== false);
+        experienceAccumulationState[1](next.experienceAccumulationEnabled !== false);
         idleCaptureState[1](idleCaptureValueOf(next));
         injectionBudgetState[1](
           injectionBudgetTierOk(next.injectionBudgetTier) ? Number(next.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT
@@ -1300,8 +1301,7 @@ window.__ModuleLoader__.load({
         if (!snap || snap.status !== "ready" || snap.writable === false || busyState[0]) return;
         // **参数不合法就「不写」**（而不是写一个 NaN 进去）——服务端会把 NaN 回落
         // 默认值，那会让用户看到的值与实际生效的值不一致。故在写入前拦住并如实报失败。
-        // （2026-10-14：本节现只有一个参数；`idleLimitsAllOk` 逐键分派，
-        //   安静时长另有 `> 0` 的下界判据。）
+        // （`idleLimitsAllOk` 逐键分派；现存唯一参数是召回预算档位。）
         if (!idleLimitsAllOk(idleLimitsState[0])) {
           saveErrorState[1](true);
           return;
@@ -1317,6 +1317,10 @@ window.__ModuleLoader__.load({
               // 2026-10-30：六个开关合并为两个，保存时只写新键。
               // 旧键不再写入——它们保留在 schema 里仅为读取存量配置；继续写会使
               // 「旧键是否被显式设置过」这个迁移判据永远为真，新键反而被架空。
+              // **2026-11-17**：新增「积累经验」子项，必须一并写入——漏写即
+              // 「界面上勾了也存不进去」，而勾选态来自本地 state，保存后仍显示
+              // 已勾选，重开才归零（本注释上方已记载同一失效形态）。
+              { op: "set", path: ["experienceAccumulationEnabled"], value: !!experienceAccumulationState[0] },
               { op: "set", path: ["idleCaptureEnabled"], value: !!idleCaptureState[0] },
               { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) },
               // 两处把关询问开关：**逐个独立提交**。漏写任一行则界面上勾了也存不进去，
@@ -1606,9 +1610,9 @@ window.__ModuleLoader__.load({
             React.createElement("span", { className: "ldv-note" }, React.createElement("span", { className: "ldv-note-text" }, emphasis(t("row.mountHint"))))
           )
         ),
-        // ── 闲时派发（04 §8.1 空闲维护与反思；32 §10）──────────────────
+        // ── 代理辅助（00 §4.5 代理辅助任务；11 §6.1 主控发起）────────────
         //
-        // **总开关已撤除**（Human 2026-11-13 晚）：子项（闲置捕获 / 闲置审核）
+        // **总开关已撤除**（Human 2026-11-13 晚）：子项（积累经验 / 发现摩擦）
         // 本来就能各自关掉，再套一层总闸等于同一件事有三种关法；总闸关着时
         // 子项整块消失，读者还会以为「这些设置根本不存在」。现在子项恒在，
         // 关哪个就只看哪个。
@@ -1618,14 +1622,16 @@ window.__ModuleLoader__.load({
             // 存量关闭值（`idleAssistEnabled: false`）时给出出口：开关已不在设置面，
             // 不说清去哪儿改，用户就只剩一个关不回来的死角。
             !idleOn ? React.createElement("span", { className: "ldv-settings-hint" }, t("row.idleDisabledNote")) : null,
-            // **2026-10-30 合并为两项**（Human 决定）：闲置捕获（发现层：摩擦发现 +
-            // 经验捕获，只写缓冲）与闲置审核（审核层：经验审核 + 摩擦缓冲升级，
-            // 把缓冲升级为事实对象）。同层任务合并的理由见 index.js 的 schema 注释。
+            // **2026-11-17 改为「代理辅助」两项**（Human 决定）：积累经验（主控发现
+            // 已查明验证的失败机制 → 交代理起草 → 主控受控写入 Pitfall）与发现摩擦
+            // （主控发现阻碍 → 交代理写观察缓冲 → 同一次派发内攒够 3 次即晋升账目）。
+            // 两侧都是「主控只转发、代理去处理」，故并列而非分层。
             //
             // 容量维护与记忆健康体检不再出现在设置面：它们在 §8 里仍是登记在册但
             // **未实现**的职责，没有执行体可开关。§8.5「已启用但未实现须如实登记」
             // 由登记表的 `UNIMPLEMENTED_AUX_TASKS` 承载，不由设置面承载。
             [
+              { key: "experienceAccumulationEnabled", state: experienceAccumulationState, label: "row.experienceAccumulation", hint: "row.experienceAccumulationHint" },
               { key: "idleCaptureEnabled", state: idleCaptureState, label: "row.idleCapture", hint: "row.idleCaptureHint" }
             ].map(function (task) {
               // 这两项**恒渲染**（总闸已撤除）；若 profile 里仍写着

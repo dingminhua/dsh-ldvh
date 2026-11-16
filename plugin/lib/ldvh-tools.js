@@ -26,7 +26,6 @@ import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evid
 import { currentRouteValues } from "./session-signature.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
 import { isFrictionPromotionRunning } from "./friction-promotion-lock.js";
-import { QUEUE_RELATIVE_PATH, readPendingQueue, resolvePendingEntry } from "./pending-queue.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
 // friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
 import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module-freshness.js";
@@ -110,29 +109,9 @@ const OPERATIONS = {
     toolName: "ldvh_probe_host_automation",
     summary: "Probe the host automation capabilities the periodic review depends on (11 §6.1 形态 2): schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
     effect: "may_change_state"
-  },
-  // ── 待处置队列的结案通道（2026-11-03，丙方案）──────────────────────────
-  //
-  // **为什么需要它**：11 §12 第 5 条写「登记由接管的主控或 Human 核查后写入
-  // `resolved_at`」，但这句话此前没有任何承载者——`resolvePendingEntry` 写好后
-  // 全仓只有两处调用，且都在 `friction-observation-buffer` 的「登记写错了要撤回」
-  // 路径上；正常结案路径一次都没走过。后果是队列只增不减：实测 292 条登记、
-  // `resolved_at` 全为 null、跨 8 天、每天仍在新增。§12 第 5 条的另一半
-  // 「核查前受影响对象不得被当作稳定事实消费」也因此失去执行时点。
-  //
-  // **为什么不设 `awaitsHumanDecision`**：结案动作的**主体**是接管的主控或
-  // Human（§12 第 5 条），不是执行体。本操作是这个主体的手，不是替它作决定：
-  // 它只执行一个已经被作出的核查结论，参数里必须带 `note` 说明这次核查看到了
-  // 什么。把它标成 awaitsHumanDecision 会让宿主撤掉超时上限（toolDescriptor 的
-  // timeoutMs 逻辑），而它**不提问**——那只会制造挂死窗口。
-  //
-  // **它不新增自动动作**：没有任何代码路径会自己调用它。故不归 11 §19.1 任一项
-  // （第 4 项的射程是「改变自动动作闭集的成员或机械通道的范围」）。
-  "pending-queue-resolve": {
-    toolName: "ldvh_pending_queue_resolve",
-    summary: "Record that a pending-queue entry has been examined and settled, writing resolved_at plus a note stating what the examination saw (specs/11 §12 item 5). The entry's at/task/reason/residual are never rewritten — settling is a new fact about the entry, not an edit of it",
-    effect: "may_change_state"
   }
+  // 2026-11-17：`pending-queue-resolve` 已随待处置队列删除（Human 决定，11 §12）。
+  // 失败留痕由当次回执 + 运行痕迹承载，不再有需要「结案」的跨会话登记账。
 };
 
 function envelope(operationKey, outcome, fields) {
@@ -1382,119 +1361,6 @@ function makeExecute(deps) {
     });
   }
 
-  /**
-   * 11 §12 第 5 条的结案通道：把一条已核查的登记写成已解除。
-   *
-   * ## 它做什么、不做什么
-   *
-   * 只写 `resolved_at` 与 `resolution_note`（由 `resolvePendingEntry` 保证——那是
-   * 全仓**唯一**的修改既有登记入口，且只碰这两个字段）。`at`/`task`/`reason`/
-   * `residual` 逐字保留：§12 第 3 条「仅追加，不修改既有登记」在语义上仍成立，
-   * 解除核查不是改写登记内容，而是记录「核查已完成」这一新事实。
-   *
-   * **`note` 必填**。这不是形式要求：第 5 条要求「核查后」写入，而核查的产物就是
-   * 「看到了什么」。没有 note 的 resolved_at 只是把一个数字从 292 改成 291，下一个
-   * 读者仍然不知道这条到底算不算处理过——那正是本缺陷此前的形态（0 销账，且即使
-   * 销账也无从判断核查质量）。故缺失即拒，不降级为「用默认说明补上」。
-   *
-   * ## 未知 / 重复解除一律拒绝
-   *
-   * `resolvePendingEntry` 对 `entry_not_found` 与 `already_resolved` 都返回失败
-   * 而非静默成功——这里原样上抛。静默成功会让「我解除了」与「队列里没有它」变得
-   * 无法区分。
-   */
-  async function executePendingQueueResolve(args, exec) {
-    const entryId = args?.entry_id;
-    if (typeof entryId !== "string" || entryId.trim().length === 0) {
-      return envelope("pending-queue-resolve", "invalid_request", {
-        result: null,
-        scope: { requested: "resolve", completed: [], not_completed: ["entry_id"] },
-        sources: [],
-        gaps: ["entry_id is required (11 §12 item 5: settling is located by entry identity, never by position); got " + JSON.stringify(entryId)],
-        verification: { checks: ["entry-id-present"], passed: false },
-        follow_up: ["retry with the entry_id taken from the queue read"]
-      });
-    }
-    const note = args?.note;
-    if (typeof note !== "string" || note.trim().length === 0) {
-      return envelope("pending-queue-resolve", "invalid_request", {
-        result: null,
-        scope: { requested: "resolve", completed: [], not_completed: ["note"] },
-        sources: [],
-        gaps: [
-          "note is required: 11 §12 item 5 says resolved_at is written AFTER an examination, and the examination's product is what it saw. A resolved_at without a note lowers the count without telling the next reader whether this entry was actually handled",
-        ],
-        verification: { checks: ["note-present"], passed: false },
-        follow_up: ["retry with a note stating what the examination found"]
-      });
-    }
-    const resolvedAt = args?.resolved_at;
-    if (resolvedAt !== undefined && (typeof resolvedAt !== "string" || resolvedAt.trim().length === 0)) {
-      return envelope("pending-queue-resolve", "invalid_request", {
-        result: null,
-        scope: { requested: "resolve", completed: [], not_completed: ["resolved_at"] },
-        sources: [],
-        gaps: [`resolved_at must be a non-empty RFC3339 string when supplied; got ${JSON.stringify(resolvedAt)}`],
-        verification: { checks: ["resolved-at-rfc3339"], passed: false },
-        follow_up: ["omit resolved_at to use the current time, or pass an RFC3339 timestamp"]
-      });
-    }
-    const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
-    if (governed.state !== "governed") {
-      return envelope("pending-queue-resolve", "unavailable", {
-        result: null,
-        scope: { requested: "resolve", completed: [], not_completed: ["resolve"] },
-        sources: [],
-        gaps: [`governance state is ${governed.state}: the pending queue serves governed sessions only (11 §12 item 4)`],
-        verification: { checks: ["governance-scope"], passed: false },
-        follow_up: []
-      });
-    }
-    const settled = await resolvePendingEntry(dshHomePath, entryId.trim(), {
-      resolvedAt: resolvedAt === undefined ? undefined : resolvedAt.trim(),
-      note: note.trim(),
-    });
-    if (!settled.ok) {
-      // 未知 id / 已解除 / 载体不可读：全部拒绝而非静默成功（见上方文档块）。
-      return envelope("pending-queue-resolve", "rejected", {
-        result: null,
-        scope: { requested: entryId.trim(), completed: [], not_completed: ["resolve"] },
-        sources: sources({ kind: "pending-queue", path: QUEUE_RELATIVE_PATH.join("/"), fingerprint: null }),
-        gaps: [`${settled.error?.code ?? "pending_queue/unavailable"}: ${settled.error?.message ?? "unknown"}`],
-        verification: { checks: ["entry-id-present", "note-present", "entry-resolvable"], passed: false },
-        follow_up: ["read the queue again to confirm the entry id; do not fabricate an id to make the call succeed"]
-      });
-    }
-    // 回读校验：写后重读，确认该条目现在确实带 resolved_at（09 §5 写后回读）。
-    const reread = await readPendingQueue(dshHomePath, { includeResolved: true });
-    const rereadItem = reread.ok
-      ? (reread.value.items ?? []).find((item) => item.entry_id === settled.value.entry_id) ?? null
-      : null;
-    const readBackConfirmed = rereadItem !== null && typeof rereadItem.resolved_at === "string";
-    return envelope("pending-queue-resolve", readBackConfirmed ? "completed" : "partial", {
-      result: {
-        entry_id: settled.value.entry_id,
-        resolved_at: settled.value.resolved_at,
-        resolution_note: note.trim(),
-        read_back: readBackConfirmed ? rereadItem.resolved_at : null,
-        remaining_unresolved: reread.ok ? reread.value.unresolved : null,
-      },
-      scope: { requested: settled.value.entry_id, completed: ["resolve", "read-back"], not_completed: readBackConfirmed ? [] : ["read-back"] },
-      sources: sources({ kind: "pending-queue", path: QUEUE_RELATIVE_PATH.join("/"), fingerprint: null }),
-      gaps: readBackConfirmed
-        ? []
-        : [
-            reread.ok
-              ? "the entry was written as resolved but the read-back did not find it carrying resolved_at (09 §5: a write that cannot be read back is not evidence that it happened)"
-              : `${reread.error?.code ?? "pending_queue/unreadable"}: ${reread.error?.message ?? "unknown"} (the write may have landed; this call cannot confirm it)`
-          ],
-      verification: { checks: ["entry-id-present", "note-present", "entry-resolvable", "write", "read-back"], passed: readBackConfirmed },
-      follow_up: readBackConfirmed
-        ? []
-        : ["read the queue by hand before treating this entry as settled"]
-    });
-  }
-
   const handlers = {
     "resolve-governance-scope": executeResolveGovernanceScope,
     "read-specification-candidates": executeReadSpecificationCandidates,
@@ -1504,8 +1370,7 @@ function makeExecute(deps) {
     "precheck-git-commit": executePrecheckGitCommit,
     "register-governed-project": executeRegisterGovernedProject,
     "unregister-governed-project": executeUnregisterGovernedProject,
-    "probe-host-automation": executeProbeHostAutomation,
-    "pending-queue-resolve": executePendingQueueResolve
+    "probe-host-automation": executeProbeHostAutomation
   };
 
   return { handlers, OPERATIONS };
@@ -1694,7 +1559,16 @@ export function registerLdvhTools(ctx, deps) {
     ...(REVIEW_ASK_OPERATION.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 }),
     async execute(args, exec) {
       try {
-        return { envelope: JSON.parse(JSON.stringify(await executeReviewAsk(args, exec, { hostSeams: deps.hostSeams, getReviewAskSettings: deps.getReviewAskSettings }))) };
+        return { envelope: JSON.parse(JSON.stringify(await executeReviewAsk(args, exec, {
+          hostSeams: deps.hostSeams,
+          getReviewAskSettings: deps.getReviewAskSettings,
+          // 行动前那处的判断依据（弱约束，06 §5／§6）：读**活事件累积器**里
+          // 本轮已写出的正文，而不是会话日志——宿主活事件先进 200ms 批处理
+          // 缓冲（`LIVE_WRITE_BATCH_MAX_DELAY_MS`），工具执行发生在
+          // `assistant/message` append 后数毫秒内，磁盘上通常还没有本步正文。
+          // 取不到时如实返回 unavailable 形态，**不假装是空**（见 review-ask-tool.js）。
+          readCurrentTurnText: deps.readCurrentTurnText,
+        }))) };
       } catch (error) {
         return {
           envelope: {
@@ -1792,18 +1666,6 @@ function parameterSchemaFor(operationKey) {
       // 只读、无参数：结论是「磁盘上哪些模块比本进程新」，不接受任何筛选——
       // 让它可以被参数收窄，就等于给了「看不见」一条路（源于一次实测的模块陈旧度问题）。
       return { type: "object", properties: {}, additionalProperties: false };
-    case "pending-queue-resolve":
-      // 11 §12 第 5 条：结案按 entry 身份定位（不按位置），note 必填。
-      return {
-        type: "object",
-        properties: {
-          entry_id: { type: "string", description: "The entry_id of the pending-queue entry to settle (11 §12 item 5: located by entry identity, never by position)" },
-          note: { type: "string", description: "What the examination saw (required): a resolved_at without a note lowers the count without telling the next reader whether the entry was actually handled" },
-          resolved_at: { type: "string", description: "Optional RFC3339 timestamp; omit to use the current time" }
-        },
-        required: ["entry_id", "note"],
-        additionalProperties: false
-      };
     default:
       return { type: "object", properties: {}, additionalProperties: false };
   }
@@ -1886,6 +1748,27 @@ export function renderEnvelope(operationKey, value) {
         lines.push("decision: null — 未发起询问（原因见下方 gap；不得当成 skip）");
       } else {
         lines.push("decision: null — 未取得明确答复（未决策不是答复，下次仍会问；不得当成 skip）");
+      }
+    }
+    // **行动前那处的判断依据**（弱约束，06 §5／§6）：它是模型唯一可见窗口
+    // （03 §9.5 render），不渲染就等于没交还——信封里写了而这里漏掉，正是
+    // 2026-11-14 那个 BLOCKER（`notice` 从未被渲染）的同一种失效形状。
+    // 只摆事实、不给裁决：这里不得出现「可以问／不能问」这类判定。
+    const basis = r.candidate_basis;
+    if (basis !== undefined && basis !== null && typeof basis === "object") {
+      if (basis.available === true) {
+        lines.push(`candidate_basis（判断依据，不构成裁决；是否已有候选由你判断）: 本轮正文 ${basis.turn_text_chars} 字${basis.turn_text_empty === true ? "（**一个字都没写**）" : ""}${basis.truncated === true ? "（已截断，只读到前一段）" : ""}`);
+        lines.push(`candidate_basis.claims: ${basis.claims_present === true ? `带了 ${basis.claims_count} 条，其中 ${basis.claims_in_turn_text_count} 条出现在本轮正文里` : "未带 claims"}`);
+        if (basis.claims_present === true && Array.isArray(basis.claims_in_turn_text)) {
+          basis.claims_in_turn_text.forEach((hit, index) => {
+            lines.push(`  claim[${index + 1}]: ${hit === true ? "出现在正文" : "**未出现在正文**"}`);
+          });
+        }
+        if (typeof basis.note === "string" && basis.note.length > 0) lines.push(`candidate_basis.note: ${basis.note}`);
+      } else {
+        // 取不到时**必须说出来**：静默省略会让模型把「没读到」当成「正文是空的」，
+        // 那是本仓反复出现的「读数不可判读」形态。
+        lines.push(`candidate_basis: unavailable — ${typeof basis.reason === "string" ? basis.reason : "取不到本轮正文"}`);
       }
     }
     // 模板：整段给出，不截断。它是派发时交给子代理的正文。

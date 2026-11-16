@@ -230,19 +230,23 @@ test("11 §6.1：装载后收到 idle **不得**用持久化旧锚点派发（�
     `装载后无回合结束 → 不得留下待触发的安静期计时器（实得 ${String(turns?.silenceTimer)}）`,
   );
 
-  // 反向确证本用例**没被空过**：同一会话只要真有一回合结束，就应当派发。
-  // 缺了这一段，实现若把 turn/end 的武装一并删掉，本用例会假绿。
+  // 反向确证本用例**没被空过**：同一会话再走一遍「回合结束 + idle」，仍不得派发。
+  //
+  // **2026-11-17 改动**：原反向确证是「有回合结束就应当派发（source: silence:timer）」。
+  // 触发锚改为主控发起后，回合结束**不再**产生任何派发——故反向确证翻转为
+  // 「连回合结束也不得派发」。这不是把用例放宽，而是把判据换成新语义下的更强形式：
+  // 旧形态只封住「用旧锚点提前派发」，新形态封住「任何自动派发」。
   await ctx.emit("session/event", session, { type: "turn/end", data: {} });
   await new Promise((r) => setTimeout(r, 800));
   assert.equal(
-    lifecycle.snapshotOf(agent.id)?.turns?.lastCheckpointDispatch?.source,
-    "silence:timer",
-    "有新回合结束就应当起算并派发——否则本用例的「未派发」是空过",
+    lifecycle.snapshotOf(agent.id)?.turns?.lastCheckpointDispatch,
+    undefined,
+    "回合结束也不得自行派发——派发只由主控发起（11 §6.1，2026-11-17）",
   );
 });
 
 test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非抛错被吞）", async () => {
-  const { ctx, dshHomePath, roots, project } = await setup();
+  const { ctx, dshHomePath, roots, project, lifecycle } = await setup();
 
   // 捕获被收口的异常：triggers 把 onSessionCheckpoint 的拒绝写成 log.warn，
   // 故把 logger 换成记录器——**被吞掉的异常正是 D8 躲过测试的方式**。
@@ -257,9 +261,10 @@ test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非�
   // 时最容易误判成「机制坏了」的地方。
   await new Promise((r) => setTimeout(r, 500));
   await ctx.emit("agent/turn-stopping", { agent, turn: 7 });
-  await ctx.emit("agent/status", { agent, status: "idle" });
-  // 11 §6.1：派发发生在**安静期到期**之后（注入值 50ms），故此处须等定时器真的
-  // 到期。等待时间须显著大于安静时长，否则会把「还没到点」误判成「机制没跑」。
+  // **2026-11-17**：触发锚改为主控发起——不再等「安静期到期」，而是显式发起一次。
+  // 这正是新机制下的真实调用形态：主控发现值得记的事，调 requestCheckpoint。
+  const requested = lifecycle.requestCheckpoint(agent.id, "controller");
+  assert.equal(requested, true, "主控发起入口须可用（否则新机制没有任何触发路径）");
   await new Promise((r) => setTimeout(r, 1200));
 
   const { readRuns } = await import("../lib/idle-runlog.js");
@@ -430,9 +435,11 @@ test("重启：无**带轮次号的**回合事件时从宿主会话记录回填�
   // 喂入窗口材料：只有 `assistant/message`（**不是** turn/end）不会写 `lastTurn`。
   await ctx.emit("session/event", session, { type: "user/message", data: { content: [{ type: "text", text: userText }] } });
   await ctx.emit("session/event", session, { type: "assistant/message", data: { turn: 7, message: { content: [{ type: "text", text: assistantText }] } } });
-  // 回合结束（**不带轮次号**）→ 起算安静期（注入 50ms）→ 到期派发。
+  // **2026-11-17**：不再靠「安静期到期」驱动，改由主控显式发起（新机制的唯一入口）。
+  // 回合结束事件仍发——它维护 `lastTurn` 之外的活动记账，但**不再起算任何计时**。
   await ctx.emit("session/event", session, { type: "turn/end", data: {} });
-  await new Promise((r) => setTimeout(r, 1500));   // 安静期到期（注入 50ms）+ 落地
+  assert.equal(lifecycle.requestCheckpoint(agent.id, "controller"), true, "发起入口须可用");
+  await new Promise((r) => setTimeout(r, 1500));   // 等回填与落地
 
   // ① 位置确已写回触发器：`lastTurn` 此前必为 undefined，现在须是宿主记录里的最大值。
   //    触发器状态直接住在 `lifecycle.turns` 里（createTurnTriggers 的注入点），
@@ -442,7 +449,7 @@ test("重启：无**带轮次号的**回合事件时从宿主会话记录回填�
   assert.equal(turns.lastTurn, 7, "重启后回填的轮次须是宿主记录里的最大 turn");
   // 派发确已发生（`lastCheckpointDispatch` 在**进入**回调前记录，故它的 turn
   // 仍是回填前的 undefined——回填发生在回调内部，这正是修复的位置）。
-  assert.equal(turns.lastCheckpointDispatch?.source, "silence:timer", "安静期到期须真的派发了一次");
+  assert.equal(turns.lastCheckpointDispatch?.source, "controller", "主控发起须真的派发了一次");
   assert.equal(turns.lastCheckpointDispatch?.turn, undefined, "回填发生在回调内部，派发记录的 turn 仍是缺失的原值");
 
   // ② 派发确已跑起来（不是被 no_current_turn 挡在门外）
@@ -505,16 +512,16 @@ test("重启：Human 关闭全部子项时不得为读位置而打开会话日�
   roots.push(agent);
   await ctx.emit("agent/created", { agent, source: "startup" });
   await waitForGoverned(lifecycle, agent.id);
-  // **2026-10-27**：安静期只能由回合结束起算（装载不再恢复锚点），故用一条
-  // **不带轮次号**的 `turn/end` 起算——它不写 `lastTurn`，被测前提不变。
+  // **2026-11-17**：改由主控显式发起（新机制唯一入口），不再等安静期到期。
   await ctx.emit("session/event", session, { type: "turn/end", data: {} });
+  assert.equal(lifecycle.requestCheckpoint(agent.id, "controller"), true, "发起入口须可用");
   await new Promise((r) => setTimeout(r, 1200));
 
   // 先证明**检查点真的被派发过**——否则「没读日志」是空过（根本没走到回调）。
   const turns = lifecycle.snapshotOf(agent.id)?.turns;
   assert.equal(
-    turns?.lastCheckpointDispatch?.source, "silence:timer",
-    "安静期到期须真的派发过一次——否则本用例什么都没验证",
+    turns?.lastCheckpointDispatch?.source, "controller",
+    "主控发起须真的派发过一次——否则本用例什么都没验证",
   );
   assert.deepEqual(openCalls, [], "Human 关闭全部子项时本检查点什么都不做，不得为读位置而打开会话日志");
   assert.equal(turns?.lastTurn, undefined, "早退路径不得回填（回填发生在「无启用任务」早退之后）");
@@ -533,27 +540,29 @@ test("重启：宿主记录不可读时维持 fail-closed 并如实记下原因�
   roots.push(agent);
   await ctx.emit("agent/created", { agent, source: "startup" });
   await waitForGoverned(lifecycle, agent.id);
-  // **2026-10-27**：安静期只能由回合结束起算（装载不再恢复锚点），故用一条
-  // **不带轮次号**的 `turn/end` 起算——它不写 `lastTurn`，被测前提不变。
+  // **2026-11-17**：改由主控显式发起（新机制唯一入口），不再等安静期到期。
   await ctx.emit("session/event", agent.session, { type: "turn/end", data: {} });
+  assert.equal(lifecycle.requestCheckpoint(agent.id, "controller"), true, "发起入口须可用");
   await new Promise((r) => setTimeout(r, 1200));
 
   // 读不到就不得报成已恢复：触发器的 lastTurn 必须仍是 undefined（无位置），
   // 且派发确实以 undefined 走到 fail-closed。
   const turns = lifecycle.snapshotOf(agent.id)?.turns;
   assert.equal(turns?.lastTurn, undefined, "读不到时不得凭空写入轮次号");
-  assert.equal(turns?.lastCheckpointDispatch?.source, "silence:timer", "派发确实发生过（不是没到点）");
+  assert.equal(turns?.lastCheckpointDispatch?.source, "controller", "派发确实发生过（不是没到点）");
 
-  // fail-closed：仍以 no_current_turn 停止，且**入了待处置队列**（§12）。
+  // fail-closed：仍以 no_current_turn 停止，且**留痕进运行痕迹**（§12，2026-11-17
+  // 队列删除后的承载）。
   const { readRuns } = await import("../lib/idle-runlog.js");
   const runs = await readRuns(dshHomePath);
-  const latest = runs.value.runs[runs.value.runs.length - 1];
-  assert.equal(latest.code, "idle_checkpoint/no_current_turn", "位置不可得须维持 fail-closed，不得当作覆盖全部内容");
-  const { readPendingQueue } = await import("../lib/pending-queue.js");
-  const queue = await readPendingQueue(dshHomePath);
+  const stopped = runs.value.runs.filter((r) => r.stage === "stopped");
   assert.ok(
-    queue.value.items.some((item) => /currentTurn .* is required/.test(item.reason)),
-    `fail-closed 停止须入待处置队列，实测：${JSON.stringify(queue.value.items)}`,
+    stopped.some((r) => r.code === "idle_checkpoint/no_current_turn"),
+    "位置不可得须维持 fail-closed，不得当作覆盖全部内容",
+  );
+  assert.ok(
+    stopped.some((r) => /currentTurn .* is required/.test(r.reason ?? "")),
+    `fail-closed 停止须留痕，实测：${JSON.stringify(stopped)}`,
   );
 });
 
@@ -632,68 +641,4 @@ function quietDispatchCount(lifecycle) {
 // 核查（实测 2026-11-02：269 条登记的 resolved_at 全空）。
 //
 // 这条用例钉的是「调用真的发生且结果可回读」，不是「函数存在」。
-test("11 §12 第 4 条：会话启动时须清点待处置队列，且条目数可从运行痕迹回读", async () => {
-  const seeded = [
-    {
-      entry_id: "11111111-1111-4111-8111-111111111111",
-      at: "2026-11-01T00:00:00.000Z",
-      task: "friction-discovery",
-      reason: "第一条未核查登记",
-      residual: [],
-      resolved_at: null,
-    },
-    {
-      entry_id: "22222222-2222-4222-8222-222222222222",
-      at: "2026-11-01T01:00:00.000Z",
-      task: "experience-capture",
-      reason: "第二条未核查登记",
-      residual: [],
-      resolved_at: null,
-    },
-    {
-      // 已核查的那条**不得**计入「未核查」——否则清点会把积压量报大，
-      // 而这条判据的全部价值就在于那个数字可信。
-      entry_id: "33333333-3333-4333-8333-333333333333",
-      at: "2026-11-01T02:00:00.000Z",
-      task: "friction-discovery",
-      reason: "已核查登记",
-      residual: [],
-      resolved_at: "2026-11-01T03:00:00.000Z",
-    },
-  ];
-
-  const { lifecycle, dshHomePath } = await setup({ seedPendingQueue: seeded });
-  try {
-    // 清点是 start() 里的异步旁路（不阻断启动），故须轮询等它落盘，
-    // 不能假定 start() 返回时已完成。
-    const { readRuns } = await import("../lib/idle-runlog.js");
-    const deadline = Date.now() + 5_000;
-    let inventory = null;
-    while (Date.now() < deadline) {
-      const runs = await readRuns(dshHomePath);
-      if (runs.ok) {
-        inventory = runs.value.runs.find((entry) => entry.task === "startup-inventory");
-        if (inventory !== null && inventory !== undefined) break;
-      }
-      await new Promise((r) => setTimeout(r, 20));
-    }
-
-    assert.ok(
-      inventory !== null && inventory !== undefined,
-      "会话启动后必须留下 startup-inventory 运行痕迹——否则 §12 第 4 条的「会话启动时的队列清点」在生产路径上仍是零调用",
-    );
-    assert.equal(inventory.stage, "landed", `清点须记为成功落地，实测 stage=${JSON.stringify(inventory.stage)} reason=${JSON.stringify(inventory.reason)}`);
-    assert.equal(
-      inventory.unresolved,
-      2,
-      `未核查条数须只数 resolved_at 为空者（种子 3 条中 1 条已核查），实测 ${JSON.stringify(inventory.unresolved)}`,
-    );
-    assert.equal(inventory.invalid, 0, `不可读行数须如实报 0，实测 ${JSON.stringify(inventory.invalid)}`);
-    assert.equal(inventory.carrier, "present", `载体存在时须报 present，实测 ${JSON.stringify(inventory.carrier)}`);
-    // 数字之外还要能被"读到"：reason 里须载明条数，使只看 reason 的读者
-    // （Web 诊断页、grep 运行日志的人）也能知道积压量。
-    assert.match(String(inventory.reason ?? ""), /未核查 2 条/, `reason 须载明未核查条数，实测 ${JSON.stringify(inventory.reason)}`);
-  } finally {
-    try { lifecycle.stop?.(); } catch { /* 桩无 stop 时忽略 */ }
-  }
-});
+// 2026-11-17：会话启动清点测试已随待处置队列删除（11 §12）。

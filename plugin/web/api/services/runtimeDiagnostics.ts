@@ -688,7 +688,7 @@ export async function buildGateReport(options: {
 //
 // 摩擦观察缓冲里的条目**不是事实对象**（11 §12bis.1：非事实、不进事实源、无对象
 // 身份）。把它们混进「事实对象」的列表页会立刻造成误读——读者会以为它们是账目。
-// 诊断页承载的是「本机运行状态」，缓冲正属同一类地方（与水位、待处置队列、
+// 诊断页承载的是「本机运行状态」，缓冲正属同一类地方（与待处置队列、
 // 运行记录同层，同在 ~/.dsh/ldvh 下）。
 //
 // ## 呈现口径由规范钉死，本函数**不是**自由设计
@@ -755,8 +755,8 @@ const OBSERVATION_THRESHOLD = 3
  * `readJsonLines` 对队列的处理同一纪律）。但**跳过数须如实计数**，否则
  * 「解析失败」会伪装成「条目较少」。
  */
-/** 经验缓冲条目状态闭集（11 §12bis 字段表第 8 行）。 */
-const EXPERIENCE_BUFFER_STATUSES = new Set(['pending', 'consumed', 'discarded', 'evicted'])
+// 2026-11-17：`EXPERIENCE_BUFFER_STATUSES` 已删除——经验留观缓冲随审核层
+// 取消（2026-11-16），该闭集在 web 侧无任何消费方（grep 确认仅定义处一行）。
 
 /** 经验留观区条目的投影（**只四项**，11 §12bis 读取纪律第 2 条）。 */
 export type ExperienceBufferProjection = {

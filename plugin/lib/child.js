@@ -47,7 +47,16 @@ const RETIRED_LIMIT = 50;
  *   the "when was the table touched" question is answerable at runtime
  *   without the console (2026-10-18 子代理登记表被清空 修复, 步骤 1).
  */
-export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren, onEvent, experienceArming, registerChildSurface }) {
+/**
+ * @param {object} ctx
+ * @param {object} deps
+ * @param {Function} [deps.registerChildSurface] - 经验面（开工授权绑定成功后才调）。
+ * @param {Function} [deps.registerFrictionChildSurface] - 摩擦面（受辖分身一律调，
+ *   不需要授权——它是主控的一次性交派动作，见下方注册处的边界注释）。
+ * @param {object} [deps.frictionChildDeps] - 摩擦面的依赖：`{ dshHomePath,
+ *   resolveProjectId(agent) }`。由 lifecycle 注入，本文件不认识治理解析模块。
+ */
+export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren, onEvent, experienceArming, registerChildSurface, registerFrictionChildSurface, frictionChildDeps }) {
   const emit = (hook, detail) => {
     if (typeof onEvent === "function") onEvent(hook, detail ?? {});
   };
@@ -167,6 +176,40 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
               ctx.logger.warn("[dsh-ldvh] experience surface registration failed for child %s: %s", agentId, String(error?.message ?? error));
               emit("child/experience-arm-failed", { agentId, reason: String(error?.message ?? error) });
             }
+          }
+        }
+        // ── 摩擦记录分身的能力面（2026-11-17，00 §4.5 代理辅助任务）──────────
+        //
+        // **第二个例外，与上面那条不同源**：经验侧靠「开工授权」把工具面交给分身，
+        // 摩擦侧**不需要授权**——它不是长期可用的记录权，而是一次性的交派动作：
+        // 主控当次发现了阻碍，派一个分身去写一条观察，写完即结束。
+        //
+        // 为什么不复用授权机制：授权账的语义是「这个分身被允许记录经验」（可过期、
+        // 一次性、落盘）。摩擦观察是**主控交派的即时动作**，没有「以后还能不能用」
+        // 这个维度；套上授权只会让主控每记一次摩擦都要先记一笔授权，成本与收益倒挂。
+        //
+        // 边界（不能放松）：
+        //   · 只给 `ldvh_friction_record_observation` 一个工具，**不给账目读写**——
+        //     账目写入要 Human 确认且绕过阈值（26 §16 第 1 项），分身绝不能有；
+        //   · 不写 Pitfall、不读事实源其它对象（各面的注册互相独立）；
+        //   · 该面**只在本分身受管辖时**注册（`record.scopeState === "governed"`）——
+        //     非受辖项目的分身记摩擦没有意义（缓冲按项目分区，没有分区就无处落）。
+        if (typeof registerFrictionChildSurface === "function" && record.scopeState === "governed") {
+          try {
+            const disposeFriction = registerFrictionChildSurface(agent.ctx, {
+              dshHomePath: frictionChildDeps?.dshHomePath,
+              resolveProjectId: () => frictionChildDeps?.resolveProjectId?.(agent) ?? null,
+              resolveSessionId: () => agentId ?? null,
+              // 晋升建账要署名（11 §9 第 3／4 项的机械收尾）。取宿主会话持久化服务，
+              // 与根面同一来源；缺失时晋升侧按 signature-unavailable 如实登记，不伪造。
+              sessionPersistence: frictionChildDeps?.sessionPersistence
+            });
+            if (typeof disposeFriction === "function") stops.push(disposeFriction);
+          } catch (error) {
+            // 与经验面同一纪律：注册失败留痕、不回滚。静默吞掉会让「为什么这次没
+            // 写进去」变成无解问题（friction-277d7479 同一失效族）。
+            ctx.logger.warn("[dsh-ldvh] friction surface registration failed for child %s: %s", agentId, String(error?.message ?? error));
+            emit("child/friction-surface-failed", { agentId, reason: String(error?.message ?? error) });
           }
         }
         // 委派状态刷新（原 `agent/session-start` 安全网）：0.1.7 起该事件已删除，
