@@ -11,10 +11,14 @@ change_log:
     provider: workbuddy
     model: hy4free
     summary: 摩擦发现阈值晋升（观察缓冲同源条目 3 条 ≥ 3，11 §9 第 3 项）
+  - at: 2026-11-15T20:17:11.859Z
+    provider: qoder
+    model: qmodel_38max
+    summary: 补充观察：count 3 → 4（11 §9 第 2 项）
 occurrence:
-  count: 3
+  count: 4
   first_at: 2026-11-14T19:47:46.483Z
-  last_at: 2026-11-15T09:36:43.841Z
+  last_at: 2026-11-15T20:16:39.701Z
 ---
 
 # 建前预检与写入器字段判据不同源
@@ -32,3 +36,7 @@ Norm create 的建前预检把 writer 会剥离的 frontmatter_draft.change_summ
 
 ## 入账依据
 可归因：预检层与写入层各自维护字段判据，一份按 schema 构造的合法创建会在预检层被直接挡死，且拒因与 writer 判定不一致，会把人引向「删掉 change_summary」这个错误修法；预检入口与 writer 同处 plugin/lib 写入面却非同源（字段搬运与状态归一没有常量化绑定或一致性用例），落差只能由构造一份合法输入才暴露。预期收益：把预检喂入校验函数前的对象形态与 writer 的字段搬运对齐后，合法输入不再被误伤。
+
+补充观察（2026-11-15T20:16:39.701Z）：引证显示本次受控写入被拒的直接原因是：写入草稿比预检草稿多了一个 change_summary 字段，写入侧算出的内容指纹因此与预检侧指纹（5250464a…）不同，须重跑预检后重写。归因落点与既有 open 账目 friction-d0c75a05「建前预检与写入器字段判据不同源」一致：该条登记的根源是预检侧与 writer 侧对 change_summary 的字段搬运与状态归一不同源（writer 会先剥离 change_summary，预检侧不剥离），两侧口径不同源时，一次本应合法的创建会因预检结果不可传递而被拒。本次观察正是同一接缝的另一形态——change_summary 在预检稿与写入稿之间的不对称使预检指纹无法被写入复用，差别只在对象类型（本次为 Spark、该条为 Norm）与拒绝发生的方向（该条预检侧拒、本次写入侧拒），根仍在同一子系统/流程（预检层↔写入层对同一字段的
+逐字引证：The cause of rejection was that I added a `change_summary` field to the write draft (it wasn't included in the pre-check draft), so the content fingerprint changed.
+（来源：29）

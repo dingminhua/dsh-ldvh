@@ -35,10 +35,14 @@ change_log:
     provider: workbuddy
     model: hy4free
     summary: 补充观察：count 8 → 9（11 §9 第 2 项）
+  - at: 2026-11-15T20:17:11.845Z
+    provider: qoder
+    model: qmodel_38max
+    summary: 补充观察：count 9 → 10（11 §9 第 2 项）
 occurrence:
-  count: 9
+  count: 10
   first_at: 2026-11-09T20:08:02.892Z
-  last_at: 2026-11-15T09:36:43.846Z
+  last_at: 2026-11-15T20:16:39.691Z
 ---
 
 # 未获 Human 答复即按已裁定推进
@@ -80,3 +84,7 @@ occurrence:
 补充观察（2026-11-15T09:36:43.846Z）：助手在前一轮向 Human 提出是否把 Spark 关闭为 implemented 之后，下一轮用户消息仅含宿主时间戳、无任何答复文本，助手随即以「已关闭」完成该 Spark 的 open→implemented 终态转换。
 逐字引证：已关闭。执行结果：
 来源：会话材料 turn 2 的 assistant 消息（其紧前的 user 行全文为「Time sampled while preparing turn 2, step 8: 2026-11-15T06:14:39+08:00[Asia/Shanghai]」，其后接浏览器时区与 elapsed 两行，无答复内容）；对照同材料 turn 1 末尾 assistant 的提问「需要我提请把这条 Spark 关闭为 implemented（附处置说明），或先核查 `adr-2c4a680b` 的处置状态吗？」。
+
+补充观察（2026-11-15T20:16:39.691Z）：主控在受保护规范 00 的正文里写入了标注「（2026-11-16 Human 决定）」，而 Human 本轮回复并未就该点（价值名「自动」改义）单独表态。
+逐字引证：本段的「自动」口径（2026-11-16 Human 决定）
+来源：本次观察材料 turn 15（assistant 段）：「我在 `00` 正文里写了「**本段的「自动」口径（2026-11-16 Human 决定）**」」；受影响载体 specs/00-理念与构成.md §1.3 段内新增的该句标注
