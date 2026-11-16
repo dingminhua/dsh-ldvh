@@ -52,10 +52,40 @@ const OPERATIONS = {
   "pitfall-write-object": {
     toolName: "ldvh_pitfall_write",
     writeShaped: true,
-    summary: "Controlled write of Pitfall fact objects: create (受控创建，通道与授权依 23 §13：机械通道/主控主动记录通道无须事前 Human 确认、Human 入口经确认) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
+    summary: "Controlled write of Pitfall fact objects: create (受控创建，通道与授权依 23 §13：代理记录通道/Human 入口) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13). **A delegated (subagent) caller may only create** — update, errata and terminal transitions are refused for it by this surface (23 §13 代理记录通道边界、Human 2026-11-16)",
+    effect: "may_change_state"
+  },
+  // 开工授权入口（Human 决定 2026-11-16）。**根会话专用**：它不写事实源，只把
+  // 「本会话授权它的下一个分身自行入账经验」这条决定记进授权账，故 effect 是
+  // may_change_state 而**不标 writeShaped**——writeShaped 的射程是「能改受控事实」，
+  // 这条改的是插件自己的运行状态，与 pending-queue-resolve 同层。
+  "pitfall-arm-delegate": {
+    toolName: "ldvh_pitfall_arm_delegate",
+    rootOnly: true,
+    summary: "Arm the NEXT delegated subagent of THIS governed root session to record experience (Pitfall) on its own: grant lifetime is one child session and one bounded window (default 15 min). Only the three Pitfall tools reach that child, and it may only create (23 §13 代理记录通道). Root sessions only — a delegated caller is refused",
     effect: "may_change_state"
   }
 };
+
+/**
+ * 该调用者是「被派生的分身」吗。
+ *
+ * 判据与 `lifecycle.js` 的 `install()` 完全同源（不是另立一套）：`origin ===
+ * "subagent"` 与 `parentSession` 非空**任一为真**即为分身，但
+ * `isSeeded && delegationDepth === 0` 的**种子根会话**除外——宿主用 `parentSession`
+ * 记录前缀继承来源，把这条误判为分身会让它永久拿不到工具（2026-10-20 实测失效面）。
+ *
+ * 为什么在工具面再判一次而不只靠注册面：注册面决定「看得见」，这里决定「调得动」。
+ * 少了这一道，把 `ldvh_pitfall_write` 交给分身就等于同时交出「废止任意 active」
+ * 与「改写任意既有对象」两项能力——写入器本身不区分调用者（独立审核 B4 实测）。
+ */
+function isDelegatedCaller(header) {
+  if (header === undefined || header === null) return false;
+  if (header.origin === "subagent") return true;
+  const parentSession = header.parentSession;
+  if (typeof parentSession !== "string" || parentSession.trim().length === 0) return false;
+  return !(header.isSeeded === true && header.delegationDepth === 0);
+}
 
 const FACT_SOURCE_ROOT_DIR = "ldvh-base";
 
@@ -230,6 +260,55 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+
+  // ── 分身调用面（Human 决定 2026-11-16，23 §13 代理记录通道）────────────
+  //
+  // 三道机械检查，缺一不可，且都是**审核发现的直接后果**：
+  //   ① 只允许 create：update 覆盖「勘误/补充」与唯一的终态流转 `active→discarded`
+  //      （pitfall-writer.js 的合法转换表）。审查实测：写入器不区分调用者，故只给
+  //      write 工具就等于把「废止任意一条经验」交给分身——「条文写不得、机械零拦截」
+  //      就是本处要消除的形态（审核 B4）。
+  //   ② 授权账复核：注册面给过工具不等于此刻仍有权限。授权会过期（默认 15 分钟），
+  //      过期后的分身应停止写入而不是继续被信任。
+  //   ③ 项目对齐（审核 B5）：注册按父级继承判定、写入按子级 cwd 自判，二者可错位到
+  //      **另一个**受辖项目，那会把经验写进别人的账本。故核对本次判定的项目根与
+  //      授权时记录的项目根一致。
+  if (isDelegatedCaller(exec?.agent?.session?.header)) {
+    if (action !== "create") {
+      return envelope("pitfall-write-object", "rejected", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [{ kind: "authorization", path: "experience-arming ledger" }],
+        gaps: [`delegated_caller_may_only_create: 23 §13 代理记录通道的分身只被授权**新建**经验；action=${action}（含唯一的终态流转 active→discarded）不属其授权范围，须由主控或 Human 执行`],
+        verification: { checks: ["governance-scope", "caller-capability"], passed: false },
+        follow_up: ["把该诉求交回主控，由主控经受控入口执行；或由 Human 处置终态流转"]
+      });
+    }
+    const arming = deps.experienceArming;
+    if (arming === undefined) {
+      return envelope("pitfall-write-object", "unavailable", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [],
+        gaps: ["arming_ledger_unavailable: 本组合未装配经验授权账，分身不得写入事实源（fail-closed）"],
+        verification: { checks: ["governance-scope", "arming-ledger"], passed: false },
+        follow_up: ["改由主控经受控入口写入（23 §13 Human 入口/主控路径）"]
+      });
+    }
+    const childSessionId = exec?.agent?.session?.header?.id ?? exec?.agent?.id;
+    const verified = arming.verifyWrite({ childSessionId, projectPath: governed.project.path });
+    if (!verified.ok) {
+      return envelope("pitfall-write-object", "rejected", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [{ kind: "authorization", path: "experience-arming ledger" }],
+        gaps: [`arming_check_failed: ${verified.reason}${verified.detail ? ` — ${verified.detail}` : ""}。无有效开工授权的分身不得写入经验`],
+        verification: { checks: ["governance-scope", "arming-validity", "project-alignment"], passed: false },
+        follow_up: ["把该次发现交回主控，由主控经受控入口写入；不要重试"]
+      });
+    }
+  }
+
   const sig = await signatureFor(deps, exec);
   // Human requirement 2026-09-12: "changelog 和提交都要机械署名，不能署名的
   // 要报告 human". The commit half is already enforced by the Git Gate
@@ -399,6 +478,91 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
 }
 
 // ---------------------------------------------------------------------------
+// pitfall-arm-delegate — 根会话记一条开工授权（Human 决定 2026-11-16）
+// ---------------------------------------------------------------------------
+
+/**
+ * 只有**根会话**能记授权。判据复用 isDelegatedCaller（同一套 header 判据，不另立），
+ * 反向即根。header 缺失时按分身处理拒绝——拿不到身份就没有可核验的授权主体。
+ */
+async function executeArmDelegate(args, exec, deps) {
+  const operationKey = "pitfall-arm-delegate";
+  const header = exec?.agent?.session?.header;
+  if (isDelegatedCaller(header) || header === undefined || header === null) {
+    return envelope(operationKey, "rejected", {
+      result: null,
+      scope: { requested: "arm", completed: [], not_completed: ["arm"] },
+      sources: [],
+      gaps: ["root_session_only: 开工授权只能由受管辖的根会话（主控）记下。分身给自己授权等于自造权限，正是本机制要防的形态"],
+      verification: { checks: ["caller-kind"], passed: false },
+      follow_up: ["由主控在当次行动中调用本工具，再派生分身"]
+    });
+  }
+  const purpose = args?.purpose;
+  if (typeof purpose !== "string" || purpose.trim().length === 0) {
+    return invalidRequest(operationKey, "purpose is required (one line stating which experience the delegate is armed to record) — an authorization record without a stated purpose cannot be read back by Human later", null);
+  }
+  const arming = deps.experienceArming;
+  if (arming === undefined) {
+    return envelope(operationKey, "unavailable", {
+      result: null,
+      scope: { requested: "arm", completed: [], not_completed: ["arm"] },
+      sources: [],
+      gaps: ["arming_ledger_unavailable: 本组合未装配经验授权账，不得记授权（fail-closed）"],
+      verification: { checks: ["arming-ledger"], passed: false },
+      follow_up: []
+    });
+  }
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope(operationKey, "unavailable", {
+      result: null,
+      scope: { requested: "arm", completed: [], not_completed: ["arm"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: arming serves governed root sessions only`],
+      verification: { checks: ["caller-kind", "governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const armed = await arming.arm({
+    parentSessionId: header.id,
+    projectPath: governed.project.path,
+    projectId: governed.project.id ?? governed.project.projectId ?? null,
+    purpose,
+    ttlMs: args?.ttl_ms
+  });
+  if (!armed.ok) {
+    return envelope(operationKey, "rejected", {
+      result: null,
+      scope: { requested: "arm", completed: [], not_completed: ["arm"] },
+      sources: [{ kind: "authorization", path: "experience-arming ledger" }],
+      gaps: [`arming_refused: ${armed.reason}${armed.detail ? ` — ${armed.detail}` : ""}`],
+      verification: { checks: ["caller-kind", "governance-scope", "arm-persist"], passed: false },
+      follow_up: []
+    });
+  }
+  const e = armed.value.arming;
+  return envelope(operationKey, "completed", {
+    result: {
+      arming_id: e.arming_id,
+      parent_session_id: e.parent_session_id,
+      project_path: e.project_path,
+      armed_at: e.armed_at,
+      expires_at: e.expires_at,
+      // 授权范围逐字回给调用方：不写出来，主控很容易把「授权一个分身记一条经验」
+      // 读成「授权分身自由使用这三个工具」。范围里最容易被忽略的是**只能新建**。
+      grants: "下一个由本会话派生的分身：ldvh_pitfall_list / read / write，且 write 仅 action=create；有效期至 expires_at，绑定一个分身子会话后即占用",
+      purpose: e.purpose
+    },
+    scope: { requested: "arm", completed: ["arm", "persist"], not_completed: [] },
+    sources: [{ kind: "authorization", path: "experience-arming ledger" }],
+    gaps: [],
+    verification: { checks: ["caller-kind", "governance-scope", "arm-persist"], passed: true },
+    follow_up: ["派生分身并交其任务书；分身写入后主控须精确读回核对存在性与 status，并在当次交还报告（23 §13）"]
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Registration (same shape as spark-tools.js — mounted from
 // registerLdvhTools, so tools land only in governed sessions)
 // ---------------------------------------------------------------------------
@@ -500,6 +664,16 @@ function parameterSchemaFor(operationKey) {
         required: ["action"],
         additionalProperties: false
       };
+    case "pitfall-arm-delegate":
+      return {
+        type: "object",
+        properties: {
+          purpose: { type: "string", description: "One line stating WHICH experience the delegate is armed to record. Required: an authorization record without a stated purpose cannot be read back later, so it is refused rather than defaulted" },
+          ttl_ms: { type: "number", description: "Optional grant lifetime in milliseconds; defaults to 900000 (15 min) and is clamped to 3600000 (1 h). The grant binds ONE child session and is spent whether it writes or not" }
+        },
+        required: ["purpose"],
+        additionalProperties: false
+      };
     default:
       return { type: "object", properties: {}, additionalProperties: false };
   }
@@ -541,14 +715,31 @@ export function toolDescriptorFor(operationKey, operation, handler) {
   });
 }
 
-export function registerPitfallTools(ctx, deps) {
+/**
+ * 注册 Pitfall 工具批次。
+ *
+ * **两种注册面（Human 决定 2026-11-16，23 §13 代理记录通道）**：
+ *
+ * - `surface: "root"`（缺省）——受管辖的根会话，取得全部四个操作。开工授权入口
+ *   `ldvh_pitfall_arm_delegate` 标了 `rootOnly`，只有这一面注册它。
+ * - `surface: "child"`——**被开工授权绑定的那个分身**，只取得 read / list / write
+ *   三个操作。刻意不给 arm：分身能给自己记授权，就等于权限可以自我繁殖，那条
+ *   「一次性、可过期」的纪律立刻失效。
+ *
+ * 为什么按操作逐条判而不另建一张子表：OPERATIONS 是唯一权威，两张表会漂移
+ * （仓内已有一次「硬编码清单与真实暴露面不一致」的教训，见下方 writeShaped 注释）。
+ * 判据取声明本身：`rootOnly === true` 的操作不进 child 面。
+ */
+export function registerPitfallTools(ctx, deps, { surface = "root" } = {}) {
   const handlers = {
     "pitfall-read-object": (args, exec) => executeReadObject(args, exec, deps),
     "pitfall-list-objects": (args, exec) => executeListObject(args, exec, deps),
     "pitfall-write-object": (args, exec) => executeWriteObject(args, exec, deps),
+    "pitfall-arm-delegate": (args, exec) => executeArmDelegate(args, exec, deps),
   };
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
+    if (surface === "child" && operation.rootOnly === true) continue;
     // Coverage is registered from the declaration itself, so the guard's target
     // set always matches the tools this build really exposes (a hardcoded list
     // drifts into phantom or stale entries).

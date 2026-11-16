@@ -200,6 +200,9 @@ import { resolveChildFromSessionRecord } from "./child-session-record.js";
 import { readLastTurn } from "./session-position.js";
 import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
+// 经验记录分身（23 §13 代理记录通道，Human 决定 2026-11-16）：授权账与分身工具面。
+import { createExperienceArming } from "./experience-arming.js";
+import { registerPitfallTools } from "./pitfall-tools.js";
 
 
 /**
@@ -446,11 +449,32 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
   // 控制台。与 per-agent AgentLifecycle.activity (roots) 与 DelegatedChildRecord
   // .activity (children) 同形——同一 ActivityLog 类、同一 consumer 形状。
   const registryActivity = new ActivityLog();
+  // ── 经验记录分身的开工授权账（Human 决定 2026-11-16，23 §13 代理记录通道）──
+  //
+  // 一次实例、两处消费：根会话经 `ldvh_pitfall_arm_delegate` 记授权，子代理安装时
+  // 按「父会话 + 项目」绑定并决定给不给工具面，写入时再复核一次（过期/错位即拒）。
+  // 装载提前做——`installChild` 在宿主 `agent/created` 的同步路径上，那里不能 await。
+  const experienceArming = createExperienceArming({ dshHomePath, logger: ctx.logger });
+  // 读回失败按「无授权」处理（fail-closed）：宁可让已开工的分身丢能力并留下日志，
+  // 也不给无据的会话工具面。装载是幂等的，各入口再各自 await。
+  void experienceArming.load().catch((error) => {
+    ctx.logger.warn("[dsh-ldvh] experience arming load failed: %s", String(error?.message ?? error));
+  });
   const installChild = createChildInstaller(ctx, {
     agents,
     children,
     sessionScopes,
     retiredChildren,
+    experienceArming,
+    // 分身的能力面注册在授权绑定成功后进行，注册函数由本文件注入——child.js 不认识
+    // 工具模块，只认「绑定成了，调这个」，避免委派机制与具体业务面互相纠缠。
+    registerChildSurface: (agent) => registerPitfallTools(agent.ctx, {
+      dshHomePath,
+      workspaceRoot,
+      sessionPersistence: () => ctx.get("sessionPersistence"),
+      // 写入侧的复核靠它：过期、项目错位、未绑定一律拒（见 pitfall-tools.js）。
+      experienceArming
+    }, { surface: "child" }),
     onEvent: (hook, detail) => registryActivity.record(hook, detail)
   });
 
@@ -492,6 +516,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // without the service yields `undefined` at call time and the
           // Write points fail closed instead of skipping the goal.
           goals: () => ctx.get("goals"),
+          // 根会话侧也要拿到授权账：`ldvh_pitfall_arm_delegate` 靠它记授权。
+          // 取不到时该工具按 unavailable 拒绝（pitfall-tools.js fail-closed 分支），
+          // 不会退化成「记了但没人能核验」。
+          experienceArming,
           // Delegation chain: the children Map is the data source for
           // ldvh_collect_subagent_results. Without it that tool is skipped by
           // its own guard (ldvh-tools.js: `deps.children !== undefined`) and

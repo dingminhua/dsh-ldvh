@@ -47,7 +47,7 @@ const RETIRED_LIMIT = 50;
  *   the "when was the table touched" question is answerable at runtime
  *   without the console (2026-10-18 子代理登记表被清空 修复, 步骤 1).
  */
-export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren, onEvent }) {
+export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren, onEvent, experienceArming, registerChildSurface }) {
   const emit = (hook, detail) => {
     if (typeof onEvent === "function") onEvent(hook, detail ?? {});
   };
@@ -125,6 +125,50 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
         // thing" hook — pre-step observed so the trigger point is mounted;
         // what the task IS remains a named, empty seam.
         stops.push(agent.ctx.on("agent/pre-step", (payload, next) => next()));
+        // ── 经验记录分身的能力面（Human 决定 2026-11-16，23 §13 代理记录通道）────
+        //
+        // 「委派链上的子代理不注册任何工具」这条例外**只在一条路径上**开：该分身
+        // 被一条开工授权绑定上了。授权必须来自受管辖的根会话（`ldvh_pitfall_arm_delegate`
+        // 侧拒绝分身自记），且绑定时判**父会话 + 项目**两项一致（审核 B5：注册按父级
+        // 继承判定、写入按子级 cwd 自判，不核对项目就会把经验写进另一个受辖项目）。
+        //
+        // 三条机械纪律在此的落点：
+        //   · 一次性 —— bindForChild 命中即占用，同父的下一个分身不再命中；
+        //   · 会过期 —— 授权账按 ttl 判过期；工具虽仍在该分身会话内，写入侧
+        //     （executeWriteObject）每次调用都复核，过期即拒；
+        //   · 落盘 —— 绑定结果写授权账，插件重建后同一分身可复原，别的不能。
+        //
+        // 注册挂在**子代理自己的 ctx.effect** 上（stops 内），故其 fiber 释放即撤销，
+        // 不残留在其他会话面上。若图省事注册到插件根 ctx，才是真泄漏（全局注册不随
+        // 任何子会话结束而撤销）。
+        if (experienceArming !== undefined && typeof registerChildSurface === "function") {
+          const parentProjectPath = parentRecord?.lastScope?.project?.path;
+          const binding = experienceArming.bindForChild({
+            parentSessionId: parentId,
+            childSessionId: agentId,
+            ...(typeof parentProjectPath === "string" && parentProjectPath.length > 0 ? { projectPath: parentProjectPath } : {})
+          });
+          if (binding.ok) {
+            try {
+              const disposeSurface = registerChildSurface(agent);
+              if (typeof disposeSurface === "function") stops.push(disposeSurface);
+              emit("child/experience-armed", {
+                agentId,
+                parentId: parentId ?? null,
+                armingId: binding.value.arming.arming_id,
+                rebinding: binding.value.rebinding === true
+              });
+              ctx.logger.info("[dsh-ldvh] experience delegate armed for child %s (arming %s%s)",
+                agentId, binding.value.arming.arming_id, binding.value.rebinding ? ", rebinding after plugin reload" : "");
+            } catch (error) {
+              // 注册失败必须留痕且**不回滚授权**：授权账上这条已绑定，分身会带着
+              // 工具面缺失的状态跑完一次。静默吞掉会让「为什么这次没写进去」变成
+              // 无解问题（friction-277d7479 同一失效族：提示与真实能力不一致）。
+              ctx.logger.warn("[dsh-ldvh] experience surface registration failed for child %s: %s", agentId, String(error?.message ?? error));
+              emit("child/experience-arm-failed", { agentId, reason: String(error?.message ?? error) });
+            }
+          }
+        }
         // 委派状态刷新（原 `agent/session-start` 安全网）：0.1.7 起该事件已删除，
         // 语义并入 `agent/created` 的 payload.source（调研报告 §3.4）。子代理安装
         // 本身就发生在 agent/created 时，所以这里直接执行一次；父级此后的判定变化

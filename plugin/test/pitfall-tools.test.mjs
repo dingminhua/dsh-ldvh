@@ -17,12 +17,14 @@ import { initRepo, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
-const exec = (cwd) => ({ agent: { session: { header: { cwd } } } });
+// `header` 允许测试注入身份字段（origin / parentSession / id / isSeeded /
+// delegationDepth）——分身能力收窄的用例必须有这条路，否则只能测到根会话形态。
+const exec = (cwd, header = {}) => ({ agent: { session: { header: { cwd, ...header } } } });
 
 // Mock registry: capture the descriptors registerPitfallTools registers, then
 // drive them exactly as the DSH runtime would (descriptor.execute wraps the
 // handler result in { envelope }).
-function makeDescriptors(deps) {
+function makeDescriptors(deps, { surface = "root" } = {}) {
   const registered = [];
   const ctx = {
     tools: {
@@ -32,15 +34,15 @@ function makeDescriptors(deps) {
       },
     },
   };
-  pitfallToolsModule.registerPitfallTools(ctx, deps);
+  pitfallToolsModule.registerPitfallTools(ctx, deps, { surface });
   const byName = {};
   for (const descriptor of registered) byName[descriptor.name] = descriptor;
   return byName;
 }
 
-async function run(descriptors, toolName, args, cwd) {
+async function run(descriptors, toolName, args, cwd, header = {}) {
   try {
-    const out = await descriptors[toolName].execute(args, exec(cwd));
+    const out = await descriptors[toolName].execute(args, exec(cwd, header));
     return out.envelope ?? out;
   } catch (error) {
     // 参数层（DSH defineTool）在 handler 之前拒绝时抛 ToolArgsError。这些用例多数要证
@@ -115,16 +117,39 @@ function makeDeps(home, base) {
 // Registration surface
 // ---------------------------------------------------------------------------
 
-test("registerPitfallTools registers exactly the three pitfall tools", async () => {
+// ---------------------------------------------------------------------------
+// Registration surfaces (23 §13 代理记录通道, Human 决定 2026-11-16)
+//
+// 两面各自断言，而不是只断言根面：child 面少一个工具就是分身能给自己记授权，
+// 多一个工具就是权限外溢。这两件事都必须被用例打到（pitfall-b79dc397：新增
+// 防护没有直打用例时，变异零检出）。
+// ---------------------------------------------------------------------------
+
+const ROOT_SURFACE = ["ldvh_pitfall_arm_delegate", "ldvh_pitfall_list", "ldvh_pitfall_read", "ldvh_pitfall_write"];
+const CHILD_SURFACE = ["ldvh_pitfall_list", "ldvh_pitfall_read", "ldvh_pitfall_write"];
+
+test("registerPitfallTools: 根面注册四个操作（含开工授权入口）", async () => {
   await withTemp("pitfall-tools.", async (base) => {
     const registered = [];
     const ctx = { tools: { register: (descriptor) => { registered.push(descriptor.name); return () => {}; } } };
     const deps = makeDeps(join(base, "home"), base);
     const dispose = pitfallToolsModule.registerPitfallTools(ctx, deps);
-    assert.deepEqual([...registered].sort(), ["ldvh_pitfall_list", "ldvh_pitfall_read", "ldvh_pitfall_write"]);
+    assert.deepEqual([...registered].sort(), ROOT_SURFACE);
     assert.equal(typeof dispose, "function");
   });
 });
+
+test("registerPitfallTools: 分身面**不含**开工授权入口（授权不可自我繁殖）", async () => {
+  await withTemp("pitfall-tools.", async (base) => {
+    const registered = [];
+    const ctx = { tools: { register: (descriptor) => { registered.push(descriptor.name); return () => {}; } } };
+    const deps = makeDeps(join(base, "home"), base);
+    pitfallToolsModule.registerPitfallTools(ctx, deps, { surface: "child" });
+    assert.deepEqual([...registered].sort(), CHILD_SURFACE,
+      "child 面必须恰好是 read/list/write 三个；含 arm 即允许分身给自己记授权");
+  });
+});
+
 
 test("pitfall descriptors return text blocks from render and an object schema", async () => {
   const deps = makeDeps("/nope", "/nope");
@@ -580,4 +605,183 @@ test("schema: pitfall-write-object enforces the frontmatter_draft shape", async 
   assert.ok(missingTitle.some((v) => v.includes("frontmatter_draft.title")), `missing title: ${JSON.stringify(missingTitle)}`);
   const unknownField = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { ...validFrontmatterDraft(), bogus: 1 } }, "args");
   assert.ok(unknownField.some((v) => v.includes("frontmatter_draft.bogus") && v.includes("not a declared property")), JSON.stringify(unknownField));
+});
+// ---------------------------------------------------------------------------
+// 代理记录通道的能力收窄（23 §13, Human 决定 2026-11-16）
+//
+// 为什么这批用例必须存在：写入器本身**不区分调用者**——把 ldvh_pitfall_write 交给
+// 分身，若不在此处拦，它同时就拿到了「废止任意 active 经验」与「改写任意既有对象」
+// 两项能力（独立审核 B4）。条文写「不得」而机械零拦截，正是本批要消除的形态。
+// 每条都直接触发对应分支（pitfall-b79dc397：无直打用例的新增防护变异零检出）。
+// ---------------------------------------------------------------------------
+
+const { createExperienceArming } = await import("../lib/experience-arming.js");
+const { realpath } = await import("node:fs/promises");
+
+/** 分身子会话的 header 形态：origin 与 parentSession 任一为真即判为分身。 */
+const childHeader = (childId, parentId) => ({
+  id: childId,
+  origin: "subagent",
+  parentSession: parentId,
+  delegationDepth: 1,
+  isSeeded: false
+});
+
+async function armedFixture(base, { childId = "session-child-1", parentId = "session-parent-1" } = {}) {
+  const { home, repo } = await governedFixture(base);
+  const arming = createExperienceArming({ dshHomePath: dshHome(home) });
+  const projectPath = await realpath(repo);
+  const armed = await arming.arm({ parentSessionId: parentId, projectPath, projectId: "demo", purpose: "记录本轮升级踩坑" });
+  assert.equal(armed.ok, true, JSON.stringify(armed));
+  const bound = arming.bindForChild({ parentSessionId: parentId, childSessionId: childId, projectPath });
+  assert.equal(bound.ok, true, JSON.stringify(bound));
+  const deps = { ...makeDeps(home, base), experienceArming: arming };
+  return { home, repo, arming, deps, projectPath, childId, parentId, armed: armed.value.arming };
+}
+
+test("分身 create：授权有效时落盘为 active 并完成写后回读", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { repo, deps, childId, parentId } = await armedFixture(base);
+    const descriptors = makeDescriptors(deps, { surface: "child" });
+    const out = await run(descriptors, "ldvh_pitfall_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo, childHeader(childId, parentId));
+    assert.equal(out.outcome, "completed", JSON.stringify(out));
+    assert.ok(out.result.object_uid);
+    assert.equal(out.result.read_back.ok, true, "分身的写入同样必须写后精确回读（03 §9.4）");
+  });
+});
+
+test("分身 update：一律拒绝——终态流转与勘误不属其授权范围（审核 B4）", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { repo, deps, childId, parentId } = await armedFixture(base);
+    const descriptors = makeDescriptors(deps, { surface: "child" });
+    const out = await run(descriptors, "ldvh_pitfall_write", {
+      action: "update",
+      object_uid: "00000001-1111-4111-8111-111111111111",
+      expected_fingerprint: "x".repeat(64),
+      frontmatter_after: {},
+      body_markdown_after: validBodyMarkdown(),
+      change_summary: "分身尝试废止",
+    }, repo, childHeader(childId, parentId));
+    assert.equal(out.outcome, "rejected");
+    assert.ok(out.gaps[0].includes("delegated_caller_may_only_create"), JSON.stringify(out.gaps));
+    assert.ok(out.verification.passed === false);
+  });
+});
+
+test("未绑定的分身写入被拒（child_not_armed）——注册面给了也不放行", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { repo, deps, parentId } = await armedFixture(base);
+    const descriptors = makeDescriptors(deps, { surface: "child" });
+    const out = await run(descriptors, "ldvh_pitfall_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo, childHeader("session-some-other-child", parentId));
+    assert.equal(out.outcome, "rejected");
+    assert.ok(out.gaps[0].includes("child_not_armed"), JSON.stringify(out.gaps));
+  });
+});
+
+test("授权过期后写入被拒（arming_expired）——一次性与存活期是两道闸", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    let clock = 1_700_000_000_000;
+    const arming = createExperienceArming({ dshHomePath: dshHome(home), now: () => clock });
+    const projectPath = await realpath(repo);
+    await arming.arm({ parentSessionId: "p1", projectPath, purpose: "短时授权", ttlMs: 1000 });
+    arming.bindForChild({ parentSessionId: "p1", childSessionId: "c1", projectPath });
+    clock += 5000; // 越过 1 秒存活期
+    const deps = { ...makeDeps(home, base), experienceArming: arming };
+    const descriptors = makeDescriptors(deps, { surface: "child" });
+    const out = await run(descriptors, "ldvh_pitfall_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo, childHeader("c1", "p1"));
+    assert.equal(out.outcome, "rejected");
+    assert.ok(out.gaps[0].includes("arming_expired"), JSON.stringify(out.gaps));
+  });
+});
+
+test("项目错位被拒（审核 B5）——分身不得把经验写进另一个受辖项目", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { home, deps, childId, parentId } = await armedFixture(base);
+    // 第二个仓库**也注册为受辖项目**：否则治理判定更早一步就拒绝（unavailable），
+    // 这条用例就测不到「项目对齐」那一道闸——两道闸都在，但断言必须打到对的那道。
+    const otherRepo = await initRepo(base, { name: "other" });
+    await registerProject(dshHome(home), { id: "other", path: otherRepo });
+    const descriptors = makeDescriptors(deps, { surface: "child" });
+    const out = await run(descriptors, "ldvh_pitfall_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, otherRepo, childHeader(childId, parentId));
+    assert.equal(out.outcome, "rejected");
+    assert.ok(out.gaps[0].includes("project_mismatch"),
+      "必须命中项目对齐这道闸，而不是更早的治理判定：" + JSON.stringify(out.gaps));
+  });
+});
+
+test("分身调用开工授权入口被拒（root_session_only）——授权不可自我繁殖", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { repo, deps, childId, parentId } = await armedFixture(base);
+    // 注意：即便错误地把根面注册给了分身，handler 仍独立拒绝——两面防护不互相替代。
+    const descriptors = makeDescriptors(deps, { surface: "root" });
+    const out = await run(descriptors, "ldvh_pitfall_arm_delegate", {
+      purpose: "再开一个分身"
+    }, repo, childHeader(childId, parentId));
+    assert.equal(out.outcome, "rejected");
+    assert.ok(out.gaps[0].includes("root_session_only"), JSON.stringify(out.gaps));
+  });
+});
+
+test("根会话授权：purpose 缺失即拒，且授权账落盘可回读", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const arming = createExperienceArming({ dshHomePath: dshHome(home) });
+    const descriptors = makeDescriptors({ ...makeDeps(home, base), experienceArming: arming });
+    const missing = await run(descriptors, "ldvh_pitfall_arm_delegate", {}, repo, { id: "root-1" });
+    assert.equal(missing.outcome, "invalid_request", JSON.stringify(missing));
+
+    const good = await run(descriptors, "ldvh_pitfall_arm_delegate", { purpose: "记录本轮经验" }, repo, { id: "root-1" });
+    assert.equal(good.outcome, "completed", JSON.stringify(good));
+    assert.ok(good.result.arming_id);
+    assert.ok(good.result.grants.includes("仅") || good.result.grants.includes("only"),
+      "授权范围须回给调用方，含「只能新建」这条最易被忽略的边界");
+    // 落盘可回读：重建实例后仍能看到这条授权（插件热重建不丢能力）
+    const reloaded = createExperienceArming({ dshHomePath: dshHome(home) });
+    await reloaded.load();
+    assert.equal(reloaded.list().some((e) => e.arming_id === good.result.arming_id), true);
+  });
+});
+
+test("装配缺失时分身写入 unavailable（fail-closed，不降级放行）", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base), { surface: "child" });
+    const out = await run(descriptors, "ldvh_pitfall_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo, childHeader("c1", "p1"));
+    assert.equal(out.outcome, "unavailable");
+    assert.ok(out.gaps[0].includes("arming_ledger_unavailable"), JSON.stringify(out.gaps));
+  });
+});
+
+test("根会话（非分身）写入不受本收窄影响——既有路径逐字保持", async () => {
+  await withTemp("pitfall-arm.", async (base) => {
+    const { repo, deps } = await armedFixture(base);
+    const descriptors = makeDescriptors(deps);
+    const out = await run(descriptors, "ldvh_pitfall_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft({ title: "主控自行记录的经验" }),
+      body_markdown: validBodyMarkdown(validFrontmatterDraft({ title: "主控自行记录的经验" })),
+    }, repo, { id: "root-1" });
+    assert.equal(out.outcome, "completed", JSON.stringify(out));
+  });
 });
