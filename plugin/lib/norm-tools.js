@@ -552,6 +552,7 @@ async function executeWriteObject(args, exec, deps) {
         file: created.value.file,
         fingerprint: created.value.fingerprint,
         read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
+        ...(created.value.assurance !== undefined ? { assurance: created.value.assurance } : {}),
       },
       scope: { requested: "create", completed: ["create", "read-back"], not_completed: [] },
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
@@ -649,6 +650,7 @@ async function executeWriteObject(args, exec, deps) {
       object_uid: updated.value.object_uid,
       file: updated.value.file,
       fingerprint: updated.value.fingerprint,
+        ...(updated.value.assurance !== undefined ? { assurance: updated.value.assurance } : {}),
       read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
       // 写入侧的警告（如载体内聚差异），不阻断。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
@@ -765,6 +767,19 @@ function renderEnvelope(operationKey, value) {
   const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   if (__warnings.length > 0) {
     lines.push("warnings:", ...__warnings.map((w) => `  - ${typeof w === "string" ? w : JSON.stringify(w)}`));
+  }
+  // **assurance 摘要必须进模型可见文本**（27 §14「只披露未满足项」的披露面）：
+  // 只留在 envelope 里等于没披露（审查 MAJOR-12）。
+  const __assurance = env.result?.assurance ?? null;
+  if (__assurance !== null && typeof __assurance === "object") {
+    lines.push(`assurance: declared=${__assurance.declared} invalid=${__assurance.invalid.length} noneMarks=${__assurance.noneMarks} hasAtLeastOne=${__assurance.hasAtLeastOne}`);
+    for (const bad of __assurance.invalid ?? []) {
+      lines.push(`  - 假声明（只披露，不阻断）：line ${bad.line} ${bad.face} —— ${bad.reason}`);
+    }
+    if (__assurance.hasAtLeastOne === false) {
+      lines.push("  - 未满足：该方向尚无强制面/保证面声明（27 §13.1 只披露不阻断）");
+    }
+    if (typeof __assurance.note === "string") lines.push(`  - ${__assurance.note}`);
   }
 
   if (Array.isArray(env.follow_up) && env.follow_up.length > 0) {

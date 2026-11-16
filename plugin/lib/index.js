@@ -40,6 +40,8 @@ import { resolveReviewAskSettings } from "./review-ask.js";
 import { resolveInjectionBudget } from "./source-recall.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { createHostSeams } from "./host-seams.js";
+import { createGreetingEnforcer } from "./greeting-enforcer.js";
+import { loadFacts } from "./source-recall.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { repairHooksOnStartup } from "./hook-repair.js";
 import { registerLdvhRpc, registerLdvhCommands } from "./rpc.js";
@@ -586,6 +588,31 @@ export function apply(ctx, config) {
   // registration carrier records an authoritative observation, so the
   // fs/write-intent guard below keys writes to a host-reported version.
   setCarrierObserver((carrierPath) => hostSeams.observePath(carrierPath));
+
+  // **称呼机械前置器**（2026-11-16，Human 决定「两条都按你推进」之决策二 A）：
+  // 挂 `llm/stream` 瀑布，对受辖根会话（sessionScopes 只登记根会话）且项目承载
+  // ai-human-collaboration 规范者，保证最终 assistant 消息以称呼起首。
+  //
+  // **保证面而非阻断面**：它改写输出、不拒绝/暂停/退回，按 04 §6.3 不计入覆盖；
+  // 27 §6.1 的「保证面」类别待 Human 决定 R2 落盘。失效面逐条登记在模块头注释
+  // （fail-open、abort 放行、无可见文本不适用、子会话不适用、它项目不适用）。
+  //
+  // **项目匹配**（审查 MAJOR-7）：scope.project.path 下须真实存在 active 的
+  // ai-human-collaboration 方向规范才前置——多受辖项目时不把本项目称呼强加给它项目。
+  const greetingEnforcer = createGreetingEnforcer({
+    sessionScopes,
+    projectCarriesNorm: async (projectPath) => {
+      try {
+        const facts = await loadFacts(join(projectPath, "ldvh-base"));
+        return facts.some((fact) => fact.type === "norm" && fact.status === "active"
+          && fact.structural?.directionKey === "ai-human-collaboration");
+      } catch { return false; }
+    },
+    logger: ctx.logger,
+  });
+  const greetingStop = greetingEnforcer.install(ctx);
+  ctx.effect(() => () => { try { greetingStop(); } catch { /* already removed */ } }, "dsh-ldvh: greeting enforcer");
+  ctx.logger.info("[dsh-ldvh] greeting enforcer mounted: %s", JSON.stringify(greetingEnforcer.snapshot()));
 
   // Per-agent lifecycle: agent/created install + adoption of already-live
   // agents; guidance injection, tools guard and the pre-step skeleton all

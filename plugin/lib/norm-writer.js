@@ -38,6 +38,7 @@
  * direction_key hierarchy, no cache/index projection.
  */
 
+import { assuranceSummaryOf } from "./norm-assurance.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -430,7 +431,7 @@ export async function createNormObject(args) {
   const content = buildFileContent(frontmatter, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ object_uid: uid, file: filePath, fingerprint: fileFingerprint(content) });
+  return success({ object_uid: uid, file: filePath, fingerprint: fileFingerprint(content), assurance: assuranceSummaryOf(bodyMarkdown) });
 }
 
 // ---------------------------------------------------------------------------
@@ -648,7 +649,7 @@ export async function updateNormObject(args) {
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);
 
-  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition });
+  return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition, assurance: assuranceSummaryOf(body) });
 }
 
 // ---------------------------------------------------------------------------

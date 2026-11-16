@@ -213,6 +213,18 @@
         "lib/child.js",
         "lib/lifecycle.js"
       ]
+    },
+    {
+      "name": "llm/stream",
+      "callSites": [
+        "lib/greeting-enforcer.js"
+      ]
+    },
+    {
+      "name": "agent/inbox/inserted",
+      "callSites": [
+        "lib/greeting-enforcer.js"
+      ]
     }
   ],
   "clientSlots": [
