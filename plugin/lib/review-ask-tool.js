@@ -32,6 +32,10 @@
 
 import { reviewDispatchTemplate } from "./review-dispatch-template.js";
 import { GATE_POINT_EXCLUSIONS, askEnabledFor, reviewAskMode, silentRunNotice } from "./review-ask.js";
+// 只复用**归一化**口径，不复用 `verifyQuotation`（2026-11-16 独立审核 MINOR-1）：
+// 后者的错误码与文案属 11 号（摩擦发现）域，其 `minChars=8` 是 11 §11 的实现侧
+// 护栏，搬进 32 号会把两套判据的词汇混在一起，日后改一处会牵动另一处。
+import { normalizeQuotationText } from "./friction-window.js";
 
 /** 05 §8 公共响应信封（与各 tool 模块同一形状）。 */
 function envelope(operationKey, outcome, fields) {
@@ -60,7 +64,8 @@ export const REVIEW_ASK_OPERATION = Object.freeze({
     + "**switch_off 时不会提问**，直接返回 decision=null 并说明原因——那是设计，不是失败。"
     + "\nsilent 是**配置决定的自动安排**，不是 Human 的答复：拿到它就去派代理，并把 result.notice 原样写进交付说明（静默不等于无痕）。"
     + "\n\nNOT A GATE: skip 是合法答复，不阻断任何后续动作；本工具不返回 granted。"
-    + "\n\nBOUNDARY: 它不判定「算不算复杂」，也不检查你是否真的调用了它——故这不构成机械保障（00 §4.6）。",
+    + "\n\nBOUNDARY: 它不判定「算不算复杂」，也不检查你是否真的调用了它——故这不构成机械保障（00 §4.6）。"
+    + "它同样**不判定「方案是否已有候选」**：那个条件在形式上不可分（敷衍的「候选：按 A 做」与真候选字形相同），按 specs/06 §5 不得以机械校验强制，故只在发问时点把判断依据（result.candidate_basis）交还给你，**不拦你、也不替你判**。因此本工具对「空问」没有拦截力，过去没有、现在也没有——不要因为看到了 candidate_basis 就认为这一步已被机制保证。",
   // **effect 改为 may_change_state**（2026-11-13 独立审核 MINOR #7）。
   //
   // 原值 "read" **是错的**：本工具会把答复写进载体
@@ -97,7 +102,7 @@ export function reviewAskParameterSchema() {
       claims: {
         type: "array",
         items: { type: "string" },
-        description: "决定「安排代理」时要交给代理核对的对象描述：post-work 传「这项工作声称做到的事」逐条列出（最容易被漏、也最决定复核质量的一块）；pre-action 传「方案打算怎么做」的关键主张。不给则模板里明确说缺，不虚构。",
+        description: "决定「安排代理」时要交给代理核对的对象描述：post-work 传「这项工作声称做到的事」逐条列出（最容易被漏、也最决定复核质量的一块）；pre-action 传「方案打算怎么做」的关键主张。不给则模板里明确说缺，不虚构。\n\n**pre-action 的额外用途（弱约束，specs/06 §5／§6）**：本工具会把「你这一轮正文里是否已经写出候选」作为判断依据一并交还（见返回的 candidate_basis）。它**不拦你**——形式不可分，机械层无法判断一段文字是不是合格候选；拦与不拦由你自己判。",
       },
       evidence: {
         type: "string",
@@ -106,6 +111,91 @@ export function reviewAskParameterSchema() {
     },
     required: ["point"],
     additionalProperties: false,
+  };
+}
+
+/**
+ * 组装行动前那处的**判断依据**（弱约束，specs/06 §5／§6）。
+ *
+ * ## 这不是闸
+ *
+ * `06 §5`：被区分对象在形式上不可分时（同一字形承载不同语义），不得以机械校验
+ * 强制执行；此时改用弱约束。本函数因此**只交还依据、不判定对错**——`06 §6`
+ * 明禁实现代为判定，也明禁以「已提供依据」声称该纪律已获保障。
+ *
+ * ## 为什么必须是弱约束（实测，2026-11-16）
+ *
+ * 曾拟「claims 必填 + claims 逐字出现在同轮正文，否则拒绝」。实测全量会话语料：
+ * 53 次 pre-action 调用、52 次带 claims、claims 逐字出现在同轮正文 **0/52**；
+ * 整轮正文为空 **0/53**（最小 119 字、中位 4494 字）。真实形状是「正文写叙述、
+ * 主张写在工具参数里」，两者从不重合 ⇒ 该闸会 100% 误拒合法询问；而模型空问时
+ * claims 照样齐备、正文照样长篇 ⇒ 对真正的空问 0 拦截力。只拒不拦，且拒绝不留痕
+ * （32 §16「记录缺失即按未请示处理」），外部看到的是「主控没问」——比不加闸更糟。
+ *
+ * ## 交还什么
+ *
+ * 三项可核对的事实，供调用方自己判断「是否已有候选」：
+ *   1. `turn_text_chars`：本轮已写出的正文长度（0 = 一个字都没写）；
+ *   2. `claims_present`：本次是否带了 claims；
+ *   3. `claims_in_turn_text`：**归一化后**逐条 claims 是否出现在本轮正文里。
+ *
+ * 第 3 项**不得**被读成「候选合格」：一份敷衍的「候选：按 A 做」照样能让它为真。
+ * 它只说明「你写下的主张，在你自己的正文里也能找到」。
+ *
+ * @param {object} args 工具参数
+ * @param {object} exec 工具执行上下文
+ * @param {object} deps 装配依赖（用 deps.readCurrentTurnText）
+ * @returns {object|null} 判断依据；取不到时如实返回 unavailable 形态，不虚构
+ */
+function buildCandidateBasis(args, exec, deps) {
+  const claims = Array.isArray(args?.claims)
+    ? args.claims.filter((item) => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+    : [];
+  const reader = deps?.readCurrentTurnText;
+  if (typeof reader !== "function") {
+    return {
+      available: false,
+      reason: "the live turn-text reader is not wired in this composition, so whether a candidate was already written cannot be read back here — judge it yourself from what you wrote before this call (specs/06 §6: the implementation owes you the basis, and it is reporting that it cannot supply it rather than implying the basis is empty)",
+      claims_present: claims.length > 0,
+      claims_count: claims.length,
+    };
+  }
+  let turn = null;
+  try {
+    turn = reader(exec?.agent);
+  } catch (error) {
+    return {
+      available: false,
+      reason: `the live turn-text reader threw (${String(error?.message ?? error)}), so the basis is unavailable — do not read this as "no candidate was written"`,
+      claims_present: claims.length > 0,
+      claims_count: claims.length,
+    };
+  }
+  if (turn === null || turn === undefined || turn.ok !== true) {
+    return {
+      available: false,
+      reason: typeof turn?.reason === "string" && turn.reason.length > 0
+        ? turn.reason
+        : "the current turn's text is not readable in this composition",
+      claims_present: claims.length > 0,
+      claims_count: claims.length,
+    };
+  }
+  const turnText = typeof turn.assistant === "string" ? turn.assistant : "";
+  const normalizedTurn = normalizeQuotationText(turnText);
+  const inText = claims.map((claim) => normalizedTurn.includes(normalizeQuotationText(claim)));
+  return {
+    available: true,
+    turn: turn.turn ?? null,
+    turn_text_chars: normalizedTurn.length,
+    turn_text_empty: normalizedTurn.length === 0,
+    truncated: turn.truncated === true,
+    claims_present: claims.length > 0,
+    claims_count: claims.length,
+    claims_in_turn_text: inText,
+    claims_in_turn_text_count: inText.filter(Boolean).length,
+    // 口径说明随依据一起交还，避免被读成「为真即合格」。
+    note: "claims_in_turn_text 只说明「你写下的主张在你本轮正文里也能找到」，**不说明它是合格候选**——一份敷衍的「候选：按 A 做」照样能让它为真。判断「是否已有候选」由你做（specs/06 §5：形式不可分，故本层不判定对错）。",
   };
 }
 
@@ -133,6 +223,11 @@ export async function executeReviewAsk(args, exec, deps) {
     });
   }
   const task = typeof args?.task === "string" && args.task.trim().length > 0 ? args.task.trim() : null;
+
+  // 行动前那处的**判断依据**（弱约束，specs/06 §5／§6）。只交还、不判定、
+  // 不阻断任何分支——它在静默档、开关关闭、实际询问三条路径上都要出现，
+  // 因为「无候选可核对」在这三种情形下同样成立（独立审核 MAJOR-1）。
+  const candidateBasis = point === "pre-action" ? buildCandidateBasis(args, exec, deps) : null;
 
   // 开关**每次现读**（volatile 字段无变更通知）。
   //
@@ -237,6 +332,9 @@ export async function executeReviewAsk(args, exec, deps) {
         }),
         // **痕迹行**：交付说明里须原样引用它，否则「静默」就成了「无痕」。
         notice: silentRunNotice({ point, task }),
+        // 静默档同样可能「无候选可核对」（32 §6.2 第 2 项：免掉的是询问，不是
+        // 那次核对），故判断依据在此分支**一并交还**（独立审核 MAJOR-1）。
+        ...(candidateBasis === null ? {} : { candidate_basis: candidateBasis }),
       },
       scope: { requested: point, completed: [point], not_completed: [] },
       // **没有 sources**：这一支没有经过任何宿主服务，如实留空比填一个
@@ -282,7 +380,10 @@ export async function executeReviewAsk(args, exec, deps) {
   // 语义，必须在**唯一入口**处生效：这里短路，则无论 seam 怎么写都不会问。
   if (enabled !== true) {
     return envelope("review-ask", "completed", {
-      result: { point, task, decision: null, asked: false, switch_enabled: false },
+      result: {
+        point, task, decision: null, asked: false, switch_enabled: false,
+        ...(candidateBasis === null ? {} : { candidate_basis: candidateBasis }),
+      },
       scope: { requested: point, completed: [], not_completed: [] },
       sources: [],
       gaps: [
@@ -339,6 +440,8 @@ export async function executeReviewAsk(args, exec, deps) {
       ...(outcome?.custom_note === undefined ? {} : { custom_note: outcome.custom_note }),
       ...(outcome?.fingerprint === undefined ? {} : { fingerprint: outcome.fingerprint }),
       switch_enabled: enabled,
+      // 行动前那处的判断依据（弱约束，06 §6）：只交还、不判定、不改变 decision。
+      ...(candidateBasis === null ? {} : { candidate_basis: candidateBasis }),
       // 「安排」时才给模板——「跳过」时给模板是噪声，也会诱导主控照派。
       ...(decision === "review" ? { review_template: reviewDispatchTemplate(point, {
         // 不传 subject：主控只用 task 一句时，模板会把它作为对象描述呈现；

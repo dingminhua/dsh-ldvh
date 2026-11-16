@@ -1004,3 +1004,220 @@ test("开关分派只有一处副本（工具面不得另写一遍）", async ()
 	);
 	assert.match(tool, /askEnabledFor\(settings, point\)/);
 });
+
+// ── 行动前那处的判断依据（弱约束，06 §5／§6） ────────────────────────────
+//
+// 背景（2026-11-16）：曾拟「claims 必填 + claims 逐字出现在同轮正文，否则拒绝」
+// 的机械闸。全量语料实测否决了它：53 次 pre-action 调用、52 次带 claims，
+// claims 逐字出现在同轮正文 **0/52**；整轮正文为空 **0/53**（最小 119 字、
+// 中位 4494 字）。真实形状是「正文写叙述、主张写在工具参数里」⇒ 该闸会 100%
+// 误拒合法询问，而对真正的空问 0 拦截力。故按 `06 §5` 改弱约束：只交还依据、
+// 不判定对错、不阻断任何分支（`06 §6`）。
+//
+// 这些用例守的是「依据被如实交还」与「取不到时不得假装是空」两件事。
+
+test("弱约束：行动前交还判断依据，且它不改变 decision/outcome", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const exec = { agent: { id: "a1" } };
+  const deps = {
+    hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+    readCurrentTurnText: () => ({ ok: true, turn: 3, assistant: "我打算先改 A，再改 B。", truncated: false }),
+  };
+  const res = await executeReviewAsk(
+    { point: "pre-action", task: "改 A", claims: ["先改 A", "再改 B"] },
+    exec, deps,
+  );
+  // 正控制：依据真的被交还了（不是恒缺）。
+  assert.ok(res.result.candidate_basis, "行动前必须交还判断依据");
+  const basis = res.result.candidate_basis;
+  assert.equal(basis.available, true);
+  assert.equal(basis.turn_text_chars, 13, "正文长度须按归一化后口径报");
+  assert.equal(basis.claims_present, true);
+  assert.equal(basis.claims_count, 2);
+  // 两条 claim 都在正文里 ⇒ 逐条为真。
+  assert.deepEqual(basis.claims_in_turn_text, [true, true]);
+  assert.equal(basis.claims_in_turn_text_count, 2);
+  // **不判定对错**：依据里不得出现「合格／可以问」这类裁决，也不得带 decision。
+  assert.doesNotMatch(JSON.stringify(basis), /"decision"/, "依据不是裁决，不得带 decision");
+  assert.match(basis.note, /不说明它是合格候选/);
+  // 依据不改变答复语义（正控制：答复仍照常透出）。
+  assert.equal(res.result.decision, "skip");
+  assert.equal(res.outcome, "completed");
+});
+
+test("弱约束：正文里找不到 claims 时如实报 false，且**不拦**这次询问", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  let asks = 0;
+  const deps = {
+    hostSeams: { requestReviewAsk: async () => { asks += 1; return { decision: "review", asked: true }; } },
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+    // 正文是叙述性短文，与 claims 不重合——这正是实测语料里的真实形状。
+    readCurrentTurnText: () => ({ ok: true, turn: 2, assistant: "让我先把规范原文查清楚。", truncated: false }),
+  };
+  const res = await executeReviewAsk(
+    { point: "pre-action", task: "改 A", claims: ["方案是先把 A 换成 B"] },
+    { agent: { id: "a1" } }, deps,
+  );
+  assert.equal(res.result.candidate_basis.claims_in_turn_text_count, 0);
+  assert.deepEqual(res.result.candidate_basis.claims_in_turn_text, [false]);
+  // **关键**：不重合**不阻断**询问（弱约束不是闸）。若哪天有人把它改成闸，
+  // 这条会转红——这就是它的检测力。
+  assert.equal(asks, 1, "claims 不在正文里不得阻断询问（06 §5：形式不可分，不得机械强制）");
+  assert.equal(res.result.decision, "review");
+  assert.equal(res.outcome, "completed");
+});
+
+test("弱约束：本轮一个字都没写时 turn_text_empty 为真（依据仍交还，不拦）", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  let asks = 0;
+  const deps = {
+    hostSeams: { requestReviewAsk: async () => { asks += 1; return { decision: "skip", asked: true }; } },
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+    readCurrentTurnText: () => ({ ok: true, turn: 1, assistant: "", truncated: false }),
+  };
+  const res = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: { id: "a1" } }, deps);
+  assert.equal(res.result.candidate_basis.turn_text_empty, true);
+  assert.equal(res.result.candidate_basis.turn_text_chars, 0);
+  // 这正是「空问」的形状——依据把事实摆出来了，但放不放行由主控判。
+  assert.equal(asks, 1, "空正文同样不阻断（本层只交还依据，不判定对错）");
+  assert.equal(res.result.decision, "skip");
+});
+
+test("弱约束：读取器缺失/抛错/取不到时如实报 available:false，**不得假装是空正文**", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const exec = { agent: { id: "a1" } };
+  const base = {
+    hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+  };
+  // ① 装配漏传
+  const missing = await executeReviewAsk({ point: "pre-action", task: "t" }, exec, base);
+  assert.equal(missing.result.candidate_basis.available, false);
+  assert.match(missing.result.candidate_basis.reason, /not wired/);
+  assert.equal(missing.result.candidate_basis.turn_text_chars, undefined, "取不到时不得给出一个长度值——那会被读成「正文是空的」");
+  // ② 抛错
+  const boom = await executeReviewAsk({ point: "pre-action", task: "t" }, exec, {
+    ...base, readCurrentTurnText: () => { throw new Error("live stream gone"); },
+  });
+  assert.equal(boom.result.candidate_basis.available, false);
+  assert.match(boom.result.candidate_basis.reason, /live stream gone/);
+  assert.match(boom.result.candidate_basis.reason, /do not read this as/);
+  // ③ 累积器未武装（返回 ok:false + reason）
+  const notArmed = await executeReviewAsk({ point: "pre-action", task: "t" }, exec, {
+    ...base, readCurrentTurnText: () => ({ ok: false, reason: "no live turn accumulator in this process" }),
+  });
+  assert.equal(notArmed.result.candidate_basis.available, false);
+  assert.match(notArmed.result.candidate_basis.reason, /no live turn accumulator/);
+  // 三例都不得因此改变 outcome（依据缺失不是错误）。
+  assert.equal(missing.outcome, "completed");
+  assert.equal(boom.outcome, "completed");
+  assert.equal(notArmed.outcome, "completed");
+});
+
+test("弱约束：post-work 不交还 candidate_basis（那里没有「候选是否已写出」这回事）", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const deps = {
+    hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+    readCurrentTurnText: () => ({ ok: true, turn: 5, assistant: "做完了。", truncated: false }),
+  };
+  const res = await executeReviewAsk({ point: "post-work", task: "t", claims: ["做完了"] }, { agent: { id: "a1" } }, deps);
+  assert.equal(res.result.candidate_basis, undefined, "post-work 不得出现 candidate_basis");
+  // 正控制：同一 deps 下 pre-action 确实会产出（证明上面的 undefined 不是因为它恒缺）。
+  const pre = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: { id: "a1" } }, deps);
+  assert.ok(pre.result.candidate_basis);
+});
+
+test("弱约束：静默档与开关关闭时也交还依据（32 §6.2 第 2 项：免掉的是询问，不是核对）", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const reader = () => ({ ok: true, turn: 4, assistant: "候选：按 A 做。", truncated: false });
+  // 静默档（正确键是 `silentRun`／`silentRunKnown`——写成 silentPreAction 会静默
+  // 退回询问分支，用例就测不到静默档，变异 3 正是这样漏检的）
+  const silent = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: { id: "a1" } }, {
+    hostSeams: { requestReviewAsk: async () => ({ decision: "silent", asked: false }) },
+    getReviewAskSettings: () => ({ preAction: true, postWork: true, silentRun: true, silentRunKnown: true }),
+    readCurrentTurnText: reader,
+  });
+  assert.equal(silent.result.silent_run, true, "必须真的走到静默分支（否则本用例守不住静默档的交还）");
+  assert.equal(silent.result.decision, "silent");
+  assert.ok(silent.result.candidate_basis, "静默档同样可能无候选可核对，须交还依据");
+  assert.equal(silent.result.candidate_basis.available, true);
+  // 开关关闭（注意：seam 必须可用——「接缝不可用」的检查排在开关判定之前，
+  // 那是既有次序，不是本用例要测的东西）
+  const off = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: { id: "a1" } }, {
+    hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
+    getReviewAskSettings: () => ({ preAction: false, postWork: false }),
+    readCurrentTurnText: reader,
+  });
+  assert.equal(off.result.switch_enabled, false);
+  assert.ok(off.result.candidate_basis, "开关关闭分支同样交还依据");
+});
+
+test("弱约束：归一化口径对形状差异宽容、对内容差异严格（依据不得把排版差异当内容差异）", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const deps = {
+    hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+  };
+  const run = async (assistant) => (await executeReviewAsk(
+    { point: "pre-action", task: "t", claims: ["先改 A 再改 B"] },
+    { agent: { id: "a1" } },
+    { ...deps, readCurrentTurnText: () => ({ ok: true, turn: 1, assistant, truncated: false }) },
+  )).result.candidate_basis.claims_in_turn_text[0];
+  // 形状差异（加粗、换行、全角空格）不该翻脸。
+  assert.equal(await run("我打算 **先改 A**\n再改 B。"), true, "Markdown 装饰与换行不得被判为内容差异");
+  // 内容差异必须严格。
+  assert.equal(await run("先改 A 再改 C。"), false, "换了一个字就该为 false");
+  assert.equal(await run("先改 B 再改 A。"), false, "顺序不同就该为 false");
+});
+
+test("renderEnvelope 必须把 candidate_basis 渲染给模型（信封里写了而渲染漏掉 = 没交还）", async () => {
+  const { renderEnvelope } = await import("../lib/ldvh-tools.js");
+  const mk = (basis) => ({
+    envelope: {
+      operation_key: "review-ask",
+      outcome: "completed",
+      result: { point: "pre-action", decision: "skip", asked: true, switch_enabled: true, candidate_basis: basis },
+      gaps: [], scope: { not_completed: [] }, follow_up: [],
+    },
+  });
+  // ① 可用且正文非空：三项事实都要出现在模型唯一可见窗口里
+  const full = renderEnvelope("review-ask", mk({
+    available: true, turn: 3, turn_text_chars: 42, turn_text_empty: false, truncated: false,
+    claims_present: true, claims_count: 2, claims_in_turn_text: [true, false], claims_in_turn_text_count: 1,
+    note: "不说明它是合格候选",
+  }))[0].text;
+  assert.match(full, /candidate_basis（判断依据，不构成裁决/, "须标明这是依据不是裁决");
+  assert.match(full, /本轮正文 42 字/);
+  assert.match(full, /带了 2 条，其中 1 条出现在本轮正文里/);
+  assert.match(full, /claim\[1\]: 出现在正文/);
+  assert.match(full, /claim\[2\]: \*\*未出现在正文\*\*/);
+  assert.match(full, /不说明它是合格候选/, "口径说明须一并渲染，否则被读成「为真即合格」");
+
+  // ② 正文为空：必须显式说出「一个字都没写」——这正是空问的形状
+  const empty = renderEnvelope("review-ask", mk({
+    available: true, turn_text_chars: 0, turn_text_empty: true, truncated: false,
+    claims_present: false, claims_count: 0,
+  }))[0].text;
+  assert.match(empty, /一个字都没写/);
+  assert.match(empty, /未带 claims/);
+
+  // ③ 取不到：必须说出来，**不得静默省略**（否则模型把「没读到」当「正文是空的」）
+  const unavailable = renderEnvelope("review-ask", mk({
+    available: false, reason: "the live turn accumulator is not wired", claims_present: false, claims_count: 0,
+  }))[0].text;
+  assert.match(unavailable, /candidate_basis: unavailable/);
+  assert.match(unavailable, /not wired/);
+
+  // ④ post-work 没有该键时不得凭空产出这一段（正控制）
+  const noBasis = renderEnvelope("review-ask", {
+    envelope: { operation_key: "review-ask", outcome: "completed", result: { point: "post-work", decision: "skip", asked: true, switch_enabled: true }, gaps: [], scope: { not_completed: [] }, follow_up: [] },
+  })[0].text;
+  assert.doesNotMatch(noBasis, /candidate_basis/);
+
+  // ⑤ 渲染层不得越权裁决：任何分支都不得出现「可以问／不能问」
+  for (const text of [full, empty, unavailable]) {
+    assert.doesNotMatch(text, /可以问|不能问|允许发问|禁止发问/);
+  }
+});

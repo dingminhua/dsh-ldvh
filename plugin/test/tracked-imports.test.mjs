@@ -136,3 +136,42 @@ test("判据本身有效：能识别出未跟踪目标（防止用例空转）",
     "索引里应当有 plugin/lib/spark-writer.js；它不在说明判据扫描的分区不对",
   );
 });
+
+// ── 被 try 包住的动态 import 断链（2026-11-16） ────────────────────────────
+//
+// 上面的判据刻意跳过「路径根本不存在」，理由是「Node 运行时立刻炸」。该理由
+// 对**静态** import 成立，对**被 try 包住的动态** import 不成立：
+//
+//   实测（`ddae5f72` 删除 `experience-review-stage.js`，`lifecycle.js:1703` 仍
+//   动态 import 它）：`ERR_MODULE_NOT_FOUND` 被外层 catch 吞掉并记成
+//   `friction-promotion-threw`。于是**每一次**摩擦阈值晋升都失败，而进程不崩、
+//   测试全绿、日志里只写「晋升失败」——看不出根因是模块不存在。
+//
+// 所以这一类必须有独立判据：**扫动态 import 的字面量路径，盘上不存在即失败**。
+// 它比静态 import 更危险：静态的会让整个模块起不来（立刻可见），动态的只在
+// 那条分支被走到时才失效，且通常已被 try 包住。
+
+test("动态 import 的字面量路径必须存在于磁盘（被 try 包住的断链不会炸，只能靠这条抓）", async () => {
+  const { readdirSync, readFileSync, existsSync } = await import("node:fs");
+  const { dirname, join, resolve } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const libDir = join(dirname(dirname(fileURLToPath(import.meta.url))), "lib");
+  // 只扫 lib 下的 .js；动态 import 的字面量形态是 import("./x.js")。
+  const files = readdirSync(libDir).filter((name) => name.endsWith(".js"));
+  const broken = [];
+  for (const file of files) {
+    const text = readFileSync(join(libDir, file), "utf8");
+    // 字面量动态 import：import("...") / import('...')。模板串不在本判据内
+    // （其路径在运行时才成形，机械层无法核对——如实留空，不假装覆盖）。
+    const pattern = /\bimport\s*\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const target = resolve(libDir, match[1]);
+      if (!existsSync(target)) broken.push(`${file} → ${match[1]}`);
+    }
+  }
+  assert.deepEqual(
+    broken, [],
+    `动态 import 指向不存在的文件（运行时不炸、只在该分支静默失效）：\n${broken.join("\n")}`,
+  );
+});

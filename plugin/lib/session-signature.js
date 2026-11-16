@@ -411,3 +411,48 @@ export async function shellAuthoritativeSessionIdentity() {
   // 该标记使写入器能机械拒收 shell 来源的复核身份。
   return identity.ok ? authoritativeSessionIdentity({ ...identity.value, source: "shell" }) : null;
 }
+
+/**
+ * 带原因的署名取数（2026-10-31；2026-11-16 随 `experience-review-stage.js` 删除
+ * 迁回本文件）。
+ *
+ * **为什么在这里**：署名取数的权威来源是会话记录，本文件正是那件事的归属地；
+ * 原实现寄居在审核段模块里，而 `ddae5f72` 把整层删除时连带删掉了它——却留下了
+ * `lifecycle.js` 对它的动态 import。后果是摩擦阈值晋升**每次都抛
+ * `ERR_MODULE_NOT_FOUND`**，被 `try` 记成 `friction-promotion-threw`，外部看到的
+ * 是「晋升失败」而不是「模块不存在」。恢复时按职责落到本文件，不再挂回任何审核段。
+ *
+ * **为什么要把原因带出来**：`resolveSignature` 取不到时只返回 null，调用方看到的
+ * 一律是 `signature_unavailable`。但「没有 persistence 服务」「会话 id 为空」
+ * 「宿主 open 抛错」「日志里没有 routing 事件」「有值但品牌化失败」是五件不同的事，
+ * 混成一个 null 使排查只能靠猜——实测为此连猜了两轮都没定位。
+ *
+ * 原因**只进活动记录与返回值**，不进任何事实对象：它是诊断，不是结论。
+ *
+ * @param {object|null} sessionPersistence 宿主持久化服务
+ * @param {string} sessionId 要取署名的会话标识
+ * @returns {Promise<{ok: true, value: string} | {ok: false, reason: string}>}
+ */
+export async function resolveSignatureDetailed(sessionPersistence, sessionId) {
+  if (sessionPersistence === null || sessionPersistence === undefined) {
+    return { ok: false, reason: "sessionPersistence-unavailable" };
+  }
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    return { ok: false, reason: "session-id-empty" };
+  }
+  try {
+    // 只认会话标识：宿主正规入口 open(id,'read') 自行定位日志。
+    const route = await currentRouteValuesForSession(sessionPersistence, { id: sessionId });
+    if (!route.ok) return { ok: false, reason: `route-unavailable:${route.reason ?? "unknown"}` };
+    const carrier = authoritativeSignature({ provider: route.value.provider, model: route.value.model });
+    if (carrier === null) {
+      return {
+        ok: false,
+        reason: `unbrandable:provider=${String(route.value.provider)}:model=${String(route.value.model)}`,
+      };
+    }
+    return { ok: true, value: carrier };
+  } catch (error) {
+    return { ok: false, reason: `signature-threw:${String(error?.message ?? error)}` };
+  }
+}
