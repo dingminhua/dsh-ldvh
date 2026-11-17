@@ -17,14 +17,20 @@
 //   agent/disposed           (fiber-owned cleanup — no hook needed)     [implicit]
 //
 // 触发判据（11 §6.1，**2026-11-17 修订**）：**触发锚是主控发起**。主控在当次
-// 行动中判定出现阻碍现象时，整理材料并经 `requestCheckpoint()` 交派一个执行体；
+// 行动中判定出现阻碍现象时，直接经 child-only 工具
+// `ldvh_friction_record_observation` 派受管辖分身记录（见 friction-tools.js）；
 // 本模块**不再有任何计时器、安静时长、到期二次确认或周期调度**。
+//
+// **原「检查点派发入口」（`requestCheckpoint` / `dispatchCheckpoint` /
+// `onSessionCheckpoint`）已于 2026-11-17 删除**：它是闲时辅助/水位路径的调度面，
+// 随架构改为主控经工具直接派发而失去对象。本模块现在只保留工具链仍需要的能力。
 //
 // 故本模块现在的形态是：
 //   - `agent/turn-stopping` / `session/event turn/end`：刷新活动时刻、记账轮次
 //     与区间材料（**不再武装任何计时**）；
 //   - `agent/status: idle`：只记一次观察计数，**不派发**；
-//   - `requestCheckpoint(source)`：**唯一的派发入口**，由主控显式调用。
+//   - `currentTurnText`：向 `ldvh_review_ask` 交出本轮正文作为弱约束依据；
+//   - `onSessionEvent` 内的累积器：为上述读取与轮次记账提供材料。
 //
 // **为什么计时器整体删除、而不是留作退路**（11 §6.1）：计时器的语义是「没人盯着
 // 时也要跑」，主控发起的语义是「主控在干活时顺带发现」。两者并存会产生**第二套
@@ -72,21 +78,22 @@ function eventTurn(event) {
  * falls back to a local one for direct/test usage); `activity` optionally
  * receives hook-action entries. `log` is the host logger.
  *
- * `onSessionCheckpoint` 由 **`requestCheckpoint()`** 调用——即主控在当次行动中
- * 发现阻碍时显式发起（11 §6.1「触发锚是主控发起」，2026-11-17）。它收到
- * `{ turn, source }` 并返回 promise；本模块不 await（宿主事件是同步 emit），
- * 拒绝被收口为日志，绝不逃逸进宿主的事件分发。
+ * ## 本模块的输入与注入点
  *
- * `persistActivityAt(ms)` 落持久化活动时刻（留作事后复算的材料，**不被读回重建
- * 计时**）；由编排层注入，使本模块不直接依赖文件写入（可测）。
+ * `getScopeState()` 读 lifecycle 的当前判定状态；`turns` 是 AgentLifecycle 持有的
+ * 标记对象（每 agent 单一归属，直接/测试用法下回落到本地对象）；`activity` 可选，
+ * 接收动作条目；`log` 是宿主 logger；`registerDiagnostic(entry)` 是**诊断痕迹**
+ * 注入点（2026-10-23，2026-10-24 回退时保留）：清理动作与失败分支落一条，使
+ * 「做过什么、在哪早退」可事后归因。它是尽力而为的旁路——其异常绝不影响判定。
+ *
  * **`readSilenceMs` 已不再被消费**：没有计时器就没有安静时长可取；该形参若仍被
  * 传入也不产生任何效果（triggers-idle.test.mjs 钉住这一点）。
  *
- * `registerDiagnostic(entry)` 是**诊断痕迹**注入点（2026-10-23，2026-10-24 回退
- * 时保留）：每个到期早退分支与派发调用都落一条，使「到点了却没有派发」可事后
- * 归因。它是尽力而为的旁路——其异常绝不影响判定。
+ * **检查点回调注入已删除**（2026-11-17）：`onSessionCheckpoint` / `persistActivityAt`
+ * 随 `requestCheckpoint` 与活动时刻落盘一起删除——本模块不再向编排层发起派发，
+ * 摩擦记录走 child-only 工具的独立路径。
  *
- * 本模块**不持有任何宿主调度依赖**：计时器是进程内的，宿主服务缺失不影响武装
+ * 本模块**不持有任何宿主调度依赖**：计时器是进程内的，宿主服务缺失不影响挂载
  * ——这正是 2026-10-24 回退要消除的耦合。
  */
 /**
@@ -113,7 +120,7 @@ function eventTurn(event) {
 // 取消」一行看起来仍被机械采集，而实际上没有任何东西可失败——这正是本仓反复
 // 记载的「空壳机制」失效形态。
 
-export function createTurnTriggers(agent, { getScopeState, turns, activity, log, onSessionCheckpoint, readSilenceMs, persistActivityAt, now, registerDiagnostic }) {
+export function createTurnTriggers(agent, { getScopeState, turns, activity, log, readSilenceMs, now, registerDiagnostic }) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
 
   /**
@@ -125,8 +132,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
    * log / 没有该方法」，防不住「方法自己抛」。故一律经本函数吞掉日志自身的
    * 异常——留痕是尽力而为，**派发判定不受它牵连**。
    *
-   * 注意：这里吞掉的只是**日志**的异常，**派发判定本身仍走原有 `try/catch`**
-   * （见 `dispatchCheckpoint`），两者不可混为一谈。
+   * 注意：这里吞掉的只是**日志**的异常；诊断写入自身的失败另由 `trace` 吞掉。
    */
   function note(level, ...args) {
     try {
@@ -188,12 +194,9 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 正是被 11 §6.1 判为偏离的形态——宿主在回合刚结束时就报 idle，故那等于
     // 「回合结束即派发」，且待办位一经消费便不再置位，使**沉默越久越不会触发**。
     //
-    // `lastActivityAt`：最后一次会话活动时刻（毫秒）。它是«空闲»判据的锚——
-    // 与「上次派发时刻」是两个不同的量（前者问人是否停了，后者问机制跑得勤不勤）。
-    // **只在内存**（2026-10-27，Human 决定）：不再由装载路径恢复。持久化写入仍在
-    // （`persistActivityAt` 落水印载体，留作事后复算「本次是否满足所声明的时机」的
-    // 材料——注意：截至 2026-10-27 仓内没有它的生产读取面，不得据此声称诊断页已消费），
-    // 但**不再被读回来重建计时**——理由见文件头「重启使安静期作废」段。
+    // `lastActivityAt`：最后一次会话活动时刻（毫秒）。**只在内存**（2026-10-27，
+    // Human 决定；2026-11-17 起持久化写入也随检查点路径删除）：它保留为同进程内
+    // 的状态快照字段，不再被读回来重建计时，也没有持久化载体。
     lastActivityAt: null,
     // 原安静期计时器句柄位。**恒为 null**（2026-11-17 计时器已删除）；保留该键
     // 只为让既有清理路径与快照读法不至于读到 undefined，不得再被写入句柄。
@@ -203,11 +206,9 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 到期后对死对象派发一次。
     disposed: false,
     // **本回合是否仍在进行**（2026-10-23）：`turn/start` 置真、`turn/end` 置假。
-    // 用途有二——回合开始时清掉计时器（对话进行中不倒计时），以及到期回调内
-    // 的末道防线（事件落盘晚于事实时，到期回调仍不得派发）。
+    // 计时器删除后它不再参与倒计时判定，仅作为会话状态快照的一部分保留。
     turnInFlight: false,
-    lastIdleSeen: 0,
-    lastCheckpointDispatch: undefined
+    lastIdleSeen: 0
   };
 
   // D1（缺陷修复）：区间材料在**调度侧**机械累积。它是本模块的状态而非事实，
@@ -263,23 +264,16 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
   /**
    * 刷新「最后一次活动时刻」（11 §6.1）。
    *
-   * **不再重置任何计时**（2026-11-17 计时器已删除）：本函数只记活动时刻并落
-   * 持久化戳，供事后复算材料时机；`clearSilenceTimer` 的调用是空转清理。
+   * **不再重置任何计时**（2026-11-17 计时器已删除）：本函数只记内存中的活动时刻，
+   * 供同进程内的状态快照读取；`clearSilenceTimer` 的调用是空转清理。
+   *
+   * `persistActivityAt` 的持久化写入已于 2026-11-17 删除：它服务的是「事后复算
+   * 静置时机」，而静置检查点本身已不存在，该材料没有消费方。
    */
   function touchActivity(nowMsInput) {
     const at = Number.isFinite(nowMsInput) ? nowMsInput : nowMs();
     state.lastActivityAt = at;
     clearSilenceTimer("activity");
-    // 持久化（尽力而为，不阻塞事件流；失败只记日志）。
-    if (typeof persistActivityAt === "function") {
-      try {
-        Promise.resolve(persistActivityAt(at)).catch((error) => {
-          log?.warn?.("[dsh-ldvh] activity stamp persist failed: %s", String(error?.message ?? error));
-        });
-      } catch (error) {
-        log?.warn?.("[dsh-ldvh] activity stamp persist threw: %s", String(error?.message ?? error));
-      }
-    }
   }
 
   /**
@@ -297,30 +291,18 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
    * 事**，也不得被重新填回计时逻辑（triggers-idle.test.mjs 的守卫会失败）。
    */
   function armSilenceTimer() {
-    // 无计时器可武装：派发只由主控经 requestCheckpoint 发起。
+    // 无计时器可武装：摩擦记录由主控经 child-only 工具发起。
   }
 
-  /** 调度辅助任务；不 await（宿主事件是同步 emit），失败只登记不外抛。 */
-  function dispatchCheckpoint(source) {
-    if (typeof onSessionCheckpoint !== "function") return;
-    state.lastCheckpointDispatch = { turn: state.lastTurn, source };
-    activity?.record("session/checkpoint", { turn: state.lastTurn, source });
-    // 诊断痕迹（2026-10-23）：证明 dispatchCheckpoint 被调用过。若只有本条而无
-    // 运行记录，真凶在 onSessionCheckpoint 内部的静默 return；若连本条都没有，
-    // 真凶在 dispatchCheckpoint 之前。
-    trace("dispatch-called", source);
-    try {
-      Promise.resolve(onSessionCheckpoint({ turn: state.lastTurn, source })).catch((error) => {
-        // 调度本身失败不等于辅助任务失败：任务内部的 fail-closed 由执行体与
-        // 待处置队列承担（04 §8.3）。这里只保证异常不污染宿主的事件分发。
-        log?.warn?.("[dsh-ldvh] idle checkpoint dispatch failed: %s", String(error?.message ?? error));
-        trace("dispatch-rejected", source, { error: String(error?.message ?? error) });
-      });
-    } catch (error) {
-      log?.warn?.("[dsh-ldvh] idle checkpoint dispatch threw synchronously: %s", String(error?.message ?? error));
-      trace("dispatch-threw", source, { error: String(error?.message ?? error) });
-    }
-  }
+  /**
+   * 原「调度辅助任务」入口已删除（2026-11-17）。
+   *
+   * 它把 `onSessionCheckpoint({ turn, source })` 交给编排层，由编排层跑闲时辅助/
+   * 水位切分。该整条路径（`requestCheckpoint` → 本函数 → lifecycle 的检查点回调）
+   * 随架构改为「主控经 child-only 工具直接派发代理」而失去对象，故一并删除——
+   * 保留一个无人调用的空派发器只会让读者以为仍有第二条观察来源（11 §6.1、
+   * §19.1 第 3 项）。
+   */
 
   return {
     /**
@@ -362,8 +344,8 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      * 待遇（都算「已空闲」），而后者反而**永不触发**（原实现的待办位已被首次
      * idle 消费、且 idle 是迁移事件不会重放）。
      *
-     * 现行（11 §6.1，2026-11-17）：本事件只记一次 idle 观察计数。真正的派发由
-     * 主控经 `requestCheckpoint()` 发起。故此处既无 `checkpointPending`，也无计时。
+     * 现行（11 §6.1，2026-11-17）：本事件只记一次 idle 观察计数，不发起任何派发。
+     * 故此处既无 `checkpointPending`，也无计时。
      */
     onAgentStatus(payload) {
       if (payload?.agent !== undefined && agentId !== undefined && payload.agent.id !== agentId) return;
@@ -415,14 +397,6 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       // pinned per-turn state, reconcile enumeration digests, schedule
       // deferred reflection (mnemon idleReview timing shape, LDVH
       // proposal-only semantics).
-    },
-
-    /**
-     * D1：取「水位之后」的区间材料（交给子代理的实际内容）。
-     * 由编排层在调度前调用——**区间内容由调度侧给出，不由子代理自行划定**。
-     */
-    windowFrom(watermarkTurn) {
-      return accumulator.windowFrom(watermarkTurn);
     },
 
     /**
@@ -506,12 +480,18 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 「一次触发完成后该形态的本次计时即告结束……不得在同一目标时刻上反复触发」。
     //
     // **不再提供「装载时恢复锚点」的替代入口**：计时起点只剩一个——**回合结束**。
-    // 持久化的活动时刻仍由 `persistActivityAt` 写入（留作事后复算时机的材料；仓内
-    // 当前无生产读取面，见 state 处的同一条说明），但不被读回内存。**不要为了「重启后接着计时」把它加回来**：那会把已经花掉的
-    // 安静期重新变成待触发的，缺陷原样复现，且表面症状是「打开旧对话就派发」。
+    // 2026-11-17 起持久化写入与读取一并删除（没有消费方）。**不要为了「重启后接着
+    // 计时」把它加回来**：那会把已经花掉的安静期重新变成待触发的，缺陷原样复现，
+    // 且表面症状是「打开旧对话就派发」。
 
     /**
-     * 恢复「最后一个已知轮次」（由 lifecycle 在派发时回填，见 onSessionCheckpoint）。
+     * 恢复「最后一个已知轮次」（由 lifecycle 在重启后回填；见下方说明）。
+     *
+     * **2026-11-17 起仓内已没有生产调用方**：原唯一的回填点在 lifecycle 的
+     * `onSessionCheckpoint`（检查点派发前从宿主会话记录取回轮次），该整条路径已
+     * 删除。方法按「不得顺手清空仍在用的能力」的纪律保留——它本身不依赖被删路径，
+     * 且 `currentTurnText` / 区间材料仍以 `lastTurn` 为锚；未来若有回填需求，
+     * 仍应经本函数而不是另开一条写 `lastTurn` 的通道。
      *
      * **为什么需要它**（2026-10-19）：`lastTurn` 只在回合边界事件里被赋值
      * （`onTurnStopping` 的载荷、`onSessionEvent` 的 `turn/end`），**没有任何
@@ -541,30 +521,6 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       if (state.lastTurn !== undefined) return false;
       state.lastTurn = turn;
       note("info", "[dsh-ldvh] last turn restored from the host session record: turn=%d", turn);
-      return true;
-    },
-
-    /**
-     * **主控发起一次检查点**（2026-11-17，11 §6.1「触发锚是主控发起」）。
-     *
-     * 这是计时器删除后**唯一的派发入口**：主控在当次行动中发现阻碍或已查明验证的
-     * 失败机制时，调本方法把材料交给检查点，由它派代理去处理。
-     *
-     * 参数 `source` 只用于留痕与事后归因，**不参与任何判据**——不存在「某些 source
-     * 才允许派发」的白名单，也不存在基于时间的节流（11 §6.2 现为空集）。调用方
-     * 给什么就记什么，使痕迹能回答「这一次是谁发起的」。
-     *
-     * **本方法不判定「值不值得记」**：那是主控的判断（00 §4.5 代理辅助任务），
-     * 机械层不判定。此处只做「把请求送进检查点」这一件事，并把异常收口为日志
-     * ——与 dispatchCheckpoint 同一纪律，不使调度失败污染调用方。
-     *
-     * @param {string} [source] 发起来源标签（缺省 `"controller"`）
-     * @returns {boolean} 是否真的送进了检查点（无回调时 false）
-     */
-    requestCheckpoint(source = "controller") {
-      if (state.disposed === true) return false;
-      if (typeof onSessionCheckpoint !== "function") return false;
-      dispatchCheckpoint(source);
       return true;
     },
 

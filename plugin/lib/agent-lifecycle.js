@@ -45,9 +45,11 @@ export class AgentLifecycle {
     this.toolsDisposer = null;
     // Pre-step channel state (prime/digest — content seams for batch 3).
     this.preStep = { primePending: false, lastDigest: null };
-    // Turn-trigger markers (session-checkpoint / idle-confirmation seams).
-    // `checkpointPending` 是 11 §6.1 两步触发的第一步标记（检查点已到达），
-    // 由 agent/status 的 idle 迁移消费。
+    // Turn-trigger markers (turn bookkeeping / idle observation count).
+    //
+    // `checkpointPending` / `lastCheckpointDispatch` / `discoveryAbort` 已随
+    // 静置检查点删除（2026-11-17）：检查点不再由 idle 或计时器发起，摩擦记录改由
+    // 主控经 child-only 工具直接派发；不再有「待派发位」或跨轮派生的取消信号。
     //
     // 曾有一个 `auxRotation` 计数器（32 §10.2 三任务预算轮换）。Human 于
     // 2026-10-11 删除轮换概念（一次派发做全部已启用的事），该计数器随之删除——
@@ -57,12 +59,7 @@ export class AgentLifecycle {
       turnEndSeen: 0,
       lastTurn: undefined,
       lastReflectionGate: undefined,
-      checkpointPending: false,
-      lastIdleSeen: 0,
-      lastCheckpointDispatch: undefined,
-      // 11 §7.1 执行体的取消信号（每次检查点派生时替换，旧的先 abort——避免
-      // 多轮检查点的派生堆积）。会话销毁时由 dispose 路径收口。
-      discoveryAbort: undefined
+      lastIdleSeen: 0
     };
     // Activity projection (every hook action).
     this.activity = new ActivityLog();

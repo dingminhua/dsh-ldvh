@@ -36,9 +36,6 @@
  *    维护已运行）。静默剔除会使 Human 从设置面到痕迹都看不出该任务没做。
  */
 
-import { buildDiscoveryPromptSection, discoveryOutputSchema, validateDiscoveryVerdict } from "./friction-subagent-contract.js";
-
-
 /**
  * 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序（规范叙述次序）。
  *
@@ -83,13 +80,18 @@ export const UNIMPLEMENTED_AUX_TASKS = Object.freeze(["capacity-maintenance", "m
 /**
  * `friction-discovery`（摩擦发现）的登记项。
  *
- * 提示词段与输出 schema 的实际内容由 `friction-subagent-contract.js` 提供——本项
- * 只做**查找与分派**，不复制其正文（04 §13 第 6 条：不在规范里复制宿主/下位实现；
- * 同理实现内部也不复制彼此的文本，否则一改两处必漂移）。
+ * **2026-11-17：宿主辅助派发路径已整条删除**（`friction-discovery-provider.js` /
+ * `friction-subagent-contract.js` / `idle-checkpoint.js` 均已删除）。摩擦观察改由
+ * 主控经 child-only 工具 `ldvh_friction_record_observation` 直接派发子代理写入
+ * 观察缓冲（见 friction-tools.js），**不再经本表拼接提示词或校验回传结论**。
+ *
+ * 故本项只保留任务键与 `implemented: false`：它不再是可派发任务，但键仍留在
+ * `AUX_TASK_ORDER` 里，因为设置面（idle-settings.js / client.js）本批不动、仍会
+ * 产出该任务键；三部位（promptSection / outputSchema / validate）已随契约模块删除。
+ * 设置面开关与登记表的清理属下一批。
  */
 
-
-/** 摩擦发现（11 §9）的任务键。**曾用名 `idle-review`**（见 friction-watermark 的改名回落）。 */
+/** 摩擦发现（11 §9）的任务键。**曾用名 `idle-review`**（历史改名，载体已删除）。 */
 const FRICTION_DISCOVERY_KEY = "friction-discovery";
 
 /** 经验积累（11 §10）的任务键。 */
@@ -312,22 +314,8 @@ export function validateCompositeOutput(structured, { tasks = [], registry = AUX
 export const AUX_TASK_REGISTRY = Object.freeze({
   [FRICTION_DISCOVERY_KEY]: Object.freeze({
     key: FRICTION_DISCOVERY_KEY,
-    implemented: true,
-    // 三个部位的正文由契约/落地模块提供——本表只**引用**，不复制。
-    // 复制会使同一段规则有两份文本，一改两处必漂移（04 §13 第 6 条同理）。
-    promptSection: buildDiscoveryPromptSection,
-    outputSchema: discoveryOutputSchema,
-    validate: (slice, ctx) => validateDiscoveryVerdict(slice, {
-      candidates: ctx?.candidates ?? [],
-      // 2026-10 修订：观察层的判定需要知道「缓冲里已有哪些组」——否则子代理
-      // 无法把本次观察并入既有组，聚合永远到不了 N（11 §9 第 1、3 项）。
-      observationGroups: ctx?.observationGroups ?? [],
-      windowText: ctx?.windowText ?? null,
-      // 2026-11-03：把窗口的截断事实一并交下去——单轮超 20000 字被切过时，
-      // 「引文不在材料里」有两种成因（引错地方／落在被切掉的尾部），
-      // 消息必须能区分，否则记录本身无法回答「该不该算机制缺陷」。
-      windowTruncated: ctx?.windowTruncated === true,
-    }),
+    // 宿主辅助派发路径已删除（2026-11-17）；键只为设置面兼容而保留。
+    implemented: false,
   }),
   // **2026-11-16**：`experience-capture` 登记已删除——经验积累改由主控派生代理
   // 完成，宿主辅助任务不再承担经验侧职责。故本表无该项。

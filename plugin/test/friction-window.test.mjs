@@ -1,11 +1,13 @@
-// Tests for plugin/lib/friction-window.js —
-// 缺陷 D1 的修复：把观察区间的内容**在调度侧机械累积**，并要求子代理逐字引证、
-// 由落地侧机械核对（11 §11 水位段：切分依据不得是「AI 认为哪些是新的」）。
+// Tests for 调度侧观察区间累积器（现位于 plugin/lib/turn-accumulator.js）。
+//
+// 历史：本文件原测 `friction-window.js` 的累积器与引证核对（D1）。2026-11-17
+// 删除水位/静置检查点路径时，`friction-window.js` 整体删除：累积器已在批次 1
+// 迁入 `turn-accumulator.js`，引证核对（`verifyQuotation`）随路径 B 一并移除，
+// 故本文件只保留累积器（`windowFrom` 等）用例。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createWindowAccumulator } from "../lib/turn-accumulator.js";
-import { verifyQuotation } from "../lib/friction-window.js";
 
 /** 造一个 assistant/message 事件（形状取自宿主 SessionEventMap）。 */
 function assistantEvent(turn, blocks) {
@@ -122,65 +124,6 @@ test("累积：reset 清空（会话切换）", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 引证核对（D1 的机械判定）
-// ---------------------------------------------------------------------------
-
-function windowTextOf(items) {
-  return items.map((i) => `[turn ${i.turn}] user: ${i.user}\nassistant: ${i.assistant}`).join("\n\n");
-}
-
-test("核对：窗口内的逐字引证通过", () => {
-  const acc = createWindowAccumulator();
-  acc.observe(null, assistantEvent(4, [{ type: "text", text: "这次构建在链接阶段失败了。" }]));
-  const w = acc.windowFrom(3);
-  const r = verifyQuotation("这次构建在链接阶段失败了。", windowTextOf(w.items));
-  assert.ok(r.ok, JSON.stringify(r.error));
-});
-
-test("核对：**窗口外的引证被拒**——这是 D1 的机械判定点", () => {
-  const acc = createWindowAccumulator();
-  acc.observe(null, assistantEvent(4, [{ type: "text", text: "仅在窗口内的内容。" }]));
-  const w = acc.windowFrom(3);
-  // 子代理声称依据某段其实不在本次窗口里的原文（模拟它按自己的理解扩大范围）
-  const r = verifyQuotation("这段内容其实发生在很早以前，不在本次区间内。", windowTextOf(w.items));
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-  assert.match(r.error.message, /outside the observation window/);
-});
-
-test("核对：空白差异被归一（换行/多空格不算不同文本）", () => {
-  const text = "第一行\n  第二行   有空格";
-  const r = verifyQuotation("第一行 第二行 有空格", text);
-  assert.ok(r.ok, JSON.stringify(r.error));
-});
-
-test("核对：空引证被拒（无引证即无从机械核对）", () => {
-  for (const empty of ["", "   ", "\n"]) {
-    const r = verifyQuotation(empty, "some window text");
-    assert.ok(!r.ok);
-    assert.equal(r.error.code, "discovery/quote_missing");
-  }
-});
-
-test("核对：过短引证被拒（太短不足以确立来源）", () => {
-  const r = verifyQuotation("好的", "好的，我这就去做。");
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/quote_too_short");
-});
-
-test("核对：不做模糊匹配（相似但不相同即拒——相似度会把它变回语义判断）", () => {
-  const r = verifyQuotation("这次构建在链接阶段失败了", "这次构建在链接阶段成功了。");
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-});
-
-test("核对：空窗口下任何引证都被拒（没给材料就不能有依据）", () => {
-  const r = verifyQuotation("我依据某段内容判断", "");
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-});
-
-// ---------------------------------------------------------------------------
 // 2026-11-03：失败消息须能区分「引错地方」与「引文落在被切掉的尾部」
 //
 // 材料按轮施加 20000 字符上限（specs/11 §7.1），超出部分被 clamp 切掉并置
@@ -190,39 +133,6 @@ test("核对：空窗口下任何引证都被拒（没给材料就不能有依�
 // 无从归因。这三条钉住：默认（未截断）口径不变、截断口径改词、显示须标原长。
 // ---------------------------------------------------------------------------
 
-test("核对：窗口未截断时，失败消息仍指向「引了窗口外的材料」（默认路径不变）", () => {
-  const r = verifyQuotation("这段不在材料里的话", "材料正文在这里。", { truncated: false });
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-  assert.match(r.error.message, /outside the observation window/, "未截断时须维持原结论：引错了地方");
-  assert.ok(!/截断/.test(r.error.message), "未截断时不得提到截断，否则等于给执行体递了一个不成立的借口");
-});
-
-test("核对：窗口截断过时，失败消息不得断言「引文失实」，须点明可能是尾部被切", () => {
-  const r = verifyQuotation("这段可能落在被切掉尾部的话", "材料正文在这里。", { truncated: true });
-  assert.ok(!r.ok);
-  // 错误码不变：它仍是同一道判据的同一个失败面，改的只是可诊断性。
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-  assert.match(r.error.message, /截断/, "须点明本次材料被截断过");
-  assert.match(r.error.message, /材料不全/, "须给出正确处置方向：按材料不全而非引证失实对待");
-  assert.ok(
-    !/the verdict cites material outside the observation window/.test(r.error.message),
-    "不得沿用「引了窗口外的材料」这一断言——那会把材料不全记成执行体出错",
-  );
-});
-
-test("核对：引文被显示截断时须标出原长（否则读者分不清「原文就这么长」与「显示被截」）", () => {
-  const longQuote = "一二三四五六七八九十".repeat(12); // 120 字，> 80
-  const r = verifyQuotation(longQuote, "完全无关的材料正文。");
-  assert.ok(!r.ok);
-  assert.match(r.error.message, /原长 120 字/, "须标原长");
-  assert.match(r.error.message, /显示前 80 字/, "须说明显示被截");
-  const shortQuote = "短引证八个字以上";
-  const r2 = verifyQuotation(shortQuote, "完全无关的材料正文。");
-  assert.ok(!r2.ok);
-  assert.ok(!/原长/.test(r2.error.message), "未被显示截断时不得无端加注");
-});
-
 // ---------------------------------------------------------------------------
 // friction-37458a09：逐字引证校验拒收「形状不同、内容相同」的引文
 //
@@ -230,45 +140,6 @@ test("核对：引文被显示截断时须标出原长（否则读者分不清�
 // （剥掉装饰后仍须被认作材料原文）、两条反向控制（真差异仍须被拒，防止「放宽」
 // 被做成「形同不校验」）。
 // ---------------------------------------------------------------------------
-
-test("核对：剥掉 Markdown 装饰的引文仍算材料原文（friction-37458a09）", () => {
-  const material = "根因是**跨进程水位**没有持久化，`verifyQuotation` 拿不到原文。";
-  const r = verifyQuotation("根因是跨进程水位没有持久化，verifyQuotation 拿不到原文。", material);
-  assert.ok(r.ok, `剥标记后内容相同的引文不应被拒：${JSON.stringify(r.error)}`);
-});
-
-test("核对：引文自带装饰而材料没有，同样算同一段（双向放宽）", () => {
-  const material = "根因是跨进程水位没有持久化。";
-  const r = verifyQuotation("根因是**跨进程水位**没有持久化。", material);
-  assert.ok(r.ok, `加上装饰不应使引文失配：${JSON.stringify(r.error)}`);
-});
-
-test("核对：全角空格与零宽字符不构成内容差异", () => {
-  // 材料里用的是全角空格与零宽字符；引文用普通空格、且不含零宽字符。
-  // 归一化后两者都落到「单空格分隔」，故应判为同一段原文。
-  const material = "第一段\u3000第二段\u200b，第三段。";
-  const r = verifyQuotation("第一段 第二段，第三段。", material);
-  assert.ok(r.ok, `空白码位差异不应被当成内容差异：${JSON.stringify(r.error)}`);
-});
-
-test("核对（反向控制）：空白归一不改变「有没有空白」这一信息", () => {
-  // 归一化只折叠连续空白，不删除空白本身——粘连与分隔是内容差异。
-  const r = verifyQuotation("根因是跨进程水位没有持久化", "根因是跨进程 水位没有持久化");
-  assert.equal(r.ok, false, "空白的有无仍是内容差异，不得靠归一化抹平");
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-});
-
-test("核对（反向控制）：装饰归一不得吞掉真实的内容差异", () => {
-  const r = verifyQuotation("根因是跨进程水位**没有**持久化", "根因是跨进程水位**已经**持久化");
-  assert.equal(r.ok, false, "字面不同的内容仍须被拒——放宽只针对装饰形状");
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-});
-
-test("核对（反向控制）：装饰归一不得把两段不相邻原文拼成一段", () => {
-  const r = verifyQuotation("前半句。后半句。", "前半句。中间还有很多别的内容。后半句。");
-  assert.equal(r.ok, false, "跨不相邻片段拼接的引文仍须被拒（11 §11）");
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-});
 
 // ---------------------------------------------------------------------------
 // 缺陷 D6：水位跨进程持久化，而累积器随进程存活 → 重启后区间可能有缺口
@@ -422,19 +293,6 @@ test("截断标记在后续消息到来后仍然为 true（合并只会更满，
   assert.equal(item.assistant, "0123456789", "且仍截取前缀");
 });
 
-test("跨消息引证可被核对（拼接分隔符须已被 normalize 折叠）", () => {
-  // 消息之间以空行相隔。`verifyQuotation` 的 normalize 把连续空白折成单个空格，
-  // 故跨消息的引文仍可核对——这个性质必须成立，否则「累积」会让引证更容易被拒。
-  const acc = createWindowAccumulator();
-  acc.observe(null, assistantEvent(3, [{ type: "text", text: "前半句，" }]));
-  acc.observe(null, assistantEvent(3, [{ type: "text", text: "后半句。" }]));
-  const w = acc.windowFrom(-1);
-  const body = w.items.map((i) => i.assistant).join("\n");
-  // 跨两条消息的引证（含拼接处的换行）。
-  const r = verifyQuotation("前半句， 后半句。", body);
-  assert.equal(r.ok, true, `跨消息引证应可核对（实际：${JSON.stringify(r.error)}）`);
-});
-
 test("真实形状回归：单轮 25 条消息、其中含空消息，须全部累积且不被清空", () => {
   // 复现本会话 turn 55 的形状（25 条、末几条为空文本的纯工具调用）。
   const acc = createWindowAccumulator();
@@ -513,31 +371,4 @@ test("默认上限 20000 不是零损失：超长单轮仍被砍且如实标记�
   assert.equal(w.items[0].assistant.length, 20000, "超过 20000 的单轮只能保留前 20000 字");
   assert.ok(w.items[0].assistant.length < overlong, "**确实发生了损失**——不得声称上限 20000 等价于全文");
   assert.equal(w.items[0].truncated, true, "损失必须如实标记，不得静默");
-});
-
-test("端到端：超长单轮被切后，其尾部引文的失败须被标成「材料不全」而非「引证失实」", () => {
-  // 这是那 18 条队列记录的真实形态：执行体引了某轮靠后的原文，而该轮超过
-  // 20000 字、尾部已被 clamp 切掉。此前它得到的消息与「凭空引用」完全一样，
-  // 于是记录本身回答不了「这次是不是执行体的错」。
-  const marker = "这段原文落在第 20000 字之后的尾部，已被切掉。";
-  const long = `${blockOfLength(20000)}${marker}`;
-  assert.ok(long.length > 20000);
-
-  const acc = createWindowAccumulator();
-  acc.observe(null, assistantEvent(1, [{ type: "text", text: long }]));
-  const w = acc.windowFrom(null);
-  assert.equal(w.truncated, true, "前提：该轮确被截断");
-
-  const text = windowTextOf(w.items);
-  const r = verifyQuotation(marker, text, { truncated: w.truncated });
-  assert.ok(!r.ok, "尾部引文当然核对不过——它确实不在交付的材料里");
-  assert.equal(r.error.code, "discovery/quote_not_in_window");
-  assert.match(r.error.message, /截断/, "消息须点明材料被截断过，否则无从与「凭空引用」区分");
-  assert.match(r.error.message, /材料不全/, "须指向正确处置：按材料不全对待，而不是判执行体引错");
-
-  // 反向半边：同一段材料下，落在**保留部分**的引文仍须通过——截断不得被
-  // 当成「一切引证都可疑」的借口。
-  const head = blockOfLength(20000).slice(0, 40);
-  const ok = verifyQuotation(head, text, { truncated: w.truncated });
-  assert.ok(ok.ok, JSON.stringify(ok.error));
 });

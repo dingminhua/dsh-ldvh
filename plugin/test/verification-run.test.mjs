@@ -55,14 +55,14 @@ test("id 派生：中段括注属行名本身，不剥", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 与规范的一致性：22 行、无碰撞、集合相等
+// 与规范的一致性：18 行、无碰撞、集合相等
 // ---------------------------------------------------------------------------
 
-test("§18 解析出 19 行且 id 无碰撞（2026-11-16 经验侧四行删除后 23→19）", async () => {
+test("§18 解析出 18 行且 id 无碰撞（经验侧四行、水位行删除后 23→18）", async () => {
   const read = await readVerificationRowIds(REPO_ROOT);
   assert.equal(read.ok, true, read.ok ? "" : JSON.stringify(read.error));
   const ids = read.value.ids;
-  assert.equal(ids.length, 19, `§18 数据行应为 19 行，实测 ${ids.length}`);
+  assert.equal(ids.length, 18, `§18 数据行应为 18 行，实测 ${ids.length}`);
   assert.equal(new Set(ids).size, ids.length, "去括注后 id 出现碰撞");
 });
 
@@ -78,12 +78,12 @@ test("模块声明的 id 集合与 §18 实测集合相等（规范加行而模�
   assert.deepEqual(extraInModule, [], `模块声明了 §18 里不存在的行：${extraInModule.join("、")}`);
 });
 
-test("机械行与不可判行不重叠，且合计 19", () => {
+test("机械行与不可判行不重叠，且合计 18（水位行已随载体删除）", () => {
   const mechanical = new Set(MECHANICAL_ROWS);
   const notCheckable = new Set(Object.keys(NOT_CHECKABLE_ROWS));
   const overlap = [...mechanical].filter((id) => notCheckable.has(id));
   assert.deepEqual(overlap, [], `同一行不能既机械可核对又不可判：${overlap.join("、")}`);
-  assert.equal(mechanical.size + notCheckable.size, 19);
+  assert.equal(mechanical.size + notCheckable.size, 18);
 });
 
 test("四道机械可核对行不得登记为 not-checkable", () => {
@@ -295,10 +295,10 @@ test("未声明的 not-checkable 仍阻断（已知缺口清单不是万能免�
 // ---------------------------------------------------------------------------
 
 test("严格缺口行填 pass → 阻断（本轮确实没证据，填 pass 即谎报）", () => {
-  const rows = completeRows().map((r) => (r.id === "水位推进" ? { ...r, verdict: "pass" } : r));
+  const rows = completeRows().map((r) => (r.id === "逐字引证" ? { ...r, verdict: "pass" } : r));
   const r = verifyRun({ rows });
   assert.equal(r.stage, "blocked");
-  assert.deepEqual(r.misreported, ["水位推进"]);
+  assert.deepEqual(r.misreported, ["逐字引证"]);
 });
 
 test("条件式行填 pass → 不阻断（条件出现时本就该给真结论）", () => {
