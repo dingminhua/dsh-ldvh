@@ -316,12 +316,7 @@ function probeStructuralFactsWith(targets, names = DISCRETION_NAMES) {
 // **2026-11-16**：`verifyReviewRun` 已删除——它是审核段的 §18 逐行核对映射，
 // 而审核段已整层取消。摩擦侧的运行证据由 runlog 的逐任务字段承载，不再经此函数。
 
-export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget, getReviewAskSettings, providerRoster = null }) {
-  // 零上下文 provider 的发现名册（宿主 0.2.2-rc.2 删除 ctx.subagents.list() 后的
-  // 唯一枚举通道）。由装载方订阅 subagent/provider-added|removed 建立；缺省时
-  // 各派发点仍会经 getProvider 现查内置名，故不会因缺名册而完全失效。
-  // 变量名刻意区别于下方 adopt 循环里的 `roster`（那是 agents 名册，两回事）。
-  const providerRosterRef = providerRoster;
+export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget, getReviewAskSettings }) {
   // Per-agent state lives on the agent fiber, but this plugin owns the single
   // effect it installed there. Keep its disposer so plugin unload can release
   // just that effect without disposing the agent or another plugin's effects.
@@ -489,9 +484,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           subagents: (() => {
             try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
           })(),
-          // 同一条发现通道的候选名册（宿主 0.2.2-rc.2 删 list() 后无枚举入口）。
-          // 建前审核的 provider 挑选经它定位候选，再由 getProvider 现查确认。
-          providerRoster: providerRosterRef,
           // Durable fallback for the same channel (2026-10-18 「子代理登记表被清空」
           // 修复 · 步骤 3): the registry cannot see a child that finished before a
           // plugin rebuild, so a lookup miss asks the child's own session record.

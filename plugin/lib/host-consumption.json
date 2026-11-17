@@ -114,7 +114,7 @@
       "callSites": [
         "lib/lifecycle.js"
       ],
-      "note": "startActivation/getProvider — 受管辖隔离子代理派发面（独立复核/摩擦发现/经验审核均经此）；0.2.1-rc.1 的 subagent-activations 破坏即落在此面（start/startContinuable 移除、SubagentRun.localAgent 消失）。**0.2.2-rc.2 再次破坏：list() 被删除**（上游 86d4c75516，官方指南 v0.2.1-rc.2/subagent-service-methods 明写服务不再枚举 provider 名），本插件三处派发原依赖它挑零上下文 provider；现改经 subagent/provider-added|removed 建立候选名册 + getProvider 现查（lib/subagent-providers.js，该文件只收服务对象、不自取，故不在 callSites）。服务仍经 agent.ctx 可选链取得后作参数传入，故仅 lifecycle.js 列在 callSites"
+      "note": "startActivation/getProvider — 受管辖隔离子代理派发面（独立复核/摩擦发现/经验审核曾均经此）；0.2.1-rc.1 的 subagent-activations 破坏即落在此面（start/startContinuable 移除、SubagentRun.localAgent 消失）。**0.2.2-rc.2 再次破坏：list() 被删除**（上游 86d4c75516，官方指南 v0.2.1-rc.2/subagent-service-methods 明写服务不再枚举 provider 名）。原「经 subagent/provider-added|removed 建立候选名册 + getProvider 现查」的通道已随静置检查点路径删除（2026-11-17，批次4 清理 lib/subagent-providers.js）；派生现由主控经宿主 subagent 工具完成，本插件仅经 agent.ctx 可选链取得服务对象并作参数传入，故仅 lifecycle.js 列在 callSites"
     },
     {
       "key": "webServer",
@@ -192,20 +192,6 @@
       "callSites": [
         "lib/lifecycle.js"
       ]
-    },
-    {
-      "name": "subagent/provider-added",
-      "callSites": [
-        "lib/subagent-providers.js"
-      ],
-      "note": "provider 名册建立通道——宿主 0.2.2-rc.2 删除 subagents.list() 后，这是唯一可枚举 provider 的入口（emit，不带 scoped carrier）"
-    },
-    {
-      "name": "subagent/provider-removed",
-      "callSites": [
-        "lib/subagent-providers.js"
-      ],
-      "note": "provider 名册维护通道，同上"
     },
     {
       "name": "system-prompt/assemble",
