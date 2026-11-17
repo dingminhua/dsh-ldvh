@@ -73,18 +73,21 @@ test("清单是运行时枚举而非写死：临时目录新增文件会被收�
 // 2. precheck 专用子集不得被扩面连带改变
 // ---------------------------------------------------------------------------
 
-test("VALIDATOR_MODULE_FILES 仍是 2 个文件（扩面不得改变预检行为）", () => {
-  assert.equal(VALIDATOR_MODULE_FILES.length, 2);
+test("VALIDATOR_MODULE_FILES 覆盖全部影响 precheck 结论的模块（扩面不得改变预检行为）", () => {
+  // 09 §5.3 item 8 接入后，spec-registry 的 extractHeadings 参与 AGENTS 指针判定，
+  // 必须一并纳入陈旧检测，否则该文件陈旧会用旧解析器判新候选而不被察觉。
+  assert.equal(VALIDATOR_MODULE_FILES.length, 3);
   // 按 basename 比较，不用 endsWith("/...")：Windows 路径分隔符是 '\'（跨平台）。
   assert.ok(VALIDATOR_MODULE_FILES.some((f) => basename(f) === "commit-validation.js"));
   assert.ok(VALIDATOR_MODULE_FILES.some((f) => basename(f) === "ldvh-tools.js"));
+  assert.ok(VALIDATOR_MODULE_FILES.some((f) => basename(f) === "spec-registry.js"));
 });
 
-test("detectStaleValidatorModules 默认仍只检那 2 个文件", () => {
+test("detectStaleValidatorModules 默认只检 VALIDATOR_MODULE_FILES 集合", () => {
   // timeOriginMs 显式给出：不注入时函数会读真实的 performance.timeOrigin，
   // 与 nowMs/uptimeSec 这组假��钟不一致，用例就成了不确定的。
   const report = detectStaleValidatorModules({ clock: { nowMs: 1_000_000, uptimeSec: 0, timeOriginMs: 1_000_000 } });
-  assert.equal(report.checked, 2);
+  assert.equal(report.checked, VALIDATOR_MODULE_FILES.length);
 });
 
 // ---------------------------------------------------------------------------

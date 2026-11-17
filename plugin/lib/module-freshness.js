@@ -123,6 +123,10 @@ export function statMtimeOrNull(file) {
 export const VALIDATOR_MODULE_FILES = Object.freeze([
   fileURLToPath(new URL("./commit-validation.js", import.meta.url)),
   fileURLToPath(new URL("./ldvh-tools.js", import.meta.url)),
+  // 09 §5.3 item 8 的 AGENTS 指针检查由 commit-validation 调用 spec-registry
+  // 的 extractHeadings（围栏屏蔽的标题提取）判定；该文件陈旧会用旧解析器判
+  // 新候选而不被察觉，故纳入 precheck 结论的决定性模块集合。
+  fileURLToPath(new URL("./spec-registry.js", import.meta.url)),
 ]);
 
 /**

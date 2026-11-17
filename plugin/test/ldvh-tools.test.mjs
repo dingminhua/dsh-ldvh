@@ -1833,3 +1833,71 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 		assert.ok(stale.text.includes("follow_up: restart the host"), "重试方向必须可见");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// 09 §5.3 item 8 (Human 决定 2026-10-23): precheck 入口的 AGENTS 指针三值。
+// 与 Git Gate 共用 checkAgentsPointers（同一 validator），但 precheck 须把
+// 未绑定锚点判为 unverifiable、解析失败判为 failed（09 §5.4 三值语义）。
+// ---------------------------------------------------------------------------
+
+async function precheckAgentsSetup(base, agentsText) {
+	const home = join(base, "home");
+	const root = await initRepo(base); // 默认创建并暂存 README.md
+	await writeSpecsTree(root);
+	await writeFile(join(root, "AGENTS.md"), agentsText);
+	await git(root, ["add", "AGENTS.md", "specs/11-规范示例一.md", "specs/12-规范示例二.md"]);
+	await registerProject(dshHome(home), { id: "demo", path: root });
+	const logPath = await writeSessionLog(base, "session.jsonl", [
+		{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
+	]);
+	const message = [
+		"chore(code): 更新 AGENTS 指针",
+		"",
+		"关键变更:",
+		"- seed README.md test carrier",
+		"- add AGENTS.md pointer file",
+		"- seed specs/11-规范示例一.md",
+		"- seed specs/12-规范示例二.md",
+		"",
+		"LDVH-Provider: deepseek-harness",
+		"LDVH-Model: test",
+	].join("\n");
+	return { home, root, logPath, message };
+}
+
+async function runAgentsPrecheck(base, setup, message) {
+	const { handlers } = makeExec({
+		dshHomePath: dshHome(setup.home),
+		workspaceRoot: base,
+		sessionPersistence: () => stubSessionPersistence(setup.logPath),
+	});
+	return handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: setup.root } } } });
+}
+
+test("precheck-git-commit: AGENTS pointer resolves -> passed (no false failure)", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const setup = await precheckAgentsSetup(base, "指针见 `specs/11-规范示例一.md` §1 一节\n");
+		const envelope = await runAgentsPrecheck(base, setup, setup.message);
+		assertEnvelopeShape(envelope, "precheck-git-commit", "completed");
+		assert.equal(envelope.result.mechanical_outcome, "passed", JSON.stringify(envelope.result.issues));
+	});
+});
+
+test("precheck-git-commit: dangling AGENTS anchor -> failed", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const setup = await precheckAgentsSetup(base, "指针见 `specs/11-规范示例一.md` §9.99 一节\n");
+		const envelope = await runAgentsPrecheck(base, setup, setup.message);
+		assert.equal(envelope.result.mechanical_outcome, "failed");
+		assert.ok(envelope.result.issues.some((i) => i.rule === "validation/agents_pointer_unresolved"));
+	});
+});
+
+test("precheck-git-commit: unbound AGENTS anchor -> unverifiable (NOT failed, NOT passed)", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const setup = await precheckAgentsSetup(base, "先看 §2 再读 `specs/11-规范示例一.md`\n");
+		const envelope = await runAgentsPrecheck(base, setup, setup.message);
+		assert.equal(envelope.result.mechanical_outcome, "unverifiable", JSON.stringify(envelope.result.issues));
+		assert.ok(envelope.result.issues.some((i) => i.rule === "validation/agents_pointer_unverifiable"));
+		assert.equal(envelope.result.snapshot_identity, undefined, "unverifiable 不得带 snapshot_identity");
+	});
+});

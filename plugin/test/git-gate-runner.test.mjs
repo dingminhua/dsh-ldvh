@@ -778,3 +778,66 @@ test("删除一个 lint 面内文件不得被读成 lint 工具故障（lint 面
 	// 耦合、无法各自单独转红时，须在用例内写明该耦合关系并以共同转红证据逐组
 	// 取证」的同一口径，在此写明耦合关系，证据为上面那次「两者都撤」的变异。
 });
+
+// ---------------------------------------------------------------------------
+// 09 §5.3 item 8 (Human 决定 2026-10-23): 仓库根 AGENTS.md 指针有效性。
+// 触发面自 bf64380b 已接入，解析检查自 008b45ad 立规（「实现归 06」）从未
+// 实现——本组用例钉住其双入口端到端行为：悬空锚点阻断、可解析锚点不误伤。
+// ---------------------------------------------------------------------------
+
+async function initAgentsRepo(base, agentsText) {
+	const root = await initRepo(base, { stage: false });
+	await mkdir(join(root, "specs"), { recursive: true });
+	// 一个含编号标题的规范载体：§1 存在，§9.99 不存在。
+	await writeFile(join(root, "specs/00-fixture.md"), "# 夹具规范\n\n## 1. 第一节\n\n## 9. 第九节\n");
+	await writeFile(join(root, "AGENTS.md"), agentsText);
+	await gitOk(root, ["add", "AGENTS.md", "specs/00-fixture.md"]);
+	return root;
+}
+
+function agentsMessage() {
+	return [
+		"chore(code): 更新 AGENTS 指针",
+		"",
+		"关键变更:",
+		"- add AGENTS.md pointer file",
+		"- add specs/00-fixture.md carrier",
+		"",
+		"LDVH-Provider: deepseek-harness",
+		"LDVH-Model: test",
+	].join("\n");
+}
+
+test("AGENTS pointer: a resolvable anchor passes the real commit-msg gate (no false block)", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		const root = await initAgentsRepo(base, "指针见 `specs/00-fixture.md` §1 一节\n");
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, agentsMessage());
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
+	});
+});
+
+test("AGENTS pointer: a dangling anchor blocks the real commit-msg gate", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		const root = await initAgentsRepo(base, "指针见 `specs/00-fixture.md` §9.99 一节\n");
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, agentsMessage());
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/agents_pointer_unresolved/);
+	});
+});
+
+test("AGENTS pointer: an unbound anchor blocks the real gate as unverifiable", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		// 锚点出现在任何显式路径之前 → 09 §5.3 item 8 判 unverifiable，非 passed 即阻断。
+		const root = await initAgentsRepo(base, "先看 §1 再读 `specs/00-fixture.md`\n");
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, agentsMessage());
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/agents_pointer_unverifiable/);
+	});
+});

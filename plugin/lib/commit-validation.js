@@ -16,6 +16,10 @@
 // removed them — dev-memo decision #29).
 
 import { createHash } from "node:crypto";
+// 09 §5.3 item 8: reuse the SAME fenced-heading extractor the spec reader uses,
+// so 锚点解析 does not duplicate the fenced-line mask. No cycle: spec-registry
+// does not import this module (verified in the import graph).
+import { extractHeadings } from "./spec-registry.js";
 
 /**
  * Ambient Git override variables must never leak into an LDVH Git invocation
@@ -99,6 +103,9 @@ export const GATE_RULES = Object.freeze({
   "facts/carrier_uid_filename_mismatch": Object.freeze({ severity: "blocking", description: "a staged ldvh-base carrier's filename encodes one identity while its own `object_uid:` declaration states another (02 §7.1: the declaration is the identity authority; 02 §5 item 6 forbids silently consuming one of two disagreeing claims). 09 §8.1 item 2 领域增量，Human 批准 2026-11-04" }),
   "facts/carrier_uid_duplicate": Object.freeze({ severity: "blocking", description: "two or more staged ldvh-base carriers declare the same `object_uid` (02 §5 item 6: 载体重复/身份冲突时不得静默选择一份继续消费或写入). 09 §8.1 item 2 领域增量，Human 批准 2026-11-04" }),
   "facts/carrier_uid_unverifiable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base carrier could not be read or its frontmatter could not be parsed, so its identity declaration cannot be checked — fails closed rather than passing an unverified carrier (02 §5 item 6)" }),
+  "validation/agents_pointer_unresolved": Object.freeze({ severity: "blocking", description: "a bound §anchor in the staged root AGENTS.md does not resolve to a matching numbered heading in its explicit spec carrier, or an explicit backticked specs/ path is absent from the candidate tree (09 §5.3 item 8: failed)" }),
+  "validation/agents_pointer_unverifiable": Object.freeze({ severity: "blocking", description: "an anchor in the staged root AGENTS.md has no explicit spec path bound before it (09 §5.3 item 8: unverifiable — listed, never read as pass; non-pass blocks at the Gate per 09 §5.5)" }),
+  "validation/agents_pointer_unreadable": Object.freeze({ severity: "blocking", description: "a referenced spec carrier text could not be read, so the AGENTS.md anchor cannot be decided — fails closed rather than passing an unverified pointer (09 §5.3 item 8)" }),
 });
 
 /** Mechanical-artifact exemption for the bidirectional coverage check
@@ -1082,4 +1089,149 @@ export function checkFactCarrierIdentity(carriers) {
   }
 
   return { ok: issues.length === 0, issues, carriers: claims.size };
+}
+
+// ---------------------------------------------------------------------------
+// AGENTS.md pointer validity (09 §5.3 item 8, Human 决定 2026-10-23)
+// ---------------------------------------------------------------------------
+//
+// 立规于 008b45ad（明确「实现归 06」），触发面由 bf64380b 接入，但解析检查
+// 从未实现——本段补上。规则文本一字不改，这里只实现其可判定文法：
+//   · 锚点文法 `§<整数>` / `§<整数>.<整数>`，无前导零，§0 不构成锚点；
+//     同一句内并列/括注的锚点逐个解析；不合文法者不属覆盖范围，不读作通过。
+//   · 显式规范路径 = 反引号包裹的仓库相对 `specs/<路径>.md`（其它形式不识别）。
+//   · 每锚点绑定其自身之前最近一次出现的显式规范路径。
+//   · `§N` 须在该载体有标题匹配 `^#{2,3} N\.?(?:\s|$)`；
+//     `§N.M` 须有 `^#{2,3} N\.M\.?(?:\s|$)`——编号逐段相等，§6 不因存在 §6.3 成立。
+//   · 三值：任一已绑定锚点解析失败、或任一已识别 specs 路径在候选树不存在 → failed；
+//     某锚点之前无显式路径或全文件无显式路径 → unverifiable（逐项列出，不读作通过）；
+//     全部通过 → passed（此处以 ok=true 表达）。
+//
+// 标题提取复用 spec-registry 的 extractHeadings（已屏蔽围栏），不复制围栏逻辑。
+// 纯函数：调用方提供 specText(relPath) 与 specExists(relPath) 两个读取器，规则只判定，不读盘。
+
+/** 从一行文本抽取锚点 token（含序号，便于定位与未绑定列示）。 */
+export function extractAgentsAnchors(line) {
+  const out = [];
+  // 无前导零的正整数；§0 交给调用方排除。锚点可出现在句中任意位置。
+  const re = /§(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?/g;
+  for (const m of line.matchAll(re)) {
+    const major = Number(m[1]);
+    const minor = m[2] === undefined ? null : Number(m[2]);
+    if (major === 0) continue; // §0 不构成锚点
+    if (minor !== null && minor === 0) continue; // §N.0 无意义，逐段须为正整数
+    out.push({ raw: m[0], major, minor, at: m.index });
+  }
+  return out;
+}
+
+/** 抽取一行中被反引号包裹的显式 specs 路径（形如 `specs/xx-*.md`）。 */
+export function extractAgentsSpecPaths(line) {
+  const out = [];
+  const re = /`([^`\n]*?specs\/[^`\n]+?\.md)`/g;
+  for (const m of line.matchAll(re)) {
+    const p = m[1];
+    // 只认仓库相对、以 specs/ 开头、以 .md 结尾的路径；绝对路径/其它形式不识别。
+    if (!p.startsWith("specs/") || !p.endsWith(".md")) continue;
+    out.push({ path: p, at: m.index });
+  }
+  return out;
+}
+
+/**
+ * 校验候选树中的根 AGENTS.md 指针。
+ * `carriers`: [{ content }] —— 调用方保证这是候选 Index 的根 AGENTS.md（通常是单条）。
+ * `readers`: { specText(p) -> string|null, specExists(p) -> boolean }。
+ * specText 返回 null/undefined 表示该载体不可读（fail-closed）。
+ */
+export function checkAgentsPointers(carriers, readers = {}) {
+  const issues = [];
+  const readText = typeof readers.specText === "function" ? readers.specText : () => null;
+  const exists = typeof readers.specExists === "function" ? readers.specExists : () => false;
+  const unbound = []; // 逐项列出未绑定锚点，判 failed 时也须一并列出
+
+  for (const carrier of carriers) {
+    if (typeof carrier.content !== "string" || carrier.content.length === 0) {
+      issues.push(newFinding("validation/agents_pointer_unreadable", "AGENTS.md: candidate content is unreadable — cannot decide pointer validity (09 §5.3 item 8 fails closed)", null));
+      continue;
+    }
+    const lines = carrier.content.split("\n");
+    let boundPath = null; // 每锚点绑定其之前最近一次出现的显式路径
+    const checkedPaths = new Set();
+    const absentPaths = new Set(); // 已判缺失的路径：其锚点不再重复报 unreadable（缺失本身已 failed）
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      // 同一行内按位置排序处理：路径在其后锚点之前绑定。
+      const events = [
+        ...extractAgentsSpecPaths(line).map((e) => ({ ...e, kind: "path" })),
+        ...extractAgentsAnchors(line).map((e) => ({ ...e, kind: "anchor" })),
+      ].sort((a, b) => a.at - b.at);
+
+      for (const ev of events) {
+        if (ev.kind === "path") {
+          boundPath = ev.path;
+          if (!checkedPaths.has(ev.path)) {
+            checkedPaths.add(ev.path);
+            if (!exists(ev.path)) {
+              absentPaths.add(ev.path);
+              issues.push(newFinding(
+                "validation/agents_pointer_unresolved",
+                `AGENTS.md:${i + 1}: explicit spec path ${JSON.stringify(ev.path)} is absent from the candidate tree (09 §5.3 item 8: failed)`,
+                null,
+              ));
+            }
+          }
+          continue;
+        }
+        // anchor
+        if (boundPath === null) {
+          unbound.push(`AGENTS.md:${i + 1} ${ev.raw}`);
+          continue;
+        }
+        if (absentPaths.has(boundPath)) continue; // 路径缺失已按 failed 报过，绑定其上的锚点不再重复
+        const text = readText(boundPath);
+        if (text === null || text === undefined || typeof text !== "string") {
+          issues.push(newFinding(
+            "validation/agents_pointer_unreadable",
+            `AGENTS.md:${i + 1}: spec carrier ${JSON.stringify(boundPath)} for ${ev.raw} is unreadable — cannot decide (09 §5.3 item 8 fails closed)`,
+            null,
+          ));
+          continue;
+        }
+        const headings = extractHeadings(text);
+        const majorOk = (h) => h.level === 2 || h.level === 3;
+        let hit;
+        if (ev.minor === null) {
+          // ^#{2,3} N\.?(?:\s|$) —— 标题文本以 "N" 起，后接可选点、空白或行尾
+          hit = headings.find((h) => {
+            if (!majorOk(h)) return false;
+            return new RegExp(`^${ev.major}\\.?(?:\\s|$)`).test(h.text);
+          });
+        } else {
+          // ^#{2,3} N\.M\.?(?:\s|$) —— 逐段相等
+          hit = headings.find((h) => {
+            if (!majorOk(h)) return false;
+            return new RegExp(`^${ev.major}\\.${ev.minor}\\.?(?:\\s|$)`).test(h.text);
+          });
+        }
+        if (hit === undefined) {
+          issues.push(newFinding(
+            "validation/agents_pointer_unresolved",
+            `AGENTS.md:${i + 1}: anchor ${ev.raw} has no matching numbered heading in ${JSON.stringify(boundPath)} (09 §5.3 item 8: failed)`,
+            null,
+          ));
+        }
+      }
+    }
+
+    if (unbound.length > 0) {
+      issues.push(newFinding(
+        "validation/agents_pointer_unverifiable",
+        `AGENTS.md: ${unbound.length} anchor(s) have no explicit spec path bound before them — ${unbound.join("; ")} (09 §5.3 item 8: unverifiable, never read as pass)`,
+        null,
+      ));
+    }
+  }
+
+  return { ok: issues.length === 0, issues, unbound };
 }

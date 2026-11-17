@@ -26,7 +26,7 @@ import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evid
 import { currentRouteValues } from "./session-signature.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
 import { isFrictionPromotionRunning } from "./friction-promotion-lock.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute, checkAgentsPointers, extractAgentsSpecPaths } from "./commit-validation.js";
 // friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
 import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -769,6 +769,13 @@ function makeExecute(deps) {
     // 规则），此处只换 Git 读法——读暂存区内容，不读工作树。
     const factIdentity = await checkFactCarrierIdentityForIndex(governed.project.path);
     if (!factIdentity.ok) issues.push(...factIdentity.issues);
+    // 09 §5.3 item 8 (Human 2026-10-23): 根 AGENTS.md 指针有效性，仅当候选
+    // Index 触及该文件时检查（触发面与 Git Gate 一致）。同一 validator，规则
+    // 由 checkAgentsPointers 单点承载；未绑定锚点是 unverifiable，解析失败是 failed。
+    if ((correspondence.changedPaths ?? []).includes("AGENTS.md")) {
+      const agentsCheck = await checkAgentsPointersForIndex(governed.project.path);
+      if (!agentsCheck.ok) issues.push(...agentsCheck.issues);
+    }
     // Signature values must trace back to the authoritative session record.
     const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
     const signatureCheck = checkSignatureAgainstRoute(message, route);
@@ -786,7 +793,13 @@ function makeExecute(deps) {
     //                   incomplete, not failed.
     const structuralTrailerOk = message.includes("LDVH-Provider:") && message.includes("LDVH-Model:") && validateMessage(message).every((issue) => issue.rule !== "validation/signature_trailer_missing");
     const hasValueMismatch = signatureCheck.issues.length > 0;
-    const hasNonSignatureFailure = issues.some((issue) => !issue.rule.startsWith("validation/signature_"));
+    // 09 §5.3 item 8: 未绑定锚点是「输入不足以判定」（unverifiable），不是确认失败；
+    // 其余 AGENTS 问题（解析失败/路径缺失/不可读）是 failed。故把它从 failed 判据中排除，
+    // 单独作为 unverifiable 触发项——与 09 §5.4 三值语义一致，不冒充 passed。
+    const hasAgentsUnverifiable = issues.some((issue) => issue.rule === "validation/agents_pointer_unverifiable");
+    const hasNonSignatureFailure = issues.some(
+      (issue) => !issue.rule.startsWith("validation/signature_") && issue.rule !== "validation/agents_pointer_unverifiable",
+    );
     // **宿主模块陈旧时不得报 failed**（friction-fbd65401，2026-10-28）。
     //
     // 本工具跑在**长驻宿主进程**里，而本仓的主干循环是「就地改 plugin/lib → 立刻
@@ -810,7 +823,7 @@ function makeExecute(deps) {
     const validatorStale = staleness.stale.length > 0;
     let mechanicalOutcome;
     if (hasNonSignatureFailure || !structuralTrailerOk || hasValueMismatch) mechanicalOutcome = "failed";
-    else if (!route.ok) mechanicalOutcome = "unverifiable";
+    else if (!route.ok || hasAgentsUnverifiable) mechanicalOutcome = "unverifiable";
     else mechanicalOutcome = "passed";
     // 陈旧优先于 failed：旧代码给出的「未通过」不是关于本候选的证据。
     if (validatorStale && mechanicalOutcome === "failed") mechanicalOutcome = "unverifiable";
@@ -1007,6 +1020,51 @@ function makeExecute(deps) {
     }
     if (carriers.length === 0) return { ok: true, issues: [] };
     return checkFactCarrierIdentity(carriers);
+  }
+
+  /**
+   * 09 §5.3 item 8 for the precheck entrypoint: read the staged root AGENTS.md
+   * and resolve its anchors against the candidate Index, through the SAME
+   * checkAgentsPointers validator the Git Gate uses (09 §5.5 同一 validator).
+   * 只换 Git 读法，不换规则；路径形态在解析阶段已限定为 specs/... .md。
+   */
+  async function checkAgentsPointersForIndex(projectPath) {
+    const runGit = async (args) => {
+      const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
+      return result.stdout;
+    };
+    let agentsText;
+    try {
+      agentsText = await runGit(["show", ":AGENTS.md"]);
+    } catch {
+      agentsText = ""; // 不可读交给 validator 按 fail-closed 判定
+    }
+    // 候选树路径集合（ Index + 未跟踪），与 git-gate-runner.candidateTreePaths 同口径。
+    const candidatePaths = new Set();
+    for (const args of [["ls-files", "--cached", "-z"], ["ls-files", "--others", "--exclude-standard", "-z"]]) {
+      try {
+        for (const p of (await runGit(args)).split("\0")) if (p) candidatePaths.add(p);
+      } catch { /* best-effort；exists 交给 validator 判定 */ }
+    }
+    const allSpecPaths = new Set();
+    for (const line of agentsText.split("\n")) {
+      for (const e of extractAgentsSpecPaths(line)) allSpecPaths.add(e.path);
+    }
+    const specTextCache = new Map();
+    for (const p of allSpecPaths) {
+      if (!/^specs\/[^\n]+\.md$/.test(p)) continue;
+      let text = null;
+      try {
+        text = await runGit(["show", `:${p}`]);
+      } catch {
+        text = null; // fail-closed
+      }
+      specTextCache.set(p, text);
+    }
+    return checkAgentsPointers([{ content: agentsText }], {
+      specExists: (p) => candidatePaths.has(p),
+      specText: (p) => (specTextCache.has(p) ? specTextCache.get(p) : null),
+    });
   }
 
   /**

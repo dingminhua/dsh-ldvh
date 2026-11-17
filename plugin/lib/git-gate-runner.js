@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute, touchesGovernedContent } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute, touchesGovernedContent, checkAgentsPointers, extractAgentsSpecPaths } from "./commit-validation.js";
 import { currentRouteValuesFromShellEnvironment } from "./session-signature.js";
 
 const execFileAsync = promisify(execFile);
@@ -526,6 +526,45 @@ async function runSharedChecks(root, indexFile, message) {
       const docsRefs = checkDocsReferences(changedCarriers, { exists: (p) => candidatePaths.has(p) });
       if (!docsRefs.ok) issues.push(...docsRefs.issues);
     }
+  }
+
+  // 09 §5.3 item 8 (Human 决定 2026-10-23): 仓库根 AGENTS.md 的锚点/显式路径
+  // 可解析性。触发面由 isGovernedCommitPath 纳入（含 AGENTS.md），但解析检查
+  // 自 008b45ad 立规起从未实现（提交正文「实现归 06」）；本块补上，与 precheck
+  // 共用 checkAgentsPointers（09 §5.5 同一 validator，只有 Git 读法不同）。
+  // 解析基准一律取候选树：AGENTS.md 取 `git show :AGENTS.md`，规范标题从候选
+  // Index 的同名路径读取——与第 5/6 项一致，不读工作树副本。
+  if (changedPaths.includes("AGENTS.md")) {
+    let agentsText = "";
+    try {
+      agentsText = await git(root, ["show", ":AGENTS.md"], indexFile);
+    } catch {
+      agentsText = ""; // 不可读交给 validator 按 fail-closed 判定
+    }
+    const candidatePaths = await candidateTreePaths(root, indexFile);
+    // checkAgentsPointers 的 specText 回调是同步的，故先按 AGENTS.md 里出现的
+    // 显式路径异步读出全部规范文本（候选 Index），再交给纯 validator；路径
+    // 形态在解析阶段已限定为 specs/... .md，这里不额外放宽（n1 输入护栏）。
+    const specTextCache = new Map();
+    const allSpecPaths = new Set();
+    for (const line of agentsText.split("\n")) {
+      for (const e of extractAgentsSpecPaths(line)) allSpecPaths.add(e.path);
+    }
+    for (const p of allSpecPaths) {
+      if (!/^specs\/[^\n]+\.md$/.test(p)) continue;
+      let text = null;
+      try {
+        text = await git(root, ["show", `:${p}`], indexFile);
+      } catch {
+        text = null; // fail-closed
+      }
+      specTextCache.set(p, text);
+    }
+    const outcome = checkAgentsPointers([{ content: agentsText }], {
+      specExists: (p) => candidatePaths.has(p),
+      specText: (p) => (specTextCache.has(p) ? specTextCache.get(p) : null),
+    });
+    if (!outcome.ok) issues.push(...outcome.issues);
   }
 
   // 01 §7 末段 + 09 §5.3 item 6 (Human 2026-10-15): a load-bearing declaration

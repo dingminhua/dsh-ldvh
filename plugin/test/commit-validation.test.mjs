@@ -6,6 +6,7 @@
 // public operation). Transition header format is per dev-memo decision #15.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
 	HEADER_PATTERN,
 	isHeaderDescriptionNonChinese,
@@ -35,7 +36,8 @@ import {
 	LOAD_BEARING_MARKER,
 	LOAD_BEARING_RESOLUTION_LABEL,
 	LOAD_BEARING_RULES, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText,
-	checkFrictionCommitTargets, extractFrictionCommitTargets, isFrictionCarrierPath} from "../lib/commit-validation.js";
+	checkFrictionCommitTargets, extractFrictionCommitTargets, isFrictionCarrierPath,
+	checkAgentsPointers, extractAgentsAnchors, extractAgentsSpecPaths} from "../lib/commit-validation.js";
 
 /** A canonical, fully-legal commit message. */
 const validMessage = [
@@ -495,6 +497,10 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"facts/carrier_uid_filename_mismatch",
 		"facts/carrier_uid_duplicate",
 		"facts/carrier_uid_unverifiable",
+		// 09 §5.3 item 8（Human 决定 2026-10-23）：AGENTS.md 指针有效性。
+		"validation/agents_pointer_unresolved",
+		"validation/agents_pointer_unverifiable",
+		"validation/agents_pointer_unreadable",
 	];
 	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
 	for (const entry of Object.values(GATE_RULES)) {
@@ -1325,4 +1331,97 @@ test("carrier identity: identity comparison is case-insensitive (uppercase decla
 		{ path: `ldvh-base/sparks/spark-${UID_A}.md`, content: carrierText(UID_A.toUpperCase()) },
 	]);
 	assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
+// ---------------------------------------------------------------------------
+// AGENTS.md pointer validity (09 §5.3 item 8, Human 2026-10-23)
+// 规则 008b45ad 立规（实现归 06），本测试钉住其可判定文法。
+// ---------------------------------------------------------------------------
+
+test("agents pointers: rule ids are registered in GATE_RULES", () => {
+	for (const rule of [
+		"validation/agents_pointer_unresolved",
+		"validation/agents_pointer_unverifiable",
+		"validation/agents_pointer_unreadable",
+	]) {
+		assert.equal(GATE_RULES[rule]?.severity, "blocking", `${rule} must be a registered blocking rule`);
+	}
+});
+
+test("agents pointers: anchor grammar rejects §0, leading zeros and §N.0", () => {
+	assert.deepEqual(extractAgentsAnchors("见 §1 与 §4.6、§4、§5"), [
+		{ raw: "§1", major: 1, minor: null, at: 2 },
+		{ raw: "§4.6", major: 4, minor: 6, at: 7 },
+		{ raw: "§4", major: 4, minor: null, at: 12 },
+		{ raw: "§5", major: 5, minor: null, at: 15 },
+	]);
+	assert.deepEqual(extractAgentsAnchors("§0 不构成锚点，§06 与 §4.0 也不合文法"), []);
+});
+
+test("agents pointers: only backticked repo-relative specs paths are recognised", () => {
+	const refs = extractAgentsSpecPaths("用 `specs/00-理念与构成.md` 与 `specs/x/y.md`；裸 specs/z.md 与 /abs/specs/q.md 不算");
+	assert.deepEqual(refs.map((r) => r.path), ["specs/00-理念与构成.md", "specs/x/y.md"]);
+});
+
+// 真实规范载体作夹具：00 §6 是无子节的编号列表，正好验证「§6 不因 §6.3 成立」。
+const SPEC00 = readFileSync(new URL("../../specs/00-理念与构成.md", import.meta.url), "utf8");
+
+test("agents pointers: bound anchors resolve; §6 (list-only section) has no §6.3 so it fails", () => {
+	// 逐段编号相等：§1 存在（H2 "1. LDVH 的三大核心价值"）；§4.6 存在（H3 "### 4.6 据实声明"）。
+	const ok = checkAgentsPointers([{ content: "`specs/00-理念与构成.md` §1 与 §4.6\n" }], {
+		specExists: () => true,
+		specText: () => SPEC00,
+	});
+	assert.equal(ok.ok, true, JSON.stringify(ok.issues));
+	// §4.99 不存在，且 §6 一节是编号列表、没有 §6.3 子标题 → 必须失败（§6 不因 §6.3 成立）。
+	const bad = checkAgentsPointers([{ content: "`specs/00-理念与构成.md` §4.99 与 §6.3\n" }], {
+		specExists: () => true,
+		specText: () => SPEC00,
+	});
+	assert.equal(bad.ok, false);
+	assert.deepEqual(bad.issues.map((i) => i.rule), [
+		"validation/agents_pointer_unresolved",
+		"validation/agents_pointer_unresolved",
+	]);
+});
+
+test("agents pointers: fenced pseudo-headings do not count (reuse extractHeadings)", () => {
+	const fencedSpec = "# 假规范\n\n```\n## 4.99 这是围栏内的伪标题\n```\n\n## 2. 真标题\n";
+	const bad = checkAgentsPointers([{ content: "`specs/fake.md` §4.99\n" }], {
+		specExists: () => true,
+		specText: () => fencedSpec,
+	});
+	assert.equal(bad.ok, false, "围栏内伪标题不得被当作可寻址标题");
+	const ok = checkAgentsPointers([{ content: "`specs/fake.md` §2\n" }], {
+		specExists: () => true,
+		specText: () => fencedSpec,
+	});
+	assert.equal(ok.ok, true, "围栏外的真标题应解析成功");
+});
+
+test("agents pointers: absent explicit path -> failed; unbound anchor -> unverifiable (listed)", () => {
+	const missing = checkAgentsPointers([{ content: "`specs/99-不存在.md` §2\n" }], {
+		specExists: () => false,
+		specText: () => null,
+	});
+	assert.equal(missing.ok, false);
+	assert.deepEqual(missing.issues.map((i) => i.rule), ["validation/agents_pointer_unresolved"]);
+
+	const unbound = checkAgentsPointers([{ content: "任何锚点 §2 出现在显式路径之前\n" }], {
+		specExists: () => true,
+		specText: () => SPEC00,
+	});
+	assert.equal(unbound.ok, false);
+	assert.deepEqual(unbound.issues.map((i) => i.rule), ["validation/agents_pointer_unverifiable"]);
+	assert.match(unbound.issues[0].message, /§2/);
+	assert.deepEqual(unbound.unbound, ["AGENTS.md:1 §2"]);
+});
+
+test("agents pointers: unreadable spec carrier fails closed", () => {
+	const outcome = checkAgentsPointers([{ content: "`specs/real.md` §2\n" }], {
+		specExists: () => true,
+		specText: () => null,
+	});
+	assert.equal(outcome.ok, false);
+	assert.deepEqual(outcome.issues.map((i) => i.rule), ["validation/agents_pointer_unreadable"]);
 });
