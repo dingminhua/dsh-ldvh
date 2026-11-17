@@ -119,6 +119,81 @@ test("记录总是发生：未达阈值也照样写入缓冲（不因攒不够 N
   });
 });
 
+test("设置面关闭：拒绝写入缓冲，且不解析项目、不晋升（关了不能照写）", async () => {
+  await withTemp("friction-child-surface.", async (root) => {
+    const h = (...segments) => join(root, "dsh-home", ...segments);
+    const { ctx, registered } = makeCtx();
+    let projectResolutions = 0;
+    registerFrictionChildSurface(ctx, {
+      dshHomePath: h,
+      resolveProjectId: async () => {
+        projectResolutions += 1;
+        return { id: PROJECT, path: join(root, "fact-source") };
+      },
+      resolveSessionId: () => "sess-child",
+      sessionPersistence: persistenceStub,
+      // 设置面：总开关或「发现摩擦」子项被关 → 本次一律拒绝。
+      isFrictionDiscoveryEnabled: () => false,
+    });
+    const result = await registered[0].execute(observationArgs({ index: 1 }));
+    assert.equal(result.ok, false, "关闭时必须拒绝写入");
+    assert.equal(result.error, "friction_observation/disabled");
+    assert.match(String(result.message), /设置面关闭/, "拒绝原因须可归因为设置面开关");
+    assert.equal(projectResolutions, 0, "关闭时应在任何副作用之前返回，连项目解析都不做");
+
+    const read = await readFrictionObservations(h, PROJECT, { status: "pending" });
+    assert.ok(read.ok, JSON.stringify(read.error));
+    assert.equal(read.value.items.length, 0, "关闭时缓冲不得新增条目");
+  });
+});
+
+test("设置面启用：显式 true 与旧调用方缺省均照常写入", async () => {
+  await withTemp("friction-child-surface.", async (root) => {
+    const h = (...segments) => join(root, "dsh-home", ...segments);
+    // 两种调用形态：显式 true，以及完全不传该回调（旧调用方/直接测试）。
+    for (const [label, enabled] of [["true", () => true], ["缺省", undefined]]) {
+      const { ctx, registered } = makeCtx();
+      registerFrictionChildSurface(ctx, {
+        dshHomePath: h,
+        resolveProjectId: async () => ({ id: PROJECT, path: join(root, "fact-source") }),
+        resolveSessionId: () => "sess-child",
+        ...(enabled === undefined ? {} : { isFrictionDiscoveryEnabled: enabled }),
+      });
+      const result = await registered[0].execute(observationArgs({ index: 1, group: `enabled-${label}` }));
+      assert.equal(result.ok, true, `${label}：应照常写入（${JSON.stringify(result)}）`);
+      assert.equal(result.recorded, true, `${label}：记录须真的发生`);
+    }
+
+    const read = await readFrictionObservations(h, PROJECT, { status: "pending" });
+    assert.ok(read.ok, JSON.stringify(read.error));
+    assert.equal(read.value.items.length, 2, "两种启用形态各写入一条");
+  });
+});
+
+test("每次现读：同一分身先开后关，第二次调用即被拒（volatile 开关无需重建分身）", async () => {
+  await withTemp("friction-child-surface.", async (root) => {
+    const h = (...segments) => join(root, "dsh-home", ...segments);
+    let enabled = true; // 模拟 volatile 配置：同一 surface 生命周期内翻转
+    const { ctx, registered } = makeCtx();
+    registerFrictionChildSurface(ctx, {
+      dshHomePath: h,
+      resolveProjectId: async () => ({ id: PROJECT, path: join(root, "fact-source") }),
+      resolveSessionId: () => "sess-child",
+      isFrictionDiscoveryEnabled: () => enabled,
+    });
+
+    assert.equal((await registered[0].execute(observationArgs({ index: 1, group: "volatile-on" }))).ok, true);
+    enabled = false;
+    const second = await registered[0].execute(observationArgs({ index: 2, group: "volatile-off" }));
+    assert.equal(second.ok, false, "开关翻转后第二次调用须被拒");
+    assert.equal(second.error, "friction_observation/disabled");
+
+    const read = await readFrictionObservations(h, PROJECT, { status: "pending" });
+    assert.ok(read.ok, JSON.stringify(read.error));
+    assert.equal(read.value.items.length, 1, "仅第一次开启时写入一条，翻转后未再写");
+  });
+});
+
 test("达阈值：同一次调用内顺带晋升为 open 账目（不再另派代理）", async () => {
   await withTemp("friction-child-surface.", async (root) => {
     const h = (...segments) => join(root, "dsh-home", ...segments);

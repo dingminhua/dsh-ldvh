@@ -176,7 +176,12 @@ export function resolveIdleSettings(config) {
   // **子项缺省为「开」**：与总开关同理，缺省关会使升级即静默停用。
   const tasks = {
     "experience-accumulation": readBool(config?.experienceAccumulationEnabled, true),
-    "friction-discovery": readBool(config?.frictionDiscoveryEnabled, true),
+    // 「发现摩擦」：旧键 frictionDiscoveryEnabled 无 default，只有 Human 显式设过才
+    // 出现，代表明确意图，故优先；未设时回落到设置面现役键 idleCaptureEnabled
+    // （schema 同键、label 即「发现摩擦」）；二者皆无则缺省开。
+    // **不得反过来写成 `idleCaptureEnabled ?? frictionDiscoveryEnabled`**：新键带
+    // default(true)，宿主会填进 config，从而架空 Human 曾用旧键显式关掉的设定。
+    "friction-discovery": readBool(config?.frictionDiscoveryEnabled, readBool(config?.idleCaptureEnabled, true)),
   };
   return {
     enabled: readBool(config?.proxyAssistEnabled, readBool(config?.idleAssistEnabled, true)),

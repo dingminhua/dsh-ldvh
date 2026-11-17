@@ -1042,10 +1042,13 @@ window.__ModuleLoader__.load({
       // `model: (default route)`）。一个「设了不生效」的选项比没有更糟。
       // 审核固定跟随宿主默认路由。
       // 发现摩擦子项的读值口径（读侧与「放弃修改」回退侧共用一处）。
-      // 旧键兼容：旧键任一被显式设置过即生效（与服务端 resolveIdleSettings 同一判据）。
+      // 与服务端 resolveIdleSettings 同序：旧键 frictionDiscoveryEnabled 无 default、
+      // 显式出现即 Human 意图，优先；未设时读设置面现役键 idleCaptureEnabled。
+      // experienceCaptureEnabled 属经验侧旧键，不参与摩擦行读数（曾把它并进来，
+      // 致实机 profile 带该键时面板恒显示 ON、与服务端真实状态相反）。
       function idleCaptureValueOf(value) {
-        return (value.frictionDiscoveryEnabled !== undefined || value.experienceCaptureEnabled !== undefined)
-          ? (value.frictionDiscoveryEnabled !== false && value.experienceCaptureEnabled !== false)
+        return value.frictionDiscoveryEnabled !== undefined
+          ? value.frictionDiscoveryEnabled !== false
           : value.idleCaptureEnabled !== false;
       }
       // 数值参数的界面态（分钟文本）——读侧与回退侧共用。

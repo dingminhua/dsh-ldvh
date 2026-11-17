@@ -68,7 +68,7 @@ test("resolveIdleSettings：显式配置覆盖默认；两个子项可各自停�
   const onlyExperience = resolveIdleSettings({
     proxyAssistEnabled: true,
     experienceAccumulationEnabled: true,
-    frictionDiscoveryEnabled: false,
+    idleCaptureEnabled: false,
   });
   assert.equal(onlyExperience.enabled, true);
   assert.equal(onlyExperience.tasks["experience-accumulation"], true);
@@ -77,12 +77,23 @@ test("resolveIdleSettings：显式配置覆盖默认；两个子项可各自停�
   const neither = resolveIdleSettings({
     proxyAssistEnabled: false,
     experienceAccumulationEnabled: true,
-    frictionDiscoveryEnabled: true,
+    idleCaptureEnabled: true,
   });
   assert.equal(neither.enabled, false, "总开关关闭");
   // 总开关关闭时子项开关的取值仍如实解析（不是被抹成 false）——调用方据
   // `enabled` 判定，不据子项；把子项也抹掉会让「用户勾了什么」不可见。
   assert.equal(neither.tasks["friction-discovery"], true);
+});
+
+test("发现摩擦开关：设置面现役键 idleCaptureEnabled 生效，旧键显式值仍优先", () => {
+  // GUI 设置面保存写 idleCaptureEnabled，故只读旧键会导致设置面开关不生效；
+  // 但旧键无 default、显式出现即 Human 意图，须优先于带 default(true) 的新键。
+  const byCurrentKey = resolveIdleSettings({ idleCaptureEnabled: false });
+  assert.equal(byCurrentKey.tasks["friction-discovery"], false, "设置面现役键关闭须生效");
+  const legacyWins = resolveIdleSettings({ idleCaptureEnabled: true, frictionDiscoveryEnabled: false });
+  assert.equal(legacyWins.tasks["friction-discovery"], false, "旧键显式 false 不被新键 default 架空");
+  const legacyOnly = resolveIdleSettings({ frictionDiscoveryEnabled: true });
+  assert.equal(legacyOnly.tasks["friction-discovery"], true, "仅旧键时按其回落");
 });
 
 test("配置面迁移：旧键 idleAssistEnabled 仍被识别为总开关（存量配置不静默失效）", () => {

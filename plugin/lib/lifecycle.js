@@ -397,6 +397,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         } catch {
           return null;
         }
+      },
+      // 设置面开关（2026-11-18，D3）：子代理工具在写缓冲前**每次现读**——传函数
+      // 不传值。配置是 volatile 字段，装配时取快照会让「之后关掉开关」不生效，
+      // 出现「设置面关了、分身照写」的失效。
+      //
+      // 总开关或「发现摩擦」子项任一关闭即拒绝写入。`getIdleSettings` 缺席
+      // （旧组合/直接测试）时按启用处理，与改动前行为一致。
+      isFrictionDiscoveryEnabled: () => {
+        const s = getIdleSettings?.();
+        return s ? s.enabled !== false && s.tasks?.["friction-discovery"] !== false : true;
       }
     },
     onEvent: (hook, detail) => registryActivity.record(hook, detail)

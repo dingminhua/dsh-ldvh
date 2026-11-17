@@ -744,6 +744,9 @@ const RECORD_OBSERVATION_OPERATION = Object.freeze({
  *   只返回裸 id 时晋升被如实跳过（`promotion.reason = "no-project-path"`）。
  * @param {() => string|null} deps.resolveSessionId - 解析当前会话 id（写入署名）。
  * @param {() => object|null} [deps.sessionPersistence] - 宿主会话持久化服务（晋升署名）。
+ * @param {() => boolean} [deps.isFrictionDiscoveryEnabled] - 本次是否启用发现摩擦
+ *   （每次现读）；缺省视为 true（兼容旧调用方/测试）。返回 false 时整次调用
+ *   拒绝写入缓冲，也不做阈值晋升。
  * @returns {() => void} 释放函数。
  */
 export function registerFrictionChildSurface(ctx, deps) {
@@ -799,6 +802,21 @@ export function registerFrictionChildSurface(ctx, deps) {
       additionalProperties: false,
     }),
     execute: async (args) => {
+      // ── 设置面开关（2026-11-18，D3）─────────────────────────────────────
+      //
+      // **每次现读**：配置是 volatile 字段，装配时取值会把「Human 之后关掉开关」
+      // 定格在旧值上，于是出现「设置面关了、子代理仍照写」的失效。故由调用方
+      // 传函数；缺省不传视为启用（兼容旧调用方与直接构造的测试）。
+      //
+      // 关闭时在**任何副作用之前**返回：不写缓冲、不建账、不晋升。
+      if (typeof deps.isFrictionDiscoveryEnabled === "function"
+        && deps.isFrictionDiscoveryEnabled() === false) {
+        return {
+          ok: false,
+          error: "friction_observation/disabled",
+          message: "发现摩擦已在设置面关闭；本次观察不写入缓冲。",
+        };
+      }
       const project = await deps.resolveProjectId();
       // 兼容两种返回：`{id, path}`（lifecycle 注入，晋升需要 path）与裸 id 字符串。
       const projectId = typeof project === "string" ? project : project?.id;

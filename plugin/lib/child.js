@@ -54,7 +54,8 @@ const RETIRED_LIMIT = 50;
  * @param {Function} [deps.registerFrictionChildSurface] - 摩擦面（受辖分身一律调，
  *   不需要授权——它是主控的一次性交派动作，见下方注册处的边界注释）。
  * @param {object} [deps.frictionChildDeps] - 摩擦面的依赖：`{ dshHomePath,
- *   resolveProjectId(agent) }`。由 lifecycle 注入，本文件不认识治理解析模块。
+ *   resolveProjectId(agent), isFrictionDiscoveryEnabled() }`。由 lifecycle 注入，
+ *   本文件不认识治理解析模块。`isFrictionDiscoveryEnabled` 每次现读设置面开关。
  */
 export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren, onEvent, experienceArming, registerChildSurface, registerFrictionChildSurface, frictionChildDeps }) {
   const emit = (hook, detail) => {
@@ -202,7 +203,10 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
               resolveSessionId: () => agentId ?? null,
               // 晋升建账要署名（11 §9 第 3／4 项的机械收尾）。取宿主会话持久化服务，
               // 与根面同一来源；缺失时晋升侧按 signature-unavailable 如实登记，不伪造。
-              sessionPersistence: frictionChildDeps?.sessionPersistence
+              sessionPersistence: frictionChildDeps?.sessionPersistence,
+              // 设置面「发现摩擦」开关：每次现读（传函数不传值），关闭时工具在
+              // 写缓冲前即拒绝。缺省不传时工具按启用处理。
+              isFrictionDiscoveryEnabled: frictionChildDeps?.isFrictionDiscoveryEnabled
             });
             if (typeof disposeFriction === "function") stops.push(disposeFriction);
           } catch (error) {
