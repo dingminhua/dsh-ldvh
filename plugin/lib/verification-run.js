@@ -178,7 +178,7 @@ export function deriveRowId(raw) {
  * **为什么要解析规范而不是硬编码**：硬编码的 22 行会在规范增行时静默过期，
  * 而「规范加行、模块不加行」正是本模块要拦的形态之一。
  *
- * @param {string} specText - `specs/11-宿主辅助任务规范.md` 全文
+ * @param {string} specText - `specs/11-代理辅助任务规范.md` 全文
  * @returns {string[]} id 列表
  */
 export function parseVerificationRowIds(specText) {
@@ -360,7 +360,7 @@ export function verifyRun({
  */
 export async function readVerificationRowIds(projectPath) {
   try {
-    const p = join(projectPath, "specs", "11-宿主辅助任务规范.md");
+    const p = join(projectPath, "specs", "11-代理辅助任务规范.md");
     const text = await readFile(p, "utf8");
     const ids = parseVerificationRowIds(text);
     if (ids.length === 0) {
