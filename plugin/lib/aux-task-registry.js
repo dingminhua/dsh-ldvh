@@ -37,35 +37,28 @@
  */
 
 /**
- * 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序（规范叙述次序）。
+ * 闲时辅助的任务键清单，顺序即规范叙述次序（历史拼接顺序与痕迹记录顺序）。
  *
- * **2026-10-30 收窄为两个**（Human 决定：配置面合并为「闲置捕获 / 闲置审核」两项）：
- * `capacity-maintenance` 与 `memory-health` 移出本表。
+ * **2026-11-17：本表已不是派发面。** 宿主辅助派发路径（`friction-discovery-provider.js`
+ * / `friction-subagent-contract.js` / `idle-checkpoint.js`）已整条删除；摩擦发现的
+ * 职责改由 `friction-tools.js` 的 child-only 工具承接——主控经
+ * `ldvh_friction_record_observation` 直接派发子代理写观察缓冲，**不经本表拼接
+ * 提示词、不生成复合 schema、不校验回传结论**。积累经验同样不走本表（主控记开工
+ * 授权后经 `registerChildSurface` 派子代理直接写事实源，23 §13）。
  *
- * 移出的理由不是「它们不再是 §8 的职责」——§8 仍登记着它们，只是**未实现**。
- * 移出的理由是：本表是**派发面**（能被配置开关选中、被拼进复合提示词的任务），
- * 而这两个任务没有执行体、没有提示词段、没有落地路径。让它们留在派发面里，唯一
- * 效果是 `splitRunnableTasks` 把它们报成 `unimplemented` 而其余任务照常跑——那正是
- * §8.5 要的「如实登记」，但该登记现已由 `UNIMPLEMENTED_AUX_TASKS` 独立承载（见下），
- * 不必依赖它们占着派发位。
+ * 现存唯一键 `friction-discovery` **仅为设置面兼容而保留**：idle-settings.js /
+ * client.js 仍会产出并接受该任务键，设置清理属后续批次。`AUX_TASK_REGISTRY` 中该键
+ * 因此如实标为 `implemented: false`，且没有任何三部位。
+ *
+ * **2026-10-30 收窄为两个**（历史）：`capacity-maintenance` 与 `memory-health` 移出
+ * 本表，因为它们没有执行体、没有提示词段、没有落地路径；「在册但未实现」的可见性
+ * 由 `UNIMPLEMENTED_AUX_TASKS` 独立承载（见下）。
+ *
+ * **曾一度把 `experience-accumulation` 加进本表，已撤回**：它没有
+ * promptSection / outputSchema / validate 三部位（那正是 `implemented: false` 的
+ * 机械含义），加进来会被 `splitRunnableTasks` 报成「已启用但未实现」——而它其实
+ * 由 child 工具路径完全实现，只是不走本表。把已实现的职责报成未实现，比不报更糟。
  */
-// ── 2026-11-17：本表仍是**派发面**，只含摩擦发现一项 ─────────────────────
-//
-// 机制改为「主控发现 → 交派代理处理」后，**两类动作的实现路径完全不同**：
-//
-//   · 积累经验：主控调 `ldvh_pitfall_arm_delegate` 记一条开工授权 → 派生子代理
-//     → 子代理经 `registerChildSurface` 取得 Pitfall 工具面 → 直接写事实源。
-//     **它不经本表**：没有提示词拼接、没有输出 schema、没有结论回传校验——
-//     因为写入走的是受控工具（23 §13），不是「子代理交回一个 JSON 让宿主落地」。
-//
-//   · 发现摩擦：子代理写的是**观察缓冲**（非事实源，11 §12bis.1），写入后还需
-//     在同一派发内做阈值晋升与容量淘汰。这条路径历史上靠「宿主拼提示词 + 校验
-//     子代理交回的结论」实现，故留在本表。
-//
-// **曾一度把 `experience-accumulation` 加进本表，已撤回**：它在登记表里没有
-// promptSection / outputSchema / validate 三部位（那正是 `implemented: false`
-// 的机械含义），加进来会被 `splitRunnableTasks` 报成「已启用但未实现」——
-// 而它其实**完全实现**了，只是不走这条路。把已实现的职责报成未实现，比不报更糟。
 export const AUX_TASK_ORDER = Object.freeze(["friction-discovery"]);
 
 /**

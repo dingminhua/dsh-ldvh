@@ -102,12 +102,13 @@ const OPERATIONS = {
   // **独立模块**（web/api/app.ts 自成一体，拿不到 ctx）。工具 handler 由
   // `registerLdvhTools(agent.ctx, …)` 注册，那里正是有 ctx 的地方。
   //
-  // **它是临时探针，不是长期能力**：§6.1 修订后周期审核依赖宿主的两条接口，
-  // 那两条此前只在宿主包声明里读到过。探针用于在真实宿主上取证一次；取证完成后
-  // 可以撤掉，也可以留作诊断（成本很低，且 `dryRun` 缺省为真）。
+  // **它不再承载周期调度**：11 §6.1 已于 2026-11-17 改为「主控发起」——摩擦发现
+  // 改由主控经 child-only 工具直接派发代理，LDVH **不依赖**宿主周期任务或静置
+  // 检查点。本探针因此只剩一个用途：诊断宿主自身的自动化能力（`schedule` /
+  // `sessionController`）是否可用。能力仍在时保留它，成本低且 `write` 缺省为假。
   "probe-host-automation": {
     toolName: "ldvh_probe_host_automation",
-    summary: "Probe the host automation capabilities the periodic review depends on (11 §6.1 形态 2): schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
+    summary: "Probe whether the host automation capabilities (schedule / sessionController) are available: schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. LDVH no longer depends on periodic tasks for friction discovery (11 §6.1: controller-initiated proxy assistance), so this probe is diagnostic only. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
     effect: "may_change_state"
   }
   // 2026-11-17：`pending-queue-resolve` 已随待处置队列删除（Human 决定，11 §12）。
@@ -1313,13 +1314,13 @@ function makeExecute(deps) {
    * 交给调用方（Human）决定。
    */
   async function executeProbeHostAutomation(args, exec) {
-    // ── 只读诊断：当前审核的实际武装状态（2026-10-26）────────────────────
+    // ── 只读诊断：代理辅助的开关状态与摩擦晋升是否正在跑（2026-10-26）──
     //
-    // 用途：Human 报「改了设置没反应」时，靠它能当场分辨三种情形——
-    //   ① 开关是关的（配置值）→ 本来就该不动；
-    //   ② 开关开着但没有专属会话/任务 → 协调没跑或失败了；
-    //   ③ 两者都在但间隔不符 → 同步没生效。
-    // 只读：不建会话、不建任务、不改配置。
+    // 用途：Human 报「改了设置没反应」时，靠它当场读出两件事——
+    //   ① 代理辅助总开关与两个子项（发现摩擦 / 积累经验）当前是开还是关；
+    //   ② 该项目此刻是否有摩擦晋升在跑（项目级跨进程锁）。
+    // 它**不判断**「应该何时跑」：摩擦发现由主控在当次行动中以 child 工具发起
+    // （11 §6.1），没有周期、安静期或间隔可对照。只读：不建会话、不建任务、不改配置。
     if (args?.reconcile === true) {
       const governedScope = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
       if (governedScope.state !== "governed") {
@@ -1333,43 +1334,38 @@ function makeExecute(deps) {
         });
       }
       const settingsOf = typeof deps.getIdleSettings === "function" ? deps.getIdleSettings : () => ({});
-      const settings = settingsOf();
-      // **不再有 model 字段**（2026-10-27 去掉该设置）。此处若仍读 `review.model`
-      // 会拿到 undefined 并带进工具返回值——`undefined` 不是合法 JSON，整个诊断会以
-      // 「value is not lossless JSON」失败，而不是显示一个空模型。删除字段时必须
-      // 同时清掉**读它并放进返回值**的地方，不只是清掉引用。
-      // 全部字段显式兜底为 JSON 合法值：工具返回值必须是 lossless JSON，
-      // 任何 `undefined` 都会让整次调用失败（而不是显示一个空值）——这个失败形态
-      // 很坑：诊断工具本身坏了，看起来却像「被诊断的东西坏了」。
-      // `intervalMs` 已删除（2026-10-27 二次修订）：审核没有时间间隔这个量了。
-      const state = {
-        enabled: settings?.review?.enabled === true,
-      };
-      // **形态 2 已改由静置检查点驱动**（2026-10-27）：不再有专属会话、不再有宿主
-      // 周期任务。故诊断项随之改变——不再报「会话/任务是否在」，而是报「当前是否
-      // 正在跑」。旧的三态 verdict（enabled-but-no-session /
-      // enabled-session-but-no-schedule / in-sync）已随机制一并失效。
+      const s = settingsOf();
+      // **全部字段显式兜底为 JSON 合法值**：工具返回值必须是 lossless JSON，任何
+      // `undefined` 都会让整次调用失败（而不是显示一个空值）——诊断工具自己坏掉，
+      // 看起来却像「被诊断的东西坏了」（2026-10-27 实测）。
       //
-      // **2026-10-27 二次修订：`due` 这一项整体删除**。审核现在随静置触发，判据只有
-      // 「静置到期 + 无审核在跑」——没有时间间隔，也就没有「到点/没到点/还剩多久」
-      // 这三个可报的字段。留着一个恒为 `true` 的 `due` 会让读者以为间隔机制还在。
-      // **2026-10-30：互斥改为项目级跨进程文件锁**，故查询也须按项目问。
+      // 读的是设置解析后的形状：总开关 `enabled` + 两个子项 `tasks`。旧字段
+      // （review.enabled / review.intervalMs / review.model）随审核层与静置检查点
+      // 删除，**不得再被读**——它们已不存在，读到的只能是 undefined。
+      const state = {
+        enabled: s?.enabled === true,
+        frictionDiscovery: s?.tasks?.["friction-discovery"] === true,
+        experienceAccumulation: s?.tasks?.["experience-accumulation"] === true,
+      };
+      // **2026-10-30：互斥改为项目级跨进程文件锁**，故查询须按项目问。
       // 这里已解析出 `governedScope`，用它给出 projectId——否则诊断报的是「本进程
       // 有没有在跑」，而真实判据是「这个项目有没有在跑」（跨进程）。
       const running = await isFrictionPromotionRunning(dshHomePath, governedScope.project.id);
+      // verdict 只回答「开着且此刻有没有在跑」，不暗含任何「应该何时跑」：
+      // 主控发起后不存在周期/间隔，故没有「等待静置」这一态。
       return envelope("probe-host-automation", "completed", {
         result: {
           settings: state,
-          trigger: "idle-checkpoint",
+          trigger: "controller-initiated",
           running: running.busy,
           runningReason: running.reason ?? null,
           verdict: state.enabled === true
-            ? (running.busy ? "enabled-and-running" : "enabled-idle-waiting-for-silence")
+            ? (running.busy ? "enabled-and-running" : "enabled-idle")
             : "disabled",
         },
         scope: { requested: "reconcile", completed: ["settings", "trigger", "running"], not_completed: [] },
         sources: sources({ kind: "host-services", path: "getIdleSettings / friction-promotion-lock", fingerprint: null }),
-        gaps: state.enabled === true ? [] : ["review is disabled by settings, so nothing should run — this is not a failure"],
+        gaps: state.enabled === true ? [] : ["agent assistance is disabled by settings, so nothing should run — this is not a failure"],
         verification: { checks: ["settings", "trigger", "running"], passed: true },
         follow_up: [],
       });
@@ -1915,21 +1911,16 @@ export function renderEnvelope(operationKey, value) {
     }
   }
   // **reconcile 诊断的结果**（2026-10-26）：它的形状与探针不同（有 settings /
-  // session / schedules / verdict，没有 steps 数组），故上面那段不覆盖它。
+  // trigger / running / verdict，没有 steps 数组），故上面那段不覆盖它。
   // 不补这段的后果实测过：调 reconcile 只看到 「completed」而**内容一个字都没有**
   // ——与「探针没跑」无法区分。诊断的价值全在能不能读到具体状态。
   if (env.result !== null && typeof env.result === "object" && env.result.settings !== undefined) {
     const st = env.result.settings ?? {};
-    lines.push(`review.enabled: ${st.enabled}`);
-    lines.push(`review.intervalMs: ${st.intervalMs}`);
-    lines.push(`review.model: ${st.model === null || st.model === undefined ? "(default route)" : `${st.model.provider}/${st.model.model}${st.model.reasoningEffort ? `#${st.model.reasoningEffort}` : ""}`}`);
-    lines.push(`review.session: ${env.result.session === null || env.result.session === undefined ? "(none)" : env.result.session}`);
-    const schedules = Array.isArray(env.result.schedules) ? env.result.schedules : [];
-    lines.push(`review.schedules: ${schedules.length}`);
-    for (const row of schedules) {
-      if (row.error !== undefined) { lines.push(`  ! ${row.error}`); continue; }
-      lines.push(`  · ${row.id} every=${row.everySeconds}s${row.mine === true ? " (ours)" : ""}`);
-    }
+    lines.push(`agent assistance enabled: ${st.enabled === true}`);
+    lines.push(`friction discovery: ${st.frictionDiscovery === true}`);
+    lines.push(`experience accumulation: ${st.experienceAccumulation === true}`);
+    lines.push(`trigger: ${env.result.trigger}`);
+    lines.push(`running: ${env.result.running === true}${env.result.runningReason ? ` (${env.result.runningReason})` : ""}`);
     lines.push(`verdict: ${env.result.verdict}`);
   }
   // **陈旧模块报告**（源于一次实测的模块陈旧度问题）：它的字段是 process_start_ms / library_dir /
