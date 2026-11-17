@@ -49,7 +49,7 @@
 // 03 §9 controlled-write pipelines.
 
 import { resolveGovernanceScope } from "./governance-scope.js";
-import { createWindowAccumulator } from "./friction-window.js";
+import { createWindowAccumulator } from "./turn-accumulator.js";
 
 /** turn number from a session/event payload, mnemon eventTurn shape. */
 function eventTurn(event) {

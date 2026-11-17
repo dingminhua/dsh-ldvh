@@ -35,7 +35,7 @@ import { GATE_POINT_EXCLUSIONS, askEnabledFor, reviewAskMode, silentRunNotice } 
 // 只复用**归一化**口径，不复用 `verifyQuotation`（2026-11-16 独立审核 MINOR-1）：
 // 后者的错误码与文案属 11 号（摩擦发现）域，其 `minChars=8` 是 11 §11 的实现侧
 // 护栏，搬进 32 号会把两套判据的词汇混在一起，日后改一处会牵动另一处。
-import { normalizeQuotationText } from "./friction-window.js";
+import { normalizeQuotationText } from "./quotation-text.js";
 
 /** 05 §8 公共响应信封（与各 tool 模块同一形状）。 */
 function envelope(operationKey, outcome, fields) {

@@ -4,7 +4,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createWindowAccumulator, verifyQuotation } from "../lib/friction-window.js";
+import { createWindowAccumulator } from "../lib/turn-accumulator.js";
+import { verifyQuotation } from "../lib/friction-window.js";
 
 /** 造一个 assistant/message 事件（形状取自宿主 SessionEventMap）。 */
 function assistantEvent(turn, blocks) {
