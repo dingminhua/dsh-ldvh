@@ -92,7 +92,10 @@ const child = spawn(process.execPath, args, {
 let tailBuffer = "";
 child.stdout.on("data", (chunk) => {
   process.stdout.write(chunk);
-  tailBuffer = (tailBuffer + chunk.toString()).slice(-4096);
+  // 保留足够长的尾部以覆盖汇总行及其后可能打印的内容（skip/todo 的详细堆栈、
+  // 诊断告警）。4096 字节在 Windows 上会被 13 条 skip 堆栈挤出，导致
+  // 「ℹ tests N」落在缓冲区外、observedCount 取不到而误报「条数不可得」。
+  tailBuffer = (tailBuffer + chunk.toString()).slice(-131072);
 });
 
 child.on("exit", async (code, signal) => {

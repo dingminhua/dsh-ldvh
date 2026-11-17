@@ -211,14 +211,25 @@ test("⑤ 未登记类型目录不得被静默忽略（须进 gaps）", async ()
 	// 「新增事实」这一种变动：若 `ldvh-base/` 下出现白名单外的类型目录，
 	// 当前实现会**静默挡掉**——用户完全不知道有一类事实看不见。
 	// 本用例要求它至少在 gaps 或 uncheckedRange 里如实披露。
-	const entries = await readdir(join(ROOT, "ldvh-base"), { withFileTypes: true }).catch(() => []);
+	const base = join(ROOT, "ldvh-base");
+	const entries = await readdir(base, { withFileTypes: true }).catch(() => []);
 	const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+	// **只算含实际载体的目录**：召回披露的是「有事实但类型未登记」（source-recall
+	// 里 scopedFacts 的未登记 fact），空目录没有任何载体，进不了 gaps——这是正确
+	// 行为。git 不跟踪空目录，类型撤除后删掉载体留下的空壳（如本轮重构后的
+	// adrs/researches/workcases）会被下面的目录名过滤误判成「有未登记事实」。
+	// 与实现对齐：目录里没有 .md 载体就不算「未登记类型」，不要求披露。
+	const withCarriers = [];
+	for (const d of dirs) {
+		const files = await readdir(join(base, d)).catch(() => []);
+		if (files.some((f) => f.endsWith(".md"))) withCarriers.push(d);
+	}
 	// **目录名是复数**（norms/pitfalls/…），类型名是单数（norm/pitfall/…）。
 	// 直接比目录名会把全部已知类型误判为「未登记」。已实测踩过此坑。
 	const knownDirs = new Set(REGISTERED_FACT_TYPES.map((t) => `${t}s`));
 	knownDirs.add("reports"); // research 的复数是不规则形式
 	knownDirs.add("goal.md");    // 单例，不是目录
-	const unknown = dirs.filter((d) => !knownDirs.has(d) && !knownDirs.has(`${d}s`) && d !== "observation-buffer");
+	const unknown = withCarriers.filter((d) => !knownDirs.has(d) && !knownDirs.has(`${d}s`) && d !== "observation-buffer");
 
 	if (unknown.length === 0) return; // 当前无未知类型，跳过（但下面的实现断言仍需成立）
 

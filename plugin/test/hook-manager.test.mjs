@@ -104,7 +104,13 @@ test("resolveIdentity rejects a repo whose hooks path is not a regular directory
 		// macOS ln -s into an existing directory creates a link INSIDE it).
 		await rm(join(root, ".git", "hooks"), { recursive: true, force: true });
 		await mkdir(join(base, "hooks-target"));
-		await symlink(join(base, "hooks-target"), join(root, ".git", "hooks"));
+		// Windows 建符号链接需特权；junction 无需特权且同样使 hooks 路径不再是
+		// regular directory（跨平台等价，见 governed-projects 同型用例）。
+		await symlink(
+			join(base, "hooks-target"),
+			join(root, ".git", "hooks"),
+			process.platform === "win32" ? "junction" : undefined,
+		);
 		await assert.rejects(resolveIdentity(root), /Git hooks path must be a regular directory/);
 	});
 });
@@ -429,7 +435,10 @@ test("uninstallHook removes only commit-msg and keeps the hooks directory", asyn
 /** PATH with no node: keeps git and sh reachable, drops every node install. */
 const PATH_WITHOUT_NODE = "/usr/bin:/bin";
 
-test("Hook runs under a PATH without node (friction 6cb53179 regression)", async () => {
+test("Hook runs under a PATH without node (friction 6cb53179 regression)", async (t) => {
+	if (process.platform === "win32") {
+		t.skip("PATH=/usr/bin:/bin 与 shell 退出码 127 是 POSIX 语义；Windows Hook 载体差异按红线4 登记为未覆盖");
+	}
 	await withTemp("ldvh-hm.", async (base) => {
 		const root = await initRepo(base);
 		// Bake only PATH-resolved names, so the baked absolute path cannot mask
@@ -454,7 +463,10 @@ test("Hook runs under a PATH without node (friction 6cb53179 regression)", async
 	});
 });
 
-test("Hook still validates when node is baked as an absolute path and PATH lacks node", async () => {
+test("Hook still validates when node is baked as an absolute path and PATH lacks node", async (t) => {
+	if (process.platform === "win32") {
+		t.skip("构造无 node 的 POSIX PATH 在 Windows 上不可复现；按红线4 登记为未覆盖");
+	}
 	await withTemp("ldvh-hm.", async (base) => {
 		const root = await initRepo(base);
 		// A governed carrier must be staged or the 09 §5.5 dispatch passes the
@@ -486,7 +498,10 @@ test("Hook still validates when node is baked as an absolute path and PATH lacks
 	});
 });
 
-test("preflight refuses a Hook that cannot start the validator (no silent pass)", async () => {
+test("preflight refuses a Hook that cannot start the validator (no silent pass)", async (t) => {
+	if (process.platform === "win32") {
+		t.skip("依赖 sh 的 127 退出码语义；Windows 上按红线4 登记为未覆盖（gate 其它用例仍验证 fail-closed）");
+	}
 	await withTemp("ldvh-hm.", async (base) => {
 		const root = await initRepo(base);
 		// A Hook whose candidates cannot resolve anywhere: the shell exits 127,

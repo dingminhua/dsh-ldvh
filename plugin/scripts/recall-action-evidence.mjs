@@ -33,7 +33,15 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { decompressZstdStream } from "../lib/zstd-compat.js";
 
-const SESSIONS_ROOT = join(homedir(), ".dsh", "sessions", "--Users-dmh2002-DshProject-dsh-ldvh--");
+// 会话目录名由 DSH 按 workspace 绝对路径派生：把前导分隔符与冒号归一掉、
+// 其余路径分隔符换为 '-'，两端加 '--'。原先硬编码 macOS 路径派生的名字，
+// 在 Windows 上指向不存在的目录，脚本一启动就因 readdir ENOENT 崩溃（实测）。
+// 改为按当前工作目录派生，跨平台一致；取证脚本由测试/调用方在仓库根运行。
+const workspaceKey = process.cwd()
+  .replace(/^[/\\]+/, "")
+  .replace(/:/g, "")
+  .replace(/[/\\]+/g, "-");
+const SESSIONS_ROOT = join(homedir(), ".dsh", "sessions", `--${workspaceKey}--`);
 const AS_JSON = process.argv.includes("--json");
 const argOf = (name, fallback) => {
   const i = process.argv.indexOf(name);
@@ -158,7 +166,15 @@ const kindOf = (tool) => REF_KIND_BY_TOOL.get(tool) ?? "relay";
 // **不按字母序截断**（2026-11-11 修）：初版 `.slice(0, MAX_SESSIONS)` 取字母序
 // 前 N 个目录，实测 628 个目录里含注入的有 192 个分散全表，截断后只剩 9 个——
 // 样本被目录命名顺序决定，而不是被「有没有注入」决定。现改为先筛后截。
-const allDirs = await readdir(SESSIONS_ROOT);
+let allDirs;
+try {
+  allDirs = await readdir(SESSIONS_ROOT);
+} catch (error) {
+  // 会话根目录不存在（新装宿主、DSH_HOME 指向别处）不是测量失败，而是无样本。
+  // 按「读不到不等于没有」如实留空，不把空样本伪装成零命中，也不让脚本崩溃。
+  if (error?.code !== "ENOENT") throw error;
+  allDirs = [];
+}
 const turns = [];
 let scannedSessions = 0;
 

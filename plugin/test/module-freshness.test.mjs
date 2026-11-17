@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync, statSync, utimesSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   VALIDATOR_MODULE_FILES,
@@ -62,7 +62,9 @@ test("清单是运行时枚举而非写死：临时目录新增文件会被收�
     writeFileSync(join(dir, "a.js"), "// a\n");
     writeFileSync(join(dir, "b.js"), "// b\n");
     writeFileSync(join(dir, "readme.md"), "not js\n");
-    const files = listLibraryModuleFiles(dir).map((f) => f.split("/").pop()).sort();
+    // 用 basename 而非按 '/' 切分：listLibraryModuleFiles 返回绝对路径，
+    // Windows 上是 'C:\...\a.js'，按 '/' 切分整串当作文件名（跨平台）。
+    const files = listLibraryModuleFiles(dir).map((f) => basename(f)).sort();
     assert.deepEqual(files, ["a.js", "b.js"]);
   });
 });
@@ -73,8 +75,9 @@ test("清单是运行时枚举而非写死：临时目录新增文件会被收�
 
 test("VALIDATOR_MODULE_FILES 仍是 2 个文件（扩面不得改变预检行为）", () => {
   assert.equal(VALIDATOR_MODULE_FILES.length, 2);
-  assert.ok(VALIDATOR_MODULE_FILES.some((f) => f.endsWith("/commit-validation.js")));
-  assert.ok(VALIDATOR_MODULE_FILES.some((f) => f.endsWith("/ldvh-tools.js")));
+  // 按 basename 比较，不用 endsWith("/...")：Windows 路径分隔符是 '\'（跨平台）。
+  assert.ok(VALIDATOR_MODULE_FILES.some((f) => basename(f) === "commit-validation.js"));
+  assert.ok(VALIDATOR_MODULE_FILES.some((f) => basename(f) === "ldvh-tools.js"));
 });
 
 test("detectStaleValidatorModules 默认仍只检那 2 个文件", () => {

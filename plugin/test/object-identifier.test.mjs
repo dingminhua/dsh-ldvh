@@ -7,6 +7,7 @@
 
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 
 import {
@@ -18,7 +19,9 @@ import {
 } from "../lib/object-identifier.js";
 
 const UID = "71930c4a-f43f-439e-88bd-3aff7d07d37c";
-const FACT_ROOT = new URL("../../ldvh-base/", import.meta.url).pathname;
+// fileURLToPath 而非 URL.pathname：Windows 下 file: URL 的 pathname 带前导 '/'
+// （如 /D:/...），直接交给 fs 会解析失败；fileURLToPath 产出平台原生绝对路径。
+const FACT_ROOT = fileURLToPath(new URL("../../ldvh-base/", import.meta.url));
 
 // ---------------------------------------------------------------------------
 // 1. 纯形态解析：四种书写形态

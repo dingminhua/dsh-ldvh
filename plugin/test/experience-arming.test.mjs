@@ -203,16 +203,24 @@ test("授权账以 0600 落盘：含会话标识与项目路径，世界可读�
     const arming = createExperienceArming({ dshHomePath: dshHome(home) });
     await arming.arm({ parentSessionId: "p1", projectPath: "/repo", purpose: "x" });
     const { stat, readFile } = await import("node:fs/promises");
-    const fileMode = (await stat(arming.ledgerPath())).mode & 0o777;
-    assert.equal(fileMode, 0o600, `授权账权限为 ${fileMode.toString(8)}，宽于 0600 即泄漏会话标识`);
-    const dirMode = (await stat(join(home, "ldvh"))).mode & 0o777;
-    assert.equal(dirMode, 0o700, `载体目录权限为 ${dirMode.toString(8)}，管辖载体同层取 0700`);
+    if (process.platform !== "win32") {
+      const fileMode = (await stat(arming.ledgerPath())).mode & 0o777;
+      assert.equal(fileMode, 0o600, `授权账权限为 ${fileMode.toString(8)}，宽于 0600 即泄漏会话标识`);
+      const dirMode = (await stat(join(home, "ldvh"))).mode & 0o777;
+      assert.equal(dirMode, 0o700, `载体目录权限为 ${dirMode.toString(8)}，管辖载体同层取 0700`);
+    }
+    // Windows 无 POSIX mode：Node 在 win32 只暴露只读位，stat().mode & 0o777
+    // 恒为 0o666/0o777，0600/0700 不可判定——按红线4 如实登记为未覆盖，
+    // 不拿「Windows 上跑过」冒充权限防护已验收。下面的可读回断言仍照常验证。
     // 落盘内容仍须可读回（收紧权限不得把功能一起关掉）
     assert.ok((await readFile(arming.ledgerPath(), "utf8")).includes("p1"));
   });
 });
 
-test("既有 0644 载体在下次写入时被收紧为 0600（存量不靠人工补救）", async () => {
+test("既有 0644 载体在下次写入时被收紧为 0600（存量不靠人工补救）", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Windows 无 POSIX mode，无法构造 0644 前置条件；0600 收紧按红线4 登记为未覆盖");
+  }
   await withTemp("arm.", async (base) => {
     const home = join(base, "home");
     const { mkdir, writeFile, chmod, stat } = await import("node:fs/promises");

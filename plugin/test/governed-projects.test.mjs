@@ -118,7 +118,13 @@ test("fact source conflicts when ldvh-base is not a regular directory", async ()
 		// a symlink where the directory should be
 		const rootB = await initRepo(base, { name: "repo-b" });
 		await mkdir(join(base, "real-base"));
-		await symlink(join(base, "real-base"), join(rootB, "ldvh-base"));
+		// Windows 建符号链接需 SeCreateSymbolicLinkPrivilege；junction 是目录重解析点，
+		// 无需该特权，且同样使 ldvh-base 不再是 regular directory（跨平台等价）。
+		await symlink(
+			join(base, "real-base"),
+			join(rootB, "ldvh-base"),
+			process.platform === "win32" ? "junction" : undefined,
+		);
 		inspected = await inspectCandidate(rootB);
 		assert.equal(inspected.value.factSource.state, "conflict");
 	});

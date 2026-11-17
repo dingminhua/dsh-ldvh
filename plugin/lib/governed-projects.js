@@ -104,7 +104,17 @@ async function inspectWindowsAcl(target) {
   try {
     const { stdout } = await execFileAsync("whoami", [], { windowsHide: true, timeout: 10_000 });
     const full = String(stdout ?? "").trim();
-    if (full !== "") selfNames.push(full.toLowerCase());
+    if (full !== "") {
+      selfNames.push(full.toLowerCase());
+      // whoami 在部分 Windows 配置下只返回末段（本机实测为 "Administrator"，
+      // 无 "<machine>\" 前缀）。此时全名精确匹配永远命中不了 ACL 里的
+      // "<machine>\<user>" 主体，当前用户被误判为「其它用户」而越界。
+      // 与 whoami 失败同样记 note，从而启用下方按末段匹配的回退——这正是
+      // 「取不到全名就按末段匹配」的原设计意图，不放宽对真正其它用户的判定。
+      if (!full.includes("\\")) {
+        notes.push("whoami returned bare name; matched current user by bare name");
+      }
+    }
   } catch {
     notes.push("whoami unavailable; matched current user by bare name");
   }
