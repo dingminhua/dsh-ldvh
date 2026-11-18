@@ -1,38 +1,4 @@
 #!/usr/bin/env node
-/**
- * 按改动影响面选跑测试（2026-10-30）。
- *
- * WHY
- * 全量套件约 122s，而绝大多数改动只碰一两个模块。改一处就跑全量，把时间花在
- * 与被改代码无关的文件上；全量的价值在发布/推送这种「要一个完整结论」的时刻。
- *
- * HOW
- * 用 acorn 解析 `lib/`、`test/`、`scripts/` 里的每个文件，抽出三类引用：
- *   1. 静态 `import ... from "./x.js"`；
- *   2. 动态 `import("./x.js")`（lib 里有 12 处，正则扫字符串会漏掉上下文）；
- *   3. 源码里出现的 `lib/<name>.js` 路径字面量——子进程 spawn 与「按路径读文件
- *      当文本比对」都不产生 import 边，静态图看不见它们。
- * 然后反向可达：改动文件 → 依赖它的文件 → …… → 测试文件。
- *
- * DESIGN CONSTRAINT——漏判会给出假通过，所以一律朝「多跑」失败：
- *   - 依赖图里的任何相对引用解析不到（文件不存在 / 非字面量 / `..` 越界）都记
- *     warning；warning 存在时本脚本**不声明局部结论成立**，只在退出码与输出里
- *     如实标注，由调用方决定。
- *   - 认不出的路径（`specs/`、`ldvh-base/`、`web/`、`package.json`、锁文件、
- *     eslint 配置、以及任何不在已知面内的文件）→ 直接判全量。这些要么是全局
- *     契约源，要么会影响所有用例的语义。
- *   - 改动文件完全没有任何测试可达 → 不返回「无测试可跑所以通过」，而是列入
- *     `uncovered` 并以非零退出码报告。空集不等于绿。
- *
- * 与 specs/06 的关系：`specs/06-Code 实践与测试规范.md` §4 规定全量入口；本脚本
- * 是开发期的局部入口，**不改变发布/推送必须全量的要求**。
- *
- * 用法：
- *   node scripts/affected-tests.mjs --run                 # 与工作区/暂存区比较后跑局部
- *   node scripts/affected-tests.mjs --run --base HEAD~1   # 与某个提交比较
- *   node scripts/affected-tests.mjs --files lib/a.js ...  # 显式给出改动文件
- *   node scripts/affected-tests.mjs                       # 只打印计划，不跑
- */
 import { readFile, readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -47,11 +13,6 @@ const SURFACE_DIRS = ["lib", "test", "scripts"];
 const SURFACE_EXTENSIONS = [".js", ".mjs", ".cjs"];
 const TEST_SUFFIX = ".test.mjs";
 
-/**
- * 一改动就必须全量的路径。判据不是「文件很大」，而是「它的影响面在静态图里
- * 不可枚举」：契约源、依赖锁、lint 配置、Web 构建输入，以及测试基础设施本身
- * （helpers 被谁用是可达的，但它同时是很多用例的语义前提）。
- */
 const FULL_SUITE_TRIGGERS = [
   { test: (p) => p.startsWith("specs/"), why: "规范源是所有事实类型契约的依据" },
   { test: (p) => p.startsWith("ldvh-base/"), why: "事实源内容被多个用例直接读取" },
@@ -83,21 +44,6 @@ async function listSurfaceFiles(root, dir, acc = []) {
   return acc;
 }
 
-/**
- * 从一颗 AST 里抽出所有字面量形式的引用。非字面量（模板/变量）记入 opaque。
- *
- * WHY 走 AST 而不是正则扫源码：路径字面量里**混在注释中的提及**会被正则当成
- * 依赖。实测本仓 `lib|scripts|test/<name>.js` 形态的匹配有 369 处，其中 126 处
- * 在注释里（「参见 lib/source-recall.js」这类说明），它们把所有模块连成一片，
- * 使任一改动都能反向到达 58–62 个测试文件，局部测试失去意义。AST 的字符串
- * 字面量节点天然不含注释，实测降到 252 处真实引用。
- *
- * 覆盖三类边：
- *   1. 静态 `import ... from`（含 re-export 的 `from`）；
- *   2. 动态 `import(...)`；参数非字面量时记 opaque（方向朝「多跑」）；
- *   3. 任意字符串字面量里出现的 `lib/<name>.js` 形态——子进程 spawn 与「按路径
- *      读文件当文本比对」都不产生 import 边，静态 import 图看不见它们。
- */
 const REFERENCE_PATTERN = /(?:^|\/)((?:lib|scripts|test)\/[A-Za-z0-9._-]+\.(?:m?js|cjs))$/;
 
 function collectRefs(ast, opaque) {
@@ -135,10 +81,6 @@ function collectRefs(ast, opaque) {
   return refs;
 }
 
-/**
- * 构建依赖图。
- * 返回 { files, edges: Map<绝对路径, Set<绝对路径>>, warnings }。
- */
 export async function buildGraph(root) {
   const files = [];
   for (const dir of SURFACE_DIRS) await listSurfaceFiles(root, dir, files);
@@ -147,7 +89,6 @@ export async function buildGraph(root) {
 
   const edges = new Map();
   const warnings = [];
-  /** 依赖无法静态确定的文件——它们可能依赖任何东西，必须当通配依赖方处理。 */
   const opaqueFiles = new Set();
   for (const rel of files) {
     const abs = join(root, rel);
@@ -161,7 +102,6 @@ export async function buildGraph(root) {
     for (const spec of refs) {
       if (spec.startsWith("@@path:")) {
         const target = spec.slice("@@path:".length);
-        // 自引用（文件在自己的字符串里出现自己的路径）不是依赖边。
         if (target === rel) continue;
         if (known.has(target)) out.add(resolve(join(root, target)));
         continue;
@@ -176,7 +116,6 @@ export async function buildGraph(root) {
   return { files: files.map((f) => join(root, f)), edges, warnings, opaqueFiles };
 }
 
-/** 反向图：被依赖 -> 依赖它的文件集合。 */
 function reverseIndex(edges) {
   const reverse = new Map();
   for (const [from, tos] of edges) {
@@ -188,16 +127,6 @@ function reverseIndex(edges) {
   return reverse;
 }
 
-/**
- * 计算改动影响面。
- *
- * 三种输出，**没有一种叫「无事可做」**：
- *   - "full"      —— 改动落在影响面不可静态枚举的路径上，或不在已知面内；
- *   - "partial"   —— 得出确定的测试集合；
- *   - "uncovered" —— 改动没有任何测试可达。空集不等于通过，调用方须据此失败。
- *
- * @returns {{ mode: "full"|"partial"|"uncovered", reason: string, tests: string[], uncovered: string[], warnings: string[] }}
- */
 export async function computeAffectedTests({ root = pluginRoot, changedPaths }) {
   const changed = changedPaths.map((p) => p.split(sep).join("/"));
   const trigger = changed.find((p) => FULL_SUITE_TRIGGERS.some((entry) => entry.test(p)));
@@ -223,12 +152,6 @@ export async function computeAffectedTests({ root = pluginRoot, changedPaths }) 
     };
   }
 
-  /**
-   * 逐个改动文件各做一次反向 BFS——不能把所有起点混在一起跑一次：
-   * 反向图从起点出发只会收集「依赖起点的文件」，起点自身永不进入结果集，
-   * 混跑就分不清「这个改动没有任何测试依赖它」与「另一个改动有」。
-   * 直接改到的测试文件本身算作它自己的测试（它当然要跑）。
-   */
   const tests = new Set();
   const uncovered = [];
   for (const abs of changed.map((p) => resolve(root, p))) {
@@ -251,8 +174,6 @@ export async function computeAffectedTests({ root = pluginRoot, changedPaths }) 
         queue.push(dependent);
       }
     }
-    // 有依赖无法静态确定的测试文件时，任何改动都可能牵动它们——一律纳入，
-    // 并因而不宣称「无测试覆盖」。
     for (const file of opaqueTests) {
       if (!seen.has(file)) tests.add(relative(root, file).split(sep).join("/"));
     }
@@ -280,7 +201,6 @@ export async function computeAffectedTests({ root = pluginRoot, changedPaths }) 
 }
 
 async function gitChangedPaths(root, base) {
-  // 未提交改动 + 已暂存改动；--base 时改为与某提交比较。
   const args = base
     ? ["diff", "--name-only", base]
     : ["diff", "--name-only", "HEAD"];
@@ -293,7 +213,6 @@ async function gitChangedPaths(root, base) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  // 仓库根的 specs/、ldvh-base/ 等在 plugin/ 之上；用仓库根为基准换算。
   const repoRoot = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: root, encoding: "utf8" })).stdout.trim();
   return lines.map((line) => {
     const abs = resolve(repoRoot, line);

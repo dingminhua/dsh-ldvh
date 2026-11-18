@@ -1,14 +1,3 @@
-/**
- * 项目认知中心：GET /api/cognition 收件箱与近期动态契约测试。
- *
- * 以当前治理范围解析出的受管辖工作树（事实源）运行，断言 02 §8 当前已交付字段
- * （generatedAt / scope / inbox / recentActivity / sparkHealth / issues）、待决收录及排序、命名纪律
- * （Pitfall 的 draft 待确认）、
- * 内联对象卡片依据、条件 canonical_path，以及近期动态的窗口与时间标记。
- *
- * 断言以“不依赖具体对象身份的不变式”为主：无论事实源是本仓库还是预览工作树，
- * 收录 / 排序 / 命名 / 投影规则都必须确定性成立。
- */
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -20,19 +9,12 @@ import path from 'node:path'
 import { after, before, test } from 'node:test'
 import { compareTimestamps } from '../../api/services/time.ts'
 
-/** Web 源码根：供读取前端源文件的静态契约用例使用（与治理范围无关）。 */
 const repositoryRoot = path.resolve(import.meta.dirname, '../..')
 
 let server: Server
 let baseUrl = ''
 
 before(async () => {
-  // 本用例自建治理登记载体，不依赖仓库外的机器本地配置。
-  //
-  // 此前该文件默认指向 `<repo>/../../LDVH-GOVERNED-PROJECTS.yaml`（机器工作区文件），
-  // 该文件不在版本控制内：本地存在故用例通过，CI 全新检出时 ENOENT，
-  // 导致 14 个用例必然失败（治理配置不可用）。现改为在临时目录内自建 git 仓库
-  // 与登记载体，使用例在任何环境（含 CI）自足。
   const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), 'ldvh-cognition-workspace-'))
   const projectRoot = path.join(workspaceRoot, 'demo')
   mkdirSync(path.join(projectRoot, 'ldvh-base', 'sparks'), { recursive: true })
@@ -86,7 +68,6 @@ function priorityRank(priority: unknown): number {
   return match ? Number(match[1]) : 4
 }
 
-/** 复制路由排序规则，用于校验收件箱顺序的确定性。 */
 function compareSort(a: Record<string, unknown>, b: Record<string, unknown>): number {
   const ra = priorityRank(a.priority)
   const rb = priorityRank(b.priority)
@@ -105,14 +86,6 @@ function compareSort(a: Record<string, unknown>, b: Record<string, unknown>): nu
   return String(a.id).localeCompare(String(b.id))
 }
 
-/**
- * 收件类型的期望值：由 v5 派生分组 `group` 单独给出（10 §4.2.1）。
- *
- * 此前本辅助器读 `progress_group` 与 `isBlocked`——两者都是 v4 词汇：v5 对象没有
- * `progress_group` 字段（派生分组叫 `group`），也不存在 `isBlocked` 的产出方。于是
- * 该辅助器对不匹配的条目返回 null，`item.inboxKind` 与它比对上必然不相等——
- * 只是恰好当日事实源里没有相应样本，断言空转而未暴露。
- */
 test('recent activity rows display localized type labels while preserving full ids for actions', () => {
   const source = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
   const recentActivityRow = source.slice(source.indexOf('function RecentActivityRow'), source.indexOf('function RecentActivityUsageBars'))
@@ -139,7 +112,7 @@ test('AI module summaries use human-readable type and title without machine loca
   for (const [index, name] of summaryNames.entries()) {
     const start = source.indexOf(`function ${name}`)
     const nextName = summaryNames[index + 1]
-    const end = nextName ? source.indexOf(`function ${nextName}`, start) : source.indexOf('/** 读取问题', start)
+    const end = nextName ? source.indexOf(`function ${nextName}`, start) : source.indexOf('function InboxItemReadNotes', start)
     const body = source.slice(start, end)
     assert.ok(start >= 0 && end > start, `${name} must remain independently inspectable`)
     assert.match(body, /formatHumanObjectReference\(/, `${name} must use 类型《当前 Title》`)
@@ -176,16 +149,10 @@ test('cognition endpoint returns inbox, fact activity, and Spark health contract
   assert.ok(sparkHealth.terminalByStatus && typeof sparkHealth.terminalByStatus === 'object')
   assert.ok(sparkHealth.openByPriority && typeof sparkHealth.openByPriority === 'object')
   assert.ok(Array.isArray(sparkHealth.openItems))
-  // 2026-09-27：`silentItems` / `silentThresholdDays` / `silentCount` 已随无规范
-  // 来源的「沉默判定」（硬编码 5 天阈值）一并移除。派生量 `silentDays` 仍在
-  // openItems 上（供呈现与 10 §5.2 授权的按时间筛选）。此处断言其不存在，
-  // 使「判定被重新引入」这种回退会被本用例捕获。
   assert.equal('silentItems' in sparkHealth, false)
   assert.equal('silentThresholdDays' in sparkHealth, false)
   assert.equal('silentCount' in sparkHealth, false)
-  // 2026-10-26 删除：一周关系热点整块功能已移除（Human 决定），端点不再投影该字段。
   assert.equal('recentHotspots' in body, false, 'removed hotspot module must not be projected')
-  // 其余尚未建设的模块仍整体省略。
   for (const moduleKey of ['whileAway', 'timeline', 'direction']) {
     assert.equal(moduleKey in body, false, `not-yet-built module must omit ${moduleKey}`)
   }
@@ -206,13 +173,10 @@ test('Spark health splits the current pool into terminal and open items, ordered
     assert.equal(item.type, 'spark')
     assert.equal(typeof item.id, 'string')
     assert.ok(Number(item.activityCount) >= 0)
-    // `silentDays` 是中性派生量（距最近一次 change_log 的天数），供呈现与
-    // 10 §5.2 授权的按时间筛选使用；它不构成「沉默」判定。
     assert.ok(Number(item.silentDays) >= 0)
     assert.equal(typeof item.updatedAt, 'string')
     if (index > 0) assert.ok(Number(openItems[index - 1].silentDays) >= Number(item.silentDays))
   }
-  // 2026-09-27：阈值化的「沉默子集」及其阈值/计数已移除（无规范来源）。
   assert.equal('silentItems' in health, false)
   assert.equal('silentThresholdDays' in health, false)
   assert.equal('silentCount' in health, false)
@@ -237,13 +201,11 @@ test('recent activity accepts only explicit windows and groups fact change-log e
     assert.equal(Number(recent.total), items.length)
     assert.ok(Number(recent.eventTotal) >= items.length)
     for (const item of items) {
-      // 25 号 Goal：单例冻结锚的 change_log 修订史同样进近期动态（type='goal'）。
       assert.ok(['pitfall', 'spark', 'report', 'goal'].includes(String(item.type)))
       assert.ok(['created', 'updated'].includes(String(item.activity)))
       assert.match(String(item.occurredAt), RFC3339)
       if (item.signature !== undefined) {
         const signature = item.signature as Record<string, unknown>
-        // v5 扁平签名（provider/model）与 v4 嵌套形态（productName/modelName）任一成立。
         const presentValues = [signature.provider, signature.model, signature.productName, signature.modelName]
           .filter((value) => value !== undefined)
         assert.ok(presentValues.length > 0, 'signature 必须携带至少一个署名值')
@@ -318,12 +280,6 @@ test('recent activity environment usage merges Codex Desktop and Codex into one 
     type: 'spark' as const, title: 'Codex platform', activity: 'updated' as const,
     status: 'open', read_status: 'readable', field_issues: [], unparsed_structures: [],
   }
-  // `agentRuntimeName` 是已退役字段（shared/signature.ts：agent_runtime_name retired
-  // ）。此处**故意**保留它，正是要证明读取层
-  // 对它视而不见——归一只认 provider/productName，故下面两条合起来仍只算 Codex 一次。
-  // 声明为 `Record<string, unknown>` 而非内联字面量：要喂的是「存量载体可能带的旧键」，
-  // 不是「本类型的合法字段」。内联字面量会触发 excess-property 检查；若只留退役键又会
-  // 因弱类型「无公共属性」被拒——`Record` 声明如实表达「这是来源不可控的存量键值」。
   const legacyCodexDesktopSignature: Record<string, unknown> = { productName: 'codex-desktop', agentRuntimeName: 'codex' };
   const legacyCodexSignature: Record<string, unknown> = { agentRuntimeName: 'codex' };
   const view = buildRecentActivityView([
@@ -333,7 +289,6 @@ test('recent activity environment usage merges Codex Desktop and Codex into one 
     },
     {
       ...common, object_id: 'spark-codex', occurred_at: '2026-08-01T01:00:00Z',
-      // 只有退役字段时归一为空，该条不贡献任何环境统计。
       signature: legacyCodexSignature,
     },
   ])
@@ -398,8 +353,6 @@ test('recent activity accepts current change-log signatures and ignores legacy f
 
 test('recent activity reads the v5 flat provider/model change_log shape with Date instances (specs/03 §6.1, 09)', async () => {
   const { buildFactActivityItems, buildRecentActivityView, buildSparkHealth } = await import('../../api/routes/cognition.ts')
-  // v5 writer 写出的扁平流水（specs/09 provider/model 权威对）；YAML 未加引号的
-  // at 在进程内是 Date 实例（js-yaml），无公共 updated_at（03 §6.1）。
   const raw = {
     object_id: 'research-0001', title: 'Flat attribution', status: 'active',
     change_log: [
@@ -412,15 +365,12 @@ test('recent activity reads the v5 flat provider/model change_log shape with Dat
     'created:2026-09-06T07:48:23.255Z',
     'updated:2026-09-07T18:53:00.235Z',
   ])
-  // 区分键形态：provider/model 原词携键（供应商 id 逐字呈现，Human 2026-09-10 定案）。
   assert.deepEqual(builds[builds.length - 1]?.signature, { provider: 'zzztoken-glm', model: 'glm-5.3' })
 
-  // 用量聚合：供应商维度逐字计数（不首字母大写）。
   const view = buildRecentActivityView(builds)
   assert.deepEqual(view.modelUsage, [{ value: 'glm-5.3', count: 2 }])
   assert.deepEqual(view.environmentUsage, [{ value: 'zzztoken-glm', count: 2 }])
 
-  // Spark 健康度同样读 v5 扁平署名与 Date 形态的 at。
   const health = buildSparkHealth([{
     object_id: 'spark-0009', title: 'Flat spark', status: 'open',
     change_log: [
@@ -472,7 +422,6 @@ test('fact activity builder reads change_log first and only falls back for legac
     title: '流水驱动的热点',
     status: 'open',
     created_at: '2026-08-01T00:00:00Z',
-    // 03 §6.1：不保留公共 updated_at，最近更新时间由 change_log 末条 at 承担。
     change_log: [
       { at: '2026-08-01T01:00:00Z', summary: '创建' },
       { at: '2026-08-01T03:00:00Z', summary: '更新' },
@@ -484,8 +433,6 @@ test('fact activity builder reads change_log first and only falls back for legac
     'updated:2026-08-01T03:00:00Z',
   ])
 
-  // 无可用流水时没有可据实声明的更新时间：只产出 created（取 created_at），
-  // 不再因 updated_at 字段消失而伪造 updated 事件。
   const legacy = buildFactActivityItems(
     { ...raw, change_log: [{ at: 'invalid' }] },
     'spark',
@@ -503,20 +450,16 @@ test('inbox collects only decision-baseline items with a deterministic sort orde
   const items = inbox.items as Array<Record<string, unknown>>
 
   assert.equal(inbox.total, items.length)
-  // 当前项目可以没有待决定事项；空态也是受支持的完整投影。
   if (items.length === 0) return
 
-  // 排序确定性：实际顺序必须等于按路由规则重排的顺序。
   const expected = items.slice().sort(compareSort)
   const actualIds = items.map((i) => String(i.id))
   const expectedIds = expected.map((i) => String(i.id))
   assert.deepEqual(actualIds, expectedIds)
 
-  // 优先级最小者排在最前（P0 > P1 > …）；缺失/非法优先级排最后。
   const ranks = items.map((i) => priorityRank(i.priority))
   const minRank = Math.min(...ranks)
   assert.equal(priorityRank(items[0].priority), minRank)
-  // 缺失优先级项必须排在所有合法 P0-P3 之后（Q8）；非法优先级同为 rank 4 也归入末尾。
   const validIndices = items
     .map((i, idx) => ({ i, idx }))
     .filter(({ i }) => typeof i.priority === 'string' && /^P[0-3]$/.test(String(i.priority)))
@@ -534,7 +477,6 @@ test('inbox collects friction repairs with the projection contract (26 §12)', a
   const items = (body.inbox as Record<string, unknown>).items as Array<Record<string, unknown>>
 
   for (const item of items) {
-    // 26 §12：open 摩擦账目进待决定事项，`status` 是来源状态的直读值。
     assert.equal(item.type, 'friction', `unexpected inbox object type: ${String(item.type)}`)
     assert.equal(item.status, 'open')
     assert.equal(item.inboxKind, 'friction_repair')
@@ -560,7 +502,6 @@ test('priority signal is shown only for valid P0-P3 and omitted for missing/inva
       assert.match(String(item.priority), /^P[0-3]$/)
     }
   }
-  // 若存在缺失/非法优先级的条目，它们必须排在所有合法 P0-P3 之后（Q8）。
   const missing = items.filter((i) => !('priority' in i))
   if (missing.length > 0) {
     const lastLegalIndex = items.length - missing.length - 1
@@ -577,13 +518,10 @@ test('decision basis is inlined via each source object card projection (Q3)', as
   for (const item of items) {
     assert.ok('card' in item)
     const card = item.card as Record<string, unknown>
-    // 26 §12：inbox 条目现只剩 Friction（Pitfall 收件档已随 2026-11-03 取消
-    // `draft` 一并移除，23 §9）。
     assert.equal(item.type, 'friction')
     for (const field of ['phenomenon', 'attribution', 'disposition', 'occurrence', 'status']) {
       if (field in card) assert.notEqual(card[field], undefined, `${field} preserves its source value`)
     }
-    // 身份字段不重复收入 card。
     assert.equal('object_id' in card, false)
     assert.equal('status' in card, false)
     assert.equal('progress_group' in card, false)
@@ -596,12 +534,9 @@ test('readable items carry canonical_path for conditional copy (Q4); time omissi
 
   if (items.length === 0) return
   for (const item of items) {
-    // 字段级直读 readable 时携带 canonical_path，供条件显示“复制对象路径”。
     const collection = 'frictions'
     assert.equal(item.canonical_path, `ldvh-base/${collection}/${String(item.id)}.yaml`)
-    // updated_at 缺失排最后并省略时间显示（Q8）：有则带 updatedAt 字符串。
     if (item.read_status === 'readable' && typeof item.updatedAt !== 'string') {
-      // 缺失时该条目应处于排序末尾（上方排序测试已覆盖），此处仅记录形状。
       assert.equal(typeof item.updatedAt, 'undefined')
     }
   }
@@ -613,7 +548,6 @@ test('observation time and inbox survive locale switch without leaking raw statu
 
   assert.match(String(zh.generatedAt), RFC3339)
   assert.match(String(en.generatedAt), RFC3339)
-  // 同一观察窗口下，收件箱对象集合与排序与语言无关（locale 仅影响 relativeTime 文案）。
   const zhIds = ((zh.inbox as Record<string, unknown>).items as Array<Record<string, unknown>> | undefined)?.map((i) => String(i.id))
   const enIds = ((en.inbox as Record<string, unknown>).items as Array<Record<string, unknown>> | undefined)?.map((i) => String(i.id))
   assert.deepEqual(zhIds, enIds)
@@ -621,7 +555,6 @@ test('observation time and inbox survive locale switch without leaking raw statu
 
 test('module-level degradation is surfaced via issues without breaking the contract', async () => {
   const body = await cognition('zh')
-  // 当前事实源无模块级降级：issues 省略（仅在存在时返回数组）。
   if ('issues' in body) {
     assert.ok(Array.isArray(body.issues))
   }
@@ -641,11 +574,6 @@ test('近期动态覆盖全部活跃事实类型（26/27 号加入 OBJECT_TYPES 
   const cognition = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
   const facts = readFileSync(path.resolve(repositoryRoot, 'api/services/facts.ts'), 'utf8')
 
-  // 取数范围必须等于 OBJECT_TYPES 全集——后者是活跃事实类型的唯一来源。
-  // 本守卫的由来（Human 2026-11-10 实测：「聚焦里的近期动态怎么没有摩擦的改动」）：
-  // recentSources 曾停在早期的五类上，friction/norm 加入 OBJECT_TYPES 时未随行，
-  // 于是这两类的任何改动都不出现在认知中心，且**没有测试会发现**——静态硬编码
-  // 列表与动态类型集合之间缺少比对。
   const activeMatch = facts.match(/export const ACTIVE_OBJECT_TYPES = \[([^\]]+)\]/)
   assert.ok(activeMatch, 'ACTIVE_OBJECT_TYPES 必须可解析')
   const activeTypes = activeMatch[1]
@@ -660,7 +588,6 @@ test('近期动态覆盖全部活跃事实类型（26/27 号加入 OBJECT_TYPES 
   const missing = activeTypes.filter((type) => !sourcesBlock.includes(`['${type}'`))
   assert.deepEqual(missing, [], `以下活跃类型未进近期动态：${missing.join('、')}`)
 
-  // 每类都要有对应的 listObjects 读取调用，否则源表里会是一个未定义的变量。
   for (const type of activeTypes) {
     if (type === 'goal') continue
     assert.ok(cognition.includes(`listObjects('${type}'`), `${type} 须有读取调用`)
@@ -674,14 +601,10 @@ test('近期动态行对摩擦显示重复观察标签，紧跟优先级、在�
     cognition.indexOf('function RecentActivityUsageBars'),
   )
 
-  // 与列表卡卡头、详情身份头**同序**：类型 → 优先级 → 重复观察 → 修改次数。
-  // （`serves` chip 已于 2026-11-01 从三处撤除；impact 轻/中/重 chip 已于
-  // 2026-11-02 随 26 §8 撤销分级制度撤除，故判据改为「重复观察紧跟优先级」。）
   assert.match(row, /<PriorityIcon source=\{item\} type=\{item\.type\}[\s\S]{0,400}?<FrictionOccurrenceBadge value=\{item\.occurrence\}/,
     '重复观察紧跟优先级，在修改次数之前')
   assert.match(row, /item\.type === 'friction' && <FrictionOccurrenceBadge/, '按类型分派');
   assert.doesNotMatch(row, /ServesSgBadge/, 'serves chip 不得回到近期动态行（2026-11-01 撤除）');
-  // 经共享组件渲染——不自行拼 chip（否则会与卡头形态漂移）。
   assert.doesNotMatch(row, /FrictionImpactBadge|FRICTION_IMPACT_CHIP_CLASS/,
     '退役的 impact 徽标不得回到近期动态行（26 §8，2026-11-02）');
 })
@@ -690,39 +613,21 @@ test('近期动态投影携带 friction 的 occurrence（API 链路不丢字段�
   const cognition = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
   const api = readFileSync(path.resolve(repositoryRoot, 'src/utils/api.ts'), 'utf8')
 
-  // 三处缺一不可：BuildItem 结构 → 从原始对象取 → 投影给前端。
-  // 此前三处都没有该字段，故前端即便想渲染也无值可渲染（Human 2026-11 实测）。
-  // 声明序判据：serves 之后、refs 之前必须有 occurrence（两段之间的注释块较长，
-  // 故窗口放宽——但不得越过 refs，否则字段序漂移不会被抓到）。
   assert.match(cognition, /serves\?: string[\s\S]{0,1200}?occurrence\?: \{[\s\S]{0,200}?refs\?:/, '① BuildItem 结构声明 occurrence')
   assert.match(cognition, /type === 'friction' && typeof raw\.occurrence === 'object'/, '② 从原始对象取 occurrence')
   assert.match(cognition, /build\.occurrence !== undefined \? \{ occurrence: build\.occurrence \}/, '③ 投影给前端')
   assert.match(api, /occurrence\?: Record<string, unknown>;/, '④ 前端类型声明 occurrence')
 })
 
-// ── 26 §12「Web 账本呈现」：open 摩擦进待决定事项（Human 2026-10-19 决定）─────────
-//
-// Human 原话（m00001）：「web 的聚焦，待决定事项里要增加 待修的摩擦」；对范围的
-// 追问答「只要 open」、对标签问「沿用现有徽章即可」。故本节钉三件事：
-// ① 收录口径恰为 `open`（2026-10 修订后闭集只剩三值 open/resolved/voided：
-//    `observing` 已退出 26 §9 闭集，观察材料改由 11 §12bis.1 的摩擦观察缓冲
-//    承载、非事实对象，故账本里本就没有「攒熟中的活账」可铺）；
-// ② 条目复用列表卡形态（occurrence 平铺到条目根，卡头徽标才读得到）；
-// ③ 不新增独立标签组件——`inboxKind` 只用于模块摘要计数。
 
 test('待决定事项收录 open 摩擦：闭集外取值与终态一律不进（26 §12）', () => {
   const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
 
-  // 判定是**字面**的 `raw.status !== 'open'`——写成集合或包含其它状态的谓词都是
-  // 口径漂移，会在下次有人「顺手多带上一个状态」时静默通过。
   assert.match(route, /for \(const raw of data\.items\) \{\s*if \(raw\.status !== 'open'\) continue/,
     '只收 open 账目');
   assert.match(route, /type: 'friction', inboxKind: 'friction_repair'/, '摩擦走独立 inboxKind');
-  // `observing` 已不在 26 §9 闭集内（观察材料改由 11 §12bis.1 的缓冲承载），
-  // 它既不是合法账目状态，也不得进入待修收件——此处按「拒绝」语义保留断言。
   assert.doesNotMatch(route, /'observing'[^\n]*friction_repair|friction_repair[^\n]*'observing'/,
     'observing（闭集外）不得进入待修收件');
-  // 名册对不上时如实降级（02 §5.4），不静默丢整个分类。
   assert.match(route, /code: 'friction_list_unavailable'/, 'friction 读取失败须进 issues');
 })
 
@@ -731,15 +636,10 @@ test('摩擦收件项把 occurrence 平铺到条目根（卡头徽标读对象�
   const api = readFileSync(path.resolve(repositoryRoot, 'src/utils/api.ts'), 'utf8')
   const page = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
 
-  // 服务端：投影函数存在且被 entry 层调用。
-  // （原①「影响投影函数」projectFrictionImpact 随 26 §8 撤销分级制度于
-  //  2026-11-02 删除；本用例判据改为 occurrence 单字段平铺。）
   assert.match(route, /function projectFrictionOccurrence/, '② 重复观察投影函数');
   assert.match(route, /Object\.assign\(entry, projectFrictionOccurrence\(build\.projection\)\)/,
     '③ entry 层显式平铺（不依赖客户端翻 card）');
-  // 客户端类型：条目根上声明该字段。
   assert.match(api, /occurrence\?: Record<string, unknown>;/, '④ 前端条目类型声明');
-  // 呈现：摩擦分支走**列表卡同一组件**，不另写聚焦专属卡体。
   assert.match(page, /if \(item\.type === 'friction'\) return <FrictionCardContent obj=\{toObjectCard\(item\)\} \/>;/,
     '⑤ 复用 FrictionCardContent');
   assert.match(page, /friction_repair: 'cognition\.kind\.friction_repair'/, '⑥ 模块摘要标签');
@@ -748,21 +648,11 @@ test('摩擦收件项把 occurrence 平铺到条目根（卡头徽标读对象�
 test('摩擦条目的 canonical_path 指向 frictions 目录而非 pitfalls 回落', () => {
   const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
   const fn = route.slice(route.indexOf('function canonicalPath'), route.indexOf('function factKey'))
-  // 曾经的二元式回落会让新类型静默
-  // 复制出一个**不存在的路径**（不报错，只是复制错位置）。故要求显式查表。
   assert.match(fn, /friction: 'frictions'/, '① friction 有显式目录');
   assert.match(fn, /throw new Error/, '② 未知类型失败而非回落');
   assert.doesNotMatch(fn, /type === '\w+' \? '\w+' : 'pitfalls'/, '③ 不得保留二元回落');
 })
 
-// ── 26 §12 / §18 第 7 条：accepted 的「度量单列」消费点（2026-10 新增）──────────
-//
-// accepted（已接受、不可清偿）不是待决定事项——它「记录一次、不再报告」。
-// 但 26 §18 第 7 条把它列为 accepted 的**必备消费方**之一：必须有「已接受成本」
-// 的单列计数，且**不进解决率分母、不进 open 待修数**。本测试钉住三件事：
-// ① API 侧单独一次遍历统计 accepted（不改变 inbox 的字面 `raw.status !== 'open'` 判定）；
-// ② 该计数进入响应体的 `frictionLedger.acceptedCount`；
-// ③ 客户端类型声明该键，且 UI 摘要把它作为独立观测量呈现（不混进 inbox 计数）。
 
 test('accepted 的度量单列：API 计数、响应体承载、客户端类型与呈现（26 §12 / §18 第 7 条）', () => {
   const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
@@ -770,15 +660,11 @@ test('accepted 的度量单列：API 计数、响应体承载、客户端类型�
   const page = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
   const locales = readFileSync(path.resolve(repositoryRoot, 'src/i18n/locales.ts'), 'utf8')
 
-  // ① 统计是**独立一次遍历**，且 inbox 的收录判定保持字面不变。
   assert.match(route, /if \(raw\.status === 'accepted'\) acceptedFrictionCount \+= 1/, '① accepted 单独计数');
   assert.match(route, /if \(raw\.status !== 'open'\) continue/, '① inbox 仍只收 open（字面判定）');
-  // ② 响应体承载。
   assert.match(route, /frictionLedger: \{ acceptedCount: acceptedFrictionCount \}/, '② 响应体 frictionLedger.acceptedCount');
-  // ③ 客户端类型 + 呈现 + 词条。
   assert.match(api, /frictionLedger\?: \{ acceptedCount: number \}/, '③ 客户端类型声明');
   assert.match(page, /data\.frictionLedger\.acceptedCount/, '③ UI 读取该计数');
   assert.match(locales, /'cognition\.frictionLedger\.accepted'/, '③ 中英词条存在');
-  // 反例：该计数不得被并进 inbox 计数（否则「已接受」会被读成待办）。
   assert.doesNotMatch(page, /counts\.friction_repair \+= data\.frictionLedger/, '④ 不得混入 inbox 计数');
 })

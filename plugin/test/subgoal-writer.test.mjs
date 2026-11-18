@@ -1,14 +1,3 @@
-// Tests for plugin/lib/subgoal-writer.js — the SubGoal fact-type writer.
-//
-// Authority: specs/28 §7 (identity/carrier), §8 (field contract + fixed body
-// H2), §9 (status closure + object_uid identity), §13 (controlled operations), §14.1
-// (type-specific mechanical checks), plus the shared 02 §10 contract and the
-// Human requirement that every change_log entry is mechanically signed.
-//
-// What these tests deliberately do NOT assert: whether a criterion is really
-// decidable, or whether `alignment` really tracks the goal statement. 28 §15
-// assigns both to AI/Human judgement and §18 red line 9 forbids a mechanical
-// gate on them — so a test claiming to prove them would be the defect.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
@@ -72,12 +61,6 @@ async function freshRoot(base) {
 	return root;
 }
 
-/**
- * 先跑一次真实预检，把它的结论指纹拿回来——直接调用 writer 的用例必须这样写，
- * 因为 28 §13 把 `expectedCandidateFingerprint` 列为 create 的入口必填项：
- * 未携带即零写入（「同一性未确认」）。用真预检而不是自己算哈希，顺带把
- * 「双入口一致」钉进每条用例。
- */
 async function fingerprintOf(root, d, body = validBody(d)) {
 	const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: body });
 	return { fingerprint: pre.value.candidate_fingerprint, pre };
@@ -94,9 +77,6 @@ async function createOne(root, overrides = {}) {
 	return { result: r, draft: d };
 }
 
-// ---------------------------------------------------------------------------
-// identity & carrier (28 §7)
-// ---------------------------------------------------------------------------
 
 test("carrier lives under subgoals/ and carries the type key (28 §7)", async () => {
 	await withTemp("subgoal.", async (base) => {
@@ -115,7 +95,6 @@ test("create requires the parent goal carrier to resolve (28 §14.1)", async () 
 	await withTemp("subgoal.", async (base) => {
 		const root = join(base, "ldvh-base");
 		await mkdir(root, { recursive: true });
-		// No goal.md at all.
 		const d = draft();
 		const { fingerprint } = await fingerprintOf(root, d);
 			const r = await createSubGoalObject({
@@ -150,9 +129,6 @@ test("create refuses a parent_goal that is not the singleton key (28 §8)", asyn
 	});
 });
 
-// ---------------------------------------------------------------------------
-// identity & order (28 §7/§8, 2026-11-01)
-// ---------------------------------------------------------------------------
 
 test("two sub-goals may share the same order — it is display-only, not an identity (28 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
@@ -160,9 +136,6 @@ test("two sub-goals may share the same order — it is display-only, not an iden
 		const a = await createOne(root);
 		assert.equal(a.result.ok, true, JSON.stringify(a.result.error));
 
-		// Same `order`, different object. This MUST succeed: the old model refused
-		// a duplicate anchor here, which is exactly the coupling that was removed —
-		// order carries no reference duty, so it cannot be unique.
 		const b = await createOne(root, { title: "第二条子目标" });
 		assert.equal(b.result.ok, true, JSON.stringify(b.result.error));
 		assert.notEqual(a.result.value.object_uid, b.result.value.object_uid);
@@ -225,16 +198,12 @@ test("a RETIRED object keeps its uid but is no longer a serves target (28 §9.2/
 		});
 		assert.equal(retired.ok, true, JSON.stringify(retired.error));
 
-		// The uid still resolves to the object, but not as a NEW serves target.
 		const after = await resolveSubGoal(root, created.object_uid);
 		assert.equal(after.ok, false);
 		assert.equal(after.error.code, "subgoal/serves_unresolvable");
 	});
 });
 
-// ---------------------------------------------------------------------------
-// status closure (28 §9)
-// ---------------------------------------------------------------------------
 
 test("create refuses a status other than active (28 §9.2 初态必为 active)", async () => {
 	await withTemp("subgoal.", async (base) => {
@@ -303,9 +272,6 @@ test("retired requires a disposition (28 §8/§9.3)", async () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// identity immutability vs order mutability (28 §8, 2026-11-01)
-// ---------------------------------------------------------------------------
 
 test("order can be changed in place — supplement-level update (28 §8/§9.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
@@ -329,9 +295,6 @@ test("order can be changed in place — supplement-level update (28 §8/§9.3)",
 	});
 });
 
-// ---------------------------------------------------------------------------
-// body contract (28 §8)
-// ---------------------------------------------------------------------------
 
 test("body must carry 达成条件 then 对齐说明 (28 §8)", () => {
 	const good = validateSubGoalBodyStructure(
@@ -346,8 +309,6 @@ test("body must carry 达成条件 then 对齐说明 (28 §8)", () => {
 });
 
 test("criterion and alignment 与正文段的差异只报告不阻断（02 §7.1、Human 2026-11-10）", () => {
-	// 逐字义务已取消：frontmatter 是索引与摘要、正文是展开，二者本就该不同。
-	// 判据从 `issues` 移入 `warnings`——差异仍被如实报告，只是不再拒写入。
 	const body = "# 标题\n\n## 达成条件\n\n这不是判据原文。\n\n## 对齐说明\n\n也不是对齐原文。\n";
 	const bad = validateCarrierCoherence({ criterion: "某判据。", alignment: "某对齐。" }, body);
 	assert.equal(bad.ok, true, "差异不得阻断写入");
@@ -414,9 +375,6 @@ test("a retired-era `anchor` key is no longer part of the closed set (28 §8, 20
 	});
 });
 
-// ---------------------------------------------------------------------------
-// serves resolution (28 §12.3)
-// ---------------------------------------------------------------------------
 
 test("resolveSubGoal: active and achieved resolve; retired does not (28 §12.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
@@ -427,7 +385,6 @@ test("resolveSubGoal: active and achieved resolve; retired does not (28 §12.3)"
 		const active = await resolveSubGoal(root, a.object_uid);
 		assert.equal(active.ok, true, JSON.stringify(active.error));
 
-		// Achieve b → still a valid `serves` target.
 		const readB = await readSubGoalObject({ factSourceRoot: root, objectUid: b.object_uid });
 		await updateSubGoalObject({
 			factSourceRoot: root,
@@ -441,7 +398,6 @@ test("resolveSubGoal: active and achieved resolve; retired does not (28 §12.3)"
 		const achieved = await resolveSubGoal(root, b.object_uid);
 		assert.equal(achieved.ok, true, JSON.stringify(achieved.error));
 
-		// Retire a → no longer resolvable as a NEW serves target.
 		const readA = await readSubGoalObject({ factSourceRoot: root, objectUid: a.object_uid });
 		await updateSubGoalObject({
 			factSourceRoot: root,
@@ -456,7 +412,6 @@ test("resolveSubGoal: active and achieved resolve; retired does not (28 §12.3)"
 		assert.equal(retired.ok, false);
 		assert.equal(retired.error.code, "subgoal/serves_unresolvable");
 
-		// An unknown uid is a distinct refusal.
 		const unknown = await resolveSubGoal(root, "00000099-9999-4999-8999-999999999999");
 		assert.equal(unknown.ok, false);
 		assert.equal(unknown.error.code, "subgoal/serves_unresolvable");
@@ -476,8 +431,6 @@ test("resolveSubGoal refuses a non-uuid value — the anchor form is gone (28 §
 test("listResolvableSubGoals sorts by order, then created_at — never by identifier (28 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
-		// Created OUT of display order on purpose: a naive directory or uuid sort
-		// would produce a different sequence than the declared order.
 		for (const [title, order] of [["第三条", 30], ["第一条", 10], ["第二条", 20]]) {
 			const made = await createOne(root, { title, order });
 			assert.equal(made.result.ok, true, JSON.stringify(made.result.error));
@@ -489,26 +442,18 @@ test("listResolvableSubGoals sorts by order, then created_at — never by identi
 	});
 });
 
-// ---------------------------------------------------------------------------
-// listing (28 §12.4)
-// ---------------------------------------------------------------------------
 
 test("listSubGoalObjects sorts by display order too — it must not fall back to directory order (28 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
-		// 乱序创建：目录次序与 `order` 次序刻意不同，这样「按 readdir 顺序返回」
-		// 与「按 order 返回」能区分开。
 		for (const [title, order] of [["第三条", 30], ["第一条", 10], ["第二条", 20]]) {
 			const made = await createOne(root, { title, order });
 			assert.equal(made.result.ok, true, JSON.stringify(made.result.error));
 		}
 		const listed = await listSubGoalObjects({ factSourceRoot: root, status: "all" });
 		assert.equal(listed.ok, true);
-		// 回归：`a59496c` 删掉了 `anchor`，而此处排序仍按 `anchor` 的数字段——
-		// 键恒为 undefined，整张列表退化成文件系统次序。实测本项目读出 2,4,1,3。
 		assert.deepEqual(listed.value.items.map((i) => i.order), [10, 20, 30]);
 		assert.deepEqual(listed.value.items.map((i) => i.title), ["第一条", "第二条", "第三条"]);
-		// 与 listResolvableSubGoals 同一次序——两处排序不得分叉。
 		const resolvable = await listResolvableSubGoals(root);
 		assert.deepEqual(
 			listed.value.items.map((i) => i.object_uid),
@@ -528,7 +473,6 @@ test("listSubGoalObjects does not project a business number — `anchor` is gone
 			false,
 			"`anchor` 已随 SG-n 废止（a59496c）删除，重新投影会让读者以为「有编号但缺失」",
 		);
-		// `created_at` 是 compareByDisplayOrder 的第二排序键，缺了就只剩 uid 兜底。
 		assert.equal(typeof listed.value.items[0].created_at, "string");
 	});
 });
@@ -572,9 +516,6 @@ test("an unreadable carrier is reported, never silently dropped (02 §9.1)", asy
 	});
 });
 
-// ---------------------------------------------------------------------------
-// shared 02 §10 contract
-// ---------------------------------------------------------------------------
 
 test("create and update refuse an unsigned change_log entry (02 §7.1 + 09)", async () => {
 	await withTemp("subgoal.", async (base) => {
@@ -587,7 +528,6 @@ test("create and update refuse an unsigned change_log entry (02 §7.1 + 09)", as
 		});
 		assert.equal(r.ok, false);
 		assert.equal(r.error.code, "signature_unavailable");
-		// Nothing written by the refusal.
 		const dir = join(root, SUBGOAL_DIRECTORY);
 		const entries = await readdir(dir).catch(() => []);
 		assert.deepEqual(entries, []);
@@ -632,9 +572,6 @@ test("the created entry carries the authoritative signature (02 §7.1)", async (
 	});
 });
 
-// ---------------------------------------------------------------------------
-// create precheck (28 §13 提请前机械预检 + 双入口一致性)
-// ---------------------------------------------------------------------------
 
 test("precheck: a valid candidate passes and yields a fingerprint, writing NOTHING (28 §13)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
@@ -644,8 +581,6 @@ test("precheck: a valid candidate passes and yields a fingerprint, writing NOTHI
 		assert.equal(r.ok, true, JSON.stringify(r.error));
 		assert.equal(r.value.mechanical_outcome, "passed");
 		assert.match(r.value.candidate_fingerprint, /^[0-9a-f]{64}$/);
-		// Read-only: no carrier appeared, and no identifier was minted (28 §13:
-		// 不落盘、不生成对象标识).
 		const entries = await readdir(join(root, SUBGOAL_DIRECTORY)).catch(() => []);
 		assert.deepEqual(entries, []);
 		assert.equal(r.value.object_uid, null);
@@ -688,15 +623,8 @@ test("双入口一致性: precheck and create reach the SAME verdict on the same
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
 
-		// A candidate that must FAIL both entries on a candidate-level rule.
-		// (2026-11-01: this used to drive an "anchor already taken" collision —
-		// that rule is gone with the anchor, so the shared failing rule is now a
-		// content-level one: `order` out of range. Two rule sets would let them
-		// disagree while both claiming compliance, which is what §13 forbids.)
 		const bad = draft({ order: 0 });
 		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: bad, bodyMarkdown: validBody(bad) });
-		// 写入必须携带预检指纹（28 §13 入口必填项），否则它先撞同一性缺口，
-		// 这一条就测不到「两入口对同一候选判同一个结论」了。
 		const write = await createSubGoalObject({
 			factSourceRoot: root,
 			frontmatterDraft: bad,
@@ -734,13 +662,8 @@ test("候选指纹: 剥离 status、保留变更摘要（28 §13 逐字登记）
 	const a = computeSubGoalCreateCandidateFingerprint(d, body);
 	const b = computeSubGoalCreateCandidateFingerprint(d, body);
 	assert.equal(a, b);
-	// 28 §13：「剥离 `status`」——省略 status 与显式 status=active 产出同一对象，
-	// 二者必须落在同一指纹上，否则同一候选被判成两份（伪拒绝）。
 	assert.equal(computeSubGoalCreateCandidateFingerprint({ ...d, status: "active" }, body), a);
-	// 28 §13：「不剥离变更摘要」——它经 Code 写入 change_log、随对象落盘，
-	// 故改摘要即改内容，必须移动指纹。此前实现恰好把这两条读反了。
 	assert.notEqual(computeSubGoalCreateCandidateFingerprint({ ...d, change_summary: "另一个理由" }, body), a);
-	// A real content change DOES move it.
 	assert.notEqual(computeSubGoalCreateCandidateFingerprint({ ...d, criterion: "换一条判据。" }, body), a);
 	assert.notEqual(computeSubGoalCreateCandidateFingerprint(d, `${body}\n补一句。`), a);
 });
@@ -752,7 +675,6 @@ test("write refuses when the candidate changed after the precheck (28 §13)", as
 		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
 		assert.equal(pre.value.mechanical_outcome, "passed");
 
-		// The criterion text changed between the two calls.
 		const changed = { ...d, criterion: "另一条完全不同的判据。" };
 		const write = await createSubGoalObject({
 			factSourceRoot: root,
@@ -763,7 +685,6 @@ test("write refuses when the candidate changed after the precheck (28 §13)", as
 		});
 		assert.equal(write.ok, false);
 		assert.equal(write.error.code, "subgoal/candidate_changed");
-		// Nothing written by the refusal.
 		const entries = await readdir(join(root, SUBGOAL_DIRECTORY)).catch(() => []);
 		assert.deepEqual(entries, []);
 	});
@@ -773,8 +694,6 @@ test("a create without a precheck fingerprint is REFUSED with zero writes (28 §
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft();
-		// 28 §13 逐字：「写入请求未携带该指纹的，按「同一性未确认」零写入」。
-		// 此前实现是 fail-open（照常写入、只披露未预检），与本条相反。
 		const write = await createSubGoalObject({
 			factSourceRoot: root,
 			frontmatterDraft: d,
@@ -783,7 +702,6 @@ test("a create without a precheck fingerprint is REFUSED with zero writes (28 §
 		});
 		assert.equal(write.ok, false, JSON.stringify(write.value));
 		assert.equal(write.error.code, "subgoal/candidate_fingerprint_required");
-		// 零写入：没有任何载体落盘。
 		const files = await readdir(join(root, SUBGOAL_DIRECTORY)).catch(() => []);
 		assert.deepEqual(files.filter((f) => f.endsWith(".md")), []);
 	});
@@ -805,17 +723,12 @@ test("守卫：预检的占位 object_uid 绝不会落盘（28 §13 不生成对
 			expectedCandidateFingerprint: pre.value.candidate_fingerprint,
 		});
 		assert.equal(write.ok, true, JSON.stringify(write.error));
-		// The real uid must be the object's own, never the placeholder the
-		// precheck used to satisfy the closed-set check.
 		assert.notEqual(write.value.object_uid, "00000000-0000-4000-8000-000000000000");
 		const raw = await readFile(write.value.file, "utf8");
 		assert.doesNotMatch(raw, /00000000-0000-4000-8000-000000000000/);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// tools layer (subgoal-tools.js)
-// ---------------------------------------------------------------------------
 
 test("subgoal tools: read/list/write lifecycle through the real handlers", async () => {
 	const { makeExecute } = await import("../lib/subgoal-tools.js");
@@ -844,13 +757,10 @@ test("subgoal tools: read/list/write lifecycle through the real handlers", async
 		});
 		const ctx = { agent: { session: { header: { cwd: repo } } } };
 
-		// Empty list is a completed answer, not a failure.
 		const empty = await handlers["subgoal-list-objects"]({}, ctx);
 		assert.equal(empty.outcome, "completed");
 		assert.equal(empty.result.count, 0);
 
-		// Create through the tool plane (signature comes from the routing log).
-		// 28 §13: the create must carry the precheck's candidate fingerprint.
 		const d = draft();
 		const pre = await handlers["subgoal-precheck-create"]({
 			frontmatter_draft: d,
@@ -865,7 +775,6 @@ test("subgoal tools: read/list/write lifecycle through the real handlers", async
 		}, ctx);
 		assert.equal(created.outcome, "completed", JSON.stringify(created.gaps));
 
-		// Read carries the derived serving set AND flags its emptiness (28 §8.1).
 		const read = await handlers["subgoal-read-object"]({ object_uid: created.result.object_uid }, ctx);
 		assert.equal(read.outcome, "completed", JSON.stringify(read.gaps));
 		assert.equal(read.result.order, 1);
@@ -873,10 +782,6 @@ test("subgoal tools: read/list/write lifecycle through the real handlers", async
 		assert.equal(read.result.serving_objects_unresolved, true);
 		assert.ok(read.gaps.some((g) => /serving-empty/.test(g)), JSON.stringify(read.gaps));
 
-		// The retired `anchor` key is refused as a closed-set violation, and the
-		// gap names the offending field rather than a generic rejection.
-		// 指纹仍须携带：28 §13 的同一性判定**前置于内容求值**，否则这一条会先撞
-		// 同一性缺口，测不到 anchor 这条闭集规则。
 		const badDraft = { ...d, anchor: "SG-1" };
 		const badPre = await handlers["subgoal-precheck-create"]({
 			frontmatter_draft: badDraft,
@@ -928,14 +833,10 @@ test("subgoal tools: 预检工具只读运行，交还指纹与结论，不写�
 		assert.equal(pre.outcome, "completed", JSON.stringify(pre.gaps));
 		assert.equal(pre.result.mechanical_outcome, "passed");
 		assert.match(pre.result.candidate_fingerprint, /^[0-9a-f]{64}$/);
-		// Read-only: the list is still empty.
 		const listed = await handlers["subgoal-list-objects"]({}, ctx);
 		assert.equal(listed.result.count, 0);
-		// follow_up names the next step, so the caller does not invent one.
 		assert.ok((pre.follow_up ?? []).some((f) => /expected_candidate_fingerprint/.test(f)), JSON.stringify(pre.follow_up));
 
-		// Then the write honours the fingerprint it produced, and reports that the
-		// precheck gate was met (02 §10.1).
 		const created = await handlers["subgoal-write-object"]({
 			action: "create",
 			frontmatter_draft: d,
@@ -981,13 +882,9 @@ test("subgoal tools: 未带指纹的创建按 28 §13 零写入拒绝（同一�
 			frontmatter_draft: d,
 			body_markdown: validBody(d),
 		}, ctx);
-		// 28 §13 逐字要求：「写入请求未携带该指纹的，按「同一性未确认」零写入」。
-		// 此前的实现是 fail-open（执行后只披露「未预检」），与本条相反——披露不能
-		// 替代拦下：一个没跑过预检的写入若照常落盘，事后与预检过的写入无法区分。
 		assert.equal(created.outcome, "rejected", JSON.stringify(created.gaps));
 		const code = (created.gaps ?? []).find((g) => /candidate_fingerprint_required/.test(g));
 		assert.ok(code !== undefined, JSON.stringify(created.gaps));
-		// 零写入：对象目录里不应出现任何 .md 载体。
 		const sparksDir = join(root, "subgoals");
 		const exists = await import("node:fs/promises").then((m) => m.readdir(sparksDir).catch(() => []));
 		assert.deepEqual(exists.filter((f) => f.endsWith(".md")), [], "未携带指纹的创建必须零写入");
@@ -1015,13 +912,10 @@ test("subgoal tools: 预检失败时 outcome 仍是 completed（工具跑了，�
 		const ctx = { agent: { session: { header: { cwd: repo } } } };
 
 		const d = draft();
-		// No goal.md ⇒ parent_goal unresolvable ⇒ mechanical failure.
 		const pre = await handlers["subgoal-precheck-create"]({
 			frontmatter_draft: d,
 			body_markdown: validBody(d),
 		}, ctx);
-		// The tool RAN and reported a verdict; `rejected` would wrongly say the
-		// tool refused to run (05 §8 outcome semantics).
 		assert.equal(pre.outcome, "completed");
 		assert.equal(pre.result.mechanical_outcome, "failed");
 		assert.equal(pre.result.error_code, "subgoal/parent_goal_unresolvable");
@@ -1044,30 +938,16 @@ test("subgoal tools: read serves only governed sessions", async () => {
 	assert.ok(r.gaps.some((g) => /governance state/.test(g)));
 });
 
-// ---------------------------------------------------------------------------
-// serves 派生的依赖面：动态 import 的目标必须真的存在
-// ---------------------------------------------------------------------------
 
 test("subgoal tools: serves 派生的动态 import 目标必须存在（防静默降级）", async () => {
-	// 回归锚（2026-11-13 实查）：某类型撤除后，`subgoal-tools.js` 里那句动态 import
-	// 仍在，运行时抛 ERR_MODULE_NOT_FOUND，
-	// 被 catch 吞成一条 gap——于是 serves 派生对**全部**类型失效，而返回值看上去
-	// 只是「没有对象服务于它」。这与「查不了」是两回事，正是本仓反复否定的
-	// 静默降级。测试当时没抓到，是因为没有一条用例走这条派生路径。
-	//
-	// 本用例的判据是「每个动态 import 的目标文件确实存在」——不再硬编码任何已删除
-	// 的模块名。指向已撤除模块的 import 必然指向不存在的文件，故由同一判据拦下；
-	// 类型改名或再撤除都不需要改本用例。
 	const { readFile, access } = await import("node:fs/promises");
 	const { join, dirname } = await import("node:path");
 	const { fileURLToPath } = await import("node:url");
 	const here = dirname(fileURLToPath(import.meta.url));
 	const src = await readFile(join(here, "../lib/subgoal-tools.js"), "utf8");
 
-	// 注释提及不算——只在代码里查。
 	const codeOnly = src.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
 
-	// 所有动态 import 目标须可解析
 	const targets = [...codeOnly.matchAll(/import\(\s*["'`](\.\/[^"'`]+)["'`]\s*\)/g)].map((m) => m[1]);
 	assert.ok(targets.length > 0, "本文件本就依赖动态 import，匹配为空说明正则已失效");
 	for (const t of targets) {

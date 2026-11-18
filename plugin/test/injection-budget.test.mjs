@@ -1,13 +1,3 @@
-// tests for 召回面的量化预算档位（plugin/lib/source-recall.js 的 INJECTION_BUDGET_TIERS）
-//
-// 权威：specs/10 §5.3（注入形式与预算由 10 定义、体量以固定常量承载）、
-// specs/10 §9.1 第 2 项（改变注入形式或预算边界须 Human 决定）、
-// specs/34 §15.1 第 5 项（提高召回的字节预算常量须 Human 决定）、
-// specs/02 §9.1（超预算必须分页/缩小/partial，不得静默截断）。
-//
-// **Human 决定 2026-10-25 改定**：档位**只管召回面**，不与引导面共用台账——
-// 引导面（管辖判定 + 最小规则引导）是系统固定内容、不随业务变化，由其自身
-// 固定常量承载。故本文件不测「分配/协同」，只测档位解析与召回面实际效果。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -28,13 +18,11 @@ test("档位集合须为 Human 决定的 10/20/30/40/50 K（受控常量，非�
 		[10, 20, 30, 40, 50],
 		"档位集合是 Human 决定（2026-10-25）的量化档，不得增删而不经决定",
 	);
-	// 单位是 K 字节（1024），不是 1000——与字节计量统一，避免「10K 到底是多少」含糊。
 	assert.equal(INJECTION_BUDGET_TIERS[10], 10 * 1024);
 	assert.equal(INJECTION_BUDGET_TIERS[50], 50 * 1024);
 });
 
 test("未登记档位须如实拒绝，不得静默回落（10 §9.1 精神）", () => {
-	// 静默回落会让 Human 以为自己选了 30K 而实际生效 10K——那正是「配置不可见」。
 	const bad = resolveInjectionBudget(15);
 	assert.equal(bad.ok, false);
 	assert.match(bad.reason, /未登记的预算档位/);
@@ -58,7 +46,6 @@ test("默认档位须显著大于旧常量（否则「数值偏小」未解决�
 });
 
 test("10K 档下召回面须足以容纳实测最大注入（不裁任何候选）", async () => {
-	// 实测 2026-10-25：5 个 query 在 2400 下合计裁 2 条；在 10K 档额度下应 0 裁。
 	const budget = resolveInjectionBudget(DEFAULT_INJECTION_BUDGET_TIER).bytes;
 	const queries = [
 		"把 34 号规范改名成双源召回",
@@ -80,7 +67,6 @@ test("10K 档下召回面须足以容纳实测最大注入（不裁任何候选�
 });
 
 test("档位提高不得改变召回结果内容（只影响是否裁断，不影响候选质量）", async () => {
-	// 20K 以上实测与 10K 结果相同——档位是「够不够」的问题，不是「越多越好」。
 	const at10 = resolveInjectionBudget(10).bytes;
 	const at50 = resolveInjectionBudget(50).bytes;
 	const r10 = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3, budgetBytes: at10 });
@@ -92,11 +78,8 @@ test("档位提高不得改变召回结果内容（只影响是否裁断，不�
 });
 
 test("Config 字段 injectionBudgetTier 须有约束且默认 10（Major-1/Major-4）", async () => {
-	// 第四十一次审核：该字段此前全仓零测试（grep 命中 0），schema 约束、默认值、
-	// 非法值都没有用例。本用例钉住 schema 层面的可配置面。
 	const { Config } = await import("../lib/index.js");
 	assert.ok(Config, "须导出 Config");
-	// schemastery 的字段对象不直接暴露 default；用解析验证：缺省解析应得 10。
 	const parsed = Config({});
 	const tier = parsed?.injectionBudgetTier;
 	const value = tier && typeof tier.get === "function" ? tier.get() : tier;
@@ -105,10 +88,8 @@ test("Config 字段 injectionBudgetTier 须有约束且默认 10（Major-1/Major
 
 test("非法档位须在消费点如实拒绝，且非数值不得静默兜底（Major-1/D3）", async () => {
 	const { resolveInjectionBudget } = await import("../lib/source-recall.js");
-	// 非数值：readVolatileNumber 现返回 NaN，故 resolve 须拒绝而非静默取默认档。
 	const nanResult = resolveInjectionBudget(Number.NaN);
 	assert.equal(nanResult.ok, false, "NaN 须被拒绝，不得静默回落默认档");
-	// 未登记数值：同样拒绝并列出可用档。
 	for (const bad of [15, -1, 10.5, 1e3]) {
 		const r = resolveInjectionBudget(bad);
 		assert.equal(r.ok, false, `档位 ${bad} 须被拒绝`);
@@ -117,14 +98,11 @@ test("非法档位须在消费点如实拒绝，且非数值不得静默兜底�
 });
 
 test("档位解析须与 lifecycle 接线同源（getInjectionBudget → buildRecallInjection）", async () => {
-	// 第四十一次审核 Major-4：Config → getInjectionBudget → buildRecallInjection
-	// 整条路径无用例。此处验证「档位字节数」确实能作为 budgetBytes 生效。
 	const { resolveInjectionBudget } = await import("../lib/source-recall.js");
 	const { buildRecallInjection } = await import("../lib/recall-injection.js");
 	const bytes = resolveInjectionBudget(10).bytes;
 	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3, budgetBytes: bytes });
 	assert.equal(r.inject, true);
-	// 结果里须能看到该预算被采纳（数据层回传 limitBytes）。
 	assert.equal(r.result.budget.limitBytes, bytes, "档位字节数须作为 budgetBytes 生效");
 	assert.ok(Buffer.byteLength(r.text, "utf8") <= bytes, "实际注入须 ≤ 档位预算");
 });

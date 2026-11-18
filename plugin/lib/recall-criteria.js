@@ -1,32 +1,10 @@
-/**
- * 机器可读召回判据表（`recall-criteria/v1`）的**确定性读取器**。
- *
- * 规范出处：
- *   · `specs/02-事实源与事实模型基础规范.md` §12.4「机器可读召回判据表（格式契约）」
- *     ——表头版本锚、四列列名与列序、七项判据闭集、四类机械值形态、**读取
- *     fail-closed**；
- *   · `specs/20`–`27` 各事实类型规范的「召回与消费」章各含一张同格式表。
- *
- * 本模块**只做解析与校验**，不做召回决策，也不读规范自然语言正文：
- * 02 §12.4 明文要求 Code「依本契约确定性读取执行，不从规范自然语言正文抽取判据」。
- *
- * ── 为什么解析必须 fail-closed ─────────────────────────────────────────
- *
- * 判据表的机械值是**类型通道**（类型点名／核心语义字段／关系展开）的唯一输入。
- * 一旦某张表缺失、版本不识别、列序不符或机械值形态非法，任何「猜一个默认值」
- * 都会让实现替规范做裁决——那正是 02 §12.4 与 `02 §9` 判定红线禁止的。
- * 故本模块返回**结构化错误**（说清缺什么），由调用方停用该类型的机器判据、
- * 按 partial 口径披露；绝不静默回落默认值。
- */
 
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-/** 判据表版本锚：表头行必须逐字包含（02 §12.4）。 */
 export const RECALL_CRITERIA_VERSION = "recall-criteria/v1";
 
-/** v1 列名闭集，按序（02 §12.4）。 */
 export const RECALL_CRITERIA_COLUMNS = Object.freeze([
   "判据项（recall-criteria/v1）",
   "本类型规则",
@@ -34,7 +12,6 @@ export const RECALL_CRITERIA_COLUMNS = Object.freeze([
   "依据/理由",
 ]);
 
-/** v1 判据项闭集，逐项登记、不得省行（02 §12.4）。 */
 export const RECALL_CRITERIA_ITEMS = Object.freeze([
   "召回时机",
   "默认候选状态",
@@ -45,7 +22,6 @@ export const RECALL_CRITERIA_ITEMS = Object.freeze([
   "条数上限归属",
 ]);
 
-/** 承载机械值的判据项（其余项机械值必须留空或「不采用」）。 */
 export const RECALL_CRITERIA_MACHINE_ITEMS = Object.freeze([
   "默认候选状态",
   "核心语义字段",
@@ -53,47 +29,26 @@ export const RECALL_CRITERIA_MACHINE_ITEMS = Object.freeze([
   "关系展开",
 ]);
 
-/** 判据项「不采用」的标记（02 §12.3 第 2 条：不适用项须显式登记）。 */
 export const RECALL_CRITERIA_NOT_APPLICABLE = "不采用";
 
-/**
- * 20–29 段事实类型规范 → `fact_type_key` 值域（02 §7.1）。
- *
- * **为什么用显式表而不是从文件名猜类型**：文件名里的中文标题不是类型身份，
- * 目录名还有英文变形陷阱（`researches → research`，本仓曾真的读出
- * `"researche"`）。规范号是稳定锚，故按 `spec_id` 映射。
- */
 export const FACT_TYPE_BY_SPEC_ID = Object.freeze({
-  "20": "spark",
-  "23": "pitfall",
+  "20": "goal",
+  "21": "subgoal",
+  "22": "spark",
+  "23": "norm",
   "24": "report",
-  "25": "goal",
+  "25": "pitfall",
   "26": "friction",
-  "27": "norm",
-  "28": "subgoal",
-  // 22 号（ADR 决策）已于 2026-11-15 整份撤除（01 §8 号位表为空位），映射随之删除；
-  // 号位不复用，详见 02 §7.1 fact_type_key 值域与 specs/34 §8.4 的撤回留痕。
-  // 29 号 DevLog 已于 2026-11-14 撤除（01 §8 号位表为空位），映射随之删除；
-  // 号位不复用，详见 02 §7.1 fact_type_key 值域。
 });
 
-/** 全部已登记事实类型键（用于「别名不得与类型键派生词冲突」的校验）。 */
 export const FACTSOURCE_TYPE_KEYS = Object.freeze(Object.values(FACT_TYPE_BY_SPEC_ID));
 
-/**
- * `fact_type_key` 的派生词（大小写不敏感整词）。
- *
- * 02 §12.4 的类型词别名规则：别名「不得与 `fact_type_key` 值域（§7.1）派生词
- * 冲突」。派生规则保持**最小且确定**：键本身与键的复数形（`norm`/`norms`）。
- * 复数是事实源目录名的实际形态（`norms/`、`pitfalls/`），故一并覆盖。
- */
 export function typeKeyDerivedWords(typeKey) {
   const key = String(typeKey ?? "").trim().toLowerCase();
   if (key === "") return [];
   return [key, `${key}s`];
 }
 
-/** 全部类型键派生词集合（小写）。 */
 export function allTypeKeyDerivedWords() {
   const out = new Set();
   for (const key of FACTSOURCE_TYPE_KEYS) {
@@ -102,16 +57,7 @@ export function allTypeKeyDerivedWords() {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// 表格切分
-// ---------------------------------------------------------------------------
 
-/**
- * 按**未转义的** `|` 切一行 Markdown 表格行。
- *
- * 关系展开机械值里的多目标写作 `\|`（转义），故切分时必须把它当普通字符。
- * 返回的单元格**保留** `\|` 转义，由取值方自行还原（见 `machineValueText`）。
- */
 function splitTableRow(line) {
   const trimmed = line.trim();
   const body = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
@@ -125,7 +71,6 @@ function splitTableRow(line) {
       continue;
     }
     if (ch === "\\") {
-      // 反斜杠本身也保留，便于还原 `\|`；转义只影响「下一个字符不被当分隔符」。
       cur += ch;
       escaped = true;
       continue;
@@ -138,22 +83,18 @@ function splitTableRow(line) {
     cur += ch;
   }
   cells.push(cur);
-  // 末列的收尾 `|` 会产出一个空尾格：去掉（仅当确实以 `|` 结尾）。
   if (trimmed.endsWith("|") && cells.length > 0 && cells[cells.length - 1].trim() === "") cells.pop();
   return cells.map((cell) => cell.trim());
 }
 
-/** 是否为表格分隔行（`|---|---|`）。 */
 function isSeparatorRow(cells) {
   return cells.length > 0 && cells.every((cell) => /^:?-{1,}:?$/.test(cell) || cell === "");
 }
 
-/** 还原机械值单元格里的 `\|` 转义。 */
 function machineValueText(cell) {
   return String(cell ?? "").replace(/\\\|/g, "|").trim();
 }
 
-/** 逗号分隔表（去空项）。 */
 function splitCommaList(text) {
   return String(text ?? "")
     .split(",")
@@ -171,13 +112,9 @@ function uniqueViolations(values) {
   return [...dup];
 }
 
-// ---------------------------------------------------------------------------
-// 解析
-// ---------------------------------------------------------------------------
 
 const STATUS_RE = /^[a-z][a-z0-9_]*$/;
 const FIELD_RE = /^[a-z][a-z0-9_]*$/;
-// 别名：允许中日韩文字、字母、数字、下划线与连字符；不得含空白（整词白名单）。
 const ALIAS_RE = /^[\p{L}\p{N}_-]+$/u;
 const RELATION_KEY_RE = /^[a-z][a-z0-9-]*$/;
 const TARGET_TYPE_RE = /^[a-z][a-z0-9_]*$/;
@@ -186,23 +123,12 @@ function error(code, message, extra = {}) {
   return { code, message, ...extra };
 }
 
-/**
- * 解析一份规范载体的召回判据表。
- *
- * @param {string} text 规范载体全文
- * @param {{file?: string, specId?: string, type?: string}} [options]
- * @returns {object} 成功时 `{ok:true, ...}`；失败时 `{ok:false, errors:[...]}`。
- *   失败时**不返回任何机械值**——调用方不得据此回落到默认值。
- */
 export function parseRecallCriteriaTable(text, options = {}) {
   const file = String(options.file ?? "");
   const specId = String(options.specId ?? "");
   const type = String(options.type ?? "");
   const lines = String(text ?? "").split(/\r?\n/);
 
-  // ── 定位表头 ──────────────────────────────────────────────────────────
-  // 先找带版本锚的表格行；找不到再退到「首格为判据项」的行——这样
-  // 「表在、版本标记缺」能报 missing_version_marker，而不是笼统的 missing_table。
   let headerIndex = -1;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
@@ -233,7 +159,6 @@ export function parseRecallCriteriaTable(text, options = {}) {
     };
   }
 
-  // ── 版本锚 ────────────────────────────────────────────────────────────
   const headerLine = lines[headerIndex];
   const markers = headerLine.match(/recall-criteria\/[A-Za-z0-9._-]+/g) ?? [];
   if (markers.length === 0) {
@@ -263,7 +188,6 @@ export function parseRecallCriteriaTable(text, options = {}) {
     };
   }
 
-  // ── 列名与列序 ────────────────────────────────────────────────────────
   const headerCells = splitTableRow(headerLine);
   if (
     headerCells.length !== RECALL_CRITERIA_COLUMNS.length
@@ -297,7 +221,6 @@ export function parseRecallCriteriaTable(text, options = {}) {
     };
   }
 
-  // ── 读行 ──────────────────────────────────────────────────────────────
   const rows = [];
   for (let i = headerIndex + 2; i < lines.length; i += 1) {
     const line = lines[i];
@@ -351,7 +274,6 @@ export function parseRecallCriteriaTable(text, options = {}) {
   }
   if (errors.length > 0) return { ok: false, file, specId, type, errors };
 
-  // ── 机械值 ────────────────────────────────────────────────────────────
   const values = {
     defaultStatuses: [],
     coreFields: [],
@@ -371,7 +293,6 @@ export function parseRecallCriteriaTable(text, options = {}) {
     const raw = machineValueText(row.machine);
     const machineItem = RECALL_CRITERIA_MACHINE_ITEMS.includes(item);
     if (!machineItem) {
-      // 契约：非机械项机械值留空；不适用项写「不采用」（02 §12.3 第 2 条）。
       if (raw !== "" && raw !== RECALL_CRITERIA_NOT_APPLICABLE) {
         errors.push(error(
           "recall-criteria/bad_machine_value",
@@ -446,7 +367,6 @@ export function parseRecallCriteriaTable(text, options = {}) {
       continue;
     }
 
-    // 关系展开：`<relation_key>-><目标 fact_type_key，多个用 | 分隔>`。
     const entries = splitCommaList(raw);
     const parsed = [];
     for (const entry of entries) {
@@ -495,11 +415,7 @@ export function parseRecallCriteriaTable(text, options = {}) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 载入全部事实类型规范
-// ---------------------------------------------------------------------------
 
-/** 语料目录 → 内容指纹 → 读取结果（同一份语料恒得同一对象）。 */
 const CRITERIA_CACHE = new Map();
 
 async function readdirOrEmpty(dir) {
@@ -511,16 +427,6 @@ async function readdirOrEmpty(dir) {
   }
 }
 
-/**
- * 读取并解析 20–29 段事实类型规范里的全部召回判据表。
- *
- * @param {string} specsDir 规范源目录（通常是 `<项目根>/specs` 或回退来源）
- * @returns {Promise<{ok: boolean, version: string, byType: Map<string, object>,
- *   tables: object[], errors: object[], unreadable: boolean, fingerprint: string}>}
- *
- * `byType` 只含**解析成功**的类型；失败类型的错误在 `errors` 里逐条说明缺什么。
- * 调用方据此停用失败类型的机器判据并按 partial 口径披露（02 §12.4）。
- */
 export async function loadRecallCriteria(specsDir) {
   const dir = String(specsDir ?? "");
   if (dir === "") {
@@ -595,7 +501,6 @@ export async function loadRecallCriteria(specsDir) {
     }
   }
 
-  // 跨类型别名冲突：02 §12.4 要求别名「不得与其他类型的别名冲突」。
   const seenAlias = new Map();
   for (const [type, result] of byType) {
     for (const alias of result.values.typeAliases) {

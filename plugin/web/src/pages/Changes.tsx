@@ -60,8 +60,6 @@ export default function Changes() {
     error: projectsError,
   } = useProjectScope();
   const projectId = selectedProject?.id ?? '';
-  // 侧栏刷新档位：变更页读取的是工作区 Git 状态，须随刷新重取（本页在 Layout 的
-  // 重挂路径下会重建，但显式订阅可保证无论重挂与否都重读）。
   const refreshKey = useRefreshKey();
   const {
     entries,
@@ -75,7 +73,6 @@ export default function Changes() {
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>(getDefaultDiffViewMode);
   const diffViewModeWasSelected = useRef(false);
 
-  // 其他分支的 git status 数据
   const [otherWorktrees, setOtherWorktrees] = useState<{
     branch: string;
     path: string;
@@ -248,7 +245,7 @@ export default function Changes() {
               </div>
             )}
 
-            {/* 其他分支 */}
+            { }
             {otherWorktrees.length > 0 && (
               <div className="mt-3 min-w-0 border-t border-ldvh-border pt-3">
                 <div className="flex min-w-0 items-center justify-between gap-3 px-1">

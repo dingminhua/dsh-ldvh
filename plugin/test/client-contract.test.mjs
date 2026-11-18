@@ -6,13 +6,6 @@ import vm from "node:vm";
 const source = await readFile(new URL("../lib/client.js", import.meta.url), "utf8");
 
 test("plugin-page card shell is gone with its styles (config lives in Settings only)", () => {
-	// Human 2026-11-13：插件界面不再保留设置信息。原卡片的外壳契约（12 条
-	// `.ldv-settings-card*` 样式 + 折叠结构）随卡片组件一并删除。
-	//
-	// **为什么不留着样式**：没有元素会带这些类名，留着会让后续读者以为还有
-	// 卡片在用它们——本仓已多次因这种「注释说还在用、实际无调用方」的残影误判。
-	//
-	// 断言方向因此**反转**：不再是「必须包含这些片段」，而是「必须不包含」。
 	for (const fragment of [
 		'.ldv-settings-card{border:1px solid',
 		'.ldv-settings-card-open{',
@@ -24,22 +17,6 @@ test("plugin-page card shell is gone with its styles (config lives in Settings o
 });
 
 test("uses the WorkBuddy client registration and degradation pattern", () => {
-	// Governance marks removed (Human 2026-09-04: the context-injection row
-	// supersedes both UI marks).
-	//
-	// 2026-09-25 修订（Human 授权撤销 2026-09-04 决定）：当年删的是**客户端自建的
-	// 两套标记组件**（LdvhGovernanceMark / LdvhHeaderMark，与注入行重复呈现，故被
-	// 判定为冗余）；而宿主 0.1.7 起把插件注入一律归为不可见的 `context` 行，
-	// 注入行本身在对话流**已不可见**——「注入行唯一承载」的前提随之失效。故当时
-	// 重新引入一个客户端呈现组件（ldvh-notice），但**仍不恢复那两套标记**。
-	//
-	// **2026-11-13 再次反转**（宿主 0.2.2-rc.2）：宿主撤除了 context 可见性排除
-	// （上游 44ad857798），注入行重新由宿主原生 ContextInjectionRow 承载，
-	// `ldvh-notice` 因此撤除——详见下一测试。故硬注入回到最小的 slots+locale 对，
-	// 那两套标记仍未恢复（本条守护的不变量是「不另画状态标记」，与承载方式无关）。
-	//
-	// 0.1.7 变更（调研 §3.3）：settingsScope 服务已删除，硬注入它会让整个客户端
-	// 插件永不 apply——因此 inject 里不得再出现它；设置面改走 configForms 软注入。
 	assert.ok(source.includes('var inject = ["slots", "locale"]'));
 	assert.ok(!source.includes('"uiConversation"'), "uiConversation lost its only consumer (ldvh-notice) and must not be hard-injected");
 	assert.ok(!source.includes('LdvhGovernanceMark'), "the 2026-09-04 UI marks must stay removed");
@@ -50,20 +27,9 @@ test("uses the WorkBuddy client registration and degradation pattern", () => {
 	assert.ok(source.includes('ctx.effect(function ()'));
 	assert.ok(source.includes('ctx.locale.register(LDVH_NS, { zh: LDVH_ZH, en: LDVH_EN })'));
 	assert.ok(source.includes('ctx.locale.bind(LDVH_NS)'));
-	// 设置面入口：**唯一**——设置页的 `settings.section`（Human 2026-11-13）。
-	//
-	// 原先此处断言与 workbuddy 同款的**双注册**（plugins.bundle.config +
-	// plugins.row.config）。该组合已随 workbuddy 5.19.0 一并撤除，理由见
-	// client.js 中「Plugins 页的两个 keyed 槽位已撤除」那段：双入口各持独立
-	// 本地 state，改一处另一处仍显旧值，用户无从判断。
 	assert.ok(source.includes('slots.inject("settings.section"'), "configuration lives in the Settings panel only");
-	// 判据只查**注册调用**，不查裸字符串：撤除说明的注释里会提到这两个槽位名，
-	// 用裸 includes 会把「解释为什么撤除」判成「还在注册」（假阳性）。
 	assert.ok(!source.includes('slots.inject("plugins.bundle.config"'), "the bundle-card seat must stay removed");
 	assert.ok(!source.includes('slots.inject("plugins.row.config"'), "the row-card seat must stay removed");
-	// 卡片组件本身已删除（Human 2026-11-13：插件界面不再保留设置信息）。
-	// 原来这里断言 view 分支与默认展开——那都是**卡片**的契约，随卡片一并失效。
-	// 现在断言的是：折叠卡片不再存在，配置只在设置页那一节里。
 	assert.ok(!source.includes('function LdvhSettingsCard'), "the collapsible plugin-page card must be gone");
 	assert.ok(!source.includes('var openState = React.useState(true)'), "no collapse state remains without a card");
 	assert.ok(!source.includes('name: "settings.plugin.item"'), "must not register into the removed settings.plugin.item slot");
@@ -72,11 +38,6 @@ test("uses the WorkBuddy client registration and degradation pattern", () => {
 });
 
 test("resolves the served settings namespace instead of assuming the bare id", () => {
-	// dsh-connect-workbuddy 2.0.16 同款坑：0.1.7 的 configForms.get() 对宿主
-	// served-namespace 目录做**精确匹配**，而桌面宿主以 `include:<包名>` 挂载
-	// Loader 条目。硬编码 `dsh-ldvh` 会让设置卡绑定到无人服务的命名空间
-	// （status: unavailable，静默失效、不报错）。必须先从 describe() 的 mirror
-	// 探测实际服务的 ns，声明常量只作 mirror 未就绪时的兜底。
 	assert.ok(source.includes('function ldvhEntryIdOf(forms)'), "must probe the served namespace from the configForms mirror");
 	assert.ok(source.includes('forms.describe().getSnapshot().view'), "probe reads the served-namespace directory from the mirror");
 	assert.ok(source.includes('entry.ns === LDVH_ENTRY_ID || /ldvh/i.test(entry.ns || "")'), "probe accepts the declared id or a package-name substring");
@@ -86,35 +47,22 @@ test("resolves the served settings namespace instead of assuming the bare id", (
 
 test("uses the real package icon and leaves no chevron probe behind", () => {
 	assert.ok(source.includes('data:image/png;base64,'));
-	// 折叠箭头（IconChevronDown 族探测）随设置卡删除而移除——它唯一的渲染点就是
-	// 那张卡。**但「包图标必须是真的 PNG」这条不变**（设置页那一节仍用它作图。
-	// 宿主按 { only: row.id } 渲染 settings.section.icon，缺失即无图）。
 	assert.ok(!source.includes('primitives.IconChevronDownOutlineRegular'), "the chevron probe has no consumer left");
-	// 图标渲染点仍须有尺寸兜底（宿主可能不传 size）
 	assert.ok(source.includes('typeof iconProps.size === "number"'), "nav icon must fall back to a default edge");
 });
 
 test("provides accessible nav labels for the settings section (no card collapse chrome left)", () => {
-	// 展开/收起标签随折叠卡删除而失去消费者；但**导航行的可读标签**仍必须
-	// 中英齐备——宿主拿它渲染设置页左侧那一行，缺任一种语言会显示原始 key。
-	// 导航标签必须**短**：宿主设置页的导航列宽度有限，长名字会被截成
-	// 「LD Vibe Harness...」（Human 2026-11-13 实测）。取品牌缩写 LDVH。
-	// 两种语言同一个值——它是品牌标识，不是可翻译短语。
 	assert.ok(source.includes('"row.title": "LDVH"'), "nav label must be the short brand name");
 	assert.ok(!source.includes('"row.title": "LD Vibe Harness'), "nav label must not carry the long form (it gets clipped)");
 	assert.ok(source.includes('label: function () { return t("row.title"); }'), "nav row must have a human label");
-	// 卡片时代的折叠标签不应残留在文案表里充当死词条
 	assert.ok(!source.includes('"aria-label": t(openState[0] ? "row.collapse" : "row.expand")'));
 });
 
 test("loadProjects catch demotes transport failures to unavailable: true (no error text)", () => {
-	// 传输层失败不再把 t("row.apiUnavailable") 塞进 projectsState.error，
-	// 也不再调 t(...)；只写 error: null, unavailable: true（领域错误时相反）。
 	assert.ok(
 		source.includes("error: isTransport ? null : message, unavailable: isTransport"),
 		"loadProjects catch must write error: null and unavailable: true on transport failure",
 	);
-	// catch 分支里不能出现 row.apiUnavailable —— 之前就是它导致重复渲染。
 	const catchStart = source.indexOf(".catch(function (error) {");
 	assert.ok(catchStart !== -1, "loadProjects catch block not found");
 	const catchEnd = source.indexOf("});", catchStart);
@@ -124,7 +72,6 @@ test("loadProjects catch demotes transport failures to unavailable: true (no err
 		!catchBody.includes('"row.apiUnavailable"'),
 		"loadProjects catch must not surface row.apiUnavailable (cause already explained in the Web status row)",
 	);
-	// 关键 isTransport 判定关键词仍然存在（这是契约保留的传输判定，不只是空断言）。
 	assert.ok(
 		catchBody.includes("isTransport"),
 		"loadProjects catch must keep the isTransport transport-failure classification",
@@ -132,12 +79,6 @@ test("loadProjects catch demotes transport failures to unavailable: true (no err
 });
 
 test("chooseProject uses the desktop pick-bridge ladder with visible failures", () => {
-	// 目录选择梯级：Desktop 窗口预注入桥优先（window.__DSH_DESKTOP_PICK_DIRECTORY__
-	// 经 /_dsh/desktop/pick-directory 直通主进程 Electron dialog——win32 Desktop
-	// 内可靠的原生弹窗，与宿主 browse surface 同款 dsh-desktop-platform=win32
-	// 门控），remote.directoryPicker.pick() 兜底；失败一律进表单错误位（对齐宿主
-	// directoryFlow 契约的 onError 一等公民语义），取消（null）静默返回；
-	// 路径框保持可手动编辑作为最终兜底。
 	assert.ok(
 		source.includes("window.__DSH_DESKTOP_PICK_DIRECTORY__"),
 		"the desktop pick bridge must be probed before the remote ladder",
@@ -165,18 +106,10 @@ test("chooseProject uses the desktop pick-bridge ladder with visible failures", 
 });
 
 test("projectsState.unavailable branch renders a pointer hint, not a red error box", () => {
-	// unavailable 分支渲染 ldv-settings-hint + row.projectsUnavailable，不渲染红框、不渲染空列表态。
-	// 检查三元子句的关键词和产物，注释行可能出现在 ? 之前（缩进无关）。
-	assert.ok(
-		source.includes('projectsState[0].unavailable\n          // Transport-level failure'),
-		"projectsState.unavailable ternary guard must be present with transport-level comment",
-	);
 	assert.ok(
 		source.includes('? React.createElement("span", { className: "ldv-settings-hint" }, t("row.projectsUnavailable"))'),
 		"unavailable branch must render ldv-settings-hint + row.projectsUnavailable",
 	);
-	// unavailable 分支不能渲染 ldv-governance-error（在它自己分支内）。
-	// 验证 unavailable 三元 → 其三元体结束于 ldv-governance-error 出现处。
 	const unavailableIdx = source.indexOf("projectsState[0].unavailable");
 	assert.ok(unavailableIdx !== -1, "projectsState.unavailable guard not found");
 	const errorIdx = source.indexOf("projectsState[0].error", unavailableIdx);
@@ -186,7 +119,6 @@ test("projectsState.unavailable branch renders a pointer hint, not a red error b
 		!unavailableBranch.includes("ldv-governance-error"),
 		"unavailable branch must not render ldv-governance-error (that would be the duplicate we are deleting)",
 	);
-	// unavailable 分支也不应渲染"还没有管辖项目"空态。
 	assert.ok(
 		!unavailableBranch.includes("ldv-governance-empty-title"),
 		"unavailable branch must not pretend the project list is empty",
@@ -194,21 +126,18 @@ test("projectsState.unavailable branch renders a pointer hint, not a red error b
 });
 
 test("domain-error red box (ldv-governance-error) is reserved for non-transport errors", () => {
-	// 非 transport 路径仍渲染领域错误红框。位置：error 分支（区别于 unavailable 分支）。
 	const errorBranchFragment =
 		': (projectsState[0].error\n            ? React.createElement("div", { className: "ldv-governance-error", role: "alert" }, projectsState[0].error)';
 	assert.ok(
 		source.includes(errorBranchFragment),
 		"domain error branch must still render ldv-governance-error with role=alert",
 	);
-	// inspect / update / unregister 的 catch 仍把 message 写入 error、unavailable: false。
 	for (const op of ["inspectProject", "updateProject", "unregisterGovernance"]) {
 		assert.ok(
 			source.includes(op),
 			`op handler ${op} must exist (sanity)`,
 		);
 	}
-	// 这三个 catch 都使用统一的非 transport 写入：error 字符串、unavailable: false。
 	assert.ok(
 		source.includes("error: String(error.message || error), unavailable: false"),
 		"non-transport failures (inspect/update/unregister) must still write error text + unavailable: false",
@@ -216,7 +145,6 @@ test("domain-error red box (ldv-governance-error) is reserved for non-transport 
 });
 
 test("project card actions: uninstall removed, Update only when repairable, notReadyDetail hint", () => {
-	// 卸载按钮与其处理函数已删除：源码不得再引用 row.uninstall / uninstallProjectHook。
 	assert.ok(
 		!source.includes("uninstallProjectHook"),
 		"client must not reference the removed uninstallProjectHook",
@@ -225,7 +153,6 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 		!source.includes('"row.uninstall"'),
 		"locale key row.uninstall must be removed with the uninstall button",
 	);
-	// repairable 判定：Hook absent/outdated 或 fact source absent/incomplete 可修复。
 	assert.ok(
 		source.includes('["absent", "outdated"].includes(hook.state)'),
 		"repairable must treat absent/outdated Hook states as fixable",
@@ -234,7 +161,6 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 		source.includes('["absent", "incomplete"].includes(factSource.state)'),
 		"repairable must treat absent/incomplete fact source states as fixable",
 	);
-	// 更新按钮仅在 repairable 时渲染，并调用 updateProject(project)（幂等安装事务）。
 	assert.ok(
 		source.includes(
 			'repairable ? React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-primary", disabled: projectBusyState[0], onClick: function () { updateProject(project); } }',
@@ -245,8 +171,6 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 		source.includes('projectBusyState[0] ? t("row.updateBusy") : t("row.update")'),
 		"update button must show row.updateBusy while busy and row.update otherwise",
 	);
-	// notReadyDetail 原因链：factSource.detail → hook.detail → status.error.message，
-	// 未就绪且非空时以 ldv-settings-hint 渲染在卡片头下方。
 	assert.ok(
 		source.includes("var notReadyDetail = ready ? null"),
 		"notReadyDetail must be computed per project card",
@@ -267,7 +191,6 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 		source.includes('notReadyDetail ? React.createElement("span", { className: "ldv-settings-hint" }, notReadyDetail) : null'),
 		"notReadyDetail must render as ldv-settings-hint under the card head",
 	);
-	// 中英 locale 均提供 row.update 与 row.updateBusy。
 	assert.ok(source.includes('"row.update": "更新修复"'), "LDVH_ZH must define row.update");
 	assert.ok(source.includes('"row.updateBusy": "更新修复中…"'), "LDVH_ZH must define row.updateBusy");
 	assert.ok(source.includes('"row.update": "Update & Repair"'), "LDVH_EN must define row.update");
@@ -275,43 +198,24 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 });
 
 test("betterSidebar LDVH tab registers as a soft dependency with iframe fallback states", () => {
-	// 软依赖：ctx.inject 订阅服务可用性（apply 时未就绪也会等）
-	// ——不能用 ctx.get 快照（加载顺序问题）；服务缺失时本插件照常工作。
 	assert.ok(source.includes('ctx.inject(["betterSidebar"]'), "must subscribe via ctx.inject, not ctx.get");
 	assert.ok(!source.includes('var betterSidebar = ctx.get("betterSidebar")'), "ctx.get snapshot is unreliable for late-bound services");
-	// 注册形态：专属 id、single 实例、图标、iframe 指向 /ldvh/。
 	assert.ok(source.includes('id: "dsh-ldvh:web"'));
 	assert.ok(source.includes('single: true'));
 	assert.ok(source.includes('src: ldvhFrameLocation'));
 	assert.ok(source.includes('betterSidebar.registerTab'));
-	// 降级：与 conversation.view 同一健康检查模式（checking/failed/retry）。
 	assert.ok(source.includes('LdvhSidebarTab'));
 });
 
 test("iframe origin: loopback for the dsh-app desktop document, current origin for browser access", () => {
-	// 回归守护（2026-09-25）：iframe 若用相对路径 `/ldvh/`，在 `dsh-app://app`
-	// 主文档里会解析为 `dsh-app://app/ldvh/`，走宿主转发链；而宿主只在
-	// `request.frame === owner.mainFrame` 时注入身份头（lib/web-document.js:20），
-	// 子框架拿不到 → 403 → Tab 全白。实测报错 `GET dsh-app://app/ldvh/ 403`。
-	// 故桌面场景 src 必须由绝对回环 origin 拼出；本断言锁死「不得退回相对路径」。
-	//
-	// 2026-10-17 扩展（远程访问缺陷，实测：局域网访问 3081 时管辖项目列表只显示
-	// 访问设备本机的登记、或加载失败）：DSH Web GUI 经 http(s) 访问时（webServer
-	// 0.0.0.0 监听，主文档源是 http(s)://<服务器地址>），回环 origin 指向**访问
-	// 设备自己**——iframe 连到访问设备本地的 LDVH 服务。浏览器场景必须改用当前
-	// origin：宿主已挂载 /ldvh 静态与 /ldvh/api 代理，同源 iframe 自动携带认证
-	// cookie，读到的是服务器的登记数据。
-	// origin 构造统一收口在 webFrameOrigin(port)——消费点不得各自内联判定。
 	assert.ok(
 		/function webFrameOrigin\(port\)/.test(source),
 		"iframe origin construction must be centralized in webFrameOrigin(port)",
 	);
-	// 桌面场景：dsh-app: 协议 → 绝对回环 host + port（子框架 403 守护不回归）。
 	assert.ok(
 		/window\.location\.protocol === LDVH_APP_PROTOCOL\) return "http:\/\/127\.0\.0\.1:" \+ port/.test(source),
 		"the dsh-app desktop document must keep the absolute loopback origin (subframe 403 guard)",
 	);
-	// 浏览器场景：http/https → 当前 origin（读到服务器的登记数据）。
 	assert.ok(
 		/return window\.location\.origin/.test(source),
 		"browser-origin documents must build the iframe origin from the current origin",
@@ -324,13 +228,10 @@ test("iframe origin: loopback for the dsh-app desktop document, current origin f
 		!source.includes('var ldvhFrameLocation = "/ldvh/"'),
 		"regression: a relative /ldvh/ src is what the host rejects with 403 for subframes",
 	);
-	// postMessage 位置记忆同样必须带上 origin，否则记回的是相对路径。
 	assert.ok(
 		source.includes('ldvhFrameLocation = ldvhWebOrigin + data.pathname'),
 		"navigation memory must re-prefix the absolute origin",
 	);
-	// 端口不得只硬编码：宿主侧端口可被 LDVH_WEB_API_PORT 覆盖，须能从 health 取回。
-	// 守护「端口发现」这一机制不被后续重构丢掉——只留常量即会与宿主漂移。
 	assert.ok(
 		source.includes('function applyWebPort(port)'),
 		"the client must be able to adopt the host-reported web port",
@@ -339,8 +240,6 @@ test("iframe origin: loopback for the dsh-app desktop document, current origin f
 		source.includes('applyWebPort(body.webPort)'),
 		"checkHealth must feed the host-reported webPort into the iframe origin",
 	);
-	// 健康判据两形兼容（浏览器场景命中宿主路由应答，无 success 字段）：
-	// 见 client-fallback.test.mjs 的行为测试——此处只钉判据函数存在且两形都在。
 	assert.ok(
 		/function healthBodyOk\(body\)/.test(source),
 		"the health verdict must be centralized in healthBodyOk (two response shapes)",
@@ -352,19 +251,6 @@ test("iframe origin: loopback for the dsh-app desktop document, current origin f
 });
 
 test("chat context injection row is left to the host (no self-owned row)", () => {
-	// **方向已反转**（2026-11-13，宿主 0.2.2-rc.2 适配）。
-	//
-	// 2026-09-25 至 2026-11-13 之间，本测试守护的是相反的事实：宿主
-	// `isVisibleChatNode()` 排除普通 Context 行，故本插件必须自建 `ldvh-notice`
-	// 节点 kind 才能让管辖判定在对话流可见。
-	//
-	// 宿主 `0.2.2-rc.2` 撤除了该排除（上游提交 `44ad857798`，
-	// `feat(ui-chat): show context injections as tool-call rows`）：普通 Context
-	// 现在以折叠行显示并加入过程组。此时若保留自有 kind，**同一注入会被渲染两遍**
-	// ——宿主原生 `ContextInjectionRow` 一次、本插件 `LdvhNoticeRow` 一次。
-	//
-	// 故本测试从此守护「**不得**再自建通知行」。撤销依据与边界见 plugin/lib/client.js
-	// 中 apply() 内的对应注释。
 	const code = source.replace(/\/\/[^\n]*/g, '');
 	assert.ok(
 		!code.includes("ldvh-notice"),
@@ -374,18 +260,14 @@ test("chat context injection row is left to the host (no self-owned row)", () =>
 		!code.includes("LDVH_NOTICE_KIND") && !code.includes("registerLdvhNotice"),
 		"regression: the retired notice definition/renderer must not come back",
 	);
-	// 槽位同理：宿主按 kind 分派 `conversation.chat.node`，本插件不再占任何 key。
 	assert.ok(
 		!code.includes('ctx.slots.inject("conversation.chat.node"'),
 		"regression: the plugin must not claim a conversation.chat.node key any more",
 	);
-	// 硬注入同理：uiConversation 此前只服务那条自建行，现已无消费者。留在硬注入
-	// 里不会报错但会无谓扩大「少一个服务就整个插件不 apply」的面。
 	assert.ok(
 		!code.includes('"uiConversation"'),
 		"regression: uiConversation has no remaining consumer and must not be hard-injected",
 	);
-	// 反向确认：硬注入仍是 最短形态（settingsScope 仍不得出现）。
 	assert.ok(
 		source.includes('var inject = ["slots", "locale"]'),
 		"the hard inject list should be the minimal slots+locale pair",
@@ -393,30 +275,17 @@ test("chat context injection row is left to the host (no self-owned row)", () =>
 });
 
 test("Web status row exposes a single serviceIssue hint on transport failure", () => {
-	// serviceIssue 条件为 checking / 未启用 / 正常 时为 null，仅当 Web 呈现开着
-	// （webOn，持久值 webEnabled !== false）且探测失败时为 t("row.apiUnavailable")。
-	// 2026-11-13 第十三轮：总开关从设置面撤除，判据由 enabledState[0] 改为只读的
-	// 派生量 webOn——语义不变（关着就别报「连不上」），来源变了（不再是 UI 状态）。
 	assert.ok(
 		source.includes(
 			'var serviceIssue = ws.checking || !webOn || serviceOk ? null : t("row.apiUnavailable");',
 		),
 		"serviceIssue must be null while checking / disabled / ok, and t(row.apiUnavailable) only when web is on and probes failed",
 	);
-	// 渲染为 ldv-settings-hint 提示行（2026-11-13 起它还带一个从属缩进类，
-	// 故按「类名以 ldv-settings-hint 开头」来断言，意图不变：故障说明只能
-	// 是**这一条提示行**，不许另开一个红框、不许重复出现）。
 	assert.match(
 		source,
 		/serviceIssue \? React\.createElement\("(?:span|div)", \{ className: "ldv-settings-hint[^"]*" \}, serviceIssue\) : null/,
 		"serviceIssue must render as a ldv-settings-hint element (or render null when not needed)",
 	);
-	// 位置契约：**状态读数必须排在故障说明之前**。
-	//
-	// 2026-11-13 改版后结构变了：状态读数与总开关一起住在**卡头**（组名那一行），
-	// 故障说明是卡体里的从属提示行。此前两者同在 `.ldv-status` 容器内，故断言
-	// 钉的是那个容器名；容器已随结构撤除，**意图不变**：读数在前，说明在后
-	// ——先看到「服务在不在」，再看到「为什么不在」。
 	const headIdx = source.indexOf('cardHead("services", "group.services"');
 	const statusIdx = source.indexOf("serviceStatus,");
 	const issueIdx = source.indexOf("serviceIssue ?");
@@ -431,7 +300,6 @@ test("LDVH_ZH and LDVH_EN both provide row.projectsUnavailable copy", () => {
 	const enFragment = '"row.projectsUnavailable": "The governed-project list is unavailable. Check the Web presentation status above first."';
 	assert.ok(source.includes(zhFragment), "LDVH_ZH must define row.projectsUnavailable");
 	assert.ok(source.includes(enFragment), "LDVH_EN must define row.projectsUnavailable");
-	// 行级 key 顺序不影响契约，但确认 key 没拼错（不能误把 row.apiUnavailable 重新塞回新 key）。
 	assert.ok(
 		!source.includes('"row.projectsUnavailable": "LDVH 服务暂不可用'),
 		"row.projectsUnavailable must not reuse the row.apiUnavailable wording",
@@ -439,28 +307,14 @@ test("LDVH_ZH and LDVH_EN both provide row.projectsUnavailable copy", () => {
 });
 
 test("web mount placements: two checkboxes gated by the master switch + refresh hint", () => {
-	// 设置行读写两投放面字段，总闸关闭时复选框禁用；挂载注册读取一次性快照条件化。
 	assert.ok(source.includes('convTabState') && source.includes('sidebarTabState'), "settings row keeps placement states");
-	// 0.1.7 起 SettingsFormScope 没有 set(key, value)：写必须是带 revision fence 的
-	// 一次原子 mutate（调研 §3.2/§3.3），且三个字段一次提交。
-	// 2026-10 起写路径改为先构造 operations 数组再一次提交（参数表 driving，见
-	// IDLE_LIMITS），故断言从字面量 `scope.mutate([` 改为「一次调用 + revision fence」
-	// ——后者才是契约本身，前者只是当时的写法。
 	assert.match(source, /scope\.mutate\(operations, snap\.revision\)/, "save must use the revision-fenced mutate of SettingsFormScope");
 	assert.ok(source.includes('{ op: "set", path: ["showInConversationTab"]'), "save persists the conversation placement");
 	assert.ok(source.includes('{ op: "set", path: ["showInSidebarTab"]'), "save persists the sidebar placement");
 	assert.ok(!source.includes('scope.set("'), "legacy scope.set(key, value) must be gone");
-	// 2026-11-13 重排版面：投放项由原生复选框改为**统一开关**，故「勾选态」
-	// 与「禁用态」改由 switchControl 的实参给出（行为断言见
-	// client-settings-layout.test.mjs：webEnabled 为 false 时开关禁用且显示为关）。
-	// 第十三轮起总开关不再出现在设置面，但持久值仍然作数：勾选态与禁用态都挂在
-	// 只读派生量 webOn 上，而不是界面上某个可点的开关状态。
 	assert.ok(source.includes('webOn && convTabState[0]') && source.includes('webOn && sidebarTabState[0]'), "switches visually checked only when web is on");
 	assert.match(source, /t\("row\.mountSidebarTab"\),\s*\n\s*!webOn\s*\n/, "switches disabled when persisted webEnabled is false");
-	// 订阅驱动：apply 时设置可能未 ready（一次性快照会静默走默认全开——Human 实测
-	// 复选框不生效的根因），必须经 ldvhScope.subscribe 在 ready/变更时应用投放开关。
 	assert.ok(source.includes("ldvhScope.subscribe"), "mount placement is subscription-driven, not a one-shot snapshot");
-	// 投放面不得因设置服务缺失而整体消失：先按默认全开挂上，再由订阅覆盖。
 	assert.ok(source.includes("applyMountSettings({})"), "placements must mount by default before settings are known");
 	assert.ok(source.includes('var sidebarOn = webOn && value && value.showInSidebarTab !== false'), "sidebar placement derived from master + checkbox");
 	assert.ok(source.includes('var conversationOn = webOn && value && value.showInConversationTab !== false'), "conversation placement derived from master + checkbox");
@@ -474,23 +328,16 @@ test("web mount placements: two checkboxes gated by the master switch + refresh 
 });
 
 test("plugin settings card hosts the project color palette (web settings page is read-only)", () => {
-	// 调色板搬进插件设置卡：十色闭集 + callLdvhApi 颜色端点 + 自动取色重置。
 	assert.ok(source.includes("PROJECT_COLOR_KEYS"), "palette closed set is embedded in the settings card");
 	assert.ok(source.includes('callLdvhApi("/governed-projects/color"'), "palette writes go through the plugin color endpoint");
-	// callLdvhApi 只发 GET/POST——颜色端点必须收 POST（PUT 曾不匹配落入代理 404，
-	// 客户端空 message 经 String(error) 变成裸 "Error"）。
 	assert.ok(source.includes('typeof raw === "string" ? raw : "color update failed"'), "color error extraction survives string-shaped errors");
 	assert.ok(source.includes('callLdvhApi("/governed-projects/with-colors")'), "project list carries colors via with-colors endpoint");
 	assert.ok(source.includes("ldv-palette-dot-active"), "explicit selection has an active ring");
-	// 交互定案（Human 2026-09-08）：选中色点打勾；自动取色是排他锁——勾选后
-	// 色点全部暗掉禁用（ldv-palette-dot-locked），取消勾选才恢复选色。
 	assert.ok(source.includes("ldv-palette-check"), "selected dot renders a check mark");
 	assert.ok(source.includes('var locked = !project.color'), "auto color locks the palette dots");
 	assert.ok(source.includes("ldv-palette-dot-locked"), "locked dots dim via CSS class");
 	assert.ok(source.includes("checked: !project.color"), "auto-color is a checkbox bound to absence of explicit color");
 	assert.ok(source.includes('e.target.checked ? null : "emerald"'), "unchecking auto picks a color to unlock");
-	// 色点必须用内联色值：--ldvh-pj-* 变量是 Web 应用 CSS 的命名空间，宿主设置卡
-	// 页面没有这些变量，var() 引用会让色点透明不可见（Human 实测截图确认）。
 	assert.ok(source.includes("PROJECT_COLOR_VALUES"), "palette uses inline hex values, not host-undefined CSS variables");
 	assert.ok(source.indexOf("var(--ldvh-pj-") === -1, "palette never references host-undefined CSS vars");
 	assert.ok(source.includes('"row.colorAuto"'), "auto-color reset button exists");
@@ -498,9 +345,6 @@ test("plugin settings card hosts the project color palette (web settings page is
 });
 
 test("settings footer carries the 鼓励一下 cheer link (family-wide pattern)", () => {
-	// 同族插件（dsh-sub-cli / dsh-subagent-default-model / dsh-connect-workbuddy /
-	// dsh-connect-trae）在设置卡页脚左侧都有“鼓励一下 ★”外链；LDVH 对齐：
-	// URL 常量指向本仓库 + zh/en row.cheer 文案 + footer-left 曝光位。
 	assert.ok(
 		source.includes('var LDVH_GITHUB_URL = "https://github.com/dingminhua/dsh-ldvh"'),
 		"GitHub URL constant must target the dsh-ldvh repo",
@@ -515,36 +359,20 @@ test("settings footer carries the 鼓励一下 cheer link (family-wide pattern)"
 	assert.ok(source.includes("ldv-settings-cheer-star"), "cheer link carries the star glyph");
 });
 
-// ---------------------------------------------------------------------------
-// 闲时辅助设置面（04 §8.1 / 32 §10；形态参照 dsh-mnemon 的 idleReview）
-// ---------------------------------------------------------------------------
 
 test("闲时辅助设置面：**一个**子项 + 参数；总开关已撤除，关只关子项", () => {
-  // **2026-11-16**：审核层整层取消，设置面只剩「闲置捕获」一个子项。
-  // 各开关须各自成 state（而非一个数组）——它们绑定到不同的 Config 字段，
-  // 且 dsh-mnemon 的形态是「总开关关掉就整块不展开」。
   for (const field of [
     "idleAssistEnabled",
     "idleCaptureEnabled",
   ]) {
     assert.ok(source.includes(field), `设置面须含开关字段 ${field}`);
   }
-  // 旧键不得再作为**设置面控件**出现（它们只保留在 schema 里供读存量配置）。
   for (const gone of [
     "capacityMaintenanceEnabled",
     "memoryHealthEnabled",
   ]) {
     assert.ok(!source.includes(gone), `设置面不得残留已合并的开关 ${gone}`);
   }
-  // 子项**恒渲染**（2026-11-13 第十三轮：总开关撤除）。
-  //
-  // 撤除的理由：子项本来就能各自关掉，再套一层总闸等于同一件事有三种关法；
-  // 而总闸关着时子项整块消失，读者会以为「这些设置根本不存在」。
-  // 存量 profile 里的 `idleAssistEnabled: false` 仍然作数——服务端确实不派发，
-  // 故两个子项此时**显示为禁用**（而不是消失）。结构提示钉在这里，
-  // 真正的行为断言在 client-settings-layout.test.mjs（真实执行 client.js）。
-  // **2026-11-17**：总开关改名为「代理辅助」（`proxyAssistEnabled`），且须回落
-  // 到旧键 `idleAssistEnabled`——存量配置的「关」不得静默变成「开」。
   assert.ok(
     source.includes("value.proxyAssistEnabled !== undefined"),
     "idleOn 须优先读新键 proxyAssistEnabled",
@@ -562,26 +390,14 @@ test("闲时辅助设置面：**一个**子项 + 参数；总开关已撤除，�
     /idleOn && task\.state\[0\]/,
     "子项勾选态须挂在派生量 idleOn 上（而不是界面上某个可点的总开关）",
   );
-  // **2026-11-17**：子项由一项变为两项——积累经验 + 发现摩擦。
   assert.ok(source.includes('label: "row.experienceAccumulation"'), "须有「积累经验」子项");
   assert.ok(source.includes('label: "row.idleCapture"'), "须有「发现摩擦」子项");
-  // **2026-11-17：设置面已无任何数值参数。** 安静时长随计时器删除（触发锚改为
-  // 主控发起），该表因此清空。判据由「恰好一项」改为「恰好零项」。
   for (const gone of [
     "idleMinIntervalMs", "idleMinContentChars", "idleMinContentTurns",
     "idleMaxPerSession", "idleQuotaMax", "idleQuotaWindowMs",
   ]) {
     assert.ok(!source.includes(gone), `设置面不得残留已取消的参数 ${gone}`);
   }
-  // **2026-10-27 二次修订后恰好一项**：只有安静时长（形态 1 的空窗）。
-  //
-  // 审核的「间隔」已整体删除——审核随静置触发，与捕获共用一个时机，没有第二个
-  // 数值可配（Human：「==，这个不存在时间了呀，随静置触发」）。判据仍是「恰好」
-  // 而非「至少」：多出一项就意味着又悄悄加了输入框而本条没更新。
-  //
-  // 同时**反向钉住**：`experienceReviewIntervalMs` 这个字段名一个字符都不许回来。
-  // 这比「数量检查」更狠——数量为 1 但恰好是它，也是一种回潮，而那种回潮正是本条
-  // 要防的形态（审核间隔是落点会话的遗留物，落点会话已经没有了）。
   const limitsTable = source.match(/var IDLE_LIMITS = \[([\s\S]*?)\];/);
   assert.ok(limitsTable, "须有参数表");
   const entries = limitsTable[1].match(/\{ key: "/g) ?? [];
@@ -592,15 +408,11 @@ test("闲时辅助设置面：**一个**子项 + 参数；总开关已撤除，�
     false,
     "审核间隔已整体删除（随静置触发，无间隔可配）；该字段名不得再出现在设置面",
   );
-  // 审核开关与文案**均不得存在**（审核层已整层取消，2026-11-16）。
   assert.ok(!source.includes("auxReviewEnabled"), "设置面不得再有审核开关");
   assert.ok(!source.includes("row.auxReview"), "设置面不得再有审核开关文案");
 });
 
 test("§8.5：未实现的职责移出设置面后仍须在登记里可见", async () => {
-  // 2026-10-30：容量维护与记忆健康不再有设置面开关（它们没有执行体可开关）。
-  // 但 §8.5「不得主张已运行」的反向要求是「未实现的职责不得从登记里消失」——
-  // 故它们必须由登记表的 UNIMPLEMENTED_AUX_TASKS 承载，而不是干脆不出现。
   const { UNIMPLEMENTED_AUX_TASKS, AUX_TASK_REGISTRY, AUX_TASK_ORDER } =
     await import("../lib/aux-task-registry.js");
   assert.deepEqual([...UNIMPLEMENTED_AUX_TASKS], ["capacity-maintenance", "memory-health"]);
@@ -612,14 +424,8 @@ test("§8.5：未实现的职责移出设置面后仍须在登记里可见", asy
 });
 
 test("数值参数的默认值与服务端**同源**：不得在两处各写一套", async () => {
-  // 客户端默认 300000 必须与服务端 idle-settings.js 的 IDLE_DEFAULTS 一致。
-  // （默认值现值 300000/5 分钟，Human 2026-10-18 改定；原 600000/10 分钟。）
-  // 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
-  // 2026-10 起默认值集中在一张表（此前散落在 state 初值里，改一处漏三处）。
   const defaults = source.match(/var IDLE_DEFAULT_STORED = \{([\s\S]*?)\};/) || [];
   assert.ok(defaults[1], "须有 IDLE_DEFAULT_STORED 表");
-  // **2026-11-17：两处都已清空。** 原断言是「客户端 300000 ≡ 服务端 300_000」；
-  // 安静时长删除后，同源要求变为「两处都不得残留该键」——留一处会让漂移重新可能。
   assert.ok(!defaults[1].includes("idleSilenceMs"), "客户端默认表不得再含 idleSilenceMs");
 
   const server = await readFile(new URL("../lib/idle-settings.js", import.meta.url), "utf8");
@@ -627,19 +433,11 @@ test("数值参数的默认值与服务端**同源**：不得在两处各写一�
 });
 
 test("参数非法时**不写入**（不得把非法值送进宿主再被静默回落）", () => {
-  // 服务端 readNumber 把「NaN / 负 / 非有限」回落默认值——那会让用户看到的数
-  // 与生效值不一致。故客户端必须在写入前拦住，并如实报失败。
-  //
-  // 注意判据**不是「非负整数」**：服务端接受任何非负有限数（含小数），故客户端
-  // 也不能凭空收紧。真正的判据是「按 scale 换算后能原样还原」——见下一条。
   assert.match(source, /function idleLimitOk\(text, scale\)/, "须有合法性判定（带 scale）");
   assert.match(source, /if \(!idleLimitsAllOk\(idleLimitsState\[0\]\)\) \{\s*saveErrorState\[1\]\(true\);\s*return;\s*\}/, "非法时须拦下写入并报失败");
 });
 
 test("时间参数以**分钟**读写，存储仍是毫秒（scale 单一来源，不得两处各写一套）", () => {
-  // **2026-11-17：本表已无时间参数**，故原「scale 须为 60000」的断言失去对象。
-  // 改为守卫「表内不得再出现任何带 scale 的条目」——若有人加回一个时间参数，
-  // 本条会失败并提示须同时登记换算来源。
   assert.match(source, /var IDLE_LIMITS = \[/, "须有参数表");
   const table = source.match(/var IDLE_LIMITS = \[([\s\S]*?)\];/);
   assert.ok(table, "须能取到参数表");
@@ -647,54 +445,26 @@ test("时间参数以**分钟**读写，存储仍是毫秒（scale 单一来源�
     (table[1].match(/scale:/g) ?? []).length, 0,
     "参数表不得含任何 scale 条目（2026-11-17 起已无时间参数）",
   );
-  // **2026-11-17：该参数连同其标签词条已删除。** 原断言要求标签写明单位为分钟；
-  // 现改为守卫「标签词条不得残留」——留一个无输入框可绑的标签词条会误导读者。
   assert.doesNotMatch(source, /"row\.idleSilenceMs":/, "安静时长的标签词条须一并删除");
-  // 英文标签同理须一并删除（原断言要求「Silence duration (minutes)」）。
   assert.doesNotMatch(source, /Silence duration/, "英文标签词条须一并删除");
   assert.doesNotMatch(source, /idleSilenceMs": "[^"]*毫秒"/, "不得残留毫秒标签");
-  // UI 循环须走参数表，不得再内联一份 key/label 清单。
   assert.match(source, /IDLE_LIMITS\.map\(function \(limit\) \{/, "UI 须遍历参数表");
 });
 
 test("换算判据是**往返回损**，而非「必须是整数」（不得凭空收紧服务端口径）", () => {
-  // 服务的 readNumber 接受任何非负有限数，含小数。客户端若只允许整数，就是
-  // 凭空收紧——用户输入一个服务端本来接受的值却被界面拒绝，且无从知道原因。
   assert.match(source, /function idleLimitToStored\(text, scale\)/, "须有换算函数");
   assert.match(source, /if \(Number\(idleLimitToText\(stored, scale\)\) !== n\) return undefined;/, "须做往返回损检查");
-  // 该判据不得写成「n 必须是整数」——那是收紧。
   assert.doesNotMatch(source, /Number\.isInteger\(n\) && n >= 0\) return undefined;\s*\n\s*var stored/, "不得把「输入是整数」当判据");
-  // 非时间参数（scale=1）下，小数仍会被拦——但理由是无损性（800.5 字不成立），
-  // 不是「禁止小数」。两条断言并存即说明该判据是通用的。
   assert.match(source, /if \(!Number\.isInteger\(stored\) \|\| stored < 0\) return undefined;/, "仍须拒绝换算出非整数的值");
 });
 
-test("参数区**不再**承载「数值属实现侧承接」声明——该声明改由代码注释与规范承载", () => {
-  // ## 本条为何从「须有」翻转为「须无」
-  //
-  // 原断言要求设置面上有 `row.idleLimitsPending` 文案（「安静时长的数值属实现侧
-  // 承接（11 §6.1）……不得据此主张规范已规定该时长」）。2026-10-14 Human 指示
-  // **删除该句**（连同「编辑后需点保存生效」一句）。
-  //
-  // **删除不等于放弃该声明**——它只是**换了承载处**。原位置属错置：那是一句
-  // 对 AI/读者的**规范地位声明**，不是给设置的人的操作提示；放在设置界面上，
-  // Human 每次调参数都要读一句与自己无关的告诫，而真正会误读的是写代码的人。
-  //
-  // 故本条的判据改为**检验声明仍在且已落到正确承载处**：
+test("参数区不再承载「数值属实现侧承接」与「编辑后需点保存」声明——按 code-no-comments 不留注释版本", () => {
   assert.doesNotMatch(source, /row\.idleLimitsPending/, "设置面不得再有该声明文案");
   assert.doesNotMatch(source, /idleLimitsHint/, "「编辑后需点保存生效」亦须删除（改由按钮态自明）");
-  // 声明本体须落在**代码注释**里（规范正文另有 11 §6.1「数值属实现侧承接」）。
-  assert.match(
-    source,
-    /数值属实现侧承接/,
-    "该声明须仍存在于本文件的代码注释中（换了承载处，不是删除）",
-  );
-  assert.match(source, /11 §6\.1/, "代码注释须点名依据条款");
+  assert.doesNotMatch(source, /数值属实现侧承接/, "该声明不得作为注释留在代码里（规范与 idle-settings.js 已是权威承载）");
 });
 
 test("设置面：改动后**保存按钮自身**须显示为「需要保存」（不得只靠一行文字提示）", () => {
-  // Human 2026-10-14：「修改后需要保存按钮显示为需要保存」。原设计只有一行
-  // 文字提示，而文字要在读者看见时才起作用；按钮是**操作发生处**，状态落在那里。
   assert.match(source, /"row\.saveDirty":/, "须有「有未保存改动」的按钮文案");
   assert.match(source, /"row\.saveDirtyAria":/, "须有对应的无障碍文案（供读屏）");
   assert.match(
@@ -702,41 +472,15 @@ test("设置面：改动后**保存按钮自身**须显示为「需要保存」�
     /busyState\[0\] \? t\("row\.saving"\) : \(dirtyState\[0\] \? t\("row\.saveDirty"\) : t\("row\.save"\)\)/,
     "按钮文案须随 dirtyState 切换",
   );
-  // **三重表达**：文案 + 类名 + aria。不只靠颜色——色觉障碍与高对比主题下
-  // 颜色可能不可辨，故须另有形状变化（描边/字重，见 .ldv-btn-dirty）。
   assert.match(source, /ldv-btn-dirty/, "dirty 时须有独立的样式类");
   assert.match(
     source,
     /\.ldv-btn-dirty\{font-weight:600/,
     "该类须含**不依赖颜色**的变化（此处为字重），否则色觉障碍下不可辨",
   );
-  // 状态与可操作性须一致：无改动时按钮仍不可点（避免「亮着但点了没反应」）。
   assert.match(source, /var saveDisabled = [^;]*!dirtyState\[0\]/, "无改动时保存须不可点");
 });
 
-// ---------------------------------------------------------------------------
-// 三处默认值不得漂移（2026-10-11 实测缺陷：判据侧默认被架空）
-// ---------------------------------------------------------------------------
-//
-// ## 缺陷经过
-//
-// 默认配额上限同时声明在**三处**：`index.js` 的 zod schema、`idle-settings.js` 的
-// `IDLE_DEFAULTS`、`client.js` 的 `IDLE_DEFAULT_STORED`。复审 D7 把「窗口内可达」
-// 定为选值硬约束（1 小时窗口 ÷ 当时 10 分钟的安静时长 ⇒ 最多 6 次可达，上限取 8
-// 则**永不绑定**），于是判据侧改成了 4。
-//
-// 注：该推导的分母**后来又变了**——安静时长于 2026-10-18 由 10 分钟改定为 5 分钟，
-// 按同一算式可达上限升至 12，8 仍不绑定，**结论不动**。但「最小间隔」一类约束已于
-// 2026-10-14 由 11 §6.2 取消（被 §6.1 安静时长结构性吸收），故这个算式如今只剩
-// **历史依据**的意义：现行容量由 `FALLBACK_MAX_DISPATCH_TIMES` 具名常量直接给出
-// （`plugin/lib/friction-watermark.js`），不再按窗口÷间隔推导。
-//
-// **但 zod schema 仍是 8。** 而生产路径读的是**它**——宿主按 zod 的 default 把 8
-// 填进 `config`，`resolveIdleSettings` 便永远读到 8，判据侧那个 4 **从未生效**。
-// 实测痕迹里 `quota.max` 恒为 8 即此。
-//
-// 既有守卫只比对 `client.js` 与硬编码值，**没有跨文件比对 zod 与判据侧**，故漏掉。
-// 本条补上该缺口——三处必须同值。
 
 test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDLE_DEFAULTS ≡ client.js", async () => {
   const { readFile } = await import("node:fs/promises");
@@ -746,35 +490,22 @@ test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDL
   const settingsMod = await import("../lib/idle-settings.js");
   const clientSrc = await read("../lib/client.js");
 
-  // ① 判据侧的真值（运行时导出，最权威）
   const d = settingsMod.IDLE_DEFAULTS;
 
-  // ② index.js 的 zod default —— 生产路径实际用它填 config
   const zod = {};
-  // 2026-11-17：`idleSilenceMs` 已从 zod schema 删除，本循环因此为空——
-  // 下方 JUDGE_KEY 也为空，三处比对自然通过。保留结构以便日后新增参数时复用。
   for (const key of []) {
-    // 数字**带下划线分隔**（如 `600_000`）——正则须容忍，否则守卫自身失效。
-    // `idleSilenceMs` 另带 `.min(1)`（11 §6.1 的写入侧下界约束），故正则须容忍
-    // 「链式方法（含带参的 min/max）再 .default(...)」。
     const m = indexSrc.match(new RegExp(`${key}:\\s*volatileField\\(z\\.number\\(\\)(?:\\.[a-z]+\\([^)]*\\))*\\.default\\(([\\d_]+)\\)\\)`));
     assert.ok(m, `index.js 须以 zod default 声明 ${key}`);
     zod[key] = Number(m[1].replace(/_/g, ""));
   }
 
-  // ③ client.js 的界面缺省（存储单位）
   const storedBlock = clientSrc.match(/var IDLE_DEFAULT_STORED = \{([\s\S]*?)\};/);
   assert.ok(storedBlock, "client.js 须有 IDLE_DEFAULT_STORED 表");
   const stored = {};
   for (const m of storedBlock[1].matchAll(/(\w+):\s*(\d+)/g)) stored[m[1]] = Number(m[2]);
 
-  // 配置键（zod / 界面）与判据键（IDLE_DEFAULTS）**名字不同**：前者带 `idle` 前缀
-  // 且描述的是「设置项」，后者是判据层的内部名。映射写在这里而不是靠命名巧合——
-  // 缺失映射会使断言比较 undefined 与数值，报出一个与真因无关的错。
-  // 2026-11-17：`silenceMs` 判据已删除，故本映射为空。
   const JUDGE_KEY = {};
 
-  // 三者逐一比对——任一不同即判据与生产不一致，而非「风格问题」。
   for (const [key, judgeKey] of Object.entries(JUDGE_KEY)) {
     assert.ok(judgeKey in d, `IDLE_DEFAULTS 须含判据键 ${judgeKey}`);
     assert.equal(
@@ -791,18 +522,9 @@ test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDL
   }
 });
 
-// ---------------------------------------------------------------------------
-// 设置面的**可读性**约定（Human 2026-10-14 明确要求）
-// ---------------------------------------------------------------------------
 
 test("设置面：安静时长已删除，其解释词条不得残留", () => {
-  // Human 原话：「什么是安静时长一句话解释清楚」——该要求曾使本参数必须带 hint。
-  //
-  // **2026-11-17：该参数整体删除**（触发锚改为主控发起，无时间数值可配），
-  // 故 hint 词条一并删除。判据由「须有解释」翻转为「不得残留」：留一条解释却
-  // 没有可解释的输入框，会让读者以为设置面上还有一个他找不到的参数。
   assert.doesNotMatch(source, /row\.idleSilenceMsHint/, "安静时长的解释词条须一并删除");
-  // 反向守卫：不得出现「每隔/定期」这类周期表述被重新引入到闲时相关文案里。
   assert.doesNotMatch(
     source,
     /"row\.idle[A-Za-z]*": "[^"]*(每隔|定期)[^"]*"/,
@@ -811,39 +533,22 @@ test("设置面：安静时长已删除，其解释词条不得残留", () => {
 });
 
 test("设置面：标签与输入框须在**同一行**，且输入框**不得**收进折叠区", () => {
-  // Human 原话：「和填写框放在一行，且直接显示出来」。
-  //
-  // 2026-11-13 重排版面：参数行改用全页统一的 `.ldv-row`（标题与控件相邻），
-  // 标签与输入框仍在**同一行**。行为断言（树里标题与数值框同处一行、
-  // 整棵树里没有 <details>）在 client-settings-layout.test.mjs；
-  // 此处守的是结构与「不得折叠」这条红线。
   assert.match(source, /className: "ldv-row"/, "参数行须用全页统一的行容器");
   assert.match(source, /\.ldv-row\{[^}]*display:flex/, "行容器须为 flex 行");
-  // **不得**再用 <details> 折叠（唯一一个参数没有折叠的理由）。
   assert.doesNotMatch(
     source,
     /React\.createElement\("details", \{ className: "ldv-block-body"/,
     "参数区不得折叠——直接展示",
   );
-  // 也不得残留只对旧折叠形态有意义的样式或结构。
   assert.doesNotMatch(source, /ldv-idle-limit-grid/, "旧的网格容器须一并移除");
   assert.doesNotMatch(source, /ldv-idle-limit-row/, "旧的参数行容器须一并移除");
 });
 
-// ---------------------------------------------------------------------------
-// 宿主提问卡（Human Gate 落点）观感覆写
-// ---------------------------------------------------------------------------
 
-/** 求值 client.js 里的 GATE_CSS 字面量，得到**实际下发的** CSS 文本。
- *  断言必须打在求值结果上而不是源码片段上：字符串拼接的产物与源码里的片段
- *  不是一回事（漏一个 `+` 或引号转义错位，源码看着对、下发的是坏 CSS）。 */
 function gateCssText() {
   const start = source.indexOf("var GATE_CSS = ");
   assert.ok(start >= 0, "GATE_CSS 常量须存在");
   const body = start + "var GATE_CSS = ".length;
-  // 语句终止符取 `;` + 换行：CSS 串内不出现裸 `;\n`（每条声明以 `}"` 收尾），
-  // 而按 `"}` 或 `";` 找都会落进串内——实测停在 `transition:none!important;` 上，
-  // 截出半条语句，vm 求值抛 SyntaxError。
   const end = source.indexOf(";\n", body);
   assert.ok(end > body, "GATE_CSS 字面量须有结束位置");
   return vm.runInNewContext(`(${source.slice(body, end)})`);
@@ -871,8 +576,6 @@ test("提问卡覆写的每条规则都锚在 `[data-question-key]` 上", () => 
 
 test("选择器命中**局部类名子串**，不得依赖构建期哈希的 `_` 边界", () => {
   const css = gateCssText();
-  // 宿主 CSS module 打包后形如 `22xwLW_frame`：哈希前缀长度不定，`_frame` 只在
-  // 未打包的 dev 构建里成立。写成 `[class*="_frame"]` 等于把覆写绑死在构建形态上。
   assert.doesNotMatch(css, /\[class\*="_/, "子串选择器不得带下划线前缀");
   assert.ok(/\[class\*="eyebrow"\]/.test(css), "局部名子串口径须在（丢了即整卡失焦）");
 });
@@ -891,11 +594,6 @@ test("只改观感：不得出现接管行为或隐藏内容的声明", () => {
 });
 
 test("选项卡片外观挂在外层行 `[data-option-row]` 上（0.2.2-rc.1 的双层结构）", () => {
-  // 宿主 0.2.2-rc.1 把选项拆成 div.optionRow（外层，带 0.5px 透明边与圆角）
-  // 包 button.option（内层，才是 [role=radio] / [role=checkbox]）。
-  // 旧覆写直接把边框/底色画在 [role=radio] 上，在新结构下会变成**内层一个框、
-  // 外层宿主自己一个框**的双边框，且 hover/选中态只覆盖内框。
-  // 这条断言把「外观挂外层、内层退成内容盒」钉住；退回单层写法即红。
   const css = gateCssText();
   assert.ok(/\[data-option-row\]\{[^}]*border:1px solid/.test(css), "外层行须承接卡片边框");
   assert.ok(/\[data-option-row\][^{]*\{[^}]*min-height:48px/.test(css), "外层行须承接最小高度");
@@ -904,57 +602,41 @@ test("选项卡片外观挂在外层行 `[data-option-row]` 上（0.2.2-rc.1 的
 });
 
 test("`description` 覆写排除 `descriptionToggle`（新宿主的子串碰撞）", () => {
-  // 宿主 0.2.2-rc.1 新增 .descriptionToggle（展开说明的图标按钮），类名含
-  // `description` 子串。不带 :not 的 `[class*="description"]` 会把 13px/20px
-  // 的正文排版套到图标按钮上。
   const css = gateCssText();
   assert.match(css, /\[class\*="description"\]:not\(\[class\*="descriptionToggle"\]\)/, "须排除 descriptionToggle");
 });
 
 test("召回预算档位：客户端选项须与服务端 INJECTION_BUDGET_TIERS **同源**", async () => {
-  // 与 IDLE_DEFAULT_STORED 同一纪律：两处各写一套必然漂移，漂移后「设置页选
-  // 20K、实际生效 10K」，而用户永远看不到真实值。
   const { readFile } = await import("node:fs/promises");
   const { join } = await import("node:path");
   const serverSrc = await readFile(join(import.meta.dirname, "..", "lib", "source-recall.js"), "utf8");
 
-  // 1) 客户端选项表须存在且列出 10/20/30/40/50。
   const opts = source.match(/var INJECTION_BUDGET_TIER_OPTIONS = \[([^\]]+)\]/);
   assert.ok(opts, "客户端须有 INJECTION_BUDGET_TIER_OPTIONS 表");
   const clientTiers = opts[1].split(",").map((s) => Number(s.trim())).filter((n) => Number.isFinite(n));
   assert.deepEqual(clientTiers, [10, 20, 30, 40, 50], "客户端档位选项须为 10/20/30/40/50");
 
-  // 2) 服务端档位键须与客户端**逐个一致**（同源，不只是抄对）。
   const serverTiers = [...serverSrc.matchAll(/^ {2}(\d+): \d+ \* 1024,$/gm)].map((m) => Number(m[1]));
   assert.deepEqual(clientTiers, serverTiers, "客户端选项须与服务端 INJECTION_BUDGET_TIERS 的键逐个一致");
 
-  // 3) 默认档须一致。
   const clientDefault = source.match(/var INJECTION_BUDGET_TIER_DEFAULT = (\d+);/);
   assert.ok(clientDefault, "客户端须有 INJECTION_BUDGET_TIER_DEFAULT");
   const serverDefault = serverSrc.match(/export const DEFAULT_INJECTION_BUDGET_TIER = (\d+);/);
   assert.ok(serverDefault, "服务端须有 DEFAULT_INJECTION_BUDGET_TIER");
   assert.equal(Number(clientDefault[1]), Number(serverDefault[1]), "两端默认档须一致");
 
-  // 4) 设置面须真的渲染该控件（不是只有状态没有 UI）。
   assert.match(source, /t\("row\.injectionBudgetTier"\)/, "须渲染档位控件标签");
   assert.match(source, /path: \["injectionBudgetTier"\]/, "保存时须提交该字段");
 });
 
-// ── 审核模型：两级联动下拉（2026-10-26 Human 指定参考 dsh-subagent-default-model）──
 
-// ---------------------------------------------------------------------------
-// 设置页节（Human 2026-11-13：「把 ldvh 的设置也放到设置里，参考 workbuddy」）
-// ---------------------------------------------------------------------------
 
 test("设置页节：注册 settings.section 与其图标，两者共用同一 id", async () => {
-  // 槽位必须是这两个名字——写错任一则整节静默不出现（不报错，最难查）。
   assert.match(source, /slots\.inject\("settings\.section"/, "须注册设置页节");
   assert.match(source, /slots\.inject\("settings\.section\.icon"/, "须注册导航图标");
-  // id 是两者的唯一配对凭据：宿主按 { only: row.id } 渲染图标，两处必须同源。
   assert.match(source, /var LDVH_SETTINGS_SECTION_ID = "dsh-ldvh"/);
   const registrations = source.match(/name: "settings\.section(?:\.icon)?"/g) ?? [];
   assert.ok(registrations.length >= 2, "节与图标各须一次注册");
-  // 图标失败不得拖垮页面（workbuddy 同一处置）
   assert.match(source, /settings nav icon failed to register \(page unaffected\)/);
 });
 
@@ -962,8 +644,6 @@ test("设置页节：order 不与已装插件冲突，且不使用会被精确�
   const m = source.match(/var LDVH_SETTINGS_SECTION_ORDER = (\d+)/);
   assert.ok(m, "order 须是显式常量");
   const order = Number(m[1]);
-  // 已发布节位次：-10 账号 / 0 通用 / 10 模型 / 15 插件 / 20 agent-presets；
-  // 第三方实测占 20、30、35、40、45、100。取 50 排在其后且不撞。
   for (const taken of [-10, 0, 10, 15, 20, 30, 35, 40, 45, 100]) {
     assert.notEqual(order, taken, `order=${order} 与已发布节位次 ${taken} 冲突`);
   }
@@ -971,37 +651,19 @@ test("设置页节：order 不与已装插件冲突，且不使用会被精确�
 });
 
 test("设置页节：Plugins 页那两个 keyed 槽位**已撤除**（同一份配置不得有两个编辑入口）", () => {
-  // Human 2026-11-13：「原来的插件界面就不需要再有设置信息了，你也参考 workbuddy」。
-  // workbuddy 5.19.0 的原话是 the same configuration must not have two editing
-  // entries——双入口的失效形态不是「多一处能改」，而是两处各持独立本地 state，
-  // 在 A 改、B 仍显旧值，用户无从判断哪个是真的。
-  //
-  // 断言写成「不得再注册」而不是「某一行应当被删除」：要钉住的是**行为**
-  // （不再向那两个槽位注册），不是具体实现形态。
   assert.doesNotMatch(source, /slots\.inject\("plugins\.bundle\.config"/, "不得再注册插件页 bundle 配置卡");
   assert.doesNotMatch(source, /slots\.inject\("plugins\.row\.config"/, "不得再注册插件页行级配置卡");
   assert.doesNotMatch(source, /LDVH_ROW_CONFIG_KEY/, "行级配置键已无消费点，不应残留");
-  // 撤除后设置页那一节是唯一入口
   assert.match(source, /slots\.inject\("settings\.section"/);
 });
 
 
-// ---------------------------------------------------------------------------
-// 上下文注入行：标签只写一次插件名；不受辖时不得出现任何 LDVH 其它信息
-// ---------------------------------------------------------------------------
 
 test("注入行标签：单一来源，且不得自带插件名（宿主已加前缀）", async () => {
-	// 2026-11-13 独立审核 MINOR #7：此前 guidance.js 与 lifecycle.js **各写一遍**
-	// 同一字符串，靠本测试的正则比两处源码文本保持一致——那不是单一来源，是
-	// 「两份副本 + 一条断言盯着它们别跑偏」。现改为由 review-ask.js 导出，
-	// 两处 import。
-	//
-	// 本测试只守两件仍然可能变的事：标签不含插件名；两处确实引用同一常量。
 	const reviewAsk = await readFile(new URL("../lib/review-ask.js", import.meta.url), "utf8");
 	assert.match(reviewAsk, /export const REVIEW_ASK_ROW_SUMMARY = "([^"]*)"/, "标签须在 review-ask.js 单点导出");
 	const label = reviewAsk.match(/export const REVIEW_ASK_ROW_SUMMARY = "([^"]*)"/)[1];
 	assert.ok(!label.includes("dsh-ldvh"), `标签不得重复插件名：${label}`);
-	// 宿主渲染成 `上下文注入 · dsh-ldvh · <标签>`；插件名由宿主填。
 	for (const file of ["guidance.js", "lifecycle.js"]) {
 		const text = await readFile(new URL(`../lib/${file}`, import.meta.url), "utf8");
 		assert.match(text, /import \{[^}]*REVIEW_ASK_ROW_SUMMARY[^}]*\} from "\.\/review-ask\.js"/, `${file} 须引用同一常量`);
@@ -1010,12 +672,6 @@ test("注入行标签：单一来源，且不得自带插件名（宿主已加�
 });
 
 test("把关询问行须先判管辖（源码层只作补充：行为由 lifecycle.test.mjs 钉住）", async () => {
-	// 2026-11-13 独立审核 MINOR #9 指出：原断言 `indexOf('scopeState !== "governed"')
-	// < indexOf('getReviewAskSettings')` 查的是源码里两个子串的**出现先后**——
-	// 把门禁抽成 helper（行为完全不变）会红，而真正的回归只要两串还在就可能绿。
-	//
-	// 行为断言已移到 test/lifecycle.test.mjs（驱动真实 pre-step handler）。
-	// 本处只保留一条**结构**检查：门禁确实存在，且用的是 governed 闭集判据。
 	const lifecycle = await readFile(new URL("../lib/lifecycle.js", import.meta.url), "utf8");
 	const start = lifecycle.indexOf("reviewAskRow: async");
 	assert.ok(start > 0, "reviewAskRow handler must exist");
@@ -1025,11 +681,8 @@ test("把关询问行须先判管辖（源码层只作补充：行为由 lifecyc
 });
 
 test("设置保存须提交两个把关开关（漏写＝勾了也存不进去，且看不出来）", () => {
-	// 2026-11-13 独立审核 MINOR #10：同文件对 injectionBudgetTier 有这类断言，
-	// 对两个新开关没有。漏写这两行正是注释自己点名的既有失效形态。
 	assert.match(source, /path: \["preActionReviewAskEnabled"\]/, "行动前审查开关须进入保存操作");
 	assert.match(source, /path: \["postWorkReviewAskEnabled"\]/, "行动后复核开关须进入保存操作");
-	// 三个位置都要在：读初值、外部回填、提交（键名四处一致，避免拼写漂移）
 	for (const key of ["preActionReviewAskEnabled", "postWorkReviewAskEnabled"]) {
 		const occurrences = source.split(key).length - 1;
 		assert.ok(occurrences >= 3, `${key} 须至少在读取/回填/提交三处出现（实际 ${occurrences}）`);
@@ -1037,15 +690,10 @@ test("设置保存须提交两个把关开关（漏写＝勾了也存不进去�
 });
 
 test("静默执行开关：四处接线齐全（读初值 / 外部回填 / 放弃修改 / 提交）", () => {
-	// 2026-11-13 晚新增。这条测试的存在理由就是同文件上面那条注释点名的失效形态：
-	// 少写任一处，界面上勾了也存不进去，或者配置被别处改了界面还显示旧值——
-	// 两种都「看不出来」。故四处逐一数，不是只查一个总次数。
 	const key = "reviewAskSilentRunEnabled";
 	const occurrences = source.split(key).length - 1;
 	assert.ok(occurrences >= 4, `静默开关须在读取/回填/放弃/提交四处出现（实际 ${occurrences}）`);
-	// 提交行必须在（它是保存的唯一出口）
 	assert.match(source, /path: \["reviewAskSilentRunEnabled"\]/, "静默开关须进入保存操作");
-	// 中英词条都在：缺一语言即在该语言下显示为裸 key
 	for (const id of ["row.reviewAskSilent", "row.reviewAskSilentHint", "row.reviewAskSilentBadge"]) {
 		const hits = source.split(`"${id}":`).length - 1;
 		assert.equal(hits, 2, `${id} 须中英各一份（实际 ${hits}）`);
@@ -1053,11 +701,8 @@ test("静默执行开关：四处接线齐全（读初值 / 外部回填 / 放�
 });
 
 test("静默开关：颜色不是唯一载体（07 §12 第 8 条），且不改其它开关的配色", () => {
-	// 琥珀轨必须挂在独立的 .ldv-switch-silent 上——若直接改 .ldv-switch 的
-	// checked 规则，全页开关都会变色，「蓝＝这一项开着」这条语义即失效。
 	assert.match(source, /\.ldv-switch-silent input:checked\+\.ldv-switch-track\{background:var\(--ldv-silent\)\}/, "琥珀轨须只作用于 .ldv-switch-silent");
 	assert.match(source, /\.ldv-switch input:checked\+\.ldv-switch-track\{background:var\(--ldv-accent\)\}/, "默认开关仍须是蓝色，不得被静默那一档改掉");
-	// 文字载体：药丸与说明都在，色觉差异下仍可判断
 	assert.match(source, /ldv-silent-badge/, "须有文字药丸，颜色不得单独承载语义");
 	assert.match(source, /--ldv-silent:/, "静默色须是具名 token，不散落字面值");
 });

@@ -36,7 +36,7 @@ export default function ChecklistCard({ value }: ChecklistCardProps) {
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Progress header */}
+      { }
       <div className="flex items-center gap-2">
         <span className="ldvh-chip text-ldvh-accent">
           {doneCount}/{totalCount}
@@ -50,7 +50,7 @@ export default function ChecklistCard({ value }: ChecklistCardProps) {
         <span className="ldvh-caption">{ratio}%</span>
       </div>
 
-      {/* Checklist items */}
+      { }
       <div className="flex flex-col gap-1">
         {items.map((item, i) => (
           <div key={i} className="flex items-start gap-2">

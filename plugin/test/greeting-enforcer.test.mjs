@@ -1,7 +1,3 @@
-// 称呼机械前置器与强制面声明解析的单测。
-//
-// 覆盖审查点：BLOCKER-1（用 BlockAssembler 断言最终消息含称呼）、MAJOR-6（回合去重）、
-// MAJOR-7（项目限定）、MINOR-16（abort 放行缓冲）、fail-open（抛错放行）。
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -10,7 +6,6 @@ import { createGreetingEnforcer, GREETING_PREFIX_ENFORCER_ID } from "../lib/gree
 import { GREETING_TEXT } from "../lib/greeting-text.js";
 import { parseAssuranceDeclarations, assuranceSummaryOf } from "../lib/norm-assurance.js";
 
-/** 极简 ctx：记录 on 的监听器。 */
 function makeCtx() {
   const listeners = {};
   return {
@@ -31,7 +26,6 @@ async function* chunks(list) {
   for (const chunk of list) yield chunk;
 }
 
-/** 跑一次被包装的流。 */
 async function runStream(ctx, options, upstreamChunks) {
   const handler = ctx.listeners["llm/stream"][0];
   const out = [];
@@ -55,14 +49,11 @@ test("前置器：缺称呼时在 block-end 改写，BlockAssembler 组装的最
     { type: "text-delta", index: 0, text: "文件。" },
     { type: "block-end", index: 0, block: { type: "text", text: "我先看一下文件。" } },
   ]);
-  // 次序：block-start → 合成 delta → 原缓冲
   assert.equal(out[0].type, "block-start");
   assert.equal(out[1].type, "text-delta");
   assert.ok(out[1].text.startsWith(GREETING_TEXT), "第二个 chunk 须是合成称呼");
-  // block-end 被改写
   const end = out.find((c) => c.type === "block-end");
   assert.ok(end.block.text.startsWith(GREETING_TEXT), "block-end.block.text 须含称呼前缀");
-  // **关键**：用宿主 BlockAssembler 断言最终消息（BLOCKER-1 的回归断言）
   const { BlockAssembler } = await import("@deepseek-ai/dsh-llm");
   const a = new BlockAssembler();
   for (const chunk of out) a.push(chunk);
@@ -109,7 +100,6 @@ test("前置器：同一回合第二个 step 不重复注入（turn 去重）", 
   assert.ok(r1.some((c) => c.type === "text-delta" && c.text.startsWith(`${GREETING_TEXT}\n`)), "step1 须注入");
   const r2 = await runStream(ctx, { sessionId: "s1" }, step1);
   assert.ok(!r2.some((c) => c.type === "text-delta" && c.text.startsWith(`${GREETING_TEXT}\n`)), "step2 不得重复注入");
-  // 新用户消息进入 inbox ⇒ 重置
   await ctx.listeners["agent/inbox/inserted"][0]({ agent: { session: { header: { id: "s1" } } } });
   const r3 = await runStream(ctx, { sessionId: "s1" }, step1);
   assert.ok(r3.some((c) => c.type === "text-delta" && c.text.startsWith(`${GREETING_TEXT}\n`)), "新回合须再保证");
@@ -137,9 +127,8 @@ test("前置器：上游抛错时原样抛出（不吞错）；判定前 abort �
   createGreetingEnforcer({ sessionScopes: makeScopes({ s1: governedScope }), projectCarriesNorm: async () => true }).install(ctx);
   const handler = ctx.listeners["llm/stream"][0];
   await assert.rejects(async () => {
-    for await (const _ of handler.call({}, { sessionId: "s1" }, async function* () { yield { type: "block-start", index: 0, blockType: "text" }; throw new Error("upstream"); })) { /* noop */ }
+    for await (const _ of handler.call({}, { sessionId: "s1" }, async function* () { yield { type: "block-start", index: 0, blockType: "text" }; throw new Error("upstream"); })) void _;
   }, /upstream/);
-  // 判定前流提前结束：缓冲原样转发、不注入半截
   const out = await runStream(ctx, { sessionId: "s9" }, []);
   assert.deepEqual(out, []);
 });
@@ -162,7 +151,6 @@ test("解析器：三种形态、kind 闭集、首个冒号切分、invalid 计�
   assert.equal(byLine[2].resolvable, true, "gate 面须可解析");
   assert.equal(byLine[4].kind, "bogus");
   assert.equal(byLine[5].resolvable, true, "pre-injector:greeting-prefix 须可解析");
-  // 首个冒号切分：kind=test 不在闭集 ⇒ invalid（test 已移出闭集）
   const colonCase = parsed.declarations.find((d) => d.line === 7);
   assert.equal(colonCase.kind, "test");
   assert.equal(colonCase.name, "some:colon:name", "name 须按首个冒号切分保留其余冒号");

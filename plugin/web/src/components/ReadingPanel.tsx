@@ -9,10 +9,6 @@ const MAX_WIDTH_RATIO = 0.58;
 const DEFAULT_WIDTH = 380;
 const DEFAULT_DOC_WIDTH = 680;
 const SNAP_THRESHOLD = 40;
-// Compact 断点（Human 2026-10-16：640 → 1024）。**必须与侧栏 Tailwind `lg:` 断点同值**：
-// 二者不同值时会拼出「展开侧栏 + 底部抽屉」或「图标栏 + 右侧面板」的错配组合
-// （`docs/01` §1.6 只登记了两种窄屏结构变化，均以同一个 Compact 断点为界）。
-// 命名不取 `MOBILE_*`：1024 已覆盖平板与窄桌面，该名会误导后续读者。
 const COMPACT_BREAKPOINT = 1024;
 
 export default function ReadingPanel() {
@@ -87,7 +83,6 @@ export default function ReadingPanel() {
     return () => window.removeEventListener('resize', onResize);
   }, [clamp]);
 
-  // Bottom sheet drag handlers
   const onSheetHandleDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     setDraggingSheet(true);
@@ -109,7 +104,6 @@ export default function ReadingPanel() {
       setDraggingSheet(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      // Snap close if dragged below 30%
       if (bottomSheetHeight < 30) closePanel();
     };
     document.body.style.cursor = 'ns-resize';
@@ -158,7 +152,6 @@ export default function ReadingPanel() {
     </div>
   );
 
-  // Compact（< 1024px）：底部阅读抽屉
   if (isCompact) {
     return (
       <>
@@ -199,7 +192,6 @@ export default function ReadingPanel() {
     );
   }
 
-  // 桌面（≥ 1024px）：右侧扩展阅读面板
   return (
     <div
       ref={panelRef}

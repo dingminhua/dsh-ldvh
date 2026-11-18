@@ -1,6 +1,3 @@
-/**
- * Git 服务：通过子进程执行 git 命令获取提交日志
- */
 
 import { execFile } from 'child_process'
 import path from 'path'
@@ -12,22 +9,13 @@ import { getRelativeTime as sharedGetRelativeTime } from './time.js'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-/** LDVH 项目根目录 */
 const LDVH_ROOT = process.env.LDVH_ROOT || path.resolve(__dirname, '../../..')
 
-/**
- * How this commit relates to the current branch and its upstream-tracking ref.
- *
- * This is deliberately a local Git reachability check, not a network probe:
- * the web can state only what the currently fetched upstream ref proves.
- */
 export type GitPushStatus = 'pushed' | 'unpushed' | 'incoming' | 'unknown'
 
-/** Optional provenance markers carried in Git commit trailers. */
 export type GitCommitSignature = {
   productName?: string
   modelName?: string
-  /** v5 扁平署名原词（LDVH-Provider/LDVH-Model）——逐字携键，显示层不美化。 */
   provider?: string
   model?: string
 }
@@ -48,7 +36,6 @@ export interface GitLogEntry {
   signature?: GitCommitSignature
 }
 
-/** A commit record together with its changed repository-relative paths. */
 export interface GitLogEntryWithFiles extends GitLogEntry {
   files: string[]
 }
@@ -65,31 +52,25 @@ export type SplitCommitMessage = {
   body: string
 }
 
-/** Normalize Git's offset-bearing date output at the API boundary. */
 export function normalizeTimestamp(value: string): string {
   return canonicalizeRfc3339Timestamp(normalizeGitTimestampInput(value)) ?? value
 }
 
-/** Conventional commit 分类颜色 */
 export const CATEGORY_COLORS: Record<string, string> = {
-  feat: '#3b82f6',      // blue
-  fix: '#ef4444',       // red
-  docs: '#6b7280',      // gray
-  style: '#a855f7',     // purple
-  refactor: '#06b6d4',  // cyan
-  test: '#eab308',      // yellow
-  chore: '#6b7280',     // gray
-  perf: '#22c55e',      // green
-  ci: '#ec4899',        // pink
-  build: '#92400e',     // brown
-  release: '#7c3aed',   // violet
-  default: '#6b7280',   // gray
+  feat: '#3b82f6',
+  fix: '#ef4444',
+  docs: '#6b7280',
+  style: '#a855f7',
+  refactor: '#06b6d4',
+  test: '#eab308',
+  chore: '#6b7280',
+  perf: '#22c55e',
+  ci: '#ec4899',
+  build: '#92400e',
+  release: '#7c3aed',
+  default: '#6b7280',
 }
 
-/**
- * 解析 conventional commit message
- * 格式: type(scope)!: description、type!: description 或 type: description
- */
 export function parseCommitMessage(message: string): ParsedCommitMessage {
   const match = message.match(/^([A-Za-z]+)(?:\(([^)]+)\))?(!)?:\s+(.+)$/)
   if (match) {
@@ -125,17 +106,7 @@ function getCommitTrailerValue(body: string, key: string): string | undefined {
   return values.at(-1)
 }
 
-/**
- * Read the display-safe part of an optional commit signature.
- *
- * Session identifiers and signer classification remain in the raw commit body;
- * the compact commit identity only exposes the model/agent and host when present.
- */
 export function parseCommitSignature(body: string): GitCommitSignature | undefined {
-  // specs/06 §6.1 权威 trailer 是 LDVH-Provider/LDVH-Model（v5）；
-  // LDVH-Product-Name/LDVH-Model-Name（v4 归档词汇）保持可读。
-  // v4 词汇存在时优先按 v4 消费（归一 productName/modelName）；
-  // 否则 v5 词汇以区分键逐字返回（供应商 id 不美化，键名精确匹配不冲突）。
   const v4ProductName = getCommitTrailerValue(body, 'LDVH-Product-Name')
   const v4ModelName = getCommitTrailerValue(body, 'LDVH-Model-Name')
   if (v4ProductName || v4ModelName) {
@@ -161,13 +132,6 @@ export function parseCommitSignature(body: string): GitCommitSignature | undefin
   return undefined
 }
 
-/**
- * Classify commits against the current branch's configured upstream.
- *
- * Shared commits are pushed, HEAD-only commits are unpushed, and upstream-only
- * commits are incoming. Repositories without a readable upstream stay unknown
- * so the UI never invents a synchronization state.
- */
 export async function getGitPushStatuses(hashes: string[], cwd: string = LDVH_ROOT): Promise<Map<string, GitPushStatus>> {
   const statuses = new Map(hashes.map((hash) => [hash, 'unknown' as GitPushStatus]))
   if (hashes.length === 0) return statuses
@@ -211,9 +175,6 @@ async function getGitUpstream(cwd: string): Promise<string | null> {
   })
 }
 
-/**
- * 获取 git log 列表
- */
 export async function getGitLog(count: number = 50, locale: string = 'zh', cwd: string = LDVH_ROOT): Promise<GitLogEntry[]> {
   const upstream = await getGitUpstream(cwd)
   return new Promise((resolve, reject) => {
@@ -266,14 +227,6 @@ export async function getGitLog(count: number = 50, locale: string = 'zh', cwd: 
   })
 }
 
-/**
- * Read a bounded commit slice with changed paths in one Git invocation.
- *
- * The record and message/file separators are control characters emitted by
- * Git's format string.  We only consume paths later by exact equality against
- * current canonical fact paths; arbitrary changed source paths never leave
- * the cognition aggregation.
- */
 export async function getGitLogWithFiles(
   since: Date,
   until: Date,
@@ -343,9 +296,6 @@ export async function getGitLogWithFiles(
   })
 }
 
-/**
- * 获取指定 commit 的解析后 message 信息
- */
 export async function getGitCommit(hash: string, locale: string = 'zh', cwd: string = LDVH_ROOT): Promise<GitLogEntry> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -381,9 +331,6 @@ export async function getGitCommit(hash: string, locale: string = 'zh', cwd: str
   })
 }
 
-/**
- * 获取指定 commit 的 show --stat 输出
- */
 export async function getGitShow(hash: string, cwd: string = LDVH_ROOT): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(

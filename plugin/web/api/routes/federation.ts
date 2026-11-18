@@ -1,21 +1,9 @@
-/**
- * 全部管辖联邦聚合（全部管辖计划 Step 3）。
- *
- * GET /api/federation/overview —— 跨管辖项目的只读汇总：
- * - 项目卡：每项目的 open Spark 计数、待决定事项计数与最后动态时间；
- * - 跨项目悬置：全部项目 open Spark 按陈旧度取 Top N（v5 Spark 无 `priority` 字段，20 §8）；
- * - 逐项目降级：单个项目读取失败时该卡如实带 issues，不影响其它项目（认知中心模块级降级同型）。
- *
- * 数据边界：全部经 Web 字段级直读（facts.ts listObjects 的显式 scope），无第二事实源；
- * 颜色为呈现偏好（governedProjectsSettings 合并后的 color，未显式选择时由前端按 ID 哈希兜底）。
- */
 import { Router, type Request, type Response } from 'express'
 import { listObjects } from '../services/facts.js'
 import { readGovernedProjectsSettings } from '../services/governedProjectsSettings.js'
 
 const router = Router()
 
-/** 联邦项目卡数据。issues 非空时计数字段可能缺失，卡片如实呈现降级。 */
 export interface FederationProjectCard {
   id: string
   name: string
@@ -66,7 +54,6 @@ function latestChangeLogAt(items: Array<Record<string, unknown>>): string | unde
 
 router.get('/objects', async (req: Request, res: Response): Promise<void> => {
   const type = String(req.query.type ?? '')
-  // 29 号 DevLog 已于 2026-11-14 撤除，退出联邦对象类型值域。
   const OBJECT_TYPES = ['pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const
   if (!(OBJECT_TYPES as readonly string[]).includes(type)) {
     res.status(400).json({ ok: false, error: `Unsupported object type: ${type || '(missing)'}` })
@@ -88,13 +75,6 @@ router.get('/objects', async (req: Request, res: Response): Promise<void> => {
       if (listing.error) issues.push(`${project.name || project.id}: ${listing.error}`)
       return listing.items.map((item): Record<string, unknown> => ({
         ...item,
-        // 类型短名必须由本层补上：`listObjects` 的投影只带 `fact_type_key`
-        // （03 §6.1 载体值域），而卡片的类型 chip 读的是 `obj.type`。
-        // 单项目列表路由经 `normalizeItem` 补过一次，联邦路由直接消费
-        // `listObjects` 的输出，没有那道归一化——此前八类对象的联邦卡
-        // 类型 chip 全是空白（对象在、类型在、唯独卡面没有字）。
-        // 这里是类型已知的上下文（按 objectType 查询），直接写回该值，
-        // 不从 `fact_type_key` 反推，也不做形状猜测。
         type: objectType,
         federationProject: {
           id: project.id,
@@ -114,7 +94,6 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
   const generatedAt = new Date().toISOString()
   try {
     const settings = await readGovernedProjectsSettings()
-    // 每项目聚合时顺带保留 open Spark 明细，供跨项目 Top N 使用（不重复读取）。
     const openSparksByProject = new Map<string, Array<Record<string, unknown>>>()
     const cards = await Promise.all(settings.projects.map(async (project): Promise<FederationProjectCard> => {
       const card: FederationProjectCard = {
@@ -137,14 +116,10 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
       }
       let openSparks: Array<Record<string, unknown>> = []
       if (!sparks.error) {
-        // 20 §8/§14.2：v5 Spark 无 priority 字段——联邦卡只投影 open 计数。
         openSparks = sparks.items.filter((item) => item.status === 'open')
         card.sparkOpen = openSparks.length
       }
       if (openSparks.length > 0) openSparksByProject.set(project.id, openSparks)
-      // Pitfall 不再计入 `pendingDecisions`（2026-11-03）：Pitfall 取消 `draft` 待确认态
-      // （23 §9），已无「在等入档的候选」可数。`pitfalls` 仍用于下面的 lastActivityAt
-      // 与 issues，取数保留。
       const lastActivityAt = latestChangeLogAt([...sparks.items, ...pitfalls.items])
       if (lastActivityAt) card.lastActivityAt = lastActivityAt
       return card

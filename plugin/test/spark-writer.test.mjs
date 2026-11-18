@@ -1,11 +1,3 @@
-// Tests for plugin/lib/spark-writer.js — the Spark mechanical writer slice.
-//
-// Every case is derived from specs/20 (the single authority):
-//   §7 身份与载体, §8 字段契约与不变量, §9 状态与生命周期（含合并/拆分）,
-//   §11 关系契约, §13 受控操作, §14.1 类型特有验证, §17 必停情形.
-// Tests assert spec behaviour; where the implementation diverges from the
-// spec the failure is reported in the task report, never "fixed" by bending
-// the assertion. lib/ is NOT modified here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
@@ -13,8 +5,6 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { seedSubGoals, subGoalUid, testSignature, withTemp, UNKNOWN_SUBGOAL_UID } from "./helpers.mjs";
 
-// 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
-// tests supply a branded test carrier; the signature gate has its own cases.
 const TEST_SIGNATURE = testSignature();
 import {
   createSparkObject,
@@ -35,14 +25,6 @@ import { authoritativeSignature } from "../lib/signature-channel.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/**
- * 20 §13 把 `expected_candidate_fingerprint` 列为 create 的**入口必填项**：未携带
- * 即零写入，且写入路径不做内部指纹比对或补位。直接调用 writer 的用例因此都要
- * 带上它——本包装接受与 `createSparkObject` 完全相同的参数，只补上该指纹，
- * 使「测试领域规则」与「满足入口必填面」两件事互不干扰。
- *
- * `dryRun` 不受此限（20 §13：写入前的内部干跑不构成跨调用同一性证据）。
- */
 async function createSparkObjectWithCandidate(args) {
   const { computeSparkCreateCandidateFingerprint } = await import("../lib/spark-writer.js");
   return createSparkObject({
@@ -51,12 +33,7 @@ async function createSparkObjectWithCandidate(args) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
-// goal.md fixture: 25 §7 (2026-11) — the carrier holds 目标陈述 only; the
-// SG-n anchors `serves` resolves against live in SubGoal objects (28 §12.3).
 const GOAL_MD_FIXTURE = `---
 goal_key: project-goal
 title: 测试目标
@@ -71,7 +48,6 @@ created_at: 2026-09-09T12:00:00+08:00
 测试。
 `;
 
-/** Seed the four SG-n anchors as SubGoal objects under the same fact source. */
 async function seedGoalAnchorObjects(root) {
 	await seedSubGoals(root, ["SG-1", "SG-2", "SG-3", "SG-4"]);
 }
@@ -100,9 +76,6 @@ function validBodyMarkdown(draft = validFrontmatterDraft()) {
   return sections.join("\n\n");
 }
 
-// ---------------------------------------------------------------------------
-// §8 question 单句可读 (isSingleSentence)
-// ---------------------------------------------------------------------------
 
 test("isSingleSentence accepts a single terminal-ending sentence or a terminal-free string", () => {
   assert.equal(isSingleSentence("如何验证机械层？"), true);
@@ -116,9 +89,6 @@ test("isSingleSentence rejects two terminals, terminal-not-at-end and empty inpu
   assert.equal(isSingleSentence(""), false);
 });
 
-// ---------------------------------------------------------------------------
-// create 正向 (20 §13)
-// ---------------------------------------------------------------------------
 
 test("create: valid draft lands at sparks/spark-<uid>.md with Code identity and precise read-back", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -133,13 +103,11 @@ test("create: valid draft lands at sparks/spark-<uid>.md with Code identity and 
     const uid = result.value.object_uid;
     assert.match(uid, UUID_PATTERN);
 
-    // file name & directory (20 §7: ldvh-base/sparks/spark-<uid>.md)
     const filePath = join(root, SPARK_DIRECTORY, sparkFileName(uid));
     assert.equal(result.value.file, filePath);
     const raw = await readFile(filePath, "utf8");
     assert.ok(raw.startsWith("---\n"));
 
-    // frontmatter contains Code-generated uid/created_at/change_log first entry (20 §7/§8)
     const fmEnd = raw.indexOf("\n---\n", 5);
     const fm = parseYaml(raw.slice(4, fmEnd));
     assert.equal(fm.object_uid, uid);
@@ -150,10 +118,8 @@ test("create: valid draft lands at sparks/spark-<uid>.md with Code identity and 
     assert.equal(fm.change_log[0].summary, "受控创建（测试）");
     assert.ok(fm.change_log[0].at);
 
-    // H1 generated from title (20 §8 body template)
     assert.ok(raw.includes(`# ${draft.title}`));
 
-    // precise read-back round-trip
     const read = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.ok(read.ok, JSON.stringify(read.error));
     assert.equal(read.value.frontmatter.question, draft.question);
@@ -163,16 +129,10 @@ test("create: valid draft lands at sparks/spark-<uid>.md with Code identity and 
   });
 });
 
-// ---------------------------------------------------------------------------
-// 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
-// ---------------------------------------------------------------------------
 
 test("create: a forged plain sessionSignature is REFUSED — no unsigned change_log entry (specs/09)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    // Human 2026-09-12: changelog must be mechanically signed; a write that
-    // cannot be signed is refused rather than recorded unsigned. A plain
-    // {provider,model} object is NOT a signature (09 forbids AI self-filling).
     const created = await createSparkObjectWithCandidate({
       factSourceRoot: root,
       frontmatterDraft: draft,
@@ -185,9 +145,6 @@ test("create: a forged plain sessionSignature is REFUSED — no unsigned change_
   });
 });
 
-// ---------------------------------------------------------------------------
-// create 反向 (20 §8/§9/§11/§13/§17.1)
-// ---------------------------------------------------------------------------
 
 test("create: non-open initial status is rejected (20 §9 initial state)", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -309,7 +266,6 @@ test("create: missing or empty question/scope_boundary/intent/summary rejected (
 
 test("create: serves declared but goal.md missing rejected (20 §17.1 stop condition)", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // no goal.md in root
     const result = await createSparkObjectWithCandidate({
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: subGoalUid(1) },
@@ -338,7 +294,6 @@ test("create: serves=SG-99 not present in goal.md rejected (20 §13)", async () 
 
 test("create: serves undeclared succeeds even when goal.md is missing (20 §17.1: 未声明时不停止)", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // no goal.md in root, no serves declared → no stop condition (25 §10)
     const result = await createSparkObjectWithCandidate({
       factSourceRoot: root,
       frontmatterDraft: validFrontmatterDraft(),
@@ -383,7 +338,6 @@ test("create: empty H2 section rejected (20 §8 body must carry content)", async
 test("create: evolution non-empty but body lacks 演变 section rejected (20 §8 条件出现)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = { ...validFrontmatterDraft(), evolution: [{ at: "2026-09-09T12:00:00Z", summary: "焦点转向机械层边界" }] };
-    // validBodyMarkdown builds 演变 iff evolution non-empty — strip it to force the violation
     const bodyWithoutEvolution = validBodyMarkdown(draft).split("\n\n## 演变")[0];
     const result = await createSparkObjectWithCandidate({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithoutEvolution , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
@@ -393,9 +347,7 @@ test("create: evolution non-empty but body lacks 演变 section rejected (20 §8
 
 test("create: evolution omitted (no pivots) but body has 演变 section rejected (20 §8 条件出现)", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // evolution absent → conditional field not applicable; a 演变 section is
-    // then out of contract (20 §8: 演变 条件出现, only when evolution non-empty)
-    const draft = validFrontmatterDraft(); // no evolution key
+    const draft = validFrontmatterDraft();
     const bodyWithEvolution = validBodyMarkdown(draft) + "\n\n## 演变\n不应出现的演变段。";
     const result = await createSparkObjectWithCandidate({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithEvolution , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
@@ -406,9 +358,6 @@ test("create: evolution omitted (no pivots) but body has 演变 section rejected
 
 test("create: empty evolution array rejected as fabricated conditional field", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // 20 §8: evolution 条件出现 — omitted when not applicable; an explicit
-    // empty array fabricates the conditional field (03 §6.1), so the draft
-    // is invalid regardless of body content.
     const draft = { ...validFrontmatterDraft(), evolution: [] };
     const bodyWithEvolution = validBodyMarkdown(draft) + "\n\n## 演变\n不应出现的演变段。";
     const result = await createSparkObjectWithCandidate({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithEvolution , sessionSignature: TEST_SIGNATURE});
@@ -424,7 +373,6 @@ test("create: carrier coherence — drifted question is accepted (warning only, 
     const driftedQuestion = draft.question.replace("如何", "怎样");
     const body = `## 当前理解\n${draft.summary}\n说明。\n\n## 调查问题\n${driftedQuestion}\n背景。\n\n## 调查边界\n${draft.scope_boundary}\n边界。`;
     const result = await createSparkObjectWithCandidate({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
-    // 载体内聚已降为警告层：写入成功，但差异仍须可被校验函数如实报告。
     assert.ok(result.ok, JSON.stringify(result.error));
     const check = validateCarrierCoherence(draft, body);
     assert.ok(check.warnings.some((i) => i.includes("question verbatim")), JSON.stringify(check.warnings));
@@ -437,7 +385,6 @@ test("create: carrier coherence — drifted scope_boundary is accepted (warning 
     const driftedBoundary = draft.scope_boundary.replace("仅以", "只用");
     const body = `## 当前理解\n${draft.summary}\n说明。\n\n## 调查问题\n${draft.question}\n背景。\n\n## 调查边界\n${driftedBoundary}\n边界。`;
     const result = await createSparkObjectWithCandidate({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
-    // 载体内聚已降为警告层：写入成功，但差异仍须可被校验函数如实报告。
     assert.ok(result.ok, JSON.stringify(result.error));
     const check = validateCarrierCoherence(draft, body);
     assert.ok(check.warnings.some((i) => i.includes("scope_boundary verbatim")), JSON.stringify(check.warnings));
@@ -450,16 +397,12 @@ test("create: carrier coherence — drifted summary is accepted (warning only)",
     const driftedSummary = draft.summary.replace("已实现", "已完成");
     const body = `## 当前理解\n${driftedSummary}\n说明。\n\n## 调查问题\n${draft.question}\n背景。\n\n## 调查边界\n${draft.scope_boundary}\n边界。`;
     const result = await createSparkObjectWithCandidate({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
-    // 载体内聚已降为警告层：写入成功，但差异仍须可被校验函数如实报告。
     assert.ok(result.ok, JSON.stringify(result.error));
     const check = validateCarrierCoherence(draft, body);
     assert.ok(check.warnings.some((i) => i.includes("summary verbatim")), JSON.stringify(check.warnings));
   });
 });
 
-// ---------------------------------------------------------------------------
-// update 正向 (20 §9/§13: open→open 精化, open→implemented, open→discarded)
-// ---------------------------------------------------------------------------
 
 test("update: open→open refinement appends exactly one change_log entry and preserves created_at", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -494,9 +437,9 @@ test("update: open→open refinement appends exactly one change_log entry and pr
 
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.ok(read2.ok);
-    assert.equal(read2.value.frontmatter.change_log.length, 2); // exactly one appended
+    assert.equal(read2.value.frontmatter.change_log.length, 2);
     assert.equal(read2.value.frontmatter.change_log[1].summary, "精化问题表述与总结");
-    assert.equal(read2.value.frontmatter.created_at, created_at); // unchanged
+    assert.equal(read2.value.frontmatter.created_at, created_at);
     assert.equal(read2.value.frontmatter.question, fmAfter.question);
     assert.equal(read2.value.frontmatter.status, "open");
     assert.notEqual(read2.value.fingerprint, read1.value.fingerprint);
@@ -512,7 +455,6 @@ test("update: open→implemented requires disposition (20 §8/§14.1); succeeds 
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.ok(read1.ok);
 
-    // without disposition -> rejected (终态处置完整性, 20 §14.1)
     const noDisposition = { ...read1.value.frontmatter, status: "implemented" };
     const r1 = await updateSparkObject({
       factSourceRoot: root,
@@ -527,7 +469,6 @@ test("update: open→implemented requires disposition (20 §8/§14.1); succeeds 
     assert.equal(r1.error.code, "spark/frontmatter_invalid");
     assert.ok(r1.error.details.issues.some((i) => i.includes("disposition")), JSON.stringify(r1.error.details.issues));
 
-    // with disposition -> succeeds (20 §9.2 normal transition)
     const withDisposition = {
       ...read1.value.frontmatter,
       status: "implemented",
@@ -559,9 +500,6 @@ test("update: disposition longer than 200 characters is rejected (20 §9.1)", as
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.ok(read1.ok);
 
-    // 201 -> rejected; the reason must NOT be silently truncated. (Attempted
-    // on the still-open object: a terminal object is read-only, §9.2, so the
-    // length check must be exercised on the transition that would set it.)
     const overCap = { ...read1.value.frontmatter, status: "implemented", disposition: "x".repeat(201) };
     const r = await updateSparkObject({
       factSourceRoot: root,
@@ -579,12 +517,10 @@ test("update: disposition longer than 200 characters is rejected (20 §9.1)", as
       JSON.stringify(r.error.details.issues)
     );
 
-    // The rejected write left no trace: the object is still open.
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.equal(read2.value.frontmatter.status, "open");
     assert.equal(read2.value.fingerprint, read1.value.fingerprint);
 
-    // Exactly 200 -> accepted (boundary is inclusive).
     const atCap = { ...read2.value.frontmatter, status: "implemented", disposition: "y".repeat(200) };
     const okUpdate = await updateSparkObject({
       factSourceRoot: root,
@@ -633,9 +569,6 @@ test("update: open→discarded plain (no relations) succeeds (20 §9.2)", async 
   });
 });
 
-// ---------------------------------------------------------------------------
-// update 反向 (20 §9/§11/§13, 03 §9.5 CAS)
-// ---------------------------------------------------------------------------
 
 test("update: stale fingerprint rejected as CAS conflict (20 §13, 03 §9.5)", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -672,7 +605,6 @@ test("update: terminal implemented object allows content correction with a chang
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
-    // Content correction on a terminal object is allowed (status unchanged).
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const corrected = { ...read2.value.frontmatter, title: "更正后的标题" };
     const r2 = await updateSparkObject({
@@ -687,7 +619,6 @@ test("update: terminal implemented object allows content correction with a chang
     assert.equal(read3.value.frontmatter.status, "implemented", "correction must not change status");
     assert.equal(read3.value.frontmatter.change_log.length, 3, "every update appends exactly one change_log entry");
 
-    // Status reversal (reopen) stays forbidden.
     const read4 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const reopen = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read4.value.fingerprint,
@@ -715,7 +646,6 @@ test("update: terminal discarded object allows content correction but not reopen
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
-    // Content correction on the terminal discarded object is allowed.
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const r2 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
@@ -728,7 +658,6 @@ test("update: terminal discarded object allows content correction but not reopen
     assert.equal(read3.value.frontmatter.disposition, "更正后的终态理由。");
     assert.equal(read3.value.frontmatter.status, "discarded");
 
-    // Reopen stays forbidden.
     const read4 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const r3 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read4.value.fingerprint,
@@ -868,7 +797,6 @@ test("update: merge target that does not exist rejected (20 §11 目标可解析
 
 test("update: merge target exists but is not open rejected (20 §11 target must be open)", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // target B: create then move to implemented
     const b = await createSparkObjectWithCandidate({
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "目标 Spark B" },
@@ -886,7 +814,6 @@ test("update: merge target exists but is not open rejected (20 §11 target must 
     });
     assert.ok(bImpl.ok, JSON.stringify(bImpl.error));
 
-    // A merges into the now-terminal B
     const a = await createSparkObjectWithCandidate({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), bodyMarkdown: validBodyMarkdown() , sessionSignature: TEST_SIGNATURE});
     assert.ok(a.ok);
     const readA = await readSparkObject({ factSourceRoot: root, objectUid: a.value.object_uid });
@@ -925,9 +852,6 @@ test("update: implemented with split-into relations rejected (20 §9.1/§14.1 im
   });
 });
 
-// ---------------------------------------------------------------------------
-// 合并/拆分正向 (20 §9.3)
-// ---------------------------------------------------------------------------
 
 test("merge: A read-back then discarded+merged-into→B (B stays open) succeeds", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -945,7 +869,6 @@ test("merge: A read-back then discarded+merged-into→B (B stays open) succeeds"
     });
     assert.ok(a.ok && b.ok, JSON.stringify({ a: a.error, b: b.error }));
 
-    // A: 逐字读回 (20 §9.2: AI 先精确读取 F3)
     const readA = await readSparkObject({ factSourceRoot: root, objectUid: a.value.object_uid });
     assert.ok(readA.ok);
     assert.equal(readA.value.body_valid, true);
@@ -968,7 +891,6 @@ test("merge: A read-back then discarded+merged-into→B (B stays open) succeeds"
     assert.equal(readA2.value.frontmatter.relations[0].relation_key, "merged-into");
     assert.equal(readA2.value.frontmatter.relations[0].target.object_uid, b.value.object_uid);
 
-    // B 仍 open (20 §11: 合并目标是继续承载议题的活对象)
     const readB = await readSparkObject({ factSourceRoot: root, objectUid: b.value.object_uid });
     assert.equal(readB.value.frontmatter.status, "open");
   });
@@ -1025,9 +947,6 @@ test("split: A discarded+split-into→B,C (both open) succeeds (20 §9.3 拆分)
   });
 });
 
-// ---------------------------------------------------------------------------
-// goal.md anchors (20 §13 / 25 §6)
-// ---------------------------------------------------------------------------
 
 test("readServableSubGoals returns SubGoal objects, not SG-n strings (28 §12.3)", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -1035,8 +954,6 @@ test("readServableSubGoals returns SubGoal objects, not SG-n strings (28 §12.3)
     await seedGoalAnchorObjects(root);
     const listed = await readServableSubGoals(root);
     assert.equal(listed.ok, true, listed.reason);
-    // The shape itself is the guarantee: callers receive objects with an
-    // object_uid, so a human-readable label cannot be mistaken for the identity.
     assert.deepEqual(listed.subGoals.map((g) => g.object_uid), [subGoalUid(1), subGoalUid(2), subGoalUid(3), subGoalUid(4)]);
     assert.deepEqual(listed.subGoals.map((g) => g.order), [1, 2, 3, 4]);
   });
@@ -1058,9 +975,6 @@ test("create with serves resolving to a SubGoal object succeeds (20 §13)", asyn
   });
 });
 
-// ---------------------------------------------------------------------------
-// evolution 边界 (20 §8: 上限 20 项, 每项 {at, summary})
-// ---------------------------------------------------------------------------
 
 test("create: evolution with 21 entries exceeds the cap (20 §8 上限 20 项)", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -1089,9 +1003,6 @@ test("create: evolution entry missing at or summary rejected (20 §8 evolution s
   });
 });
 
-// ---------------------------------------------------------------------------
-// read 契约 (03 §9.2)
-// ---------------------------------------------------------------------------
 
 test("read: invalid uid shape rejected (03 §6.1 canonical uid)", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -1100,18 +1011,12 @@ test("read: invalid uid shape rejected (03 §6.1 canonical uid)", async () => {
     assert.equal(result.error.code, "spark/invalid_uid");
   });
 });
-// ---------------------------------------------------------------------------
-// Body H1 uniqueness (20 §8 正文结构: the H1 comes from title and is the only
-// level-1 heading — the body itself starts at H2)
-// ---------------------------------------------------------------------------
 
 test("body structure: exactly one H1 — an extra title heading is rejected (20 §8)", () => {
   const base = "## 当前理解\n\nA\n\n## 调查问题\n\nB\n\n## 调查边界\n\nC";
 
-  // The only accepted shape.
   assert.ok(validateSparkBodyStructure(`# T\n\n${base}`, "T", 0).ok);
 
-  // An extra H1 slips past a first-line-only check, so it must be counted.
   const dupConsecutive = validateSparkBodyStructure(`# T\n\n# T\n\n${base}`, "T", 0);
   assert.ok(!dupConsecutive.ok, "consecutive duplicate H1 must be rejected");
   assert.ok(dupConsecutive.issues.some((i) => i.includes("exactly 1 H1")), JSON.stringify(dupConsecutive.issues));
@@ -1123,29 +1028,21 @@ test("body structure: exactly one H1 — an extra title heading is rejected (20 
   const dupLast = validateSparkBodyStructure(`# T\n\n${base}\n\n# T`, "T", 0);
   assert.ok(!dupLast.ok, "trailing H1 must be rejected");
 
-  // The wrong title is caught by the existing first-line check.
   assert.ok(!validateSparkBodyStructure(`# X\n\n${base}`, "T", 0).ok);
 });
 
 test("body structure: H1 scan follows CommonMark ATX semantics (20 §8)", () => {
   const base = "## 当前理解\n\nA\n\n## 调查问题\n\nB\n\n## 调查边界\n\nC";
 
-  // Escapes that a naive `startsWith("# ")` scan would miss: CommonMark treats
-  // up to 3 leading spaces and a tab separator as the same ATX heading.
   assert.ok(!validateSparkBodyStructure(`# T\n\n   # T\n\n${base}`, "T", 0).ok, "indented duplicate H1 must be counted");
   assert.ok(!validateSparkBodyStructure(`# T\n\n#\tT\n\n${base}`, "T", 0).ok, "tab-separated duplicate H1 must be counted");
 
-  // Not false positives: these are all legal single-H1 carriers.
   assert.ok(validateSparkBodyStructure(`# T   \n\n${base}`, "T", 0).ok, "trailing spaces on the H1 are legal");
   assert.ok(validateSparkBodyStructure(`# T\n\n\u0060\u0060\u0060\n# T\n\u0060\u0060\u0060\n\n${base}`, "T", 0).ok, "a `#` inside a fenced code block is not a heading");
   assert.ok(validateSparkBodyStructure(`# T\r\n\r\n${base.replace(/\n/g, "\r\n")}`, "T", 0).ok, "CRLF body is a legal carrier");
 });
 
-// ---------------------------------------------------------------------------
-// refs (20 §8 + 03 §7.2 关联引用型) — 关联的事实对象引用
-// ---------------------------------------------------------------------------
 
-/** A minimal other-type fact object whose object_uid refs can target. */
 async function seedResearch(root, uid, title = "目标调研对象") {
   const { mkdir } = await import("node:fs/promises");
   await mkdir(join(root, "reports"), { recursive: true });
@@ -1186,7 +1083,6 @@ test("refs: unresolvable target is a zero-write rejection (03 §7.2 mechanical b
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/refs_unresolvable");
-    // Zero-write: no carrier left behind.
     const { readdir } = await import("node:fs/promises");
     const entries = await readdir(join(root, SPARK_DIRECTORY)).catch(() => []);
     assert.deepEqual(entries.filter((f) => f.endsWith(".md")), []);
@@ -1289,8 +1185,6 @@ test("refs: duplicate targets rejected (03 §7.2 invariant 3 — no synonymous d
 
 test("refs: a closed (discarded) target stays a legal reference (20 §8 — state-neutral)", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // A target whose own status is terminal must still resolve: the association
-    // is a fact about the past and does not expire when the target closes.
     await seedResearch(root, REF_UID);
     await writeFile(
       join(root, "reports", `report-${REF_UID}.md`),
@@ -1322,8 +1216,6 @@ test("refs: update may add and remove associations (state-neutral, no status gat
     const uid = created.value.object_uid;
 
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
-    // read-back body carries the generated H1; the update entry takes the body
-    // from H2 down (20 §8: the H1 is generated by Code, not supplied).
     const bodyAfter = read1.value.body.replace(/^#\s.*\r?\n\r?\n?/, "");
     const upd = await updateSparkObject({
       factSourceRoot: root,
@@ -1355,11 +1247,6 @@ test("refs: F1 list projection carries refs for the Human card (20 §12)", async
     const listed = await listSparkObjects({ factSourceRoot: root });
     assert.ok(listed.ok, JSON.stringify(listed.error));
     const item = listed.value.items.find((i) => i.object_uid === created.value.object_uid);
-    // 投影必须带解析出的类型：`object-reference.test.mjs` 的「spark F1 list: refs
-    // targets carry a resolved type」钉的是同一件事——两条消费路径（read / list）
-    // 对同一目标必须给出同一指称，否则列表行渲染成裸 8hex 而读路径渲染成
-    // `pitfall-8hex`。原断言只允许 {object_uid}，与本文件上文 writer 注释里早已
-    // 写明的「Targets are enriched with type/title」互相矛盾。
     assert.deepEqual(item.refs, [{ object_uid: REF_UID, fact_type_key: "report" }]);
   });
 });
@@ -1389,17 +1276,7 @@ test("refs: omitted stays omitted (03 §6.1 — no empty placeholder written)", 
   });
 });
 
-// ---------------------------------------------------------------------------
-// Human 裁定 2026-10-05（解法 C）：merged-into/split-into 目标的 `open` 约束
-// 是**写入前置条件**，不是持久不变量（20 §11）。
-//
-//   场景源自真实存量实证：6 条 discarded 关系的子议题在关系写入之后依法走到
-//   终态（§9.2），使父关系指向非 open 目标。此前实现每次写入都复查全部关系，
-//   令这些父对象连无关的内容更正都被永久拒绝（§13 无删除 + §9.2 不可重开 ⇒
-//   无任何修复路径）。C 同时消除该死锁。
-// ---------------------------------------------------------------------------
 
-/** 建立一个 disposed-ward、`relations` 指向 targetUid 的 discarded 父对象。 */
 async function seedDiscardedParentWithRelation(root, targetUid) {
   const draft = validFrontmatterDraft();
   const created = await createSparkObjectWithCandidate({
@@ -1425,7 +1302,6 @@ async function seedDiscardedParentWithRelation(root, targetUid) {
   return { uid, draft, fingerprint: r.value.fingerprint };
 }
 
-/** 把某个对象推入终态（模拟子议题事后走到终态）。 */
 async function terminateObject(root, uid, status, disposition, draft) {
   const read = await readSparkObject({ factSourceRoot: root, objectUid: uid });
   const r = await updateSparkObject({
@@ -1440,7 +1316,6 @@ async function terminateObject(root, uid, status, disposition, draft) {
 
 test("关系目标写入时须 open（写入前置条件）：指向已终态目标的新关系被零写入拒绝 (20 §11)", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // 子议题先进入终态
     const childDraft = validFrontmatterDraft({ title: "子议题（先终态）" });
     const child = await createSparkObjectWithCandidate({
       factSourceRoot: root, frontmatterDraft: childDraft, bodyMarkdown: validBodyMarkdown(childDraft),
@@ -1450,7 +1325,6 @@ test("关系目标写入时须 open（写入前置条件）：指向已终态目
     const childUid = child.value.object_uid;
     await terminateObject(root, childUid, "implemented", "直接落实完毕。", childDraft);
 
-    // 父对象试图拆往一个已 implemented 的目标 —— 写入时刻即不满足 open
     const parentDraft = validFrontmatterDraft({ title: "父议题" });
     const parent = await createSparkObjectWithCandidate({
       factSourceRoot: root, frontmatterDraft: parentDraft, bodyMarkdown: validBodyMarkdown(parentDraft),
@@ -1472,7 +1346,6 @@ test("关系目标写入时须 open（写入前置条件）：指向已终态目
     assert.ok(!bad.ok, "写入时刻非 open 的目标必须被拒绝");
     assert.equal(bad.error.code, "spark/relation_target_unresolvable");
 
-    // 零写入：父对象未被改动
     const after = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.equal(after.value.frontmatter.status, "open");
     assert.equal(after.value.frontmatter.relations, undefined);
@@ -1481,7 +1354,6 @@ test("关系目标写入时须 open（写入前置条件）：指向已终态目
 
 test("子议题事后转终态：父对象的无关内容更正仍被放行（C 解锁死锁） (20 §11/§13/§9.2)", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // 一个 open 的子议题
     const childDraft = validFrontmatterDraft({ title: "子议题" });
     const child = await createSparkObjectWithCandidate({
       factSourceRoot: root, frontmatterDraft: childDraft, bodyMarkdown: validBodyMarkdown(childDraft),
@@ -1490,15 +1362,12 @@ test("子议题事后转终态：父对象的无关内容更正仍被放行（C 
     assert.ok(child.ok);
     const childUid = child.value.object_uid;
 
-    // 父对象在子议题 open 时拆往它（写入合规）
     const { uid, draft, fingerprint } = await seedDiscardedParentWithRelation(root, childUid);
 
-    // 此后子议题依法走到终态 —— 父关系目标不再是 open
     await terminateObject(root, childUid, "discarded", "子议题自身决定不再跟踪。", childDraft);
     const childRead = await readSparkObject({ factSourceRoot: root, objectUid: childUid });
     assert.equal(childRead.value.frontmatter.status, "discarded");
 
-    // 对父对象做一次与该关系无关的内容更正 —— 必须放行（这是 C 要解除的锁）
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const correction = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
@@ -1509,7 +1378,6 @@ test("子议题事后转终态：父对象的无关内容更正仍被放行（C 
     });
     assert.ok(correction.ok, `无关内容更正应被放行，实际被拒：${JSON.stringify(correction.error)}`);
 
-    // 关系原样保留（§13 无删除操作），不被静默移除或降级
     const read3 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.equal(read3.value.frontmatter.disposition, "更正后的终态理由。");
     assert.deepEqual(read3.value.frontmatter.relations, [
@@ -1529,7 +1397,6 @@ test("既有关系中目标已终态，但写入时若同时新增非 open 目�
     assert.ok(child.ok);
     const childUid = child.value.object_uid;
 
-    // 另一个先已终态的对象
     const deadDraft = validFrontmatterDraft({ title: "先行终态对象" });
     const dead = await createSparkObjectWithCandidate({
       factSourceRoot: root, frontmatterDraft: deadDraft, bodyMarkdown: validBodyMarkdown(deadDraft),
@@ -1539,10 +1406,8 @@ test("既有关系中目标已终态，但写入时若同时新增非 open 目�
     await terminateObject(root, dead.value.object_uid, "implemented", "已落实。", deadDraft);
 
     const { uid, draft } = await seedDiscardedParentWithRelation(root, childUid);
-    // 让既有的那条目标也转终态
     await terminateObject(root, childUid, "discarded", "放弃。", childDraft);
 
-    // 此时再**新增**一条指向已 implemented 目标的关系：只校验新增项，须被拒
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const mixed = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
@@ -1562,23 +1427,10 @@ test("既有关系中目标已终态，但写入时若同时新增非 open 目�
   });
 });
 
-// ---------------------------------------------------------------------------
-// serves 的解析时机（28 §12.3 第 3 条；Human 2026-11-10）
-//
-// 规范原文：「`retired` 不构成有效解析目标：该子目标已原位作废，新的 `serves`
-// 不得指向它；**既有 `serves` 保留原值不改写历史引用**」。故「解析」是写入那一刻
-// 的准入条件，不是每次更新的持续不变量——与 ADR `0b08523c`「关系目标的 open 约束
-// 为写入前置条件」同形。
-//
-// 为什么必须钉住：实测全库 112 个采用 serves 的对象有 98 个指向已 retired 的
-// SubGoal（87.5%）。旧实现在更新时无条件重解，使它们**任何内容更新都被拒**——
-// 连改一个与 serves 毫无关系的字段都不行（本用例用 summary 作为那个字段）。
-// ---------------------------------------------------------------------------
 
 test("update: 历史的 serves 指向已 retired 子目标时，更新仍被允许（28 §12.3 第 3 条）", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
-    // 先以 active 建立子目标，创建 Spark 使其 serves 合法
     await seedGoalAnchorObjects(root);
     const created = await createSparkObjectWithCandidate({
       factSourceRoot: root,
@@ -1589,14 +1441,12 @@ test("update: 历史的 serves 指向已 retired 子目标时，更新仍被允�
     assert.ok(created.ok, JSON.stringify(created.error));
     const uid = created.value.object_uid;
 
-    // 子目标原位作废（历史引用保留原值）
     await seedSubGoals(root, ["SG-1"], { status: "retired" });
 
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.ok(read1.ok);
     const fmAfter = { ...read1.value.frontmatter };
     delete fmAfter.change_summary;
-    // 只改一个与 serves 无关的字段（`recall_digest` 已退场，改用 `summary`）
     fmAfter.summary = "回归：serves 未变时无关字段可更新";
 
     const updated = await updateSparkObject({
@@ -1629,7 +1479,6 @@ test("update: 把 serves 改成另一个已 retired 的子目标仍被拒绝（�
     assert.ok(created.ok, JSON.stringify(created.error));
     const uid = created.value.object_uid;
 
-    // SG-2 retired，SG-1 仍 active
     await seedSubGoals(root, ["SG-2"], { status: "retired", indexOffset: 1 });
     await seedSubGoals(root, ["SG-1"]);
 
@@ -1651,18 +1500,6 @@ test("update: 把 serves 改成另一个已 retired 的子目标仍被拒绝（�
   });
 });
 
-// ---------------------------------------------------------------------------
-// 累积报错：一次拒绝报出全部可检出的层（spark-729491f6）
-//
-// WHY: 更新路径此前是「首错即返」——字段校验不过就 return，修好后才进入
-// serves 解析，再之后才是 refs 解析。调用方每轮只看到最外层的那个错，改完
-// 再撞下一个，重试因此像剥洋葱。实测（738 会话 / 313 次失败）：rejected 类
-// 重试后仅 60.1% 成功、33.9% 再次失败，且第二次失败的原因恰是第一次被掩盖
-// 的下一层错误。
-//
-// 本组用例锁住「一次报多少层」。它们必须能在实现退回首错即返时转红——否则
-// 等于没守（见 pitfall「新增防护无直接用例致变异零检出」）。
-// ---------------------------------------------------------------------------
 
 test("update: 字段形状错与 refs 不可解析同时成立时，一次拒绝把两层都报出来", async () => {
   await withTemp("spark-writer.", async (root) => {
@@ -1680,8 +1517,6 @@ test("update: 字段形状错与 refs 不可解析同时成立时，一次拒绝
       factSourceRoot: root,
       objectUid: created.value.object_uid,
       expectedFingerprint: read1.value.fingerprint,
-      // ① title 空 → spark/frontmatter_invalid
-      // ② refs 指向不存在的对象 → spark/refs_unresolvable
       frontmatterAfter: {
         title: "",
         refs: [{ object_uid: "11111111-1111-4111-8111-111111111111" }],
@@ -1698,7 +1533,6 @@ test("update: 字段形状错与 refs 不可解析同时成立时，一次拒绝
       ["spark/frontmatter_invalid", "spark/refs_unresolvable"],
       `一次拒绝须把两层都报出来，否则调用方要再撞一轮；实际只报了 ${JSON.stringify(failedCodes)}`,
     );
-    // issues 里两类原因都要可见（调用方按文本修复，只有 code 不够）
     const issues = updated.error.details?.issues ?? [];
     assert.ok(issues.some((i) => String(i).includes("title")), JSON.stringify(issues));
     assert.ok(issues.some((i) => String(i).includes("refs target")), JSON.stringify(issues));
@@ -1728,15 +1562,11 @@ test("update: 只有一个错误时，报错形态与合并前一致（不引入
 
     assert.ok(!updated.ok);
     assert.equal(updated.error.code, "spark/frontmatter_invalid");
-    // 单错不合并：code 与 message 保持原样，调用方按 code 分类的既有行为不变
     assert.equal(updated.error.details?.failed_codes, undefined, "单错时不应出现 failed_codes");
     assert.match(updated.error.message, /updated frontmatter failed mechanical checks/);
   });
 });
 
-// ---------------------------------------------------------------------------
-// 20 §13 只读预检入口 — 本类型规范明写「**须设**」该入口
-// ---------------------------------------------------------------------------
 
 test("precheck: 通过时交还候选指纹，且**不落盘、不生成对象标识**（20 §13）", async () => {
   await withTemp("spark-precheck.", async (root) => {
@@ -1751,10 +1581,8 @@ test("precheck: 通过时交还候选指纹，且**不落盘、不生成对象�
     assert.equal(pre.ok, true, JSON.stringify(pre.error));
     assert.equal(pre.value.mechanical_outcome, "passed", JSON.stringify(pre.value));
     assert.match(pre.value.candidate_fingerprint, /^[0-9a-f]{64}$/);
-    // 20 §13：预检**不生成对象标识**——交还里不得出现任何 uid。
     assert.equal(pre.value.object_uid, null, "预检不得交还对象标识");
     assert.equal(pre.value.object_uid === undefined, false);
-    // 只读：对象目录里不得出现任何载体。
     const { readdir } = await import("node:fs/promises");
     const files = await readdir(join(root, SPARK_DIRECTORY)).catch(() => []);
     assert.deepEqual(files.filter((f) => f.endsWith(".md")), [], "预检必须零写入");
@@ -1766,7 +1594,6 @@ test("precheck: 缺 dedup_result 判为 unverifiable（20 §13 要求预检含�
     const draft = validFrontmatterDraft();
     const body = validBodyMarkdown();
     const pre = await precheckSparkCreate({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
-    // 缺的是入口必填项，不是候选内容有可修的缺陷——归「不可判定」而非 failed。
     assert.equal(pre.value.mechanical_outcome, "unverifiable", JSON.stringify(pre.value));
     assert.equal(pre.value.error_code, "spark/dedup_result_required");
   });
@@ -1838,15 +1665,9 @@ test("dryRun: 结果里不得出现任何 uuid 形态标识，也不落盘（20 
     });
     assert.equal(dry.ok, true, JSON.stringify(dry.error));
     assert.equal(dry.value.dry_run, true);
-    // **症状与要求要分开钉**：仅仅断言顶层没有 object_uid 是不够的——上一版把
-    // 真实 uuid 藏进 `frontmatter.object_uid`，顶层断言依然全绿。20 §13 的要求
-    // 是「不生成对象标识」，故这里对整份结果串扫 uuid 形态。
-    // 注意：`UUID_PATTERN` 是**整串锚定**的（^…$），只能判「一个值是否为 uuid」；
-    // 在 JSON 串里扫子串必须用无锚点形态，否则该断言恒真、形同虚设（实测过）。
     const UUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
     const serialized = JSON.stringify(dry.value);
     assert.doesNotMatch(serialized, UUID_ANYWHERE, "干跑结果里不得出现任何 uuid 形态的对象标识");
-    // 两次干跑必须给出同一份结果（铸真 uid 会让它们不同）。
     const dry2 = await createSparkObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
@@ -1865,12 +1686,7 @@ test("候选指纹: 剥离 status、保留 change_summary（20 §13 逐字登记
   const base = { title: "T", question: "q?", scope_boundary: "s", intent: "i", summary: "sm" };
   const body = "## 当前理解\n\n## 调查问题\n\n## 调查边界\n";
   const a = computeSparkCreateCandidateFingerprint(base, body);
-  // 「剥离 status」——create 通道由 Code 钉死为 open（20 §9），省略与显式 open
-  // 产出同一对象，必须落在同一指纹上，否则同一候选被判成两份（伪拒绝）。
   assert.equal(computeSparkCreateCandidateFingerprint({ ...base, status: "open" }, body), a);
-  // 「change_summary 计入指纹、不剥离」——它是 frontmatter_draft 内的可选键，
-  // 其值经 Code 写入 change_log[0].summary、随对象落盘，改它即改内容。
   assert.notEqual(computeSparkCreateCandidateFingerprint({ ...base, change_summary: "另一个理由" }, body), a);
-  // 正文变化移动指纹。
   assert.notEqual(computeSparkCreateCandidateFingerprint(base, body + "补一句。"), a);
 });

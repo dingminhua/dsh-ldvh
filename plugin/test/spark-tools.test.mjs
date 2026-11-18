@@ -1,11 +1,3 @@
-// Tests for plugin/lib/spark-tools.js — the runtime wiring of the Spark
-// mechanical layer (specs/20 §13 受控操作 + specs/03 §9) into the governed
-// ldvh_* tool surface.
-//
-// Coverage follows the sibling report-tools.test.mjs pattern: handlers are
-// driven through registerSparkTools's descriptors with a mock ctx.tools
-// registry, a real governed-project fixture (tmp repo + registration), and
-// the full 05 §8 envelope shape is asserted, not just the result.
 import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -19,12 +11,6 @@ const dshHome = (home) => (...segments) => join(home, ...segments);
 
 const exec = (cwd) => ({ agent: { session: { header: { cwd } } } });
 
-/**
- * Build a fake host-seam registry whose Spark confirmation answerer is driven
- * by `reply`. Mirrors the routing seam used by the other fact tools:
- * the gate is injected through `deps.hostSeams`, NOT through ctx — host-seams.js
- * installs `seams.ask` at plugin load, which never runs in a unit test.
- */
 function sparkSeam(reply) {
   const calls = [];
   return {
@@ -36,24 +22,16 @@ function sparkSeam(reply) {
   };
 }
 
-/** Default consenting answerer for the fixtures below. */
 function consentingSeam() {
   return sparkSeam(() => ({ granted: true, answer: "确认" }));
 }
 
-/** The 20 §6.2/§17.7 dedup conclusion required on create. */
 const DEDUP_OK = "查重结论（测试夹具）：与本仓库既有 Spark 无同题重叠。";
 
-/** Strip the Code-generated H1: a read returns the WHOLE carrier body, but
- * `body_markdown_after` must start at H2 (20 §8: the H1 is generated from
- * title and is never supplied by the caller). */
 function bodyWithoutH1(body) {
   return body.replace(/^#\s.*\n+/, "");
 }
 
-// Mock registry: capture the descriptors registerSparkTools registers, then
-// drive them exactly as the DSH runtime would (descriptor.execute wraps the
-// handler result in { envelope }).
 function makeDescriptors(deps) {
   const registered = [];
   const ctx = {
@@ -75,9 +53,6 @@ async function run(descriptors, toolName, args, cwd) {
     const out = await descriptors[toolName].execute(args, exec(cwd));
     return out.envelope ?? out;
   } catch (error) {
-    // 参数层（DSH defineTool）在 handler 之前拒绝时抛 ToolArgsError。这些用例多数要证
-    // 「非法输入被拒」，而参数层拦下是比 handler 拦下更强的结果，故归一成一个可断言的
-    // 形态，并在 gaps 里标明层次，避免测试把「哪一层拒的」当成「有没有拒」。
     if (error?.name === "ToolArgsError" || Array.isArray(error?.violations)) {
       return {
         outcome: "rejected",
@@ -93,12 +68,6 @@ async function run(descriptors, toolName, args, cwd) {
   }
 }
 
-/**
- * Spark create through the tool plane, carrying the precheck's candidate
- * fingerprint — 20 §13 makes `expected_candidate_fingerprint` a required create
- * entry parameter, and the write path deliberately does NOT compute or backfill
- * it itself.
- */
 async function createSpark(descriptors, args, cwd) {
   const pre = await run(descriptors, "ldvh_spark_precheck_create", {
     frontmatter_draft: args.frontmatter_draft,
@@ -111,9 +80,6 @@ async function createSpark(descriptors, args, cwd) {
   }, cwd);
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
 const GOAL_MD_FIXTURE = `---
 goal_key: project-goal
@@ -129,7 +95,6 @@ created_at: 2026-09-09T12:00:00+08:00
 测试。
 `;
 
-// 25 §7 (2026-11): the SG-n anchors live in SubGoal objects, not in goal.md.
 async function seedAnchors(base) {
   await seedSubGoals(base, ["SG-1", "SG-2", "SG-3", "SG-4"]);
 }
@@ -164,12 +129,6 @@ async function governedFixture(base) {
   return { home, repo };
 }
 
-/**
- * Default deps carry a CONSENTING host seam: the 20 §16 Gate is fail-closed, so
- * without it every create is refused. Tests that assert the ungated path pass
- * their own deps; tests that assert refusal pass `{ hostSeams: null }` (an
- * explicit absence) or a declining seam.
- */
 function makeDeps(home, base, { hostSeams } = {}) {
   return {
     dshHomePath: dshHome(home),
@@ -179,9 +138,6 @@ function makeDeps(home, base, { hostSeams } = {}) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Registration surface
-// ---------------------------------------------------------------------------
 
 test("registerSparkTools registers exactly the four spark tools", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -205,9 +161,6 @@ test("spark descriptors return text blocks from render and an object schema", as
   }
 });
 
-// ---------------------------------------------------------------------------
-// 未管辖会话 (governance-scope check failed → unavailable)
-// ---------------------------------------------------------------------------
 
 test("read/write are unavailable outside governed sessions", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -217,8 +170,6 @@ test("read/write are unavailable outside governed sessions", async () => {
     const readOut = await run(descriptors, "ldvh_spark_read", { object_uid: "11111111-1111-4111-8111-111111111111" }, base);
     assert.equal(readOut.outcome, "unavailable");
     assert.ok(readOut.gaps[0].includes("not_governed"));
-    // 这一条测的是「管辖外的写入不可用」，走原始写入入口——若经 createSpark，
-    // 预检会先返回 unavailable，断言就不再落在写入面上。
     const writeOut = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       dedup_result: DEDUP_OK,
@@ -230,9 +181,6 @@ test("read/write are unavailable outside governed sessions", async () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// create 正向 (governed fixture)
-// ---------------------------------------------------------------------------
 
 test("create: completed envelope, object_uid assigned, read-back ok, file on disk", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -252,27 +200,13 @@ test("create: completed envelope, object_uid assigned, read-back ok, file on dis
     assert.ok(created.result.changes.some((c) => c.change === "created"));
     assert.ok(created.verification.checks.includes("read-back"));
 
-    // file really landed inside the governed repo's fact source
     const raw = await readFile(join(repo, "ldvh-base", "sparks", `spark-${created.result.object_uid}.md`), "utf8");
     assert.ok(raw.includes("fact_type_key"));
   });
 });
 
-// ---------------------------------------------------------------------------
-// create 正例: OPTIONAL fields must survive the tool plane (the aa12604 class)
-// ---------------------------------------------------------------------------
 
 test("create: optional fields (priority/serves) succeed through the tool plane and land on disk", async () => {
-  // WHY THIS EXISTS — this is the positive half of the aa12604 defect.
-  //
-  // aa12604 added Spark `priority` to the writer but not to spark-tools.js's
-  // JSON Schema. Because that schema declares `additionalProperties: false`,
-  // EVERY call carrying `priority` was rejected by DSH argument validation
-  // BEFORE the writer ran — and it sat latent across 727 green tests. The
-  // schema/writer agreement guard now proves the field is *declared*; it does
-  // NOT prove the field is *usable*. This test drives the field through the
-  // real tool plane end-to-end, so a future regression that drops an optional
-  // field from the schema fails here by rejection rather than by silence.
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
@@ -282,8 +216,6 @@ test("create: optional fields (priority/serves) succeed through the tool plane a
       serves: subGoalUid(1),
     });
 
-    // Guard the premise: this call only means something if the optional
-    // fields are actually present in the arguments we hand the tool plane.
     assert.equal(draft.priority, "P1");
     assert.equal(draft.serves, subGoalUid(1));
 
@@ -297,14 +229,11 @@ test("create: optional fields (priority/serves) succeed through the tool plane a
     assert.equal(created.outcome, "completed", JSON.stringify(created));
     const uid = created.result.object_uid;
 
-    // The optional values survived into the persisted object.
-    // `serves` is projected to the top level; `priority` lives in frontmatter.
     const readBack = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     assert.equal(readBack.outcome, "completed", JSON.stringify(readBack));
     assert.equal(readBack.result.serves, subGoalUid(1), JSON.stringify(readBack.result));
     assert.equal(readBack.result.frontmatter.priority, "P1", JSON.stringify(readBack.result.frontmatter));
 
-    // ...and onto disk, not merely into the in-memory envelope.
     const raw = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid}.md`), "utf8");
     assert.ok(raw.includes("priority: P1"), raw.slice(0, 400));
     assert.ok(raw.includes(`serves: ${subGoalUid(1)}`), raw.slice(0, 400));
@@ -312,10 +241,6 @@ test("create: optional fields (priority/serves) succeed through the tool plane a
 });
 
 test("create: optional-field calls are NOT rejected by tool-plane argument validation", async () => {
-  // The narrowest form of the aa12604 defect: the DSH argument validator, not
-  // the writer, is what rejected `priority`. Assert directly against the
-  // declared schema so the failure message names the real cause instead of
-  // surfacing as a generic rejection downstream.
   const desc = sparkToolsModule.toolDescriptorFor(
     "spark-write-object",
     sparkToolsModule.OPERATIONS["spark-write-object"],
@@ -329,16 +254,12 @@ test("create: optional-field calls are NOT rejected by tool-plane argument valid
   assert.deepEqual(violations, [], JSON.stringify(violations));
 });
 
-// ---------------------------------------------------------------------------
-// create 机械拒绝 (zero write)
-// ---------------------------------------------------------------------------
 
 test("create: mechanical rejection is outcome=rejected with zero writes", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    // question with two terminals → frontmatter mechanical check fails
     const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
@@ -354,9 +275,6 @@ test("create: mechanical rejection is outcome=rejected with zero writes", async 
   });
 });
 
-// ---------------------------------------------------------------------------
-// read
-// ---------------------------------------------------------------------------
 
 test("read: created object returns completed with open status and matching fingerprint; missing uid rejected", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -384,9 +302,6 @@ test("read: created object returns completed with open status and matching finge
   });
 });
 
-// ---------------------------------------------------------------------------
-// update (CAS 正常流 + CAS 冲突)
-// ---------------------------------------------------------------------------
 
 test("update: CAS normal flow completed with new fingerprint; CAS conflict rejected with file unchanged", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -406,7 +321,6 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
     const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     assert.equal(read1.outcome, "completed");
 
-    // CAS normal flow: refine summary + body, keep the rest verbatim
     const fmAfter = { ...read1.result.frontmatter, summary: "精化后的总结：机械层已验证，边界用例纳入后续覆盖。" };
     const bodyAfter = [
       `## 当前理解\n${fmAfter.summary}\n扩展：通道已验证。`,
@@ -428,12 +342,11 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
     assert.ok(updated.result.changes.some((c) => c.change === "updated"));
     assert.ok(updated.verification.checks.includes("cas-baseline"));
 
-    // CAS conflict: stale fingerprint → rejected, file content unchanged
     const rawBefore = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid}.md`), "utf8");
     const conflicted = await run(descriptors, "ldvh_spark_write", {
       action: "update",
       object_uid: uid,
-      expected_fingerprint: fp1, // stale
+      expected_fingerprint: fp1,
       frontmatter_after: fmAfter,
       body_markdown_after: bodyAfter,
       change_summary: "过期指纹重试",
@@ -445,15 +358,11 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
     const rawAfter = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid}.md`), "utf8");
     assert.equal(rawAfter, rawBefore);
 
-    // a fresh read still reports the post-update fingerprint
     const read2 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     assert.equal(read2.result.fingerprint, updated.result.fingerprint);
   });
 });
 
-// ---------------------------------------------------------------------------
-// serves resolution through the tool (20 §13/§17.1 wiring)
-// ---------------------------------------------------------------------------
 
 test("create: serves resolution flows through the tool (known uid ok, unknown uid rejected)", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -477,13 +386,10 @@ test("create: serves resolution flows through the tool (known uid ok, unknown ui
     assert.equal(bad.outcome, "rejected");
     assert.ok(bad.gaps.some((g) => g.includes("serves_unresolvable")));
     const files = await readdir(join(repo, "ldvh-base", "sparks"));
-    assert.equal(files.length, 1); // only the valid-uid object landed
+    assert.equal(files.length, 1);
   });
 });
 
-// ---------------------------------------------------------------------------
-// invalid_request paths
-// ---------------------------------------------------------------------------
 
 test("update: 「缺 frontmatter_after」与「缺正文」被拆成两条独立诊断（02 §10.5 两个通道）", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -491,8 +397,6 @@ test("update: 「缺 frontmatter_after」与「缺正文」被拆成两条独立
     const descriptors = makeDescriptors(makeDeps(home, base));
     const body = validBodyMarkdown();
 
-    // 正文已给、frontmatter_after 未给 —— 实测语料里这类占了「缺必填」的大头，
-    // 合并成「两者都必填」会被读成「要重抄全文」。
     const noAfter = await run(descriptors, "ldvh_spark_write", {
       action: "update",
       object_uid: "11111111-1111-4111-8111-111111111111",
@@ -506,7 +410,6 @@ test("update: 「缺 frontmatter_after」与「缺正文」被拆成两条独立
     assert.doesNotMatch(noAfterGap, /body_markdown_after/, "缺 frontmatter_after 时不得把正文也算作缺失");
     assert.match(noAfterGap, /EMPTY OBJECT/, "须说明空对象合法");
 
-    // frontmatter_after 已给（空对象）、正文未给 —— 反过来只报正文。
     const noBody = await run(descriptors, "ldvh_spark_write", {
       action: "update",
       object_uid: "11111111-1111-4111-8111-111111111111",
@@ -543,13 +446,6 @@ test("write: missing required args is invalid_request (zero write)", async () =>
   });
 });
 
-// ---------------------------------------------------------------------------
-// renderEnvelope: full fingerprint + rich semantic lines (A: 渲染层修复)
-// ---------------------------------------------------------------------------
-//
-// The render output is the model's only window on the tool result (03 §9.5).
-// A truncated fingerprint would make the CAS baseline unobtainable; the
-// render must carry the complete 64-char SHA-256 and the semantic fields.
 
 test("render: spark read output carries the FULL 64-char fingerprint and semantic lines (no ellipsis truncation)", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -603,9 +499,6 @@ test("render: spell/default descriptor uses the same envelope rendering with no 
   });
 });
 
-// ---------------------------------------------------------------------------
-// ldvh_spark_list (B: F0/F1 enumeration)
-// ---------------------------------------------------------------------------
 
 test("list: unavailable outside governed sessions", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -621,7 +514,6 @@ test("list: unavailable outside governed sessions", async () => {
 
 test("list: missing sparks directory is a valid empty state (completed, count 0)", async () => {
   await withTemp("spark-tools.", async (base) => {
-    // A governed project whose fact source has no sparks directory at all.
     const home = join(base, "home");
     const repo = await initRepo(base);
     await mkdir(join(repo, "ldvh-base"), { recursive: true });
@@ -646,7 +538,6 @@ test("list: open-only by default, status=all includes terminal; projection carri
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    // two open sparks (one with serves) + one implemented (via update)
     const mkDraft = (title, question, more = {}) => {
       const draft = {
         ...validFrontmatterDraft(),
@@ -681,7 +572,6 @@ test("list: open-only by default, status=all includes terminal; projection carri
       body_markdown: validBodyMarkdown(mkDraft("悬置丙（工具清单）", "问题丙如何进入清单投影？")),
     }, repo);
     assert.equal(terminal.outcome, "completed", JSON.stringify(terminal));
-    // open → implemented (terminal) via CAS update
     const readTerminal = await run(descriptors, "ldvh_spark_read", { object_uid: terminal.result.object_uid }, repo);
     assert.equal(readTerminal.outcome, "completed");
     const toImpl = {
@@ -699,7 +589,6 @@ test("list: open-only by default, status=all includes terminal; projection carri
     }, repo);
     assert.equal(impl.outcome, "completed", JSON.stringify(impl));
 
-    // default (open-only): exactly the two open sparks
     const openOnly = await run(descriptors, "ldvh_spark_list", {}, repo);
     assert.equal(openOnly.outcome, "completed", JSON.stringify(openOnly));
     assert.equal(openOnly.result.count, 2);
@@ -717,7 +606,6 @@ test("list: open-only by default, status=all includes terminal; projection carri
     assert.equal(withSg.serves, subGoalUid(1), "serves must be projected when declared");
     assert.equal(openOnly.result.items.find((i) => i.object_uid === terminal.result.object_uid), undefined, "terminal spark must not appear in open-only list");
 
-    // status=all: all three
     const all = await run(descriptors, "ldvh_spark_list", { status: "all" }, repo);
     assert.equal(all.outcome, "completed", JSON.stringify(all));
     assert.equal(all.result.count, 3);
@@ -771,7 +659,6 @@ test("list: invalid carriers (no frontmatter) are reported in gaps without faili
     }, repo);
     assert.equal(created.outcome, "completed", JSON.stringify(created));
 
-    // a carrier-named file with a valid uid but no YAML frontmatter
     const badUid = "123e4567-e89b-42d3-a456-426614174000";
     await writeFile(join(repo, "ldvh-base", "sparks", `spark-${badUid}.md`), "# 这不是一个载体\n", "utf8");
 
@@ -785,9 +672,6 @@ test("list: invalid carriers (no frontmatter) are reported in gaps without faili
   });
 });
 
-// ---------------------------------------------------------------------------
-// execution_error (C: handler throw → execution_error envelope)
-// ---------------------------------------------------------------------------
 
 test("execution_error: a throwing dshHomePath surfaces execution_error with the message in gaps", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -828,15 +712,10 @@ test("execution_error: a throwing sessionPersistence surfaces execution_error on
   });
 });
 
-// ---------------------------------------------------------------------------
-// Schema layer (D: parameter schemas reject mis-shapes before the handler)
-// ---------------------------------------------------------------------------
 
 test("schema: spark-read-object requires object_uid", async () => {
   const { toolDescriptorFor, OPERATIONS } = await import("../lib/spark-tools.js");
   const desc = toolDescriptorFor("spark-read-object", OPERATIONS["spark-read-object"], async () => ({}));
-  // 必填由 handler 的 invalid_request 信封承担（保留 gaps + follow_up 可操作提示），
-  // 不在参数层强制；参数层负责类型/枚举/嵌套形状。故此处断言参数表**声明了** object_uid。
   assert.ok(
     desc.parameters.properties?.object_uid !== undefined,
     "object_uid must be a declared parameter",
@@ -864,9 +743,6 @@ test("schema: spark-write-object enforces the frontmatter_draft shape", async ()
   assert.ok(unknownField.some((v) => v.includes("frontmatter_draft.bogus") && v.includes("not a declared property")), JSON.stringify(unknownField));
 });
 
-// ---------------------------------------------------------------------------
-// E: update 时新增 serves（SG-1 成功 / SG-99 rejected 零写入）
-// ---------------------------------------------------------------------------
 
 test("update: adding serves works for an existing SG and is rejected (zero-write) for an unknown SG", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -887,7 +763,6 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     assert.equal(read1.outcome, "completed");
     assert.equal(read1.result.serves, undefined, "fixture created without serves");
 
-    // A real SubGoal object exists → update succeeds
     const updated = await run(descriptors, "ldvh_spark_write", {
       action: "update",
       object_uid: uid,
@@ -901,7 +776,6 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     const read2 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     assert.equal(read2.result.serves, subGoalUid(1));
 
-    // second object: an unknown uid → rejected with zero writes
     const draft2 = { ...validFrontmatterDraft(), title: "另一悬置（错误SG）", question: "伪造子目标归属是否被拒绝？", summary: "总结：错误SG" };
     const created2 = await createSpark(descriptors, {
       action: "create",
@@ -930,14 +804,6 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     assert.equal(rerun.result.serves, undefined);
   });
 });
-// ---------------------------------------------------------------------------
-// 20 §16 Human Gate（创建 / 终态转换）—— 机械承载
-// ---------------------------------------------------------------------------
-//
-// These tests exist because the Gate was previously AI self-discipline only:
-// the type source declared three Human Gates while the tool plane consumed
-// nothing. The cases below pin the four fail-closed paths, the two carried
-// Gates, and — crucially — that the 呈报内容 actually reaches the Human.
 
 test("gate: create without a host seam is unavailable (fail-closed, zero writes)", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -952,7 +818,6 @@ test("gate: create without a host seam is unavailable (fail-closed, zero writes)
     assert.equal(out.outcome, "unavailable", JSON.stringify(out));
     assert.ok(out.gaps.some((g) => g.includes("human-confirmation") || g.includes("20 §16")), JSON.stringify(out.gaps));
     assert.equal(out.verification.passed, false);
-    // Zero writes: the sparks directory must still hold no carrier.
     const entries = await readdir(join(repo, "ldvh-base", "sparks")).catch(() => []);
     assert.equal(entries.filter((f) => f.endsWith(".md")).length, 0, "refused create must not write");
   });
@@ -986,8 +851,6 @@ test("gate: create is refused without a dedup conclusion (20 §6.2/§17.7 Stop C
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
-    // 直走写入入口：这条要证的是「缺 dedup 结论时写入被拒且不发出提问」，
-    // 经预检会先在预检处返回 unverifiable，断言就不再落在写入面与提问面上。
     const out = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       frontmatter_draft: validFrontmatterDraft(),
@@ -996,8 +859,6 @@ test("gate: create is refused without a dedup conclusion (20 §6.2/§17.7 Stop C
     }, repo);
     assert.equal(out.outcome, "invalid_request", JSON.stringify(out));
     assert.ok(out.gaps.some((g) => g.includes("dedup_result")), JSON.stringify(out.gaps));
-    // The refusal happens BEFORE the ask: an unrecorded dedup must not be
-    // laundered into a Human confirmation of something unreported.
     assert.equal(seam.calls.length, 0, "no question may be asked when the dedup Stop Condition is unmet");
   });
 });
@@ -1005,8 +866,6 @@ test("gate: create is refused without a dedup conclusion (20 §6.2/§17.7 Stop C
 test("gate: a reply for a DIFFERENT question id cannot grant consent", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { repo } = await governedFixture(base);
-    // The seam answers, but with someone else's question id — the parse must
-    // not fall back to answers[0], which would grant on an unrelated "yes".
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, {
       hostSeams: sparkSeam(() => ({ granted: false, reason: "human did not confirm" })),
     }));
@@ -1058,7 +917,6 @@ test("gate: terminal transition requires confirmation; a non-terminal update doe
     const uid = created.result.object_uid;
     const asksAfterCreate = seam.calls.length;
 
-    // A plain open→open content update must NOT raise the Gate.
     const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     const draft = validFrontmatterDraft();
     const stillOpen = await run(descriptors, "ldvh_spark_write", {
@@ -1076,7 +934,6 @@ test("gate: terminal transition requires confirmation; a non-terminal update doe
     assert.equal(stillOpen.outcome, "completed", JSON.stringify(stillOpen));
     assert.equal(seam.calls.length, asksAfterCreate, "a non-terminal update must not raise the 20 §16 Gate");
 
-    // open→implemented must raise it, and the report carries the disposition.
     const read2 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     const disposition = "已落实：本条由测试夹具直接收敛，不表示下游完成。";
     const terminal = await run(descriptors, "ldvh_spark_write", {
@@ -1111,7 +968,6 @@ test("gate: a declined terminal transition is rejected with zero writes", async 
     const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     const before = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid}.md`), "utf8");
 
-    // Flip the answerer to decline ONLY the terminal Gate.
     const declining = sparkSeam(() => ({ granted: false, reason: "human did not confirm the Spark 转入终态 (answer: \"取消\")" }));
     const descriptors2 = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: declining }));
     const out = await run(descriptors2, "ldvh_spark_write", {
@@ -1158,8 +1014,6 @@ test("gate: 09 §6 weak constraint — boundary delta is returned, never blockin
       change_summary: "改写 question 与 scope_boundary",
     }, repo);
 
-    // NOT blocked: the weak constraint supplies judgement material, it does not
-    // decide. A blocking implementation would be over-enforcement (09 §5).
     assert.equal(out.outcome, "completed", JSON.stringify(out));
     assert.ok(Array.isArray(out.boundary_delta), `delta must be returned: ${JSON.stringify(out)}`);
     const qDelta = out.boundary_delta.find((d) => d.field === "question");
@@ -1167,9 +1021,7 @@ test("gate: 09 §6 weak constraint — boundary delta is returned, never blockin
     assert.equal(qDelta.before, read1.result.frontmatter.question);
     assert.equal(qDelta.after, newQuestion);
     assert.equal(sDelta.after, newBoundary);
-    // The delta must not be presented as proof the Gate was satisfied.
     assert.ok(String(out.boundary_delta_note).includes("弱约束"), JSON.stringify(out.boundary_delta_note));
-    // And it must not raise an ask of its own (the Human judges it, not a prompt).
     assert.equal(seam.calls.length, asksBefore, "the 大改 weak constraint must not issue its own question");
   });
 });
@@ -1199,14 +1051,6 @@ test("gate: boundary delta is omitted when question/scope_boundary did not chang
   });
 });
 
-// ---------------------------------------------------------------------------
-// Descriptor flag consumption (09 §5 mutation guard)
-// ---------------------------------------------------------------------------
-//
-// The flag alone has ZERO effect — this pair is what makes it real. If the
-// descriptor factory ever stops consuming `awaitsHumanDecision`, the first test
-// fails; if the flag is dropped from OPERATIONS, the second fails. Neither
-// mutation can pass silently.
 
 test("descriptor: awaitsHumanDecision is consumed — the write tool declares NO wall-clock deadline", async () => {
   const descriptors = makeDescriptors(makeDeps("/nope", "/nope"));
@@ -1214,8 +1058,6 @@ test("descriptor: awaitsHumanDecision is consumed — the write tool declares NO
     !("timeoutMs" in descriptors["ldvh_spark_write"]),
     "spark write must drop timeoutMs — a 30s deadline would DISCARD a late Human answer and leave the 20 §16 Gate unenforced",
   );
-  // Read-only tools keep their deadline: the flag is per-tool, and widening its
-  // effect would remove a useful guard from tools that never wait on a person.
   assert.equal(descriptors["ldvh_spark_read"].timeoutMs, 30000);
   assert.equal(descriptors["ldvh_spark_list"].timeoutMs, 30000);
 });
@@ -1240,8 +1082,6 @@ test("gate: a stale CAS baseline is refused BEFORE the Human is asked (no wasted
     const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     const asksBefore = seam.calls.length;
 
-    // A terminal transition carrying a STALE fingerprint must be refused
-    // mechanically, without spending a Human question on it.
     const out = await run(descriptors, "ldvh_spark_write", {
       action: "update",
       object_uid: uid,
@@ -1261,7 +1101,6 @@ test("gate: a mechanically-invalid create is refused BEFORE the Human is asked",
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
-    // Two terminals in the question → frontmatter mechanical check fails.
     const out = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
@@ -1278,8 +1117,6 @@ test("gate: a mechanically-invalid create is refused BEFORE the Human is asked",
 test("gate: a dry run allocates no file (no directory, no staging file)", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { repo } = await governedFixture(base);
-    // The sparks dir exists in the fixture; assert it stays EMPTY across a
-    // refused create, and that no stray .tmp staging file is left behind.
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, {
       hostSeams: sparkSeam(() => ({ granted: false, reason: "declined" })),
     }));
@@ -1309,9 +1146,6 @@ test("gate: a terminal update that the WRITER must refuse consumes no question (
     assert.equal(created.outcome, "completed", JSON.stringify(created).slice(0, 200));
     const uid = created.result.object_uid;
 
-    // 三种「注定被 writer 拒绝」的终态更新。每一种都必须在提问之前被拦下：
-    // 提问一旦发出就无法收回，因此让 Human 确认一个必然失败的写入是纯粹的浪费。
-    // 本条对应 26be321 独立复核的 P1（当时三种各消耗 1 次提问）。
     const cases = [
       ["illegal relation_key", (fm) => ({ ...fm, status: "discarded", disposition: "不再跟踪。", relations: [{ relation_key: "related-to", target: { object_uid: uid } }] })],
       ["disposition over 200 chars", (fm) => ({ ...fm, status: "implemented", disposition: "长".repeat(240) })],
@@ -1334,9 +1168,6 @@ test("gate: a terminal update that the WRITER must refuse consumes no question (
   });
 });
 
-// ---------------------------------------------------------------------------
-// 31 §10（2026-10-27 修订）：Spark 退出自动注入后，「主动查」的可查性即该路径的前提
-// ---------------------------------------------------------------------------
 
 test("list: keyword / priorities / serves narrow the result set (filter before limit)", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -1364,9 +1195,8 @@ test("list: keyword / priorities / serves narrow the result set (filter before l
 
     const a = await make("召回范围甲", "甲问题怎么收窄？", { priority: "P1", serves: subGoalUid(1) });
     const b = await make("召回范围乙", "乙问题怎么收窄？", { priority: "P2", serves: subGoalUid(3) });
-    const c = await make("无关方向丙", "丙问题怎么收窄？", { serves: subGoalUid(1) }); // 未分档
+    const c = await make("无关方向丙", "丙问题怎么收窄？", { serves: subGoalUid(1) });
 
-    // priorities：未分档者不得被推入任何档位（20 §8）
     const p1 = await run(descriptors, "ldvh_spark_list", { priorities: ["P1"] }, repo);
     assert.equal(p1.outcome, "completed", JSON.stringify(p1));
     assert.deepEqual(p1.result.items.map((i) => i.object_uid), [a]);
@@ -1376,21 +1206,17 @@ test("list: keyword / priorities / serves narrow the result set (filter before l
     const p12 = await run(descriptors, "ldvh_spark_list", { priorities: ["P1", "P2"] }, repo);
     assert.deepEqual(p12.result.items.map((i) => i.object_uid).sort(), [a, b].sort());
 
-    // serves：逐字匹配，不做前缀/模糊
     const sg1 = await run(descriptors, "ldvh_spark_list", { serves: subGoalUid(1) }, repo);
     assert.deepEqual(sg1.result.items.map((i) => i.object_uid).sort(), [a, c].sort());
 
-    // keyword：只搜 title 与 question（20 §6.2 的查重语义输入），大小写不敏感
     const kw = await run(descriptors, "ldvh_spark_list", { keyword: "无关" }, repo);
     assert.deepEqual(kw.result.items.map((i) => i.object_uid), [c]);
     const kwUpper = await run(descriptors, "ldvh_spark_list", { keyword: "召回范围" }, repo);
     assert.deepEqual(kwUpper.result.items.map((i) => i.object_uid).sort(), [a, b].sort());
 
-    // 组合：三个条件同时生效（AND）
     const combo = await run(descriptors, "ldvh_spark_list", { keyword: "收窄", serves: subGoalUid(1), priorities: ["P1"] }, repo);
     assert.deepEqual(combo.result.items.map((i) => i.object_uid), [a]);
 
-    // 过滤后截断：total 须是**过滤后**的命中数，不是全库数
     const limited = await run(descriptors, "ldvh_spark_list", { keyword: "收窄", limit: 1 }, repo);
     assert.equal(limited.outcome, "partial", JSON.stringify(limited));
     assert.equal(limited.result.total, 3, "total must count filtered hits, not the whole collection");
@@ -1410,7 +1236,6 @@ test("list: narrowing is disclosed in gaps (a filtered empty list is not 'no suc
     }, repo);
     assert.equal(created.outcome, "completed", JSON.stringify(created));
 
-    // 零命中的收窄查询：必须能看出「是筛掉了」而不是「库里没有」。
     const empty = await run(descriptors, "ldvh_spark_list", { keyword: "根本不存在的词" }, repo);
     assert.equal(empty.outcome, "completed", JSON.stringify(empty));
     assert.equal(empty.result.count, 0);
@@ -1419,17 +1244,12 @@ test("list: narrowing is disclosed in gaps (a filtered empty list is not 'no suc
       `narrowed query must say so in gaps: ${JSON.stringify(empty.gaps)}`,
     );
 
-    // 未收窄时不出现该披露（否则它变成恒噪音）。
     const plain = await run(descriptors, "ldvh_spark_list", {}, repo);
     assert.ok(!plain.gaps.some((g) => g.includes("narrowed by")), JSON.stringify(plain.gaps));
   });
 });
 
 test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", async () => {
-  // **独立审核 M3**：收窄后的返回集不再是「全量枚举」，而是「按字段命中的匹配集」。
-  // `34 §8.2` 第 1 项要求候选「说明它命中了哪个字段、命中了什么词」——否则一个短
-  // 列表与「库里只有这些」在读者眼里无法区分。未收窄时**不得**凭空给 hitReason：
-  // 纯枚举没有「命中」可言，编一个反而让读者以为它是筛出来的。
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
@@ -1452,44 +1272,32 @@ test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", 
       assert.equal(out.outcome, "completed", JSON.stringify(out));
     };
     await make("命中依据甲", "甲的问题里含专名召回器", { priority: "P1", serves: subGoalUid(1) });
-    // **匹配面只剩 title 与 question 两项**（Human 2026-11-11，`recall_digest` 已退场）。
-    // 本夹具的标题与 question 都不含「盘口校验器」，故它按任何字段都查不到——
-    // 用来钉住「不存在第三个匹配面」这一事实。
     await make("命中依据丙", "丙的问题里没有那个词", { priority: "P3" });
     await make("命中依据乙", "乙的问题里没有那个词", { priority: "P2", serves: subGoalUid(3) });
 
-    // keyword 命中 title：须指出命中的是哪个字段。
     const byKw = await run(descriptors, "ldvh_spark_list", { keyword: "命中依据甲" }, repo);
     assert.equal(byKw.result.count, 1);
     const kwHit = byKw.result.items[0].hitReason;
     assert.ok(typeof kwHit === "string" && kwHit.includes("keyword"), `须带 keyword 命中依据：${kwHit}`);
     assert.ok(kwHit.includes("@title"), `须指出命中字段：${kwHit}`);
 
-    // keyword 只命中 question（title 里没有该词）。
     const byQ = await run(descriptors, "ldvh_spark_list", { keyword: "专名召回器" }, repo);
     assert.equal(byQ.result.count, 1);
     assert.ok(byQ.result.items[0].hitReason.includes("@question"), JSON.stringify(byQ.result.items[0]));
 
-    // **匹配面只有 title 与 question**（Human 2026-11-11）：`recall_digest` 已从
-    // 事实源退场，故任何只在它里面出现过的词都查不到。此处「盘口校验器」在三个
-    // 对象的标题与 question 中都不存在，count 必须为 0——这是「不再有跨类型
-    // 关键词面」的直接证据，也是本用例替换掉旧断言后的新职责。
     const byGone = await run(descriptors, "ldvh_spark_list", { keyword: "盘口校验器" }, repo);
     assert.equal(byGone.result.count, 0, "匹配面已不含 recall_digest，该词不应命中任何对象");
 
-    // priorities / serves 各出自己的依据。
     const byP = await run(descriptors, "ldvh_spark_list", { priorities: ["P1"] }, repo);
     assert.equal(byP.result.items[0].hitReason, "priority=P1");
     const byS = await run(descriptors, "ldvh_spark_list", { serves: subGoalUid(3) }, repo);
     assert.equal(byS.result.items[0].hitReason, `serves=${subGoalUid(3)}`);
 
-    // 组合时逐项列出（顺序固定：priority → serves → keyword）。
     const combo = await run(descriptors, "ldvh_spark_list", { keyword: "专名召回器", priorities: ["P1"], serves: subGoalUid(1) }, repo);
     assert.equal(combo.result.count, 1);
     const r = combo.result.items[0].hitReason;
     assert.ok(/priority=P1/.test(r) && r.includes(`serves=${subGoalUid(1)}`) && /keyword=/.test(r), r);
 
-    // **未收窄时不得有 hitReason**（纯枚举没有「命中」）。
     const plain = await run(descriptors, "ldvh_spark_list", {}, repo);
     for (const item of plain.result.items) {
       assert.equal(item.hitReason, undefined, `未收窄时不得编造命中依据：${JSON.stringify(item)}`);
@@ -1498,11 +1306,6 @@ test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", 
 });
 
 test("render: hitReason 必须进模型可见文本（只进 envelope 等于没给）", async () => {
-  // **这条钉的是模型可见面**（范围受限复审，2026-10-28 的重大发现）：
-  // `render` 是模型唯一能读到的输出（DSH 把 `output.render` 当作 model-facing
-  // content），而 `result.items[].hitReason` 只在结构化信封里。上一版只断言了
-  // envelope，于是「数据层对了、模型看不见」这种缺陷测试恒绿——`34 §8.2` 第 1 项
-  // 要求的「命中依据可复算」在唯一可见面上落空。
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const deps = makeDeps(home, base);
@@ -1527,7 +1330,6 @@ test("render: hitReason 必须进模型可见文本（只进 envelope 等于没�
     const env = out.envelope ?? out;
     assert.equal(env.result.items[0].hitReason, "priority=P1", "前提：数据层已带 hitReason");
 
-    // 直接调 render，检查模型可见文本里确有该依据。
     const blocks = descriptors["ldvh_spark_list"].output.render({}, { envelope: env });
     const text = Array.isArray(blocks)
       ? blocks.map((b) => (typeof b === "string" ? b : b?.text ?? "")).join("\n")
@@ -1537,7 +1339,6 @@ test("render: hitReason 必须进模型可见文本（只进 envelope 等于没�
       `render 文本须含命中依据，实测：${JSON.stringify(text)}`,
     );
 
-    // 反向：未收窄时 render 不得出现空括号残留（〔〕）。
     const plainOut = await descriptors["ldvh_spark_list"].execute({}, exec(repo));
     const plainEnv = plainOut.envelope ?? plainOut;
     const plainBlocks = descriptors["ldvh_spark_list"].output.render({}, { envelope: plainEnv });
@@ -1553,7 +1354,6 @@ test("list: malformed narrowing arguments are rejected (fail-closed, never silen
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    // 拼错档位若被静默忽略，调用方会拿到一份「看起来筛过了」的全集。
     const badPriority = await run(descriptors, "ldvh_spark_list", { priorities: ["P9"] }, repo);
     assert.notEqual(badPriority.outcome, "completed", JSON.stringify(badPriority));
 
@@ -1563,10 +1363,6 @@ test("list: malformed narrowing arguments are rejected (fail-closed, never silen
     const blankKeyword = await run(descriptors, "ldvh_spark_list", { keyword: "   " }, repo);
     assert.notEqual(blankKeyword.outcome, "completed", JSON.stringify(blankKeyword));
 
-    // **类型错误同样不得静默降级**（独立审核 m1，2026-10-27 修）：工具层原先写
-    // `typeof === "string" ? … : null`，于是 `keyword: 123`、`priorities: "P1"`
-    // 被转成「不筛」——调用方以为筛过了，实际拿到全集。这类「筛错了当没筛」
-    // 与「把零结果当无约束」是同一类危险（`02 §9.2`）。
     for (const bad of [{ keyword: 123 }, { priorities: "P1" }, { serves: 42 }]) {
       const out = await run(descriptors, "ldvh_spark_list", bad, repo);
       assert.notEqual(

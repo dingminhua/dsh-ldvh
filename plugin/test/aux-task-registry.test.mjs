@@ -1,25 +1,3 @@
-/**
- * 闲时辅助任务登记表与多任务拼接的**通用机械部分**（Human 决定 2026-10-11）.
- *
- * ## 2026-11-17 收窄说明
- *
- * 宿主辅助派发路径（`friction-discovery-provider.js` / `friction-subagent-contract.js`
- * / `idle-checkpoint.js`）已删除：摩擦观察改由主控经 child-only 工具直接派发，
- * 不再经本表拼接提示词或校验回传结论。`AUX_TASK_REGISTRY` 里 friction-discovery
- * 的三部位（promptSection / outputSchema / validate）随之删除，`implemented` 如实
- * 改为 false；`AUX_TASK_ORDER` 仍保留，因为设置面本批不动、仍会产出该任务键。
- *
- * 本文件保留的是**与具体任务无关**的机械承诺（拼接顺序、命名空间、逐任务独立
- * 收口），并用合成登记项驱动——否则这些代码将完全没有护栏。
- *
- * 本测试守的三类错与它们各自的守卫：
- *
- * 1. **拼接退化为混合**：某任务的产出缺失或校验失败，把其余任务的结论一起掀掉
- *    ——那就白费了「一次做多件」的意义（一次可用的运行被整条丢弃）。
- * 2. **未实现者被静默剔除**：设置面能勾、痕迹里却没有（04 §8.5 条件式要求禁止）。
- * 3. **顺序漂移**：拼接顺序若取自设置对象的键序，同一组勾选在不同展示顺序下
- *    会得到不同提示词（隐藏耦合）。
- */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -35,7 +13,6 @@ import {
   validateCompositeOutput,
 } from "../lib/aux-task-registry.js";
 
-/** 按**任务键**构造子代理提交的结构化对象（属性名经映射得出，不在用例里手写）。 */
 function structuredOf(byTaskKey) {
   const out = {};
   for (const [taskKey, value] of Object.entries(byTaskKey)) {
@@ -44,7 +21,6 @@ function structuredOf(byTaskKey) {
   return out;
 }
 
-/** 一个合成任务登记项：只为让通用机械路径可达，不进入生产登记表。 */
 function fakeTask({ key, validate } = {}) {
   return {
     key,
@@ -62,13 +38,8 @@ function fakeTask({ key, validate } = {}) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 登记表
-// ---------------------------------------------------------------------------
 
 test("登记表：派发面在 `AUX_TASK_ORDER` 内，顺序即规范叙述次序", () => {
-  // 2026-11-17：派发面只剩 friction-discovery 一个键；其实现已随宿主派发路径
-  // 删除，但键仍保留（设置面本批不动）。顺序仍以 AUX_TASK_ORDER 为唯一来源。
   assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery"]);
   for (const key of AUX_TASK_ORDER) {
     assert.ok(AUX_TASK_REGISTRY[key] !== undefined, `${key} 须在登记表内`);
@@ -86,8 +57,6 @@ test("§8.5：未实现的职责不得从登记里消失——移出派发面后
 });
 
 test("登记表：`implemented` 与「四个部位是否齐备」互不矛盾", () => {
-  // `implemented` 是本表的**唯一权威**：标了 true 却没有校验步骤，派发时才会以
-  // 抛错收场。本条把它变成一条**可在测试期发现**的约束。
   for (const key of Object.keys(AUX_TASK_REGISTRY)) {
     const entry = AUX_TASK_REGISTRY[key];
     const parts = ["promptSection", "outputSchema", "validate"].filter((f) => typeof entry[f] === "function");
@@ -123,9 +92,6 @@ test("splitRunnableTasks：不在册的键既不算已实现也不算未实现�
   assert.deepEqual(unimplemented, ["friction-discovery", "nonexistent-task"]);
 });
 
-// ---------------------------------------------------------------------------
-// 提示词拼接
-// ---------------------------------------------------------------------------
 
 test("拼接：公共部分**只出现一次**（材料与边界不随任务数重复）", () => {
   const shared = "SHARED-SECTION-UNIQUE-MARKER";
@@ -187,9 +153,6 @@ test("拼接：任务段缺失时**抛错**（静默跳过会使该任务「被�
   );
 });
 
-// ---------------------------------------------------------------------------
-// 复合 schema
-// ---------------------------------------------------------------------------
 
 test("复合 schema：每个任务占一个**顶层字段**，required 列全（缺件在提交层即被拦）", () => {
   const registry = { a: fakeTask({ key: "a" }), b: fakeTask({ key: "b" }) };
@@ -201,15 +164,6 @@ test("复合 schema：每个任务占一个**顶层字段**，required 列全（
 });
 
 test("复合 schema：属性名须是标识符安全形式（宿主按 snake_case 传递参数）", () => {
-  // **2026-10-30 新增（实测缺陷的回归守卫）**：原实现把任务键原样当属性名
-  // （`friction-discovery`），而宿主在参数传递环节把属性名规范化为 snake_case，
-  // 于是**同一份 schema 下发用 kebab、校验用 snake**，子代理按 schema 提交必被拒：
-  //   `value.friction-discovery is not a declared property`
-  // 实测后果：两个辅助任务的结论**恒无法回传**（会话日志 e00fa45a，2026-10-30）。
-  //
-  // 本用例把「属性名不含连字符」钉成机械判据。任务键仍是 kebab-case
-  // （内部标识，用于配置与日志），只有 schema 属性名是 snake_case。
-  // 映射规律：任一 kebab 任务键都须映射为标识符安全的名称（不必在册）。
   for (const probe of ["friction-discovery", "sample-second-task", "a-b-c"]) {
     const mapped = compositePropertyName(probe);
     assert.match(mapped, /^[a-z][a-z0-9_]*$/, `映射结果 ${mapped} 须标识符安全`);
@@ -217,7 +171,6 @@ test("复合 schema：属性名须是标识符安全形式（宿主按 snake_cas
   }
   assert.equal(compositePropertyName("friction-discovery"), "friction_discovery");
   assert.equal(compositePropertyName("a-b-c"), "a_b_c");
-  // 映射须是单射：两个任务键不得映射到同一属性名，否则命名空间退化为平铺。
   assert.notEqual(compositePropertyName("a"), compositePropertyName("b"));
 });
 
@@ -246,13 +199,8 @@ test("复合 schema：不在册的任务键抛错（不得静默产出一个空 
   assert.throws(() => compositeOutputSchema(["nonexistent"]), /unknown aux task/);
 });
 
-// ---------------------------------------------------------------------------
-// 逐任务校验（本设计的核心承诺）
-// ---------------------------------------------------------------------------
 
 test("逐任务校验：**某件失败不掀掉其余件**——已成功者仍须可取用", () => {
-  // 这是「一次做多件」最关键的一条：§8.4 的闭集动作按任务分别成立。整体失败会
-  // 使一次可用的运行被整条丢弃——那正是本设计最该避免的损失。
   const registry = {
     good: fakeTask({ key: "good" }),
     broken: { key: "broken", implemented: true, validate: () => ({ ok: false, error: { code: "x", message: "broken on purpose" } }) },

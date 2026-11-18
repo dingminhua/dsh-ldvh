@@ -1,11 +1,3 @@
-/**
- * v5 登记模式契约测试（LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体）。
- *
- * 覆盖：schema_version 根字段容忍、配置从 v5 载器（而非 v4 工作区布局）读取、
- * 治理验证走 Node git 解析（全程不设 LDVH_HELPER_EXECUTABLE——零 Python Helper
- * 依赖的证明）、非 Git 项目降级剔除、载器变更后指纹失效重验。
- * 夹具参照 settings.test.ts（真实 git 项目）。
- */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -23,7 +15,6 @@ fs.writeFileSync(path.join(soloProject, 'README.md'), 'v5 registration fixture\n
 execFileSync('git', ['-C', soloProject, '-c', 'user.name=v5 test', '-c', 'user.email=v5@example.test', 'add', 'README.md']);
 execFileSync('git', ['-C', soloProject, '-c', 'user.name=v5 test', '-c', 'user.email=v5@example.test', 'commit', '-qm', 'fixture']);
 
-// v5 载器：文件名与根字段都与 v4 布局不同（schema_version）
 const carrierPath = path.join(workspaceRoot, 'governed-projects.yaml');
 function writeCarrier(projects: Array<{ id: string; path: string; name?: string }>, defaultProjectId: string) {
   const lines = [
@@ -44,7 +35,6 @@ writeCarrier([{ id: 'solo', path: soloProject, name: 'Solo project' }], 'solo');
 process.env.LDVH_WORKSPACE_ROOT = workspaceRoot
 process.env.LDVH_GOVERNED_PROJECTS_CONFIG = carrierPath
 process.env.LDVH_WEB_WORKTREE_LOCATOR = soloProject
-// 刻意不设置 LDVH_HELPER_EXECUTABLE / LDVH_ROOT：v5 模式必须零 Helper 依赖。
 
 let server: Server
 let baseUrl = ''
@@ -96,7 +86,6 @@ test('federation overview aggregates the v5-registered project', async () => {
 })
 
 test('a non-git project in the carrier degrades out of the verified listing', async () => {
-  // 载器加一个非 Git 项目：设置页如实列出（原始视图），项目列表降级剔除。
   writeCarrier([
     { id: 'solo', path: soloProject, name: 'Solo project' },
     { id: 'not-a-repo', path: path.join(workspaceRoot, 'missing-directory') },

@@ -1,13 +1,3 @@
-// tests for 类型通道召回（2026-10-31）——②类型点名 / ④核心语义字段 /
-// ⑤关系展开 / ⑥注入分节名额。（设计③触发信号标注层经探针实测 0/65 不达标，
-// 按拍板④暂缓未交付；trigger_signal 留在 detail 匹配面的行为仍由本文件守护。）
-//
-// 权威：specs/02 §12.4「机器可读召回判据表（格式契约）」、specs/34 §12
-// （截断须标明来源）、specs/31 §10（spark 不进自动注入）、specs/10 §9.1
-// 第 2 项（预算与名额属 Human Gate）。
-//
-// 判据表解析本身由 `recall-criteria.test.mjs` 守护；本文件守的是
-// **判据表的机器值是否真的被消费**，以及消费失败时是否 fail-closed。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -32,7 +22,6 @@ const OLD_UID = "33333333-3333-4333-8333-333333333333";
 const PIT_UID = "44444444-4444-4444-8444-444444444444";
 const SPARK_UID = "55555555-5555-4555-8555-555555555555";
 
-/** 判据表（合法形态）：判据项七项齐备、版本标记在表头。 */
 function criteriaTable({ defaultStatuses, coreFields, aliases, relations }) {
 	return [
 		"## 召回与消费",
@@ -60,18 +49,17 @@ async function withProject({ brokenPitfallTable = false } = {}, fn) {
 	const spec = async (name, table) => write(`specs/${name}`, `---\nldvh_spec:\n  spec_id: "${name.slice(0, 2)}"\n---\n\n# 规范\n\n${table}`);
 	const fact = async (dir, uid, fm, body = "") => write(`ldvh-base/${dir}/${uid}.md`, `---\n${fm.trim()}\n---\n\n${body}\n`);
 	try {
-		await spec("20-Spark-火花.md", criteriaTable({
+		await spec("22-Spark-火花.md", criteriaTable({
 			defaultStatuses: "open", coreFields: "question, summary", aliases: "火花", relations: "merged-into->spark",
 		}));
-		await spec("27-Norm-事实规范.md", criteriaTable({
+		await spec("23-Norm-事实规范.md", criteriaTable({
 			defaultStatuses: "active", coreFields: "direction_key, title", aliases: "事实规范", relations: "不采用",
 		}));
 		const pitfallTable = criteriaTable({
 			defaultStatuses: "active", coreFields: "title, scope", aliases: "踩坑经验", relations: "不采用",
 		});
 		await spec(
-			"23-Pitfall-踩坑经验.md",
-			// **失效判据表的构造**：版本标记换成不认识的版本 ⇒ 该类型机器判据停用。
+			"25-Pitfall-踩坑经验.md",
 			brokenPitfallTable ? pitfallTable.replace("recall-criteria/v1", "recall-criteria/v2") : pitfallTable,
 		);
 		await fact("norms", NORM_UID, `title: 类型通道 决策甲
@@ -118,7 +106,6 @@ test("④ 核心语义字段：detail 只取判据表登记的字段（其它 fr
 		assert.ok(normFact.detail.includes("idem-key-alpha"), "核心字段 direction_key 须进 detail");
 		assert.ok(normFact.detail.includes("类型通道 决策甲"), "核心字段 title 须进 detail");
 		assert.ok(!normFact.detail.includes("非核心字段标记乙"), "未登记的 gist 不得进 detail（按判据表消费）");
-		// 判据可用时，类型点名闭集须带别名。
 		assert.ok(normFact.typeNames.includes("norm"), "fact_type_key 派生词须在闭集里");
 		assert.ok(normFact.typeNames.includes("事实规范"), "判据表别名须在闭集里");
 	});
@@ -132,7 +119,6 @@ test("④ 判据表失效：该类型停用机器判据（detail 为空 + 如实
 		assert.equal(pitfall.detail, "", "机器判据停用时不得用默认字段拼 detail");
 		assert.deepEqual(pitfall.typeNames, [], "停用后不得做类型点名");
 		assert.ok(pitfall.criteriaError.length > 0, "须如实报错（说明缺什么）");
-		// 标题/正文通道不受影响：类型停用的是**机器判据**，不是该类型的召回资格。
 		const r = await recallForAction({ ...QUERY, action: "接口重复提交", root: project });
 		assert.equal(r.ok, true);
 		assert.ok(r.facts.some((fact) => fact.ref === PIT_UID), "标题命中仍须可召回");
@@ -154,8 +140,6 @@ test("② 类型点名：事实对象按闭集点名（Norm / 中文别名），
 			assert.equal(normFact.tier, 0.5, `「${action}」是纯指称，应给类型点名层`);
 			assert.match(normFact.hitReason, /类型点名命中/);
 		}
-		// **闭集**：`agent` 不在任何类型的派生词/别名里 —— 它是历史上让 4 条调研
-		// 冲顶的开放词表词，不得因类型点名重新变成通配。
 		const agents = await recallForAction({ ...QUERY, action: "agent", root: project });
 		assert.ok(
 			!agents.facts.some((fact) => /类型点名命中/.test(fact.hitReason)),
@@ -176,14 +160,10 @@ test("② 类型点名：中文别名右侧须是边界（「火花乙」不点�
 
 test("③ 触发信号标注层暂缓：trigger_signal 仍在 detail 匹配面，但不做展示标注", async () => {
 	await withProject({}, async (project) => {
-		// `幂等` 单独成句会被判为弱 token（`等` 是功能字），故带一个实义词。
 		const r = await recallForAction({ ...QUERY, action: "幂等键 接口", root: project });
 		const pitfall = r.facts.find((fact) => fact.ref === PIT_UID);
 		assert.ok(pitfall !== undefined, "前提：触发信号参与 detail 匹配（23 §8）");
 		assert.equal(pitfall.tier, 2, "触发信号在 detail 命中面，属 tier2");
-		// 设计③「触发信号字面重合」标注层经真实评测集探针实测 0/65 行触发
-		// （2026-10-31），按拍板④「按实测命中率决定做不做」暂缓：命中依据
-		// 不得出现该标注。若将来恢复该层，本断言反向。
 		for (const fact of r.facts) {
 			assert.doesNotMatch(fact.hitReason, /触发信号字面重合/);
 		}
@@ -200,28 +180,22 @@ test("⑥ 分节名额：按次序分节、每类限额、总名额从末尾裁�
 	];
 	const plan = { order: FACT_SECTION_ORDER, quotaByType: QUOTA_BY_TYPE, total: 3 };
 	const result = selectFactsBySection(hits, plan);
-	// norm 名额 1、pitfall 名额 2 → 各裁 2／1；总名额 3 用满后 report 整节被挡。
 	assert.deepEqual(result.selected.map((item) => item.ref), ["norm-0", "pitfall-0", "pitfall-1"]);
 	assert.deepEqual(result.droppedByQuota, [
 		{ type: "norm", count: 2 },
 		{ type: "pitfall", count: 1 },
 		{ type: "report", count: 1 },
 	]);
-	// 总名额耗尽后，report 越过名额的那一条也被挡下——两笔都如实记账。
 	assert.deepEqual(result.droppedByTotal, [
 		{ type: "report", count: 1 },
 	]);
 	assert.equal(result.unassigned, 0);
-	// 名额不改变名次：选中项保持传入次序。
 	const orders = result.groups.map((group) => group.type);
 	assert.deepEqual(orders, ["norm", "pitfall"], "分节次序须按常量，不是按命中数");
 	assert.deepEqual(result.unassignedByType, [], "无未分配项时明细为空数组，不写空壳条目");
 });
 
 test("⑥ 分节之外的类型须给按类型明细（34 §12 未检查范围逐类列出）", () => {
-	// **2026-11-11 新增**。`selectFactsBySection` 一直算出 `unassigned`，但只给
-	// 总数、不给类型，于是注入层拿到「13」却不知道该说什么，整条披露就没了。
-	// 实测该 13 条 = devlog 8 + subgoal 5——**知道分类型才可能判断该补哪条分节规则**。
 	const hit = (type, i) => ({ type, ref: `${type}-${i}`, title: `${type} ${i}` });
 	const hits = [
 		hit("norm", 0),
@@ -230,19 +204,16 @@ test("⑥ 分节之外的类型须给按类型明细（34 §12 未检查范围�
 	];
 	const plan = { order: FACT_SECTION_ORDER, quotaByType: QUOTA_BY_TYPE, total: 3 };
 	const result = selectFactsBySection(hits, plan);
-	// 分节次序里只有 norm 有候选；devlog/subgoal 不在次序内 → 全部未分配。
 	assert.deepEqual(
 		result.unassignedByType,
 		[{ type: "devlog", count: 3 }, { type: "subgoal", count: 2 }],
 		"未分配项须按类型给出条数（保序：插入序即命中次序）",
 	);
-	// 明细之和须等于总数——两者由同一趟循环算出，分叉即为实现缺陷。
 	assert.equal(
 		result.unassignedByType.reduce((sum, entry) => sum + entry.count, 0),
 		result.unassigned,
 		"按类型明细之和须等于 unassigned 总数",
 	);
-	// 未分配者不得混进 selected：它们没有分节认领。
 	assert.ok(
 		!result.selected.some((item) => item.type === "devlog" || item.type === "subgoal"),
 		"未分配类型不得进入交付集合",
@@ -278,20 +249,10 @@ test("⑥ 渲染：按类型分节、名额披露具名来源；关系展开单�
 	assert.ok(text.indexOf("关系展开（精确引用派生") > text.indexOf(FACT_SECTION_LABELS.pitfall), "派生组在事实分节之后");
 });
 
-// ---------------------------------------------------------------------------
-// 默认候选状态：**从判据表读，不读硬编码表**（02 §12.4，2026-11）
-//
-// 此前 `DEFAULT_STATUSES_BY_TYPE` 是唯一取值来源，判据表那一列（解析成品
-// `values.defaultStatuses`）除测试外**无任何消费点**——规范说一套、代码判一套。
-// 下列用例把四种形态都钉住：table（正常读表）、non-candidate（表标「不采用」）、
-// fallback（表里没这个类型）、disabled（表有但解析失败）。
-// ---------------------------------------------------------------------------
 
 import { recallStatusPolicyOf, DEFAULT_STATUSES_FALLBACK } from "../lib/source-recall.js";
 
 test("默认候选状态取自判据表：机械值改了，候选池跟着改（不读硬编码表）", async () => {
-	// 同一条事实（status: active），判据表一处写 active、一处写 open。
-	// 若实现仍读硬编码表，两次结果会相同；正确实现下 open 那次须召回不到。
 	const build = async (statuses) => {
 		const project = await mkdtemp(join(tmpdir(), "ldvh-statuspolicy-"));
 		const write = async (rel, text) => {
@@ -299,8 +260,8 @@ test("默认候选状态取自判据表：机械值改了，候选池跟着改�
 			await mkdir(join(abs, ".."), { recursive: true });
 			await writeFile(abs, text, "utf8");
 		};
-		await write("specs/23-Pitfall-踩坑经验.md",
-			`---\nldvh_spec:\n  spec_id: "23"\n---\n\n# 规范\n\n${criteriaTable({
+		await write("specs/25-Pitfall-踩坑经验.md",
+			`---\nldvh_spec:\n  spec_id: "25"\n---\n\n# 规范\n\n${criteriaTable({
 				defaultStatuses: statuses, coreFields: "title, scope", aliases: "踩坑经验", relations: "不采用",
 			})}`);
 		await write(`ldvh-base/pitfalls/${PIT_UID}.md`,
@@ -332,8 +293,8 @@ test("默认候选状态「不采用」：该类型没有候选概念，不进�
 		await writeFile(abs, text, "utf8");
 	};
 	try {
-		await write("specs/23-Pitfall-踩坑经验.md",
-			`---\nldvh_spec:\n  spec_id: "23"\n---\n\n# 规范\n\n${criteriaTable({
+		await write("specs/25-Pitfall-踩坑经验.md",
+			`---\nldvh_spec:\n  spec_id: "25"\n---\n\n# 规范\n\n${criteriaTable({
 				defaultStatuses: "不采用", coreFields: "title, scope", aliases: "踩坑经验", relations: "不采用",
 			})}`);
 		await write(`ldvh-base/pitfalls/${PIT_UID}.md`,
@@ -362,15 +323,13 @@ test("判据表里没有该类型条目：回落具名兜底，并在 criteria.f
 		await writeFile(abs, text, "utf8");
 	};
 	try {
-		// 只给 norm 的判据表；pitfall 在表里**没有条目**（不是表坏了）。
-		await write("specs/27-Norm-事实规范.md",
-			`---\nldvh_spec:\n  spec_id: "27"\n---\n\n# 规范\n\n${criteriaTable({
+		await write("specs/23-Norm-事实规范.md",
+			`---\nldvh_spec:\n  spec_id: "23"\n---\n\n# 规范\n\n${criteriaTable({
 				defaultStatuses: "active", coreFields: "decision, scope", aliases: "决策记录", relations: "不适用",
 			})}`);
 		await write(`ldvh-base/pitfalls/${PIT_UID}.md`,
 			`---\ntitle: 接口重复提交\nstatus: active\nobject_uid: ${PIT_UID}\nfact_type_key: pitfall\nscope: 接口层\n---\n\n正文\n`);
 		const r = await recallForAction({ ...QUERY, action: "接口重复提交", root: project });
-		// 回落是**允许**的（02 §12.4 禁的是静默回落），但必须可见。
 		assert.ok(r.criteria.fallbackTypes.includes("pitfall"), "回落类型须在 criteria.fallbackTypes 里可见");
 		assert.ok(
 			r.gaps.some((gap) => gap.includes("判据表未登记该类型（pitfall）")),

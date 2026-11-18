@@ -1,9 +1,3 @@
-// D8 回归护栏：模块内被当变量使用的名字，必须确有声明。
-//
-// 形态：`lifecycle.js` 曾写 `currentRouteValues(sessionPersistence?.(), agent)`，
-// 而 `sessionPersistence` 在该文件里**只是别处对象的属性名**，从未声明为变量。
-// 该行**每次都抛 ReferenceError**，异常被执行体收口成日志，运行载体上不留痕——
-// 外观与「机制没跑」完全相同。单元测试抓不到它：只要那条路径在测试里未被走到。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -16,19 +10,11 @@ test("D8：lifecycle.js 不得把未声明的名字当变量使用", async () =>
   const raw = await readFile(join(LIB, "lifecycle.js"), "utf8");
   const text = raw.split("\n").map((l) => (l.trimStart().startsWith("//") ? "" : l)).join("\n");
 
-  // 该行须经 ctx.get 取服务，而不是引用一个裸名字
   assert.ok(
     !/currentRouteValues\(\s*sessionPersistence\?\.\(\)/.test(text),
     "lifecycle.js 又出现了 `currentRouteValues(sessionPersistence?.())` —— " +
       "sessionPersistence 在本文件里只是属性名，不是变量，该行会抛 ReferenceError（D8）",
   );
-  // 2026-10-17：lifecycle 已**不再自己取路由**——署名由执行体派发处从执行体自己的
-  // 会话记录取得。若 currentRouteValues 重新出现在本文件，就意味着落账又回到了
-  // 「以主控路由盖章」的缺陷形态，故护栏是禁止它。
-  //
-  // 2026-11-17：原「lifecycle 须消费 decision.executorSignature」的断言已删除——
-  // 那条消费点在 `onSessionCheckpoint` 内，随静置检查点整条路径一并删除。署名消费
-  // 现由路径 A（friction-tools.js → session-signature.js）承载，不再经过本文件。
   assert.ok(
     !/currentRouteValues\(/.test(text),
     "lifecycle.js 不得再自行取路由：落账署名须来自执行体（09 §5.1「当次实际」）",
@@ -48,7 +34,6 @@ test("D8：其它模块经 deps 取该服务的形态未被波及（回归对照
 });
 
 test("D8 类检测：模块内以 `X?.(` 形态使用的名字须有声明", async () => {
-  // 保守检测：只就该文件实际用到的可疑名做判定，避免误报
   const raw = await readFile(join(LIB, "lifecycle.js"), "utf8");
   const text = raw.split("\n").map((l) => (l.trimStart().startsWith("//") ? "" : l)).join("\n");
   const used = new Set();
@@ -59,7 +44,7 @@ test("D8 类检测：模块内以 `X?.(` 形态使用的名字须有声明", asy
       new RegExp(`\\bfunction\\s+${name}\\b`).test(text) ||
       new RegExp(`[({,]\\s*${name}\\s*[,}=)]`).test(text) ||
       new RegExp(`${name}\\s*[,=]\\s*(async\\s*)?(\\(|function|\\{|null|undefined)`).test(text) ||
-      new RegExp(`\\bfrom\\s+["'][^"']+["']`).test("") ; // import 形式另判
+      new RegExp(`\\bfrom\\s+["'][^"']+["']`).test("") ;
     const imported = new RegExp(`import[\\s\\S]{0,400}?\\b${name}\\b[\\s\\S]{0,80}?from`).test(text);
     assert.ok(declared || imported, `lifecycle.js 使用了未声明的 \`${name}?.\``);
   }

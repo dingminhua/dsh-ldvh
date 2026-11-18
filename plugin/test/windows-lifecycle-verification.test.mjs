@@ -1,7 +1,3 @@
-// Windows 生命周期 10 项实测（对照 docs/governed-project-lifecycle-verification.md）。
-//
-// 每一项都真做一次动作并读回结果，不靠读代码推断。全部在临时目录里建仓库，
-// 不触碰任何已登记的真实项目。
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
@@ -30,7 +26,6 @@ async function git(cwd, args) {
 	await execFileAsync("git", args, { cwd, windowsHide: true });
 }
 
-/** 建一个临时 Git 仓库；返回其根路径。 */
 async function initRepo(base, name = "repo") {
 	const root = join(base, name);
 	await mkdir(root, { recursive: true });
@@ -44,7 +39,6 @@ async function initRepo(base, name = "repo") {
 	return root;
 }
 
-/** 一次性与环境无关的 shell 引导。 */
 async function withWorld(fn) {
 	const base = await mkdtemp(join(tmpdir(), "win-lifecycle-"));
 	const home = (...segments) => join(base, "home", ...segments);
@@ -56,8 +50,6 @@ async function withWorld(fn) {
 	}
 }
 
-// runnerPath 必须指向真实的 Gate 执行器，否则 Hook 预检会因 MODULE_NOT_FOUND 失败
-// （本文件初版误指向临时路径，导致 ④–⑩ 全部假红——那是验证脚本的错，不是产品缺陷）。
 import {
 	gateEnv,
 	pluginRoot,
@@ -66,7 +58,6 @@ import {
 	VALID_COMMIT_MESSAGE,
 } from "./helpers.mjs";
 
-/** 供 installProject 使用的 runtime。 */
 function runtimeFor(base) {
 	return { runnerPath: REAL_RUNNER_PATH, workspaceRoot: base };
 }
@@ -140,7 +131,6 @@ test("⑥ 真实 git commit 中非法 message 被阻断", { skip: !isWindows && 
 		assert.equal(installed.ok, true, JSON.stringify(installed.error ?? null));
 		await writeFile(join(repo, "a.txt"), "a\n", "utf8");
 		await git(repo, ["add", "."]);
-		// 无 LDVH trailer 的自由文本应被 Gate 阻断。
 		await assert.rejects(
 			() => git(repo, ["commit", "-m", "随便写的提交信息"]),
 			"非法 message 必须被 commit-msg Hook 阻断",
@@ -153,10 +143,6 @@ test("⑦ 符合最小 Gate 契约的 message 被放行", { skip: !isWindows && 
 		const repo = await initRepo(base);
 		const installed = await installProject(home, { id: "p1", path: repo }, runtimeFor(base));
 		assert.equal(installed.ok, true, JSON.stringify(installed.error ?? null));
-		// pre-commit 会对 `<repo>/node_modules` 跑全量 eslint；临时仓库没有依赖，
-		// 因此必须自备一个**最小 lint 面**（与 git-gate-runner.test.mjs 的
-		// lintWorkspace 同款）：自带 eslint 配置 + 一个必定干净的文件 + 指向插件
-		// 已装 eslint 的目录链接。这不是产品要求，是验证脚手架的必备前置。
 		await mkdir(join(base, "node_modules"), { recursive: true });
 		await writeFile(join(base, "eslint.config.js"), "export default [];\n", "utf8");
 		await mkdir(join(base, "lib"), { recursive: true });
@@ -168,12 +154,6 @@ test("⑦ 符合最小 Gate 契约的 message 被放行", { skip: !isWindows && 
 		);
 		await writeFile(join(repo, "b.txt"), "b\n", "utf8");
 		await git(repo, ["add", "."]);
-		// 说明：本项只验证「Hook 对合法形态放行」，具体契约形状由 09 §5 决定；
-		// 这里用一个带 trailer 的最小形态，断言它不被 Hook 阻断。
-		// 两点都是**必须**的，缺一即假红（本文件初版缺这两点，⑦ 因此误判为产品缺陷）：
-		//  ① 消息用 helpers 里已被 Gate 契约钉住的那份，不自编；
-		//  ② 子进程用 `gateEnv(signatureEnv())` 起——Gate 从会话记录取运维方/模型
-		//     作为 trailer 权威值，若继承本机真实 DSH_*，断言就会绑到运行者身上。
 		await execFileAsync("git", ["commit", "-m", VALID_COMMIT_MESSAGE], {
 			cwd: repo,
 			windowsHide: true,
@@ -204,7 +184,6 @@ test("⑨ 再次安装可修复缺失 Hook，且不重复登记", { skip: !isWin
 		const repo = await initRepo(base);
 		await installProject(home, { id: "p1", path: repo }, runtimeFor(base));
 		await uninstallHook(repo);
-		// 修复：再次安装
 		const again = await installProject(home, { id: "p1", path: repo }, runtimeFor(base));
 		assert.equal(again.ok, true, JSON.stringify(again.error ?? null));
 		const hook = await inspectHook(repo);

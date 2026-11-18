@@ -13,18 +13,9 @@ test('compact width only changes the shell navigation and secondary reading plac
   const copyButton = read('src/components/CopyPathButton.tsx');
   const readingPanel = read('src/components/ReadingPanel.tsx');
   const cognitionCenter = read('src/pages/CognitionCenter.tsx');
-  // 2026-11-03：关联行实现下沉到共享组件，故紧凑元数据的断言读两处。
   const objectList = read('src/pages/ObjectList.tsx')
     + read('src/components/FactAssociationRows.tsx');
 
-  // Compact 断点：**复算**两处是否同值，而不是钉死字面数字（Human 2026-10-16：640 → 1024）。
-  //
-  // 为什么复算：本仓的缺陷形态正是「同一个断点被写成两处，改一处漏一处」。此前
-  // ReadingPanel 用 `MOBILE_BREAKPOINT = 640`、Layout 用 Tailwind `sm:`（=640），
-  // 二者靠一句注释维持一致；改值时若只改一边，就会拼出「展开侧栏 + 底部抽屉」或
-  // 「图标栏 + 右侧面板」的错配组合——而断言 `= 640` 这种写法既拦不住错配，又会
-  // 在每次调值时强制改测试（把「测试跟着实现走」变成惯例）。
-  // 现改为：从两侧各自读出**当前取值**再比对，改值只需两处同步改，测试自动跟随。
   const TAILWIND_SCREEN_PX: Record<string, number> = { sm: 640, md: 768, lg: 1024, xl: 1280 };
 
   const breakpointDecl = /const COMPACT_BREAKPOINT = (\d+);/.exec(readingPanel);
@@ -43,16 +34,6 @@ test('compact width only changes the shell navigation and secondary reading plac
   );
   assert.match(readingPanel, /if \(isCompact\)[\s\S]*fixed bottom-0 left-0 right-0/);
 
-  // 抽屉的触摸命中区必须**只在高断点以上**才收窄：导航按钮从 h-11/w-11（44px，抽屉内
-  // 触摸尺寸）降为 h-7/w-7（28px，桌面尺寸）。若该降档发生在 Compact 断点**之下**，
-  // 抽屉在平板宽度上就会用 28px 按钮——而 docs/01 §1.6 明确把抽屉命中区列为
-  // 「唯一允许的控件尺寸例外」。故此处要求两侧取**同一个前缀**。
-  //
-  // 覆盖口径（独立复核 2026-10-16 指出的两处漏洞，均已修）：
-  // ① `h-7` 与 `w-7` 的**两个**前缀都要取出来比——只比 h-7 时，
-  //    `lg:h-7 sm:w-7` 这类不对称写法会漏检（宽高取不同断点，视觉上是畸形按钮）；
-  // ② 用 `matchAll` 遍历**全部**导航按钮——原实现 `.exec` 只命中第一个（goBack），
-  //    goForward 漏检。两处按钮当前写法相同，但「相同」应由断言保证而非靠人工同步。
   const navHitDecls = [...readingPanel.matchAll(
     /disabled:opacity-35 ((?:sm|md|lg|xl):h-7) ((?:sm|md|lg|xl):w-7)/g,
   )];
@@ -73,8 +54,6 @@ test('compact width only changes the shell navigation and secondary reading plac
         `否则抽屉在其自身区间内会失去触摸尺寸（docs/01 §1.6）。`,
     );
   }
-  // 期望值来源：ReadingPanel 的导航按钮恰好两个（上一个 / 下一个）。
-  // 断言条数写死在此，避免「新增第三个按钮但忘了让它受检」时静默通过。
   assert.equal(
     navHitDecls.length,
     2,
@@ -91,20 +70,6 @@ test('compact width only changes the shell navigation and secondary reading plac
   assert.match(cognitionCenter, /function RecentActivityRow[\s\S]*role="button"[\s\S]*onClick=\{open\}[\s\S]*onKeyDown=\{\(event\) => openOnKeyboard\(event, open\)\}/);
   assert.match(cognitionCenter, /function SparkHealthRow[\s\S]*role="button"[\s\S]*onClick=\{open\}[\s\S]*onKeyDown=\{\(event\) => openOnKeyboard\(event, open\)\}/);
   assert.doesNotMatch(cognitionCenter, /cognition\.sparkHealth\.title[\s\S]{0,220}\btruncate\b/);
-  // 业务组件不得在 Compact 断点上分岔（docs/01 §1.6.1 第 3 条）。
-  //
-  // 前缀集合随 Compact 断点走：Compact = 1024（`lg:`）之后，落在该边界上的前缀是
-  // `lg:`，而 `sm:`（640）/ `md:`（768）反而成了**边界内部**的次级分支——两者都属
-  // 「页面与通用业务组件建 Compact 专属结构」。`xl:` 不在此列：docs/01 §1.6 末段允许
-  // `xl` 等宽屏工作台增强，它不反向引入 Compact 专属呈现。
-  //
-  // **扫描口径：全仓 `src/`，不是抽样**（独立复核 2026-10-16 指出：原实现只采样
-  // copyButton/objectDetail/cognitionCenter/objectList 四个文件，却宣称「全仓业务组件
-  // 对 lg: 使用为零」——宣称超出断言覆盖，属 00 §4.6 意义上的超范围声明）。现改为
-  // 遍历 `src/**/*.{ts,tsx}`，并按「壳层文件」排除**仅有的两处**合法使用点：
-  // `Layout.tsx`（图标栏切换）与 `ReadingPanel.tsx`（抽屉切换 + 命中区降档），
-  // 即 docs/01 §1.6.1 第 1 条唯一许可的两个位置。排除面写死在下方数组里，
-  // 新增豁免须同时改本数组——不设通配式豁免。
   const COMPACT_SHELL_FILES = ['src/components/Layout.tsx', 'src/components/ReadingPanel.tsx'];
   const compactPrefixesOutsideShell = /\b(?:sm|md|lg):/;
   const sourceFiles: string[] = [];
@@ -124,8 +89,6 @@ test('compact width only changes the shell navigation and secondary reading plac
     read(rel)
       .split('\n')
       .forEach((line, index) => {
-        // 剥离行注释后再判：注释里的 `sm:` / `md:` / `lg:` 是**沿革记载与说明文字**
-        // （本仓惯例要求如实保留改动的来龙去脉），不是渲染。不剥离会拒掉诚实记录。
         const code = line.replace(/(^|[^:])\/\/.*$/, '$1');
         if (compactPrefixesOutsideShell.test(code)) {
           compactViolations.push(`${rel}:${index + 1}  ${line.trim().slice(0, 90)}`);
@@ -145,8 +108,6 @@ test('mobile reading panel identifies the current object and terminal cards reta
   const objectList = read('src/pages/ObjectList.tsx');
 
   assert.match(readingPanel, /ldvh-card-title w-full truncate text-center">{panelTitle}/);
-  // 2026-09-30 修订：改用「status 的取值来自 presentedStatus」——见同批 nonactive 契约
-  // 的同款修订（已关闭卡的状态现为三元表达式）。
   assert.match(objectList, /<ObjectIdentityActions[\s\S]{0,400}status=\{[^}]*presentedStatus[^}]*\}/);
   assert.doesNotMatch(objectList, /showStatusBadge/);
 });
@@ -164,13 +125,10 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   assert.match(cardFrame, /ldvh-chip-sm/);
   assert.match(cardFrame, /const activityCount = Array\.isArray\(obj\.change_log\) \? obj\.change_log\.length : 0/);
   assert.match(cardFrame, /<History size=\{12\} aria-hidden="true" \/>[\s\S]{0,80}<span>\{activityCount\}<\/span>/);
-  // 窗口放宽到 1200 是因为卡框新增了 `statusBadge` 一段，原窗口量不到 `compact`。
-  // 意图不变：**列表卡须用 compact 变体**。
   assert.match(cardFrame, /<ObjectIdentityActions[\s\S]{0,1200}compact/);
   assert.match(cardFrame, /items-center gap-1\.5[\s\S]{0,220}<ObjectTypeIcon type=\{obj\.type\} size=\{14\} className="shrink-0"/);
   assert.match(cardFrame, /ldvh-object-title-tray ldvh-object-title-tray-compact/);
   assert.match(cardFrame, /<h2 className="ldvh-card-title min-w-0 flex-1 whitespace-normal break-words">/);
-  // 2026-11-03：关联行的画法在 `components/FactAssociationRows.tsx`（共享模块）。
   assert.match(
     read('src/components/FactAssociationRows.tsx'),
     /isDiscarded \? 'text-slate-400\/65 dark:text-slate-500\/60' : 'text-ldvh-text-secondary\/95 group-hover:text-ldvh-accent'/,
@@ -184,13 +142,6 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   assert.match(objectList, /type="search"[\s\S]*objectList\.searchPlaceholder/);
   assert.match(objectList, /<div className="relative h-7 w-8 shrink-0">[\s\S]*<label className="absolute right-0 top-0 z-30 flex w-60/);
   assert.match(objectList, /onClick=\{\(\) => setIsObjectSearchOpen\(true\)\}[\s\S]{0,240}aria-expanded=\{false\}/);
-  // 短标识 chip（优先级、状态）不得显式设**任何**字体族：全站 chip 一律继承 `:root`
-  // 的无衬线栈。原断言写 `font-sans font-medium`——意图是「不许用等宽」，但把 Tailwind
-  // 的 `font-sans`（`ui-sans-serif`）一并钉进了期望值，于是这些 chip 与其余 chip 继承的
-  // `:root`（`-apple-system`）分岔，同一行出现两种字体族（2026-10-05 在插件页面实测：
-  // 「标题 / SG-3 / 1」为 -apple-system，状态词为 ui-sans-serif）。
-  // 这与 `structure-single-source-contract` 里「把 border-l-2 写进期望值即单方面判定争议」
-  // 是同一类错误：断言把**实现细节**当成了**契约**。现只锁意图。
   assert.match(priorityIcon, /font-medium/);
   assert.doesNotMatch(priorityIcon, /font-mono|font-sans/);
   assert.match(statusBadge, /font-medium/);
@@ -212,7 +163,6 @@ test('object detail headers use compact metadata and title-scaled type icons', (
   assert.match(identityHeader, /ldvh-chip-sm/);
   assert.match(identityHeader, /<History size=\{12\} aria-hidden="true" \/>[\s\S]{0,80}<span>\{activityCount\}<\/span>/);
   assert.match(identityHeader, /showCopyAction=\{showCopyAction\}[\s\S]{0,80}compact/);
-  // Human 2026-09-09：标题缩 2 级后多行标题图标垂直居中（items-center，去掉 mt-0.5）。
   assert.match(identityHeader, /translate-y-0\.5 items-center gap-2[\s\S]{0,220}<ObjectTypeIcon type=\{objectType\} size=\{titleIconSize\} className="shrink-0"/);
   assert.match(identityHeader, /mb-1\.5 flex min-w-0 flex-wrap items-center/);
   assert.match(identityHeader, /mt-1\.5 flex min-w-0 flex-wrap items-center justify-end/);
@@ -230,18 +180,10 @@ test('detail identity header keeps status immediately before its copy control', 
     identityHeader.indexOf('<div className="flex min-w-0 flex-wrap items-center gap-x-3'),
   );
 
-  // Human 定案 2026-09-13：标签序与列表卡头一致——类型 → 优先级 → 修改次数
-  //（extraBadges 随后；状态与复制控件保持行尾）。
-  //
-  // 2026-11-01（Human 定案）：`serves` 子目标 chip 已从卡头撤除，故此处不再
-  // 要求它在 `PriorityIcon` 与 `extraBadges` 之间；顺序判据收缩为「优先级 →
-  // extraBadges → 状态/复制」三段，仍钉住**块序**，只是删掉了中间那一环。
   assert.match(identityRow, /<PriorityIcon[\s\S]*\{extraBadges\}[\s\S]*className="ml-auto shrink-0"[\s\S]*<ObjectIdentityActions/);
   assert.doesNotMatch(identityRow, /<ServesSgBadge/,
     'serves chip 不得回到详情头——2026-11-01 已撤除其 Web 呈现（`serves` 字段本身保留）');
   const identityActions = read('src/components/ObjectIdentityActions.tsx');
-  // 2026-09-30 修订：新增「只替换、不叠加」的 `statusBadge` 口后，状态徽标的分支变为
-  // `{statusBadge ?? (status && (…))}`；断言随之更新，仍钉住**块序**：前导徽标 → 状态 → actionBadges。
   assert.match(identityActions, /\{statusLeadingBadges\}[\s\S]{0,120}\{statusBadge \?\? \(status && \([\s\S]{0,320}\{actionBadges\}/);
   assert.doesNotMatch(identityHeader, /&& compact[\s\S]{0,180}<ObjectIdentityActions/);
 });
@@ -269,27 +211,6 @@ test('prominent card title follows the documented 16px by 24px hierarchy', () =>
   assert.match(styles, /\.ldvh-inline-markdown\.ldvh-card-decision-body[\s\S]*text-xs leading-5/);
 });
 
-/**
- * 对象标题必须落在标题带（`ldvh-object-title-tray`）内——`docs/01` §1.10「统一要求」
- * 第 4 条与 §1.8.1 的组件契约：卡片标题带使用弱背景、内圈边框与完整标题。
- *
- * 为什么设这条守卫：标题带**不是由标题类自带的**，而是调用方在外层容器上另加的一个类。
- * 于是「同一个 `ldvh-card-title`，A 处包了带、B 处漏了」在源码与类型上都合法，只能靠
- * 逐处人工比对发现——2026-10-05 实测聚焦页两处（近期动态行、Spark 健康度行）即漏。
- * 漏掉的那两行在整页里表现为「只有这两张卡的标题没有背景框」。
- *
- * **保证边界（如实登记，实测修正）**：
- * - 本守卫只覆盖 `CognitionCenter`（该文件内标题与标题带应一一对应）。跨文件的
- *   「哪些 `ldvh-card-title` 属于对象卡片」无法从字形判定（同一个类也用于导航项、
- *   下拉选择项、按钮、错误提示与工具页文件名），故不设全域断言——不设能力以外的保证。
- * - 形态级：只识别类名，**不判定「这处标题是否真的视觉成带」**。两种偏差各有表现：
- *   · 改以 inline style 表达标题带 → 该类名计数减少 → **被判为「缺失」并报红**
- *     （2026-10-05 变异 3 实测）。注意这是**假阳性式的拦截**：拦住的理由是「类名
- *     不见了」，不是「带没画出来」，故不得据此宣称语义级防护；
- *   · 反之，同一文件内把标题与标题带**同时**换名（比例仍 1:1）→ **逃逸**。
- *   故本守卫给的是「同类标题漏配」的回归网，不是标题带存在性的语义证明。
- * - 计数前剥离注释，使沿革记载不触发误报（变异 2 实测）。
- */
 test('聚焦页对象标题必须落在标题带内：ldvh-card-title 与 title tray 成对', () => {
   const strip = (source: string): string =>
     source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
@@ -304,31 +225,11 @@ test('聚焦页对象标题必须落在标题带内：ldvh-card-title 与 title 
   );
 });
 
-/**
- * 对象卡框只有一个定义，且三处呈现面**共用它**——Human 2026-11-03 定案：「这里的
- * 样式要和待决定事项一样，要有个外框，近期动态也一样」。
- *
- * ## 为什么设这条守卫
- *
- * 此前聚焦页的「近期动态」与「Spark 健康度」两处**没有外框**：它们只有标题那一行
- * 套着标题带（`ldvh-object-title-tray`），于是同页里「待决定事项」读起来是整块有框
- * 的卡，另两个模块读起来像无框的流水账——标题带被当成了卡的外框，读者得自己把元
- * 信息行与时间戳行归到标题那条上去。
- *
- * 修法不是各处另抄一段类名（抄三份必分叉），而是把卡框抽成 `.ldvh-object-card-frame`
- * 一处定义，三处呈现面共用：对象列表卡（`ObjectCardFrame`）、聚焦页近期动态行、
- * 聚焦页 Spark 健康度行。
- *
- * **保证边界（如实登记）**：本守卫是**类名级**的——它证明三处引用的是同一个类，
- * 不证明那个类渲染出来真的成框（改 `.ldvh-object-card-frame` 的 `@apply` 内容不会
- * 被它捕获；那由「卡框须含边框」那条断言兜）。
- */
 test('对象卡框单源：列表卡、近期动态行与 Spark 健康度行共用 ldvh-object-card-frame', () => {
   const styles = read('src/index.css');
   const objectList = read('src/pages/ObjectList.tsx');
   const cognitionCenter = read('src/pages/CognitionCenter.tsx');
 
-  // 卡框须真带边框与圆角——「有外框」是这次定案的本体。
   assert.match(
     styles,
     /\.ldvh-object-card-frame\s*\{[^}]*rounded-lg border border-ldvh-border/,
@@ -336,7 +237,6 @@ test('对象卡框单源：列表卡、近期动态行与 Spark 健康度行共�
   );
   assert.match(styles, /\.ldvh-object-card-frame\s*\{[^}]*bg-ldvh-panel/, '对象卡框须有底色');
 
-  // 三处呈现面共用同一个类。
   assert.match(objectList, /className="ldvh-object-card-frame"/, '对象列表卡须用共享卡框类');
   const recentRow = cognitionCenter.slice(
     cognitionCenter.indexOf('function RecentActivityRow'),
@@ -349,26 +249,12 @@ test('对象卡框单源：列表卡、近期动态行与 Spark 健康度行共�
   assert.match(recentRow, /<li className="ldvh-object-card-frame">/, '近期动态行须用共享卡框类');
   assert.match(sparkRow, /<li className="ldvh-object-card-frame">/, 'Spark 健康度行须用共享卡框类');
 
-  // 标题带**保留**在卡框之内（`docs/01` §1.10 统一要求第 4 条）：卡框圈整条记录，
-  // 标题带圈标题本身，两层是不同的东西，不能因为加了外框就把标题带撤掉。
   assert.match(recentRow, /ldvh-object-title-tray ldvh-object-title-tray-compact/);
   assert.match(sparkRow, /ldvh-object-title-tray ldvh-object-title-tray-compact/);
 
-  // 卡之间用间距，不再用分隔线：有外框之后那条线是「框外的框」。
   assert.doesNotMatch(cognitionCenter, /divide-y divide-ldvh-border\/70"/, '有卡框后不得再用分隔线代替卡间距');
 });
 
-/**
- * Spark 健康度「池结构比例条」区块只保留**上**边框，下边框不得存在。
- *
- * **为什么**：该区块的下边框紧贴第一张 Spark 卡的上边框，两条线叠在一起读成
- * 「框外的框」——卡本来就有自己的框，再在外面加一条线就把卡读成了「被包着的卡」。
- * Human 2026-11-03 截图指认的正是这一条线。上边框保留：它承担的是
- * 「池结构区块 vs 模块标题栏」的分节，不属于「框外的框」。
- *
- * **保证边界（如实登记）**：本守卫是**类名级**的——它证明池结构区块不再带下边框，
- * 不证明渲染后相邻两框之间确实只隔一条线（那由实页像素复核兜）。
- */
 test('Spark 健康度池结构区块只保留上边框：下边框与首卡上边框叠成「框外的框」', () => {
   const cognitionCenter = read('src/pages/CognitionCenter.tsx');
 
@@ -378,13 +264,11 @@ test('Spark 健康度池结构区块只保留上边框：下边框与首卡上�
   );
   assert.ok(poolBlock.length > 0, '须能定位到池结构比例条区块');
 
-  // 上边框保留：与模块标题栏分节。
   assert.match(
     poolBlock,
     /className="border-t border-ldvh-border\/70 py-4"/,
     '池结构区块须保留上边框（与模块标题栏分节）',
   );
-  // 下边框去掉：它与第一张 Spark 卡的上边框叠成两条线。
   assert.doesNotMatch(poolBlock, /border-y/, '池结构区块不得再带下边框（border-y）');
   assert.doesNotMatch(
     cognitionCenter,
@@ -410,13 +294,11 @@ test('Federation pages reuse the shared layout grammar and do not invent viewpor
   const federation = read('src/pages/Federation.tsx');
   const federationObjects = read('src/pages/FederationObjects.tsx');
 
-  // 卡片列表必须使用容器驱动网格（design-consistency 01 §1.5），不可用 sm:/md:/xl: 断点列数。
   assert.match(federation, /ldvh-section-grid/);
   assert.match(federationObjects, /ldvh-section-grid/);
   assert.doesNotMatch(federation, /sm:grid-cols|md:grid-cols|xl:grid-cols/);
   assert.doesNotMatch(federationObjects, /sm:grid-cols|md:grid-cols|xl:grid-cols/);
 
-  // 空态与加载态沿用 v4 无框 py-20 + 居中弱文本语法；不能发明盒式空态。
   assert.match(federation, /ldvh-body-muted\s+py-20\s+text-center/);
   assert.match(federationObjects, /ldvh-body-muted\s+py-20\s+text-center/);
   assert.match(federation, /ldvh-body-muted\s+flex\s+justify-center\s+py-20/);
@@ -424,28 +306,12 @@ test('Federation pages reuse the shared layout grammar and do not invent viewpor
   assert.doesNotMatch(federation, /rounded-xl border border-ldvh-border bg-ldvh-panel p-8/);
   assert.doesNotMatch(federationObjects, /rounded-xl border border-ldvh-border bg-ldvh-panel p-8/);
 
-  // 刷新工具按钮必须复用设计系统令牌，不可手搓独立样式。
   assert.match(federation, /ldvh-page-toolbar-action/);
   assert.match(federationObjects, /ldvh-page-toolbar-action/);
   assert.doesNotMatch(federation, /rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary/);
   assert.doesNotMatch(federationObjects, /rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary/);
 });
 
-/**
- * 阅读节点的正文可读性（两处实测缺陷，2026-09-20）。
- *
- * ① 对比度：正文取色原为 `rgb(var(--ldvh-text-secondary) / 0.92)`。alpha 并非
- *    中性——它把文本色向底色混合，浅色壳底上实测 4.05:1，**低于本仓库既有的
- *    「正文 4.5:1 线」**（该线由卡体正文对框线/正文分取值的登记确立，
- *    并已用于把 `${color}dd` 判为不可读）。去掉 alpha 后浅色 4.74:1、暗色 7.46:1。
- *
- *    本用例**复算对比度**，而不是只断言 CSS 字符串：断言字符串无法发现「换一个
- *    同样带 alpha 的写法」，而复算能。色值从 index.css 的 token 读出，避免两边漂移。
- *
- * ② 行宽：原对行文元素取 40em，**已由 Human 裁定 2026-09-22 撤销**（选择器挂在六类
- *    阅读面共用的壳上、且对短字段只产生留白）。现行纪律是「不设行宽上限」，并留有
- *    反回退守卫；表格与代码块始终是滚动容器，不涉本项。
- */
 function relativeLuminance([r, g, b]: number[]): number {
   const channel = (value: number) => {
     const c = value / 255;
@@ -459,7 +325,6 @@ function contrastRatio(fg: number[], bg: number[]): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** 从 index.css 的 `--name: r g b` 读 token（浅色取 :root，暗色取 :root.dark）。 */
 function readToken(styles: string, name: string, dark: boolean): number[] {
   const scope = dark ? styles.slice(styles.indexOf(':root.dark')) : styles;
   const match = new RegExp(`--${name}:\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)`).exec(scope);
@@ -470,11 +335,9 @@ function readToken(styles: string, name: string, dark: boolean): number[] {
 test('阅读节点的正文取色达到 4.5:1 —— 两个主题都复算，不只断言写法', () => {
   const styles = read('src/index.css');
 
-  // 壳底 = --ldvh-bg 的 40% 叠在 --ldvh-panel（卡片底）上，与 .ldvh-research-node-content 一致。
   const blend = (fg: number[], bg: number[], alpha: number) =>
     fg.map((channel, index) => channel * alpha + bg[index] * (1 - alpha));
 
-  // 规则本身不得带 alpha——alpha 会把文本色拉向底色，是本次缺陷的成因。
   assert.match(
     styles,
     /\.ldvh-research-node-content \.ldvh-inline-markdown\s*\{\s*color:\s*rgb\(var\(--ldvh-text-secondary\)\);/,
@@ -498,12 +361,6 @@ test('阅读节点的正文取色达到 4.5:1 —— 两个主题都复算，不
 test('阅读节点的 H3 标题须与正文可区分，且两个主题都达 4.5:1（Human 裁定 2026-09-22）', () => {
   const styles = read('src/index.css');
 
-  // 21 §8 的 H3 骨架（bf9b37b）让摘要**结构上**分节；若标题与正文同色，则
-  // **视觉上**仍未分层——读者看到的是一行行同色文字，分节收益被抵消。本用例守住
-  // 「已登记的结构在呈现层真的可见」这一环。
-  //
-  // 与正文取色那条同款：**复算对比度**而非只断言 CSS 字符串——断言字符串发现不了
-  // 「换一个同样够淡的颜色」。
   const headingRule =
     /\.ldvh-research-node-content \.ldvh-inline-markdown :where\(h2, h3, h4, h5, h6\)\s*\{([^}]*)\}/;
   const rule = headingRule.exec(styles);
@@ -517,15 +374,12 @@ test('阅读节点的 H3 标题须与正文可区分，且两个主题都达 4.5
   const bodyToken = bodyRule.exec(styles);
   assert.ok(bodyToken, '阅读节点须有正文取色规则');
 
-  // ① 可区分：标题令牌不得与正文相同（同色即「视觉上没分层」）。
   assert.notEqual(
     colorMatch[1],
     bodyToken![1],
     `H3 标题取色不得与正文相同（二者同为 --${colorMatch[1]} 时读者看不出层级）`,
   );
 
-  // ② 达线：两个主题下标题对壳底的对比度都须 ≥ 4.5:1。
-  //    这条守的是「不许为了好看而牺牲可读性」——accent 在浅色下仅 3.58:1，会被本项拒绝。
   const blend = (fg: number[], bg: number[], alpha: number) =>
     fg.map((channel, index) => channel * alpha + bg[index] * (1 - alpha));
   for (const dark of [false, true]) {
@@ -542,48 +396,21 @@ test('阅读节点的 H3 标题须与正文可区分，且两个主题都达 4.5
 test('阅读节点不设行宽上限 —— 撤销 40em 的反回退守卫', () => {
   const styles = read('src/index.css');
 
-  // Human 裁定 2026-09-22 撤销原 40em 行宽规则。撤销理由（实测）：
-  //   ① 选择器挂在六类阅读面**共用**的壳上（ADR/Pitfall/Spark/Research/Friction/Norm
-  //      与全部类型走它），而动机只是长摘要——等于给所有类型一并收窄；
-  //   ② 壳内文本列约 792px，40em ≈ 560px，右侧留出约 29% 空白；阅读节点里大多是
-  //      短字段，收窄不产生可读性收益，留白本身反成视觉缺陷。
-  // 「舒适行宽」是连续长文的经验值，不能不加区分地施加到任意字段上。
   assert.doesNotMatch(
     styles,
     /\.ldvh-research-node-content \.ldvh-inline-markdown :where\([^)]*\)\s*\{\s*max-width:\s*\d+(?:\.\d+)?em;/,
     '阅读节点不得对行文元素设行宽上限（Human 裁定 2026-09-22 已撤销 40em）',
   );
 
-  // 紧随其后的**取色**规则不受本次撤销影响：正文仍须达 4.5:1（见下方对比度用例）。
   assert.match(
     styles,
     /\.ldvh-research-node-content \.ldvh-inline-markdown \{\s*color: rgb\(var\(--ldvh-text-secondary\)\);/,
     '撤销行宽不应波及取色规则——正文取色须保持无 alpha',
   );
 
-  // 表格与代码块仍是滚动容器（与本项无关的既有形态，保留断言防被顺手改动）。
   assert.match(styles, /\.ldvh-inline-markdown :where\(table\)\s*\{\s*display: block;\s*max-width: 100%;\s*overflow-x: auto;/);
 });
 
-/**
- * chip 不得与显式字体族同行出现——全站 chip 一律继承 `:root` 的无衬线栈。
- *
- * 为什么设这条守卫：字体族的**显式覆盖**会把一处 chip 从全局栈里摘出去。实测
- * （2026-10-05，插件页面）：`StatusBadge` 与 `PriorityIcon` 带着 `font-sans`
- * （Tailwind 默认 `ui-sans-serif`），而其余 chip 继承 `:root` 的 `-apple-system`——
- * 同一张卡头里「标题 / SG-3 / 1」与状态词是两种字体，字号与盒高却完全一致，
- * 因此肉眼只能看出「说不出的不一样」。这类分歧在**度量上不可见**（fontSize / height /
- * padding / radius 全同），只能靠查 `font-family` 发现。
- *
- * **保证边界（如实登记，含变异实测）**：
- * - 只查「同一行内同时出现 chip 类与字体族类」这一**形态**，不做 CSS 层叠推算——
- *   经由父容器或样式表间接覆盖字体族的情形不在覆盖内；
- * - **换表达手段会逃逸**：改用 inline style（`style={{ fontFamily }}`）时本守卫全绿
- *   （变异 3 实测）——本守卫只具备**形态级**保证，不是「chip 字体必统一」的语义证明；
- * - 计数前剥离注释：注释里的类名是沿革记载而非渲染，不剥离会把「此处曾写 …」一句
- *   判为违规（变异 2 实测，属拒掉诚实输入的反向激励）；
- * - `.tsx`/`.ts` 源码级，不覆盖第三方组件内部的字体设置。
- */
 test('chip 不得与显式字体族同行出现：一律继承 :root 的无衬线栈', () => {
   const walk = (dir: string): string[] => {
     const out: string[] = [];
@@ -594,9 +421,6 @@ test('chip 不得与显式字体族同行出现：一律继承 :root 的无衬�
     }
     return out;
   };
-  // 剥离注释后再判：注释里的类名是**沿革记载**（本仓惯例要求如实保留改动的来龙去脉），
-  // 不是渲染。变异 2 实测：不剥离时一句「此处曾写 ldvh-chip-sm 搭配 font-sans」即被误判——
-  // 拒掉诚实记录属反向激励（docs/12 §2 第 2 项）。
   const stripComments = (source: string): string =>
     source
       .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))

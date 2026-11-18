@@ -1,35 +1,11 @@
-// LDVH specification identity-block parsing, heading resolution, and L0–L4
-// projections.
-//
-// Pure functions over text: no host services, no filesystem, no clock.
-// Semantics authority: specs/01 §6 (identity block contract, elaborated by
-// 01.Att.02 field tables) and 01.Att.03 §4 (L0–L4 disclosure levels).
-// The parser implements the closed-set contract: unknown fields, duplicate
-// YAML keys, unquoted scalar strings, misplaced identity blocks and
-// ambiguous heading paths are rejected — never silently repaired.
-// Algorithmic lineage: the heading-path uniqueness rule and the L0–L2
-// projection shapes are adapted from v4
-// code/ldvh/specs/{identity,markdown,projection}.py; see the P0 implementation
-// plan §2 for the minimal absorption record (that plan was removed with the
-// temporary documentation tree in ec19ba6).
 
 import { createHash } from "node:crypto";
 import { parse as parseYaml } from "yaml";
 
 const SPEC_FIELDS = ["spec_key", "spec_id", "spec_kind", "title", "canonical_path", "parent_spec", "relation", "positioning", "scope", "basis", "authorized_attachments", "supersedes", "related_specs"];
 const ROOT_ONLY_FIELDS = ["authority", "code_consumption"];
-// 01.Att.02 §5: attachments declare exactly key/id/title/path/positioning
-// plus optional supersedes — no attachment_kind, scope, basis, parent_spec,
-// relation, authorized_attachments or related_specs.
 const ATTACHMENT_FIELDS = ["attachment_key", "attachment_id", "title", "canonical_path", "positioning", "supersedes"];
 const RELATION_VALUES = ["refines"];
-/**
- * Responsibility-identifier pattern (01.Att.02 §2 共同值格式). Exported as the
- * SINGLE authority for this format: 27 §13.1 requires Norm's `direction_key` to
- * use this exact closed set and explicitly forbids establishing a second naming
- * rule ("不建立第二套命名规则"), so the Norm writer imports it rather than
- * re-declaring an equivalent regex that could silently drift.
- */
 export const ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SPEC_ID_PATTERN = /^[0-9]{2,}$/;
 const ATTACHMENT_ID_PATTERN = /^[0-9]{2,}\.Att\.[0-9]{2,}$/;
@@ -44,58 +20,25 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.length > 0;
 }
 
-/**
- * Split the fixed-position identity block: the file must open with a YAML
- * frontmatter formation (`---` fence at line 1, closed by a matching `---`)
- * containing the identity mapping (01.Att.02 §1, unified frontmatter form).
- * The first markdown line after the frontmatter must be the single H1.
- * A later ```yaml fence inside the body (an example block) does not form a
- * second identity block and is not rejected. Returns the H1 text, the yaml
- * block text and the 1-based line where the block opens.
- */
-/**
- * Mark the lines that GFM renders as a fenced code block.
- *
- * **Why this exists**（2026-11-02 实测）：本文件的三处遍历都曾在**围栏内**的
- * 字面行上匹配标题。GFM 明文规定围栏内的内容按字面文本渲染，`#` 开头的行
- * 在那里**不是标题**；把示例块里的行当标题会带来两类失真，且都实测发生过：
- *
- *   · 误判为第二个 H1 → 整份规范 `identity/h1_missing`，读不到。
- *     实例：28 号与 29 号在正文骨架示例块里写了 `# 子目标` / `# 开发日志`，
- *     两份规范**完全无法被 `ldvh_read_specification_candidates` 列为候选**。
- *   · 误判为「下一个同级标题」→ L3 精确读取被**静默截断**。
- *     实例：26 号 §8 的示例块里有 `## 现象` / `## 入账依据` / `## 处置` 三行，
- *     解析器据此把 §8 的 endLine 定在示例块之前，读取结果**少了 9 行**，
- *     其中包括整段「字段间不变量」——而调用方看不出少了东西。
- *
- * 围栏本身用 CommonMark 的规则识别：行首至多 3 个空格，`或 ~ 至少连续 3 个；
- * 闭合围栏须同字符、长度不短于开启围栏，且其后只允许空格。未闭合的围栏
- * 延续到文末（CommonMark 的同一规则），因此文末的围栏不会把后续真实标题吞掉
- * ——若真出现未闭合围栏，那是载体本身的缺陷，不是本函数要静默修复的东西。
- *
- * 返回值是**与输入行一一对应**的布尔数组，调用方按同一索引判断。
- */
 function fencedLineMask(lines) {
   const mask = new Array(lines.length).fill(false);
-  let open = null; // { marker: "`" | "~", length: number }
+  let open = null;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
     if (open === null) {
-      // 开启围栏：反引号围栏的 info string 不得再含反引号（CommonMark），
-      // 否则该行是普通文字。这条差异会让 ```foo``` 这类行不被误判为围栏。
       if (match !== null && !(match[1][0] === "`" && match[2].includes("`"))) {
         open = { marker: match[1][0], length: match[1].length };
         mask[index] = true;
       }
       continue;
     }
-    mask[index] = true; // 围栏内的每一行都按字面渲染，包括看似闭合的行
+    mask[index] = true;
     if (match === null) continue;
     const marker = match[1][0];
     if (marker !== open.marker) continue;
     if (match[1].length < open.length) continue;
-    if (match[2].trim() !== "") continue; // 闭合围栏之后只允许空格
+    if (match[2].trim() !== "") continue;
     open = null;
   }
   return mask;
@@ -118,12 +61,6 @@ export function splitIdentityBlock(markdownText) {
   return { ok: true, value: { h1, yamlText, yamlLine: 1, totalLines: lines.length } };
 }
 
-/**
- * Enforce the closed-shape guarantees the `yaml` parser itself cannot
- * express: duplicate top-level keys are rejected, and every top-level field
- * whose value is a scalar (not a sequence, block or flow collection) must be
- * written as a double-quoted YAML string (01.Att.02 §1).
- */
 function assertIdentityShape(yamlText) {
   const seen = new Set();
   for (const line of yamlText.split("\n")) {
@@ -134,8 +71,8 @@ function assertIdentityShape(yamlText) {
     if (seen.has(key)) return reject("identity/duplicate_key", `duplicate top-level key "${key}"`);
     seen.add(key);
     const value = rest.trim();
-    if (value.length === 0) continue; // block sequence / nested mapping opens below
-    if (value.startsWith("[")) continue; // flow sequence: members carry their own quotes
+    if (value.length === 0) continue;
+    if (value.startsWith("[")) continue;
     if (value.startsWith("{")) return reject("identity/field_invalid", `field "${key}" must not use a flow mapping`);
     if (!value.startsWith("\"") || !/"$/.test(value)) return reject("identity/field_invalid", `field "${key}" must use a double-quoted YAML string`);
   }
@@ -152,11 +89,6 @@ function validateStringList(value, field, { allowEmpty }) {
   return { ok: true, value };
 }
 
-/**
- * Parse one identity block (`ldvh_spec` or `ldvh_attachment` mapping) into a
- * projected identity, or reject with a stable code. Field requirements follow
- * 01.Att.02 §3 (root profile), §4 (ordinary spec) and §5 (attachment).
- */
 export function parseIdentityBlock(yamlText) {
   const shapeCheck = assertIdentityShape(yamlText);
   if (!shapeCheck.ok) return shapeCheck;
@@ -224,8 +156,6 @@ export function parseIdentityBlock(yamlText) {
   } else {
     if (!ATTACHMENT_ID_PATTERN.test(identity.specId ?? "")) return reject("identity/field_invalid", "attachment_id must match the attachment-number pattern");
     if (!ATTACHMENT_PATH_PATTERN.test(identity.canonicalPath)) return reject("identity/field_invalid", "canonical_path must match the attachment path format");
-    // 01.Att.02 §5: attachments declare neither scope, basis, parent_spec,
-    // relation, authorized_attachments nor related_specs.
     for (const [field, value] of [["scope", identity.scope], ["basis", identity.basis], ["parent_spec", identity.parentSpec], ["relation", identity.relation], ["authorized_attachments", identity.authorizedAttachments], ["related_specs", identity.relatedSpecs]]) {
       if (value !== undefined) return reject("identity/unknown_field", `attachments do not declare ${field}`);
     }
@@ -233,13 +163,10 @@ export function parseIdentityBlock(yamlText) {
   if (kind === "ldvh_spec") {
     const parentSpec = identity.parentSpec ?? "";
     const relation = identity.relation ?? "";
-    if (parentSpec === "" && relation === "") {
-      // no structural parent: valid for the root spec and parent-less specs
-    } else if (parentSpec !== "" && relation !== "") {
+    if (parentSpec !== "" || relation !== "") {
+      if (parentSpec === "" || relation === "") return reject("identity/field_invalid", "parent_spec and relation must both be empty or both non-empty");
       if (!RELATION_VALUES.includes(relation)) return reject("identity/field_invalid", `relation "${relation}" is outside the closed set`);
       if (parentSpec === identity.responsibilityKey) return reject("identity/field_invalid", "parent_spec must not point at the document itself");
-    } else {
-      return reject("identity/field_invalid", "parent_spec and relation must both be empty or both non-empty");
     }
     if (parentSpec !== "" && !ID_PATTERN.test(parentSpec)) return reject("identity/field_invalid", "parent_spec must be a responsibility identifier or empty");
     const basisCheck = identity.basis === undefined ? { ok: true, value: [] } : validateStringList(identity.basis, "basis", { allowEmpty: true });
@@ -253,8 +180,6 @@ export function parseIdentityBlock(yamlText) {
   }
   const supersedesCheck = identity.supersedes === undefined ? { ok: true } : validateStringList(identity.supersedes, "supersedes", { allowEmpty: false });
   if (!supersedesCheck.ok) return supersedesCheck;
-  // 01.Att.02 §3 table: root related_specs is 必填; allows empty list; regular
-  // specs: optional; if present must be non-empty (规范 §3: "可选；若出现必须非空").
   const relatedAllowEmpty = isRoot;
   const relatedCheck = identity.relatedSpecs === undefined ? { ok: true } : validateStringList(identity.relatedSpecs, "related_specs", { allowEmpty: relatedAllowEmpty });
   if (!relatedCheck.ok) return relatedCheck;
@@ -264,12 +189,6 @@ export function parseIdentityBlock(yamlText) {
   return { ok: true, value: identity };
 }
 
-/**
- * Parse a full specification/attachment document: split the identity block,
- * parse it, and cross-check the H1 against the identity title plus the
- * canonical path against the requested repo-relative path (01.Att.02 §1:
- * title, file name and identity must match verbatim).
- */
 export function parseSpecDocument(markdownText, actualPath) {
   const split = splitIdentityBlock(markdownText);
   if (!split.ok) return split;
@@ -280,11 +199,9 @@ export function parseSpecDocument(markdownText, actualPath) {
   return { ok: true, value: { identity: identity.value, h1: split.value.h1, markdownText, totalLines: split.value.totalLines } };
 }
 
-/** Extract `##`/`###` headings with 1-based line numbers, verbatim text. */
 export function extractHeadings(markdownText) {
   const headings = [];
   const lines = markdownText.split("\n");
-  // 围栏内的行按 GFM 是字面文本，不是标题——见 fencedLineMask 的说明。
   const fenced = fencedLineMask(lines);
   for (let index = 0; index < lines.length; index += 1) {
     if (fenced[index]) continue;
@@ -295,13 +212,6 @@ export function extractHeadings(markdownText) {
   return headings;
 }
 
-/**
- * Resolve an exact H2 or H2/H3 heading path (01 §10.3). The path must be
- * unique within one carrier: duplicates or ambiguity reject instead of
- * picking the first match. Returns 1-based inclusive start/end lines; the
- * section runs from the heading line to the line before the next same-or-
- * higher level heading (file end when none follows).
- */
 export function resolveHeadingPath(markdownText, headingPath) {
   if (typeof headingPath !== "string" || headingPath.length === 0) return reject("content/heading_path_invalid", "heading_path must be a non-empty string");
   const segments = headingPath.split("/").map((segment) => segment.trim());
@@ -325,32 +235,10 @@ export function resolveHeadingPath(markdownText, headingPath) {
   return { ok: true, value: { startLine: h3Matches[0].line, endLine: sectionEnd(h3Matches[0]) } };
 }
 
-/** sha256 hex digest of the exact text — the content fingerprint anchor. */
 export function contentFingerprint(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-/**
- * Parse the public-operation declaration table of a specification carrier.
- *
- * Authority: specs/05 §6.1. The table shape is fixed:
- *
- *   | operation_key | summary | effect | arguments_contract | result_contract |
- *
- * and each contract cell MUST be `<spec_key 或 attachment_key>::<精确标题文本>`
- * whose heading text is a mechanically addressable `H2` or `H2/H3` path. 05
- * §6.1 makes parsing MANDATORY for the discovery entry:
- *
- *   能力发现入口必须实际解析来源声明并据其结果填充分类，不得以常量或假设值
- *   代替解析结果
- *
- * so this returns the parsed rows plus, per row, any contract anchor that does
- * NOT resolve. A non-resolving anchor means the operation is not validly
- * declared ("解析失败…等于未声明").
- *
- * @returns Map<operation_key, row> with a non-enumerable `reason` property
- *          describing why the map is empty when no table was found.
- */
 export function parseOperationDeclarations(specText, resolveAnchor) {
   const rows = new Map();
   if (typeof specText !== "string" || specText.length === 0) {
@@ -359,9 +247,6 @@ export function parseOperationDeclarations(specText, resolveAnchor) {
   }
   const lines = specText.split("\n");
   const header = /^\|\s*operation_key\s*\|\s*summary\s*\|\s*effect\s*\|\s*arguments_contract\s*\|\s*result_contract\s*\|\s*$/;
-  // A source may carry MORE THAN ONE declaration table (e.g. 05 §6.1 holds the
-  // shape template first and 05's own operation declarations second). Collect
-  // every table rather than stopping at the first hit.
   const tableStarts = [];
   for (let i = 0; i < lines.length; i += 1) {
     if (header.test(lines[i].trim())) tableStarts.push(i + 2);
@@ -374,17 +259,11 @@ export function parseOperationDeclarations(specText, resolveAnchor) {
   for (let i = start; i < lines.length; i += 1) {
     const line = lines[i].trim();
     if (!line.startsWith("|")) break;
-    // Cells may be code-formatted (`value`); strip one layer of backticks so
-    // the closed-set and anchor checks compare the literal text, not markup.
     const cells = line.split("|").slice(1, -1).map((cell) => cell.trim().replace(/^`(.*)`$/s, "$1").trim());
     if (cells.length < 5) continue;
     const [operationKey, summary, effect, argumentsContract, resultContract] = cells;
     if (operationKey === "" || /^-+$/.test(operationKey)) continue;
-    // 05 §6.1: the shape table uses `<...>` placeholders and is explicitly NOT
-    // a declaration. Skip placeholder rows so a template is never mistaken for
-    // a real operation (and never becomes a phantom "declared" entry).
     if (operationKey.startsWith("<")) continue;
-    // 05 §6.1: effect is a closed set.
     const effectValid = effect === "read" || effect === "may_change_state";
     const anchorErrors = [];
     if (!effectValid) anchorErrors.push(`effect "${effect}" is outside the closed set (read|may_change_state)`);
@@ -407,12 +286,6 @@ export function parseOperationDeclarations(specText, resolveAnchor) {
   return rows;
 }
 
-/**
- * Project an identity to a disclosure layer (01.Att.03 §4). Each layer adds
- * content on top of the previous one; the projection never claims validity
- * beyond disclosure depth. Optional relation fields are omitted when absent.
- * Attachments project without the spec-only fields.
- */
 export function projectLayer(identity, layer, sectionOutline) {
   const l0 = {
     layer: "L0",

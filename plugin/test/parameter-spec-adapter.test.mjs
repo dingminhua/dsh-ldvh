@@ -3,10 +3,6 @@ import assert from "node:assert/strict";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { droppedConstraints, takeDroppedKeywords, toParameterSpec } from "../lib/parameter-spec-adapter.js";
 
-// ---------------------------------------------------------------------------
-// 适配器把既有 JSON Schema 参数表转成宿主 defineTool 的 schema DSL
-// （spark-5b0b380e：裸描述符注册时参数表从未被校验）
-// ---------------------------------------------------------------------------
 
 function buildTool(parameters) {
   return defineTool({
@@ -18,7 +14,6 @@ function buildTool(parameters) {
   });
 }
 
-/** Run the tool, returning the host violation text or null when accepted. */
 async function verdict(tool, args) {
   try {
     await tool.execute(args, {});
@@ -67,7 +62,6 @@ test("enum 与类型被强制", async () => {
 });
 
 test("items[].required 不被静默丢弃（数组项必填仍生效）", async () => {
-  // 回归护栏：适配器曾给 items 传空集，导致 relations 缺 target 也放行（审核实测反例）。
   const tool = buildTool(toParameterSpec({
     type: "object",
     properties: {
@@ -101,8 +95,6 @@ test("oneOf 分支的 required 不被静默丢弃", async () => {
       },
     },
   }));
-  // 宿主的 oneOf 报错文案是「must match exactly one oneOf branch (matched 0)」，
-  // 不点名具体缺哪个键——故断言只钉「被拒」，不钉文案形态。
   assert.match(await verdict(tool, { attribution_ref: {} }), /attribution_ref.*oneOf/);
   assert.equal(await verdict(tool, { attribution_ref: { object_uid: "u" } }), null);
 });
@@ -134,7 +126,6 @@ test("frontmatter_after 补 Code 托管字段，保住「读出再改回去」�
   for (const managed of ["object_uid", "fact_type_key", "created_at", "change_log"]) {
     assert.ok(fields.includes(managed), `${managed} must be declarable on frontmatter_after`);
   }
-  // 未声明的普通字段仍应被拒——补声明不等于把对象变开放。
   assert.match(
     await verdict(buildTool(spec), { frontmatter_after: { title: "t", bogus: 1 } }),
     /frontmatter_after\.bogus/,
@@ -150,7 +141,7 @@ test("被丢弃的约束可被枚举，不是静默消失", async () => {
 });
 
 test("适配过程实际丢弃的关键字可被读取（不只是可选复查）", async () => {
-  takeDroppedKeywords(); // 清空历史
+  takeDroppedKeywords();
   toParameterSpec({
     type: "object",
     properties: {
@@ -158,7 +149,6 @@ test("适配过程实际丢弃的关键字可被读取（不只是可选复查�
       refs: { type: "array", maxItems: 10, items: { type: "object", properties: { a: { type: "string", pattern: "^x" } } } },
     },
   });
-  // 这是机制的承载：丢弃发生在 toSpecNode 内部并就地记录，不依赖调用方另走一遍。
   assert.deepEqual(
     takeDroppedKeywords().sort(),
     ["limit.minimum", "refs.items.a.pattern", "refs.maxItems"],

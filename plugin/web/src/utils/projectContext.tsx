@@ -14,7 +14,6 @@ type ProjectScopeContextValue = {
   loading: boolean;
   error: string | null;
   selectProject: (projectId: string, worktreePath?: string) => void;
-  /** Internal post-save synchronization; not exposed as a UI refresh action. */
   reloadProjects: () => void;
 };
 
@@ -32,7 +31,6 @@ function readStoredWorktreePath(): string {
   try { return localStorage.getItem(WORKTREE_STORAGE_KEY) ?? ''; } catch { return ''; }
 }
 
-/** 本次文档载入带来的会话项目参数；缺失或不可读回空串（不猜测）。 */
 function readUrlProjectId(): string {
   try {
     return new URLSearchParams(window.location.search).get(PROJECT_URL_PARAM) ?? '';
@@ -48,9 +46,6 @@ export function ProjectScopeProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  // 会话参数只在**首个**成功的项目载入上生效，之后由 ref 记账（不用 state：
-  // 它在 .then 内翻转，若进 effect 依赖会多触发一次载入）。此后的刷新
-  // （reloadProjects）不得再拿它压过用户刚在切换器里手选的项目。
   const urlSeedPending = useRef(true);
 
   useEffect(() => {
@@ -63,8 +58,6 @@ export function ProjectScopeProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const nextProjects = result.projects ?? [];
         setProjects(nextProjects);
-        // 会话参数只在首个载入读取（此后不得压过用户手选），命中判定与回退次序
-        // 收在 resolveInitialProjectId 里——那里是无 DOM 可测的纯函数。
         const seededId = urlSeedPending.current ? readUrlProjectId() : '';
         urlSeedPending.current = false;
         setSelectedProjectId((current) => {
@@ -110,7 +103,7 @@ export function ProjectScopeProvider({ children }: { children: ReactNode }) {
       if (nextWorktreePath) localStorage.setItem(WORKTREE_STORAGE_KEY, nextWorktreePath);
       else localStorage.removeItem(WORKTREE_STORAGE_KEY);
     } catch {
-      // The in-memory selection remains usable when storage is unavailable.
+      void 0;
     }
   }, [projects]);
 
@@ -125,9 +118,6 @@ export function ProjectScopeProvider({ children }: { children: ReactNode }) {
     [selectedProject, selectedWorktreePath],
   );
 
-  // Keep the api client's project id in sync with the selection, synchronously during
-  // render so children's mount-time fetches already carry the correct id. Idempotent
-  // external-store sync (not React state), safe under StrictMode double-render.
   setCurrentProjectScope(selectedProjectId, selectedWorktreePath);
 
   return (

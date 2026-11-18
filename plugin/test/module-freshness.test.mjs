@@ -1,9 +1,3 @@
-// `plugin/lib` 全量陈旧检测的契约测试（计划步骤 4）。
-//
-// 钉住四件事：①全量清单覆盖目录下全部 .js 且排除自身；②precheck 专用子集仍是
-// 原样 2 个文件（扩面不得连带改变预检行为）；③五种情形（一致／单文件改动／新增
-// 文件／删除文件／文件不可读）各有确定结果；④结论不参与判定——`detectStaleValidatorModules`
-// 的既有语义未被改动。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -29,15 +23,11 @@ function withTempDir(fn) {
   }
 }
 
-/** 把文件 mtime 设为指定毫秒。 */
 function setMtime(file, ms) {
   const sec = ms / 1000;
   utimesSync(file, sec, sec);
 }
 
-// ---------------------------------------------------------------------------
-// 1. 清单覆盖面
-// ---------------------------------------------------------------------------
 
 test("listLibraryModuleFiles 覆盖目录下全部 .js，且排除本模块自身", () => {
   const files = listLibraryModuleFiles();
@@ -50,7 +40,6 @@ test("listLibraryModuleFiles 覆盖目录下全部 .js，且排除本模块自�
     !files.some((file) => file.endsWith("/module-freshness.js")),
     "本模块自身必须排除：它陈旧时判据仍成立，算进去会在每次改它后自我误报",
   );
-  // 路径不得出现重复分隔符（曾因 URL 尾斜杠拼出 lib//x.js 导致自身排除失效）
   assert.ok(
     files.every((file) => !file.includes("//")),
     "路径必须规范化：出现 // 会让自身排除与去重失效",
@@ -62,37 +51,24 @@ test("清单是运行时枚举而非写死：临时目录新增文件会被收�
     writeFileSync(join(dir, "a.js"), "// a\n");
     writeFileSync(join(dir, "b.js"), "// b\n");
     writeFileSync(join(dir, "readme.md"), "not js\n");
-    // 用 basename 而非按 '/' 切分：listLibraryModuleFiles 返回绝对路径，
-    // Windows 上是 'C:\...\a.js'，按 '/' 切分整串当作文件名（跨平台）。
     const files = listLibraryModuleFiles(dir).map((f) => basename(f)).sort();
     assert.deepEqual(files, ["a.js", "b.js"]);
   });
 });
 
-// ---------------------------------------------------------------------------
-// 2. precheck 专用子集不得被扩面连带改变
-// ---------------------------------------------------------------------------
 
 test("VALIDATOR_MODULE_FILES 覆盖全部影响 precheck 结论的模块（扩面不得改变预检行为）", () => {
-  // 09 §5.3 item 8 接入后，spec-registry 的 extractHeadings 参与 AGENTS 指针判定，
-  // 必须一并纳入陈旧检测，否则该文件陈旧会用旧解析器判新候选而不被察觉。
   assert.equal(VALIDATOR_MODULE_FILES.length, 3);
-  // 按 basename 比较，不用 endsWith("/...")：Windows 路径分隔符是 '\'（跨平台）。
   assert.ok(VALIDATOR_MODULE_FILES.some((f) => basename(f) === "commit-validation.js"));
   assert.ok(VALIDATOR_MODULE_FILES.some((f) => basename(f) === "ldvh-tools.js"));
   assert.ok(VALIDATOR_MODULE_FILES.some((f) => basename(f) === "spec-registry.js"));
 });
 
 test("detectStaleValidatorModules 默认只检 VALIDATOR_MODULE_FILES 集合", () => {
-  // timeOriginMs 显式给出：不注入时函数会读真实的 performance.timeOrigin，
-  // 与 nowMs/uptimeSec 这组假��钟不一致，用例就成了不确定的。
   const report = detectStaleValidatorModules({ clock: { nowMs: 1_000_000, uptimeSec: 0, timeOriginMs: 1_000_000 } });
   assert.equal(report.checked, VALIDATOR_MODULE_FILES.length);
 });
 
-// ---------------------------------------------------------------------------
-// 3. 五种情形
-// ---------------------------------------------------------------------------
 
 test("情形一：全部一致（mtime 早于进程启动）→ 无陈旧", () => {
   withTempDir((dir) => {
@@ -158,9 +134,6 @@ test("情形五：文件不可读 → 记进 unreadable，不当作陈旧", () =
   assert.equal(report.checked, 2);
 });
 
-// ---------------------------------------------------------------------------
-// 4. 判据边界（不得读作更强的保证）
-// ---------------------------------------------------------------------------
 
 test("mtime 未变的情形检不出——这是已声明的盲区，不是缺陷", () => {
   const report = detectStaleModules({
@@ -181,42 +154,29 @@ test("mtime 与进程启动同毫秒时按未陈旧处理（宁可漏报一次�
 });
 
 test("全量检测报告带 start_ms 与 library_dir，便于调用方如实披露", () => {
-  // uptime 反推 = 10_000_000 - 100_000 = 9_900_000；timeOrigin 显式对齐到同一值。
   const report = detectStaleLibraryModules({ clock: { nowMs: 10_000_000, uptimeSec: 100, timeOriginMs: 9_900_000 } });
   assert.equal(report.start_ms, 9_900_000);
   assert.ok(typeof report.library_dir === "string" && report.library_dir.endsWith("lib"));
 });
 
 test("复现 2026-11-15 的假陈旧：uptime 反推偏早 83 分钟时，新模块不得被判陈旧", () => {
-  // 这条钉住的是**后果**，不只是 processStartMs 的取值。实测形态：宿主 ps 启动于
-  // 04:49:34，uptime 反推报 03:26:42（早 4972 秒），于是重启后刚加载的模块
-  // （mtime 04:15）全部被判成陈旧——而这个工具的全部意义就是回答「我改的代码
-  // 进运行实例了吗」，恒报陈旧等于再也回答不了。
   const realStart = 1_000_000_000;
-  const skewMs = 4972 * 1000;           // 83 分钟，实测偏移
-  const nowMs = realStart + 300_000;    // 进程已跑 5 分钟
-  // 真实形态：**重启之后**磁盘上的模块都是重启前就有的版本，故 mtime < 启动时刻。
-  // 误判的来源是反推值偏早到把「启动之前」也划进了「mtime 晚于它」。
-  const moduleMtime = realStart - 10_000;  // 模块在启动前 10 秒定稿（= 已被加载的新代码）
+  const skewMs = 4972 * 1000;
+  const nowMs = realStart + 300_000;
+  const moduleMtime = realStart - 10_000;
 
-  // 修复前：只用 uptime 反推。实测形态是反推值**偏早** skewMs，即
-  // `now - uptime` 比真实启动早 83 分钟。用 uptimeSec 把这个偏差摆出来：
-  //   想要反推值 = realStart - skew，则 uptime = (now - (realStart - skew)) / 1000
   const skewedUptime = (nowMs - (realStart - skewMs)) / 1000;
   const broken = processStartMs({ nowMs, uptimeSec: skewedUptime, timeOriginMs: null });
   assert.equal(broken, realStart - skewMs, "夹具须真的复现「反推值偏早」");
   assert.ok(moduleMtime > broken,
     "夹具须能复现「mtime 晚于反推值」这个误判前提：反推值偏早到把启动前的模块也判成陈旧");
 
-  // 修复后：timeOrigin 给出真实启动 → mtime 早于它 → 不陈旧
   const fixed = processStartMs({ nowMs, uptimeSec: 300 + 4972, timeOriginMs: realStart });
   assert.equal(fixed, realStart, "须取到真实启动时刻");
   assert.ok(moduleMtime < fixed, "启动后改过的模块不得被判陈旧");
 });
 
 test("processStartMs 优先信任 timeOrigin（uptime 反推只在它缺失时兜底）", () => {
-  // 2026-11-15 实测的假陈旧：uptime 反推把宿主启动时刻报早了 83 分钟，导致
-  // 重启后刚加载的新模块被全部判成陈旧。timeOrigin 是运行时权威值，优先它。
   assert.equal(processStartMs({ nowMs: 10_000, uptimeSec: 3, timeOriginMs: 9_500 }), 9_500,
     "两源都在时取较晚者");
   assert.equal(processStartMs({ nowMs: 10_000, uptimeSec: 3, timeOriginMs: 6_000 }), 7_000,

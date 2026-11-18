@@ -1,11 +1,3 @@
-// tests for plugin/lib/precheck-record.js — 双源召回系统的机械承载切片
-//
-// 权威：specs/34 §8/§10/§12/§14；specs/03 §7.2（公共格式唯一权威）；
-// specs/10 §7.7（ldvh/ 域承载，不硬编码路径）。
-//
-// 本文件守的是**形态**这一层：必需段齐备与否、落盘与回读一致与否、结论三态是否
-// 落在闭集内。它**不**、也不能证明「规则被遵守」——34 §14 末段明文如此，故本文件
-// 不含任何把格式合规读成已遵守的断言。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -74,7 +66,6 @@ import {
 	carrierStatus,
 } from "../lib/precheck-record.js";
 
-/** 一份满足 03 §7.2 四段必需项的最小输入。 */
 const COMPLETE_FIELDS = {
 	effective: "specs/34（L3 §8）、ldvh-base/norms/norm-0b08523c（active）",
 	applicable: "34 §8.3 约束落实三判据；21 §6.1 plan 边界",
@@ -82,9 +73,6 @@ const COMPLETE_FIELDS = {
 	unverified: "specs/07 Web 呈现层未核对",
 };
 
-// ---------------------------------------------------------------------------
-// 段闭集
-// ---------------------------------------------------------------------------
 
 test("REQUIRED_SECTIONS 恰为 03 §7.2 中不带「如」的四段", () => {
 	assert.deepEqual(
@@ -100,9 +88,6 @@ test("CONDITIONAL_SECTIONS 恰为 03 §7.2 中带「如」的两段（条件段�
 	);
 });
 
-// ---------------------------------------------------------------------------
-// render：必需段缺失即拒绝（34 §17 第 2 项：禁止为凑段填无内容结论）
-// ---------------------------------------------------------------------------
 
 test("render：四段全齐时产出 §7.2 形态，段名逐字对应", () => {
 	const result = renderPrecheckRecord(COMPLETE_FIELDS);
@@ -112,7 +97,6 @@ test("render：四段全齐时产出 §7.2 形态，段名逐字对应", () => {
 		assert.match(result.text, new RegExp(`^- ${section.label}：`, "m"), `缺段名 ${section.label}`);
 	}
 	assert.match(result.text, new RegExp(`^- ${RECALLED_LABEL}：`, "m"));
-	// 段序即 03 §7.2 的顺序：生效 → 适用 → 行动允许 → 已召回 → 未验证范围
 	const order = ["生效规则", "适用规则", "行动允许", "已召回", "未验证范围"]
 		.map((label) => result.text.indexOf(`- ${label}：`));
 	assert.deepEqual([...order].sort((a, b) => a - b), order, "段序须与 03 §7.2 一致");
@@ -152,14 +136,9 @@ test("render：非对象入参拒绝", () => {
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 「已召回」单级结构（03 §7.2：Pitfall 一行，未触发须标记）
-// ---------------------------------------------------------------------------
 
 test("recalled：未传时如实留「未声明」并带出理由，不冒充「未触发」（03 §7.2 末句）", () => {
 	const result = renderPrecheckRecord(COMPLETE_FIELDS);
-	// 修正（首版错误）：缺省只说明调用方没说，不说明召回时机未成立。
-	// 把未知写成「未触发」正是 §7.2 要防的「把没查的写成查过了」。
 	assert.match(result.text, /^ {2}- Pitfall：未声明$/m);
 	assert.match(result.recallDeclarationGap, /未给出「已召回」区/);
 });
@@ -178,9 +157,6 @@ test("recalled：单串内容直接落在 Pitfall 行，不猜不拆", () => {
 	assert.match(result.text, /^ {2}- Pitfall：已核对全部召回类型$/m);
 });
 
-// ---------------------------------------------------------------------------
-// 条件段：未传则不出现（不凑空句）
-// ---------------------------------------------------------------------------
 
 test("条件段未传时不出现在记录里", () => {
 	const result = renderPrecheckRecord(COMPLETE_FIELDS);
@@ -200,9 +176,6 @@ test("条件段传入时按 §7.2 位置呈现（在未验证范围之后）", (
 	assert.ok(fastAt > unverifiedAt && escalateAt > fastAt, "条件段须排在未验证范围之后");
 });
 
-// ---------------------------------------------------------------------------
-// checkRecordShape：只判段齐备，不判取值（34 §14「不证明取值正确」）
-// ---------------------------------------------------------------------------
 
 test("checkRecordShape：完整记录判为 complete", () => {
 	const { text } = renderPrecheckRecord(COMPLETE_FIELDS);
@@ -233,9 +206,6 @@ test("checkRecordShape：空入参拒绝", () => {
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 逐项结论三态（34 §12：不得合并为「已遵守」）
-// ---------------------------------------------------------------------------
 
 test("FINDING_STATES 恰为 34 §12 的三态", () => {
 	assert.deepEqual([...FINDING_STATES], ["落实", "已识别未落实", "未识别"]);
@@ -274,9 +244,6 @@ test("checkFindingStates：非数组拒绝", () => {
 	assert.equal(result.error.code, "invalid_request");
 });
 
-// ---------------------------------------------------------------------------
-// 复用条件（03 §7.3：三条全部满足才可直接复用）
-// ---------------------------------------------------------------------------
 
 test("REUSE_CONDITIONS 恰为 03 §7.3 的三条，且标明哪条机械可核", () => {
 	assert.deepEqual(
@@ -415,9 +382,6 @@ test("evaluateReuse：缺 sessionId 即拒绝（无法判定是否同一会话�
 	}
 });
 
-// ---------------------------------------------------------------------------
-// fingerprintCarriers：真实读盘算指纹，不给调用方自证的机会
-// ---------------------------------------------------------------------------
 
 test("fingerprintCarriers：读真实文件算 SHA-256，与 recordFingerprint 同源", async () => {
 	const root = await mkdtemp(join(tmpdir(), "ldvh-carriers-"));
@@ -460,7 +424,6 @@ test("fingerprintCarriers → evaluateReuse：内容真变了就判不可复用�
 		const file = join(root, "spec.md");
 		await writeFile(file, "第一版", "utf8");
 		const atRecordTime = await fingerprintCarriers(root, ["spec.md"]);
-		// 记录之后载体被改
 		await writeFile(file, "第二版", "utf8");
 		const now = await fingerprintCarriers(root, [
 			{ path: "spec.md", baseline: atRecordTime.carriers[0].current },
@@ -520,9 +483,6 @@ test("fingerprintCarriers：缺 root、carriers 非数组、条目缺 path 均�
 	assert.equal((await fingerprintCarriers("/x", [{}])).error.code, "invalid_request");
 });
 
-// ---------------------------------------------------------------------------
-// 偏离登记（34 §9.1 形态闭集 / §9.2 发现即登记 / §9.3 不追溯为已遵守）
-// ---------------------------------------------------------------------------
 
 const DEVIATION_OK = {
 	form: "已识别未落实偏离",
@@ -596,7 +556,6 @@ test("evaluateDeviation：时间戳不可解析即拒绝", () => {
 	assert.equal(result.error.code, "deviation/timestamp_invalid");
 });
 
-// §9.3：补做识别不得覆盖已发生的偏离
 
 test("checkRetroactiveCoverage：非补做（无 backfilledAt）不受此判据约束", () => {
 	const result = checkRetroactiveCoverage({ actionAt: "2026-10-23T10:00:00+08:00" });
@@ -634,9 +593,6 @@ test("checkRetroactiveCoverage：actionAt 缺失或不可解析即拒绝", () =>
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 承载：交还文本，不落盘（34 §17 第 3 项禁专属存储 / §10 不要求写入事实源）
-// ---------------------------------------------------------------------------
 
 test("carrierStatus：如实报告未建 Output Envelope 载体，不声称已建成", () => {
 	const status = carrierStatus();
@@ -669,9 +625,6 @@ test("本模块不导出任何写盘入口（§17 第 3 项：不得建专属存
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 约束落实三判据（34 §8.3，本系统核心判据）
-// ---------------------------------------------------------------------------
 
 const SETTLED_FINDING = {
 	statement: "34 §17 第 3 项禁专属存储",
@@ -794,9 +747,6 @@ test("summarizeApplications：非数组拒绝", () => {
 	assert.equal(summarizeApplications("已遵守").error.code, "invalid_request");
 });
 
-// ---------------------------------------------------------------------------
-// 风险路由（34 §11 环节级声明 / 03 §6.1 三层 / §6.2 快通道五要素）
-// ---------------------------------------------------------------------------
 
 test("RISK_TIERS 恰为 03 §6.1 的三层（34 §17 第 4 项禁增设中间层）", () => {
 	assert.deepEqual([...RISK_TIERS], ["快通道", "标准路径", "加固路径"]);
@@ -891,9 +841,6 @@ test("checkFastPathDeclaration：不得声明免除三段判断（03 §6.2 第 3
 	assert.equal(result.error.code, "fastpath/waives_three_way");
 });
 
-// ---------------------------------------------------------------------------
-// 进入判定（34 §6）与失败分流 / 停止位置（34 §8）
-// ---------------------------------------------------------------------------
 
 test("ENTRY_SIGNALS 恰为 34 §6 列出的四种情形", () => {
 	assert.equal(ENTRY_SIGNALS.length, 4);
@@ -946,8 +893,6 @@ test("checkEntry：无信号且未声明不明时给「未命中」而非「已�
 });
 
 test("FAILURE_ROUTES 恰为 34 §8 的四条失败分流", () => {
-	// 措辞取 34 §8「失败分流」原文逐字（2026-10-23 修正：原写「三段判断不成立」，
-	// 原文是「三段判断任一项不成立 → 按其性质分流」）。
 	assert.deepEqual(
 		[...FAILURE_ROUTES],
 		["识别失败", "三段判断任一项不成立", "落实未发生", "偏离已发生"],
@@ -982,9 +927,6 @@ test("routeFailure：未知去向拒绝", () => {
 	assert.equal(result.error.code, "failure/route_unknown");
 });
 
-// ---------------------------------------------------------------------------
-// 横切合并且不替代（34 §11 / §16.1 第 6 项必停）
-// ---------------------------------------------------------------------------
 
 test("checkTransverseMerge：两套都执行才构成通过", () => {
 	const result = checkTransverseMerge({
@@ -1033,9 +975,6 @@ test("checkTransverseMerge：缺 systemKey 即拒绝（不知在哪个系统内�
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 未识别缺口的登记（34 §14 该行：不得以「已尽力」替代）
-// ---------------------------------------------------------------------------
 
 test("GAP_FIELDS 恰为 §14 缺口清单核对要求的三项", () => {
 	assert.deepEqual(GAP_FIELDS.map((f) => f.label), ["未识别的来源", "影响的范围", "缺口状态"]);
@@ -1094,9 +1033,6 @@ test("checkGapRegistration：非数组拒绝", () => {
 	assert.equal(checkGapRegistration("无缺口").error.code, "invalid_request");
 });
 
-// ---------------------------------------------------------------------------
-// §12 交还组装（十一项 + 强制区分两类结论）
-// ---------------------------------------------------------------------------
 
 const RETURN_INPUT = {
 	identification: "读 specs/34 §12 与 §14 全文；查 plugin/lib 现有导出",
@@ -1166,14 +1102,10 @@ test("assembleReturn：三段判断缺其中一项即拒绝，并指明缺哪项
 });
 
 test("assembleReturn：约束落实未分列两类即拒绝（§12 第二段）", () => {
-	// 注意 `{落实: [], 已识别未落实: []}` 是**正确**的分列形态（summarizeApplications 的返回），
-	// 空数组不等于缺失——不得把它当违规。故此处只列真正未分列的三种。
 	for (const bad of ["已落实 3 项、未落实 1 项", { 落实: [] }, null]) {
 		const result = assembleReturn({ ...RETURN_INPUT, application: bad });
 		assert.equal(result.ok, false, `${JSON.stringify(bad)} 不应被接受`);
 		assert.equal(result.error.code, "return/items_missing");
-		// 未分列的两种违规形态会走不同分支：单串走「形态不符」，缺一个桶走「须分列」。
-		// 二者都是拒绝，断言只要求「问题项落在约束落实这一段」，不钉具体措辞。
 		assert.ok(result.missing.some((m) => m.includes("约束落实的具体形态")));
 	}
 });
@@ -1186,19 +1118,15 @@ test("assembleReturn：正文出现「已遵守」即拒绝（§12 禁合并结�
 });
 
 test("assembleReturn：结论字段出现「已确认／已检查」即拒绝，描述字段出现同词不误拒（M-9 两档扫描）", () => {
-	// 结论字段（识别结论、三段判断）：「已确认」是合并式结论，拒绝。
 	const inConclusion = assembleReturn({ ...RETURN_INPUT, identification: "约束已确认无碍" });
 	assert.equal(inConclusion.ok, false);
 	assert.equal(inConclusion.error.code, "return/merged_conclusion");
-	// 描述字段：「Human 已确认授权范围」「已检查的来源清单」是对事实的描述，
-	// 全表扫描会把它误拒（第四次审核 M-9 的假阳性反例）。
 	const inDescriptive = assembleReturn({
 		...RETURN_INPUT,
 		madeHumanDecisions: "Human 已确认：本会话授权限 plugin/ 下的受控写入",
 		verified: "已检查的来源：specs/34 全文、03 §7.2",
 	});
 	assert.equal(inDescriptive.ok, true, `合法交还被误拒：${inDescriptive.error?.message ?? ""}`);
-	// 但描述字段中的**无条件合规主张**仍然拒绝（「已遵守」「符合要求」「没问题」）。
 	for (const term of ["已遵守", "符合要求", "没问题"]) {
 		const bad = assembleReturn({ ...RETURN_INPUT, residualRisk: `本次${term}` });
 		assert.equal(bad.ok, false, `描述字段出现「${term}」须拒绝`);
@@ -1222,9 +1150,6 @@ test("assembleReturn：合法偏离情况逐条留痕", () => {
 	assert.match(result.text, /1 项，均已按 §9\.2 登记/);
 });
 
-// ---------------------------------------------------------------------------
-// 来源冲突层级（34 §7.5：只用于提请，不构成自动裁决）
-// ---------------------------------------------------------------------------
 
 test("CONFLICT_TIERS 恰为 34 §7.5 的五级", () => {
 	assert.deepEqual(CONFLICT_TIERS.map((t) => t.level), [1, 2, 3, 4, 5]);
@@ -1264,8 +1189,6 @@ test("routeConflict：第 1 级且触及根决定清单时一律提请（§7.5 �
 });
 
 test("routeConflict：第 1 级未触及根决定时仍提请，不自行依根规范处置", () => {
-	// §7.5 给了「仅当不触及根决定且根规范已给明文结论」的窄路，但那需要
-	// 调用方证明「根规范已给出明文结论」——本函数不替它判定，故仍回提请。
 	const result = routeConflict({ levelA: 1, levelB: 5 });
 	assert.equal(result.escalateTo, "Human");
 	assert.equal(result.autoResolved, false);
@@ -1279,9 +1202,6 @@ test("routeConflict：非法层级拒绝并列出允许集", () => {
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 「未触发」与「未遍历」不得互换（03 §7.2 末句，2026-10-23 修正）
-// ---------------------------------------------------------------------------
 
 test("RECALL_MARKS 恰为三个合法取值", () => {
 	assert.deepEqual([...RECALL_MARKS], ["未触发", "未遍历", "未声明"]);
@@ -1316,9 +1236,6 @@ test("recalled：标准路径下不产生快通道警告（该警告仅属快通
 	assert.deepEqual(result.fastPathWarnings, []);
 });
 
-// ---------------------------------------------------------------------------
-// 回读（34 §10「生成后须可回读」）
-// ---------------------------------------------------------------------------
 
 test("parseRecord：把完整记录解析回结构化字段", () => {
 	const { text } = renderPrecheckRecord(COMPLETE_FIELDS);
@@ -1413,9 +1330,6 @@ test("shape 与 parseRecord 对同一输入的 complete 判定必须一致（防
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 反仪式自查（34 §17 第 2 项）
-// ---------------------------------------------------------------------------
 
 test("detectRitualRecord：全「无」内容的记录被标为疑似，但不拒绝", () => {
 	const result = detectRitualRecord({
@@ -1466,18 +1380,8 @@ test("renderPrecheckRecord：实质内容不产生仪式提醒", () => {
 	assert.equal(result.ritualNotice, null);
 });
 
-// ---------------------------------------------------------------------------
-// Human Gate 领域增量（34 §15.1 / §15.2）
-// ---------------------------------------------------------------------------
 
 test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的五项（平铺一组）", () => {
-	// §15.1 是平铺清单，未区分触发方式；代码发明规范没有的分类＝制造第二规则源
-	// （01 §11.4：不得由 Code 先行制造事实上的第二规则源）。
-	// 历史版本曾把第 5、6 项拆到 STANDING_HUMAN_GATE_ITEMS——该二分无规范依据、
-	// 无生产消费方，且使 checkHumanGate 把合法的 §15.1 事项报成「未知项」（第四次
-	// 审核 M-10）。§15.1 第 6 项（承载形态对齐）已按第四次审核 B-2 移出 Human Gate
-	// 清单（它不是当次待决事项；若将来处置走既有规范修改入口——00 侧按
-	// 00 §3.3，03 侧按 01 §11 与 09，见 34 §10／§15.1 末段）。
 	assert.equal(HUMAN_GATE_ITEMS.length, 5);
 	assert.deepEqual(
 		HUMAN_GATE_ITEMS.map((i) => i.key),
@@ -1486,8 +1390,6 @@ test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的五项（平铺一组）", () => {
 });
 
 test("checkHumanGate：预算事项作为当次待决项可被接受并触发 Gate（不得报未知项）", () => {
-	// M-10 的反例锚定：旧版把 recallBudgetScope 划出允许集，调用方如实报告
-	// 「本次需要提高召回预算」反被判 gate/item_unknown——机械门禁面比规范窄。
 	const result = checkHumanGate(["recallBudgetScope"]);
 	assert.equal(result.ok, true);
 	assert.equal(result.requiresHuman, true);
@@ -1542,9 +1444,6 @@ test("checkHumanGate：非数组拒绝", () => {
 	assert.equal(checkHumanGate("sourceConflict").error.code, "invalid_request");
 });
 
-// ---------------------------------------------------------------------------
-// 相近概念区分（34 §13 末条 / §14 末段的三条边界）
-// ---------------------------------------------------------------------------
 
 test("NON_EQUIVALENCES 覆盖 §13 的五条与 §14 的三条边界", () => {
 	const pairs = NON_EQUIVALENCES.map((n) => `${n.left}≠${n.doesNotImply}`);
@@ -1608,17 +1507,11 @@ test("checkConceptBoundaries：空入参拒绝", () => {
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 段数的事实核对（2026-10-23 修正：注释首版误称「六段」）
-// ---------------------------------------------------------------------------
 
 test("03 §7.2 的顶层条目为 7 个：4 字符串必需 + 已召回 + 2 条件", () => {
-	// 这是对规范原文的核对，不是对实现的核对——防止注释再次数与原文不符。
 	assert.equal(REQUIRED_SECTIONS.length, 4, "字符串必需段四个");
 	assert.equal(CONDITIONAL_SECTIONS.length, 2, "条件条目两个，原文均带「如」");
-	// 4 + 已召回(1) + 2 = 7
 	assert.equal(REQUIRED_SECTIONS.length + 1 + CONDITIONAL_SECTIONS.length, 7);
-	// 必备标签数（含已召回）为 5——checkRecordShape 与 parseRecord 同口径。
 	const requiredLabels = [...REQUIRED_SECTIONS.map((s) => s.label), RECALLED_LABEL];
 	assert.equal(requiredLabels.length, 5);
 	const parsed = parseRecord(`${RECORD_HEADER}\n\n`);
@@ -1630,9 +1523,6 @@ test("条件条目的原文措辞确实带「如」（不得把它们当必需�
 	assert.deepEqual(labels, ["快通道声明", "升级记录"]);
 });
 
-// ---------------------------------------------------------------------------
-// 系统执行分层交还（03 §5.5）—— 三层互不替代、不得跳层
-// ---------------------------------------------------------------------------
 
 test("HANDOVER_LAYERS 恰为 03 §5.5 的三层", () => {
 	assert.deepEqual(
@@ -1656,7 +1546,6 @@ test("declareHandoverLayer：永不声称价值成立（§5.5 末句）", () => 
 		flowComplete: true, verificationPassed: true, handoverCarried: true,
 	});
 	assert.equal(result.provesValue, false);
-	// §5.4 末句：静态存在不单独替代成立条件。
 	assert.equal(result.staticExistenceSuffices, false);
 });
 
@@ -1697,9 +1586,6 @@ test("declareHandoverLayer：什么都没成立时也停在第一层且标 parti
 	assert.equal(result.status, "partial/unverified");
 });
 
-// ---------------------------------------------------------------------------
-// 退出条件与当次作用范围（34 §6）
-// ---------------------------------------------------------------------------
 
 test("STOP_CONDITIONS 恰为 34 §6 点名的三种停止情形", () => {
 	assert.deepEqual(
@@ -1723,8 +1609,6 @@ test("checkExit：三段判断未完成则不得退出", () => {
 });
 
 test("checkExit：未生成记录则不得退出（§6 对一切退出路径要求生成记录，含零命中路径）", () => {
-	// 第四次审核 B-1/B-3 修复后：「召回完整完成且零命中」的退出路径**不豁免**
-	// 记录——它只改变记录的内容要求（如实写明零命中），由 §16.1 第 9 项守护。
 	const result = checkExit({ threeWayJudgementComplete: true, recordGenerated: false });
 	assert.equal(result.mayExit, false);
 	assert.deepEqual(result.missing, ["生成预检落实记录"]);
@@ -1751,48 +1635,34 @@ test("checkExit：多种停止情形并存时逐条列出，不只报第一项",
 });
 
 test("checkExit：零命中退出以 recallCompleteness=complete 为前提（§6／§16.1 第 7 项，B-8）", () => {
-	// 第五次审核 B-8：旧实现只查「三段判断完成 + 记录已生成」，partial/unavailable
-	// 召回下同样返回 mayExit:true——与 §6「召回未完成时不得走零命中退出路径」相反。
 	const base = { threeWayJudgementComplete: true, recordGenerated: true, zeroHitExit: true };
-	// complete → 可退出
 	assert.equal(checkExit({ ...base, recallCompleteness: "complete" }).mayExit, true);
-	// partial / unavailable → 不得退出，且须停止交还
 	for (const state of ["partial", "unavailable"]) {
 		const result = checkExit({ ...base, recallCompleteness: state });
 		assert.equal(result.mayExit, false, `${state} 不得走零命中退出`);
 		assert.equal(result.mustStopAndHandover, true, `${state} 须停止交还（§16.1 第 7 项）`);
 		assert.match(result.reason, /§16\.1 第 7 项/);
 	}
-	// 未提供完整度 → fail-closed：不得视同 complete
 	const missing = checkExit(base);
 	assert.equal(missing.mayExit, false, "未提供 recallCompleteness 时不得放行（fail-closed）");
 	assert.equal(missing.mustStopAndHandover, false, "缺输入按条件未齐处理，不是停止情形");
 	assert.match(missing.reason, /fail-closed/);
-	// 非零命中的常规退出不受完整度门槛影响（识别结论存在时按两条充要条件判）
 	const normal = checkExit({ threeWayJudgementComplete: true, recordGenerated: true, recallCompleteness: "partial" });
 	assert.equal(normal.mayExit, true, "常规退出路径不以 complete 为前提；partial 的处置在 §6 缩小范围条款");
 });
 
 test("checkExit：unavailable 无条件拦截，不依赖调用方自报 zeroHitExit（N-2）", () => {
-	// 第六次审核 N-2：34 §12 定义 unavailable＝「至少一源不可读且未取得任何可用
-	// 候选」——该取值蕴含零候选，任何退出都实质是零命中退出路径。修复前守卫以
-	// `zeroHitExit` 为前提，调用方漏报 flag 时 unavailable 仍返回 mayExit:true
-	// （fail-open，与 §6／§16.1 第 7 项相反）。修复后 unavailable 无条件拦截。
 	const noFlag = { threeWayJudgementComplete: true, recordGenerated: true, recallCompleteness: "unavailable" };
 	const blocked = checkExit(noFlag);
 	assert.equal(blocked.mayExit, false, "unavailable + 未置 flag 也不得退出（fail-open 已堵）");
 	assert.equal(blocked.mustStopAndHandover, true, "unavailable 须停止交还（§16.1 第 7 项）");
 	assert.match(blocked.reason, /§12/, "reason 须点出 unavailable 蕴含零候选的 §12 依据");
-	// 即便同时置了 zeroHitExit，结论一致（unavailable 分支先命中）。
 	const withFlag = checkExit({ ...noFlag, zeroHitExit: true });
 	assert.equal(withFlag.mayExit, false);
 	assert.equal(withFlag.mustStopAndHandover, true);
 });
 
 test("checkExit：partial + 零返回数经 recallReturnedCount 自判为零命中（N-2 补强）", () => {
-	// N-2 建议 2：让 checkExit 接收召回返回数自行判定「零命中」，而非仅依赖
-	// 调用方自报 flag（漏报即 fail-open）。partial + returnedCount=0 时，
-	// 「三段判断完成」实质只能是以未命中断言无相关，须拦截。
 	const inferred = checkExit({
 		threeWayJudgementComplete: true,
 		recordGenerated: true,
@@ -1802,7 +1672,6 @@ test("checkExit：partial + 零返回数经 recallReturnedCount 自判为零命�
 	assert.equal(inferred.mayExit, false, "partial + 零返回须按零命中路径拦截");
 	assert.equal(inferred.mustStopAndHandover, true);
 	assert.match(inferred.reason, /§16\.1 第 7 项/);
-	// 对照：partial + 有返回（缩小范围后继续，03 §8.1 第 1 项）不拦截。
 	const withResults = checkExit({
 		threeWayJudgementComplete: true,
 		recordGenerated: true,
@@ -1810,14 +1679,11 @@ test("checkExit：partial + 零返回数经 recallReturnedCount 自判为零命�
 		recallReturnedCount: 3,
 	});
 	assert.equal(withResults.mayExit, true, "partial + 有返回属缩小范围继续，不是零命中退出");
-	// 未传 recallReturnedCount 时维持原契约（以 zeroHitExit 为准），不虚判。
 	const legacy = checkExit({ threeWayJudgementComplete: true, recordGenerated: true, recallCompleteness: "partial" });
 	assert.equal(legacy.mayExit, true, "未传返回数时不误判为零命中");
 });
 
 test("assembleReturn：待 Human 决定事项纳入描述档扫描（M-17）", () => {
-	// 第五次审核 M-17：humanDecisions 此前漏扫——「已遵守」写进待决定事项
-	// 会原样进入交还正文。三词（已遵守／符合要求／没问题）须拒；「已确认」放行。
 	for (const term of ["已遵守", "符合要求", "没问题"]) {
 		const bad = assembleReturn({ ...RETURN_INPUT, humanDecisions: `是否${term}即可` });
 		assert.equal(bad.ok, false, `待决定事项出现「${term}」须拒绝`);
@@ -1866,9 +1732,6 @@ test("checkReuseBasis：sessionId 或 recordSessionId 缺失即拒绝", () => {
 	assert.equal(checkReuseBasis({ recordSessionId: "s1" }).error.code, "invalid_request");
 });
 
-// ---------------------------------------------------------------------------
-// 必停情形统一入口（34 §16.1 领域触发，本切片承接第 1–6 项）
-// ---------------------------------------------------------------------------
 
 test("STOP_RULES 恰为 34 §16.1 第 1–6 项（本切片承接范围）", () => {
 	assert.equal(STOP_RULES.length, 6);
@@ -1922,9 +1785,6 @@ test("checkStopConditions：非布尔值不计为触发（避免 truthy 误判�
 	assert.deepEqual(result.triggered, []);
 });
 
-// ---------------------------------------------------------------------------
-// 暂停期间允许动作与恢复（34 §16.2 / §16.3）
-// ---------------------------------------------------------------------------
 
 test("SUSPENSION_ALLOWED_ACTIONS 恰为 §16.2 列举的四种", () => {
 	assert.equal(SUSPENSION_ALLOWED_ACTIONS.length, 4);

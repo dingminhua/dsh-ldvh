@@ -1,6 +1,3 @@
-/**
- * Objects API 路由：按类型列表和按 ID 查看详情
- */
 
 import { Router, type Request, type Response } from 'express'
 import { listObjects, showObject, OBJECT_TYPES, type ObjectType } from '../services/facts.js'
@@ -39,7 +36,6 @@ const STATUS_PRIORITY: Record<string, number> = {
   capability_gap: 14,
   evidence_gap: 15,
   fact_conflict: 16,
-  // A limited status remains a non-terminal display state for implemented object types.
   degraded: 17,
   suspended: 18,
   proposed: 19,
@@ -65,8 +61,6 @@ function normalizeItem(value: unknown): ListedObject | null {
   const v5Object = typeof value.object_id === 'string' && typeof value.fact_type_key === 'string'
   const id = toStringValue(value.object_id) || toStringValue(value.id)
   if (!id) return null
-  // 03 §6.1：fact_type_key 载体值为类型短名（各类型规范登记的值域）——直接
-  // 透传，无归一化；非短名形态由读取层报 identity_mismatch，路由层不再兜底。
   const type = toStringValue(value.fact_type_key) || toStringValue(value.type)
   const status = toStringValue(value.status)
 
@@ -75,25 +69,15 @@ function normalizeItem(value: unknown): ListedObject | null {
     id,
     type,
     status,
-    // 它拿到完整 fact 后算出派生视图，`...value` 已把该结果带过来。
-    //
-    // 此处**故意不再重算**：列表投影按载荷纪律剥离了正文类字段（列表只带最小权威
-    // 字段，正文属详情阅读面），从被剥离的输入重算只会得出与卡片不一致的结果。
     title: toStringValue(value.title),
     title_en: toStringValue(value.title_en) || undefined,
     title_zh: toStringValue(value.title_zh) || undefined,
     path: v5Object ? toStringValue(value.canonical_path) : toStringValue(value.path),
     created: v5Object ? toStringValue(value.created_at) || undefined : toStringValue(value.created) || undefined,
-    // 03 §6.1 不保留公共 updated_at：v4 归档对象优先自身 updated_at/updated，
-    // v5 对象回退 change_log 末条流水 at（列表排序与卡片落款共用此值）。
     updated: resolveListItemUpdated(value),
   }
 }
 
-/**
- * 列表项的最近更新时刻：updated_at → updated → change_log 末条有效流水 at。
- * 无任何可用时刻时返回空串（既有排序兜底按 id 比较）。
- */
 function resolveListItemUpdated(value: Record<string, unknown>): string {
   return toStringValue(value.updated_at)
     || toStringValue(value.updated)
@@ -136,18 +120,8 @@ function getStatusOptions(items: ListedObject[]): StatusOption[] {
     })
 }
 
-/** Spark 优先级档位（20 §8，2026-09-13 Human 裁定新增）：闭集 P0–P3，
- *  AI 出初值、Human 可调整；仅 open 时出现。列表据此提供筛选与排序。
- *  （个别类型无此字段——其字段闭集未含 priority。） */
 const SPARK_PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3'] as const
 
-/**
- * 24 §5（2026-11-14）：报告三形态闭集。三形态共用一个 `report` 类型，
- * 靠 `report_form` 区分来源面；列表的形态筛选据此提供计数与过滤。
- *
- * 只有 `report` 类型有本筛选——其它类型的对象没有 `report_form` 字段，
- * 故 `getFormOptions` 对它们返回空数组，前端据此不渲染该筛选条。
- */
 const REPORT_FORMS = ['research', 'summary', 'audit'] as const
 
 function getFormOptions(items: ListedObject[]): StatusOption[] {
@@ -157,8 +131,6 @@ function getFormOptions(items: ListedObject[]): StatusOption[] {
     if (typeof form !== 'string' || form.length === 0) continue
     counts.set(form, (counts.get(form) ?? 0) + 1)
   }
-  // 只列闭集内实际出现的形态，并保持闭集次序（调研型→总结型→审核型），
-  // 不按计数排序：形态是固定分类，次序变动会让读者每次找不到位置。
   return REPORT_FORMS
     .filter((form) => counts.has(form))
     .map((form) => ({ status: form, count: counts.get(form) ?? 0 }))
@@ -170,7 +142,6 @@ function getSparkPriorityOptions(items: ListedObject[]): StatusOption[] {
     if (typeof item.priority !== 'string') continue
     counts.set(item.priority, (counts.get(item.priority) ?? 0) + 1)
   }
-  // 未分档的 Spark 不单列选项（20 §8 允许缺失），计数只反映已分档项。
   return SPARK_PRIORITY_ORDER.map((status) => ({ status, count: counts.get(status) ?? 0 }))
 }
 
@@ -180,9 +151,6 @@ async function listObjectSummaries(type: ObjectType, scope: LocalFactScope): Pro
   return getResultItems(result)
 }
 
-/**
- * GET /api/objects/:type - 列出指定类型的对象
- */
 router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   const type = req.params.type as ObjectType
 
@@ -195,7 +163,6 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   }
 
   const status = typeof req.query.status === 'string' ? req.query.status : undefined
-  // v4 状态机随 21 号三态直读废弃：?progress= 不再接受，提示新参数。
   if (typeof req.query.progress === 'string') {
     res.status(400).json({
       ok: false,
@@ -213,7 +180,6 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     }
     throw scopeError
   }
-  // Spark 三联过滤之二：priority（20 §8）。非法值直接 400，避免静默忽略。
   const priority = type === 'spark' && typeof req.query.priority === 'string'
     ? req.query.priority
     : undefined
@@ -221,10 +187,6 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ ok: false, error: `Invalid spark priority: ${priority} (20 §8: P0/P1/P2/P3)` })
     return
   }
-  // v5 Spark 与通用类型同路径：状态闭集（open/implemented/discarded，20 §9）
-  // 直接下推过滤。
-  // 24 §5：报告形态筛选（?form=research|summary|audit）。非法值直接 400，
-  // 不静默忽略——静默忽略会让读者以为筛选生效而实际看到全量。
   const form = type === 'report' && typeof req.query.form === 'string' ? req.query.form : undefined
   if (form && !REPORT_FORMS.includes(form as typeof REPORT_FORMS[number])) {
     res.status(400).json({ ok: false, error: `Invalid report form: ${form} (24 §5: ${REPORT_FORMS.join('/')})` })
@@ -247,10 +209,8 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   if (isRecord(result.data)) {
     const statusItems = status ? await listObjectSummaries(type, factScope) : items
     result.data.statusOptions = getStatusOptions(statusItems)
-    // 形态计数与状态计数同口径（反映当前池，非全量）。
     result.data.formOptions = type === 'report' ? getFormOptions(statusItems) : []
     if (type === 'spark') {
-      // priority 计数与状态过滤同口径（反映当前池，非全量）。
       const priorityPool = status
         ? allItems.filter((item) => item.status === status)
         : allItems
@@ -260,10 +220,6 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   }
   if (isRecord(result.data)) {
     result.data.items = sortByUpdatedDesc(items)
-    // 形态过滤后必须同步 summary.count——它是列表页显示的总数，
-    // 沿用 listObjects 的原始计数会让「筛了 0 条却显示 50」自相矛盾。
-    // （状态过滤走的是同一段的 result.data.items 替换，其 count 由前端按
-    //  items 长度兜底；这里显式对齐，避免依赖前端的行为。）
     if (isRecord(result.summary) && typeof result.summary.count === 'number') {
       result.summary.count = items.length
     }
@@ -272,9 +228,6 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   res.json(result)
 })
 
-/**
- * GET /api/objects/:type/:id - 查看对象详情
- */
 router.get('/:type/:id', async (req: Request, res: Response): Promise<void> => {
   const type = req.params.type as ObjectType
   const id = req.params.id

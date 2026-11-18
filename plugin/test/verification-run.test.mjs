@@ -1,8 +1,3 @@
-// Tests for plugin/lib/verification-run.js —
-// 运行侧机械审核门（11 §18）。核心承诺有两条，本文件逐条钉住：
-//   ① 「完成」不再是「落地被调用」，而是「逐行核对过、且没有未声明的缺口」；
-//   ② 不可判的行必须显式声明——闭集里没有它的位置时最自然的处置就是填 pass，
-//      而那正是要消除的失效形态。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
@@ -20,16 +15,8 @@ import {
   DEFERRED_STRICT,
 } from "../lib/verification-run.js";
 
-// **必须用 fileURLToPath，不能用 url.pathname**（2026-11-04 修，Windows 专属）。
-// `new URL(...).pathname` 在 Windows 上给出 `/D:/DshProject/dsh-ldvh`——带一个前导
-// 斜杠；再经 `path.join` 拼接就变成 `D:\D:/DshProject/...`，`readFile` 报 ENOENT，
-// 于是本文件两条一致性用例在本机恒红，且报错里那个重复盘符极易被误读成产品缺陷。
-// POSIX 上 pathname 恰好可用，所以这个写法长期没被发现。
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
-// ---------------------------------------------------------------------------
-// id 派生规则：四种首列形态
-// ---------------------------------------------------------------------------
 
 test("id 派生：去 Markdown 粗体", () => {
   assert.equal(deriveRowId("**阈值晋升**"), "阈值晋升");
@@ -45,7 +32,6 @@ test("id 派生：去非日期括注", () => {
 });
 
 test("id 派生：全角斜线原样保留，不归一", () => {
-  // 归一会让 id 与规范原文对不上，回读时无法定位回哪一行
   assert.equal(deriveRowId("缓冲条目不可写／不可回读"), "缓冲条目不可写／不可回读");
   assert.notEqual(deriveRowId("缓冲条目不可写／不可回读"), "缓冲条目不可写/不可回读");
 });
@@ -54,19 +40,16 @@ test("id 派生：中段括注属行名本身，不剥", () => {
   assert.equal(deriveRowId("fail-closed 处置"), "fail-closed 处置");
 });
 
-// ---------------------------------------------------------------------------
-// 与规范的一致性：18 行、无碰撞、集合相等
-// ---------------------------------------------------------------------------
 
-test("§18 解析出 18 行且 id 无碰撞（经验侧四行、水位行删除后 23→18）", async () => {
+test("§14 解析出 22 行且 id 无碰撞（36 承接摩擦机制与业务验证行）", async () => {
   const read = await readVerificationRowIds(REPO_ROOT);
   assert.equal(read.ok, true, read.ok ? "" : JSON.stringify(read.error));
   const ids = read.value.ids;
-  assert.equal(ids.length, 18, `§18 数据行应为 18 行，实测 ${ids.length}`);
+  assert.equal(ids.length, 22, `§14 数据行应为 22 行，实测 ${ids.length}`);
   assert.equal(new Set(ids).size, ids.length, "去括注后 id 出现碰撞");
 });
 
-test("模块声明的 id 集合与 §18 实测集合相等（规范加行而模块不加行时失败）", async () => {
+test("模块声明的 id 集合与 §14 实测集合相等（规范加行而模块不加行时失败）", async () => {
   const read = await readVerificationRowIds(REPO_ROOT);
   assert.equal(read.ok, true);
   const specIds = new Set(read.value.ids);
@@ -74,20 +57,19 @@ test("模块声明的 id 集合与 §18 实测集合相等（规范加行而模�
 
   const missingInModule = [...specIds].filter((id) => !moduleIds.has(id));
   const extraInModule = [...moduleIds].filter((id) => !specIds.has(id));
-  assert.deepEqual(missingInModule, [], `§18 有而这些行模块未声明：${missingInModule.join("、")}`);
-  assert.deepEqual(extraInModule, [], `模块声明了 §18 里不存在的行：${extraInModule.join("、")}`);
+  assert.deepEqual(missingInModule, [], `§14 有而这些行模块未声明：${missingInModule.join("、")}`);
+  assert.deepEqual(extraInModule, [], `模块声明了 §14 里不存在的行：${extraInModule.join("、")}`);
 });
 
-test("机械行与不可判行不重叠，且合计 18（水位行已随载体删除）", () => {
+test("机械行与不可判行不重叠，且合计 22（36 承接机制与业务验证行）", () => {
   const mechanical = new Set(MECHANICAL_ROWS);
   const notCheckable = new Set(Object.keys(NOT_CHECKABLE_ROWS));
   const overlap = [...mechanical].filter((id) => notCheckable.has(id));
   assert.deepEqual(overlap, [], `同一行不能既机械可核对又不可判：${overlap.join("、")}`);
-  assert.equal(mechanical.size + notCheckable.size, 18);
+  assert.equal(mechanical.size + notCheckable.size, 22);
 });
 
 test("四道机械可核对行不得登记为 not-checkable", () => {
-  // 11 §18 该四行的验证入口是回读、对照与核对——登记为不可判等于免掉四道闸门
   for (const id of ["发起不构成执行完成", "主控发起的观察频次如实登记", "路径约定落实", "判断责任不归主控时的预检落实"]) {
     assert.equal(id in NOT_CHECKABLE_ROWS, false, `${id} 属机械可核对行，不得列入 NOT_CHECKABLE_ROWS`);
     assert.ok(MECHANICAL_ROWS.includes(id), `${id} 应出现在 MECHANICAL_ROWS`);
@@ -100,14 +82,8 @@ test("派发准入以 not-checkable 声明且带理由（防止默认填 pass）
   assert.match(reason, /本行当前不产生判定/);
 });
 
-// ---------------------------------------------------------------------------
-// verifyRun：landed 的成立条件
-// ---------------------------------------------------------------------------
 
-/** 造一份「全部可核对行 pass、不可判行已声明」的齐备输入。 */
 function completeRows() {
-  // 已知缺口行（deferred）必须报 not-checkable —— 它们按定义「本轮没采集到证据」，
-  // 填 pass 会被门禁当「默认通过」拦下（2026-11-03 第三次复核修）。
   const rows = MECHANICAL_ROWS.map((id) => ({
     id,
     verdict: DEFERRED_ROWS[id] ? "not-checkable" : "pass",
@@ -156,9 +132,6 @@ test("(d) 已声明的 not-checkable 不阻断", () => {
 });
 
 test("(e) 把已声明为不可判的行填成 pass → 阻断（这就是「默认通过」）", () => {
-  // 第一版实现的漏洞：只拦「未声明的 not-checkable」，于是把「派发准入」
-  //（成立条件明写「本行当前不产生判定」）填成 pass 时照样 landed——
-  // 而它根本没被核对过。该用例正是钉住这个漏洞。
   const rows = completeRows().map((r) => (r.id === "派发准入" ? { ...r, verdict: "pass" } : r));
   const r = verifyRun({ rows });
   assert.equal(r.ok, false, "已声明不可判的行被填 pass 时必须阻断");
@@ -169,9 +142,6 @@ test("(e) 把已声明为不可判的行填成 pass → 阻断（这就是「默
 });
 
 test("(e2) 派发准入完全缺席 → 阻断（缺席既非 pass 也非声明）", () => {
-  // 2026-11-03 复核第二轮 D 项：此前只对机械可核对行查缺席，于是「派发准入」
-  // 完全不报也能 landed。§18「按本表逐行产出结论」要求它必须出现（以
-  // not-checkable 出现），缺席是报告不完整。
   const rows = completeRows().filter((r) => r.id !== "派发准入");
   const r = verifyRun({ rows });
   assert.equal(r.stage, "blocked");
@@ -198,8 +168,6 @@ test("rows 非数组时返回 blocked 而不是伪装成通过", () => {
 });
 
 test("增行不同步必然失败：在解析出的行里加一行而模块不跟进 → 集合不等", () => {
-  // 这条不依赖真实规范状态，直接验证「集合相等」这一判据本身有效：
-  // 若规范多出一行而模块没声明，missingInModule 非空。
   const fakeIds = [...declaredVerificationIds(), "某个新增但未声明的行"];
   const moduleIds = new Set(declaredVerificationIds());
   const missingInModule = fakeIds.filter((id) => !moduleIds.has(id));
@@ -211,13 +179,9 @@ test("改行名而数量不变也会失败：id 集合相等不是数量比较",
   const renamed = ["某个改名后的行", ...ids.slice(1)];
   const moduleIds = new Set(ids);
   const missing = renamed.filter((id) => !moduleIds.has(id));
-  // 只断言条数会放过「丢一个、多一个」的互换；必须指出丢的是哪一个。
   assert.deepEqual(missing, ["某个改名后的行"], "改行名后数量不变，但集合相等判据必须发现它");
 });
 
-// ---------------------------------------------------------------------------
-// 完整性：缺席不是「没有问题」，是「没有证据」
-// ---------------------------------------------------------------------------
 
 test("空报告不得 landed（全不报 ≠ 全通过）", () => {
   const r = verifyRun({ rows: [] });
@@ -247,9 +211,6 @@ test("完整报告仍 landed（完整性检查不误伤）", () => {
   assert.deepEqual(r.missing, []);
 });
 
-// ---------------------------------------------------------------------------
-// 已知缺口（DEFERRED_ROWS）与「没有判定可作」（NOT_CHECKABLE_ROWS）必须可分
-// ---------------------------------------------------------------------------
 
 test("DEFERRED_ROWS 与 NOT_CHECKABLE_ROWS 不重叠，且与机械行互补成全集", () => {
   const mechanical = new Set(MECHANICAL_ROWS);
@@ -259,8 +220,6 @@ test("DEFERRED_ROWS 与 NOT_CHECKABLE_ROWS 不重叠，且与机械行互补成�
     assert.equal(notCheckable.has(id), false, `${id} 不能既「无采集点」又「无判定可作」`);
     assert.equal(mechanical.has(id), true, `${id} 应属机械可核对行（只是本轮无采集点）`);
   }
-  // 机械行 = 有采集点的 + 已知缺口 + 「无判定可作」的语义行。
-  // 有采集点者不在任何声明表里（它们本来就该报 pass），故用不等式：声明表只能更小。
   assert.ok(deferred.size + notCheckable.size <= mechanical.size, "声明表不应超出机械行集合");
   assert.ok(deferred.size > 0, "已知缺口清单不应为空（否则「没采集点」会被误当「没这回事」）");
 });
@@ -290,9 +249,6 @@ test("未声明的 not-checkable 仍阻断（已知缺口清单不是万能免�
   assert.deepEqual(r.undeclared, ["趁隙冒充的行"]);
 });
 
-// ---------------------------------------------------------------------------
-// 严格缺口 vs 条件式行：两类「不可核对」的拦截规则不同
-// ---------------------------------------------------------------------------
 
 test("严格缺口行填 pass → 阻断（本轮确实没证据，填 pass 即谎报）", () => {
   const rows = completeRows().map((r) => (r.id === "逐字引证" ? { ...r, verdict: "pass" } : r));
@@ -302,16 +258,12 @@ test("严格缺口行填 pass → 阻断（本轮确实没证据，填 pass 即�
 });
 
 test("条件式行填 pass → 不阻断（条件出现时本就该给真结论）", () => {
-  // 「发起不构成执行完成」等四行是条件式：有证据时应能给出 pass，不得被一并拦下。
   const rows = completeRows().map((r) => (r.id === "发起不构成执行完成" ? { ...r, verdict: "pass" } : r));
   const r = verifyRun({ rows });
   assert.equal(r.stage, "landed", `fail=${JSON.stringify(r.fail)} misreported=${JSON.stringify(r.misreported)}`);
 });
 
 test("缺口表内的行现在全部是严格缺口（四行条件式已有真采集点，已移出）", () => {
-  // 2026-11-03：Human 选「补真正的采集点」后，延迟的取消／二次确认空闲／
-  // 路径约定落实／判断责任不归主控时的预检落实 四行都有了可证伪的采集点，故**不再**登记为
-  // 缺口（scope 第 5 条也明令不得登记）。留下的应全部是严格缺口。
   const entries = Object.entries(DEFERRED_ROWS);
   assert.ok(entries.length > 0, "缺口表不应为空");
   for (const [id, v] of entries) {

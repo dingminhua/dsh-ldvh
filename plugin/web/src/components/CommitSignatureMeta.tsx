@@ -2,12 +2,10 @@ import * as React from 'react';
 import type { CommitSignature } from '@/utils/api';
 import { normalizeSignature } from '../../shared/signature';
 
-/** 值是否实际为空（空字符串或字面量 "null"/"undefined"）。 */
 function isBlank(value: string): boolean {
   return !value || value === 'null' || value === 'undefined';
 }
 
-/** Compactly display the product + model signature identity. */
 export default function CommitSignatureMeta({
   signature,
 }: {

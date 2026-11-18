@@ -23,19 +23,6 @@ import {
 } from '@/pages/ObjectDetail';
 import { LDVH_SUCCESS_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 
-/**
- * `scope` / `summary` 的**书写结构**问题就地显示（`21 §8`）。
- *
- * 与 `FieldProblem` 分开的原因：后者的 `reason` 闭集是 `missing` / `type_mismatch` /
- * `identity_mismatch`（字段级读取问题，来自 `field_issues`），而本组件呈现的是
- * **书写形态**问题（来自 `structured_text_issues`）。
- * 两类问题来源不同、文案不同，合并会掩盖其中一类。
- *
- * 为什么必须显示：写入口**早已**算出这些违规，但那结果只留在写入路径上——读者看到的是
- * 「这个字段读不了」，而不是「它不合规、原因是 X」（Human 2026-09-24：「当前我看到的
- * 都要规范化，可检查，确保之后都要保持一样」）。
- */
-/** 书写形态问题条目：服务端投影给出的结构化诊断。 */
 export interface StructuredTextIssue {
   field: 'scope' | 'summary' | string;
   kind: string;
@@ -88,11 +75,6 @@ type ChangeLogEntry = {
   modelName?: string;
 };
 
-/**
- * `change_log` is a contracted field for every current fact type. Keep its
- * reading node shared so a detail layout cannot consume it in the API and then
- * accidentally omit it from the Human reading surface.
- */
 export function ChangeLogReadingNode({
   value,
   issue,
@@ -152,9 +134,6 @@ function parseChangeLogEntries(value: unknown): ChangeLogEntry[] {
     const signatureRecord = signature && typeof signature === 'object' && !Array.isArray(signature)
       ? signature as Record<string, unknown>
       : null;
-    // v5 扁平 provider/model 流水与 v4 嵌套 signature 形态均可读——
-    // 扩展后的 normalizeSignature 让 provider 逐字落位 productName（供应商 id
-    // 不美化），v4 product_name 保持既有归一；此处直接渲染，无二次归一。
     const normalizedSignature = normalizeSignature({
       productName: signatureRecord?.product_name,
       modelName: signatureRecord?.model_name,
@@ -173,8 +152,6 @@ function parseChangeLogEntries(value: unknown): ChangeLogEntry[] {
   }).reverse();
 }
 
-/** 通用正文节点：Pitfall / Friction / Norm / Spark / SubGoal / Goal 六类布局复用。
- *  ADR 阅读布局随类型于 2026-11-15 撤除后，本函数由 ADR 专属名改为中性名。 */
 function ProseNode({
   title,
   value,
@@ -203,12 +180,10 @@ function ProseNode({
   );
 }
 
-/** 23 号规范 §8 的正文固定 H2（「证据」条件出现——urls 非空时必在）。 */
 const PITFALL_BODY_SECTION_ORDER = ['症状', '触发条件', '根因', '解决', '规避', '验证', '影响与适用范围', '证据'] as const;
 
 type PitfallBodySection = { title: string; body: string };
 
-/** 正文按固定 H2 分节（前端解析，沿用既有分节先例）。 */
 function parsePitfallBodySections(body: string): PitfallBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -235,9 +210,6 @@ function parsePitfallBodySections(body: string): PitfallBodySection[] {
     });
 }
 
-/** v5 Pitfall 阅读布局（23 §8）：正文固定 H2 七段（+条件证据）分节优先、
- * frontmatter 字段兜底，节序跟随字段契约（症状 → 触发条件 → 根因 → 解决
- * → 规避 → 验证 → 影响与适用范围 → 证据 → trigger_signal → 终态处置）。 */
 export function PitfallReadingLayout({
   obj,
   relatedEntries,
@@ -249,8 +221,6 @@ export function PitfallReadingLayout({
 }) {
   const bodySections = parsePitfallBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
-  // 23 §8：正文是 scope 的自然语言承载——正文节优先，缺失时以
-  // frontmatter 字段兜底（沿用既有先例）。
   const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
     const body = sectionOf(sectionTitle)?.body;
     if (body) return body;
@@ -290,7 +260,6 @@ export function PitfallReadingLayout({
   );
 }
 
-/** 23 §9 终态处置：discarded 的 disposition（去向与理由）。 */
 function PitfallTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<ReadingNodeState>('expanded');
@@ -303,7 +272,6 @@ function PitfallTerminalReadingNode({ obj, locale }: { obj: Record<string, unkno
   const title = isTerminal
     ? getObjectStatusLocale('pitfall', String(obj.status), locale)
     : getFieldLabel('disposition', locale);
-  // 终态必填去向（23 §8）：缺失时如实标注，不以空占位代替判断。
   const content = disposition ?? t('objectList.dispositionMissing');
 
   return (
@@ -328,12 +296,10 @@ export function PitfallTextNodeContent({ value }: { value: unknown }) {
   );
 }
 
-/** 20 号规范 §8 的正文固定 H2（「保留意图」无正文节，frontmatter 专属）。 */
 const SPARK_BODY_SECTION_ORDER = ['当前理解', '调查问题', '调查边界', '演变'] as const;
 
 type SparkBodySection = { title: string; body: string };
 
-/** 正文按固定 H2 分节（前端解析，跟随 research 的 parseResearchBodySections 先例）。 */
 function parseSparkBodySections(body: string): SparkBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -362,8 +328,6 @@ function parseSparkBodySections(body: string): SparkBodySection[] {
 
 type SparkEvolutionEntry = { key: string; at: string; summary: string };
 
-/** v5 Spark 阅读布局（20 §8）：正文固定 H2 分节优先、frontmatter 字段兜底，
- * 节序跟随字段契约（question → scope_boundary → intent → summary → 演变 → 终态）。 */
 export function SparkReadingLayout({
   obj,
   locale,
@@ -373,8 +337,6 @@ export function SparkReadingLayout({
 }) {
   const bodySections = parseSparkBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
-  // 20 §8：正文是 question/scope_boundary/summary 的自然语言承载——正文节
-  // 优先，缺失时以 frontmatter 字段兜底（同 research「研究问题」的先例）。
   const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
     const body = sectionOf(sectionTitle)?.body;
     if (body) return body;
@@ -450,8 +412,6 @@ function SparkEvolutionReadingNode({
   issue?: FieldPresentationIssue;
 }) {
   const [state, setState] = useState<ReadingNodeState>('expanded');
-  // 20 §8：evolution 是 {at, summary} 结构化流水（关键转折，上限 20 项）；
-  // 正文「演变」节是其行文承载，frontmatter 缺失时兜底。
   const hasContent = (entries !== null && entries.length > 0) || prose.length > 0;
   if (!hasContent && !issue) return null;
 
@@ -516,8 +476,6 @@ function SparkEvolutionTime({ value }: { value: string }) {
   );
 }
 
-/** 20 §8/§9：disposition ⇔ 终态。终态节标题用状态语义（implemented ≠ 下游
- * 完成）；异常残留在 open 的 disposition 以字段名兜底呈现，不吞掉异常数据。 */
 function SparkTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<ReadingNodeState>('expanded');
@@ -530,7 +488,6 @@ function SparkTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown
   const title = isTerminal
     ? getObjectStatusLocale('spark', String(obj.status), locale)
     : getFieldLabel('disposition', locale);
-  // 终态必填去向（20 §8）：缺失时如实标注，不以空占位代替判断。
   const content = disposition ?? t('objectList.dispositionMissing');
 
   return (
@@ -545,12 +502,10 @@ function SparkTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown
   );
 }
 
-/** 26 号规范 §8 的正文固定 H2（「处置」条件出现——resolved/voided 时）。 */
 const FRICTION_BODY_SECTION_ORDER = ['现象', '入账依据', '处置'] as const;
 
 type FrictionBodySection = { title: string; body: string };
 
-/** 正文按固定 H2 分节（前端解析，沿用既有分节先例）。 */
 function parseFrictionBodySections(body: string): FrictionBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -577,13 +532,6 @@ function parseFrictionBodySections(body: string): FrictionBodySection[] {
     });
 }
 
-/** v5 Friction 阅读布局（26 §8）：正文三段（现象/入账依据+条件处置）分节
- * 优先、frontmatter 字段兜底；节序跟随字段契约（现象 → 归因 → 入账依据 →
- * 处置 → resolved 的 informs 解药）。
- *
- * （2026-11-02 注：原由 Human 裁定 2026-11「impact 不在本布局、改由卡头 chip
- * 呈现」的 impact 分级字段，已随 26 §8 撤销该制度而整体移除——本布局从未列它，
- * 故此处无需改动；保留这条注以免读者去旧文档找 chip 的出处。） */
 export function FrictionReadingLayout({
   obj,
   relatedEntries,
@@ -595,8 +543,6 @@ export function FrictionReadingLayout({
 }) {
   const bodySections = parseFrictionBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
-  // 26 §8：正文是 phenomenon 的自然语言承载——正文节优先，缺失时以
-  // frontmatter 字段兜底（沿用既有先例）。
   const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
     const body = sectionOf(sectionTitle)?.body;
     if (body) return body;
@@ -634,13 +580,10 @@ export function FrictionReadingLayout({
   );
 }
 
-/** 27 号 §8 的正文固定 H2 四段骨架（方向定位与适用范围／核心规则体系／
- * 约束与反模式／验证与遵从性检查——创建时必须全部存在且各段非空）。 */
 const NORM_BODY_SECTION_ORDER = ['方向定位与适用范围', '核心规则体系', '约束与反模式', '验证与遵从性检查'] as const;
 
 type NormBodySection = { title: string; body: string };
 
-/** 正文按固定 H2 分节（前端解析，沿用既有分节先例）。 */
 function parseNormBodySections(body: string): NormBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -667,20 +610,6 @@ function parseNormBodySections(body: string): NormBodySection[] {
     });
 }
 
-/** v5 Norm 阅读布局（27 号 §8）：正文固定 H2 四段分节呈现（核心规则体系可含 H3
- * 子节，直接渲染 markdown）；节序跟随字段契约，终态退出去向（retirement_reason +
- * retired_at）在末位。norm 不使用 relations（27 §9），无 FactAssociations。
- *
- * **`direction_key` 不上屏（Human 定案 2026-11-02）**：曾以「方向键节点」置顶呈现，
- * 连同缺失时的琥珀提示一起删除。理由与卡面同一件事：它是**唯一性公式与索引的机器
- * 作用域**，不是读者判断「这份规范管哪个方向」的依据——后者由标题与「方向定位与
- * 适用范围」节的散文回答。而缺方向键属**载体不合规**，读取层会按字段契约为它产出
- * `field_issues`（`missing`），由 `FieldIssuesSection` 如实报出；页面另写一句提示
- * 是同一事实的第二处呈现，且它把「字段缺失」伪装成了「该规律值得单独说一句」。
- *
- * 因此本布局的输入只剩 `report_body` / 终态两字段 / 流水——`direction_key` 既不被
- * 读取也不被消费。它仍留在 `model.ts` 的兜底字段序里，是因为该序只在走 `ContentField`
- * 兜底时才生效，而 norm 与其余各类型一样从不消费 `extraEntries`。 */
 export function NormReadingLayout({
   obj,
   locale,
@@ -712,8 +641,6 @@ export function NormReadingLayout({
   );
 }
 
-/** 27 号 §9/§11 终态去向：retired 的 reason（本地化闭集，按 27 号自己的三值：
- * superseded/outdated/out-of-scope）+ 退役时间。retired 终态不重开。 */
 function NormTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<ReadingNodeState>('expanded');
@@ -768,27 +695,6 @@ function parseSubGoalBodySections(body: string): Array<{ title: string; body: st
     .filter((section) => section.title.length > 0 && section.body.length > 0);
 }
 
-/**
- * v5 SubGoal 阅读布局（28 号 §8/§10/§12）。
- *
- * 三段结构，次序就是读者要回答的三个问题：
- *   ① 走到哪算达成（`criterion` 全文，正文段优先、字段兜底）
- *   ② 凭什么判（`criterion_kind` 对应的判法说明——Human 2026-11-02「只保留判法即可」）
- *   ③ 它凭什么属于这个项目目标（`alignment`）
- * 之后是名下的工作（由 `serves` 反查派生）与修订史。
- *
- * **次序与判据类型不再住这一屏的顶部锚点块**（Human 定案 2026-11-02）：
- * - `order` 移到**身份头**（与列表卡卡头同一枚 `SubGoalOrderBadge`）——它是跨条比较的
- *   扫读要素，与「优先级」同级（见 §4sexies）；
- * - `criterion_kind` 的**词**（「闭环记录」等）退出呈现，只留它的**判法说明**，且这条
- *   说明用与「达成条件」相同的正文节点承载、紧挨在达成条件之后、排在名下的工作之前。
- *   理由：读者要的是「这条怎么判」，不是「它属于哪个分类」——把闭集名摆在最上面，
- *   读者先看到的是一个分类标签，而答案在下面那行说明里。
- *
- * **名下的工作不是「进度」**：0 条不等于 0%，它是「未声明或未拆解」，这两种
- * 情形机械层不可区分（28 §8.1），故空集时显式标注歧义而不是画一个 0。
- * 同理 3 条已完成的工作也不推出「子目标已达成」——达成由判据判定（§18 红线 3）。
- */
 export function SubGoalReadingLayout({
   obj,
   locale,
@@ -799,18 +705,9 @@ export function SubGoalReadingLayout({
   const { t } = useI18n();
   const [servingState, setServingState] = useState<ReadingNodeState>('expanded');
 
-  // 显示次序不是身份（28 §7）：身份是 object_uid，读者在这一屏不需要看到它——
-  // 它在 URL 里、在引用里、在任何需要精确定位的地方，而不是阅读面。
-  // `order` 不再在本屏消费：它已移到身份头（`ObjectDetail` 的 ObjectIdentityHeader，
-   // 经同一枚 `SubGoalOrderBadge`）。此处不留一个「读了不用」的变量——留着会让后来者
-   // 以为这一屏仍在呈现次序，改动两处之一就够。
   const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
   const alignment = typeof obj.alignment === 'string' ? obj.alignment.trim() : '';
-  // `parent_goal` 不再在本屏消费，也**不再在任何一屏呈现**（Human 定案 2026-11-02，
-  // 截图圈出身份头底部的「服务目标 project-goal」：「圈出来的不用显示」）。它上一轮
-  // 从本屏移到身份头辅助元信息行，这一轮连那一行一起撤除——故
-  // `AUXILIARY_META_KEYS_BY_TYPE.subgoal` 现为空表。同上，不留「读了不用」的变量。
 
   const bodySections = parseSubGoalBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title)?.body ?? '';
@@ -833,11 +730,6 @@ export function SubGoalReadingLayout({
     ? obj.serving_unreadable.filter((entry): entry is string => typeof entry === 'string')
     : [];
 
-  // 判法说明：`criterion_kind` 的**词**不上屏（Human 2026-11-02「只保留判法即可」），
-  // 只留它对应的判法。闭集外的值没有判法可给——不猜含义、不用分类名冒充说明
-  // （28 §18 红线：不以类推定替代），此时整节点不渲染。
-  // 显式三分支而非模板串：`t()` 的键是字面量联合类型，模板串会让拼错的键
-  // 逃过类型检查、在运行时静默显示原始 key。
   const kindHint = criterionKind === 'metric'
     ? t('objectDetail.subGoalKindHint.metric')
     : criterionKind === 'closure-records'
@@ -848,23 +740,9 @@ export function SubGoalReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {/* 顶部锚点块已撤（Human 定案 2026-11-02「只保留判法即可」）。它此前同时装着
-          次序、判据类型的词、服务目标与判法四样东西，而其中只有判法回答了读者打开
-          这一屏的问题：这条怎么判。其余三样各有归属——
-            · 次序 → 身份头（与列表卡卡头同一枚 SubGoalOrderBadge，见 §4sexies）；
-            · 判据类型的词 → 不上屏，只留它的判法（分类名不是答案，答案在判法里）；
-            · 服务目标 → 身份头辅助元信息（`AUXILIARY_META_KEYS_BY_TYPE.subgoal`），
-              它是「这条属于哪个目标」的归属事实，不是阅读叙事的一段。 */}
+      { }
 
-      {/* 正文两块是 frontmatter 的**展开**（28 §8 不变量 1：字段必须逐字出现在
-          正文对应段），所以正文段永远以字段原文开头、再补判定材料与理由。
-
-          因此**不能**把字段与正文段各渲染一次——那会让同一段话在页面上出现两遍
-          （实测：同一条子目标的达成条件与对齐说明整段重复出现过两遍）。惯例同 27 号 NormReadingLayout：
-          只渲染正文分节，字段是机器权威、不单独上屏。
-
-          正文缺失时才回落显示字段——那是载体不合规的形态，字段仍是唯一权威文本，
-          不能因为正文没写就让读者看不到判据。 */}
+      { }
       {sectionOf('达成条件') ? (
         <ProseNode
           title={getFieldLabel('subgoal_criterion', locale)}
@@ -892,16 +770,7 @@ export function SubGoalReadingLayout({
         />
       ) : null}
 
-      {/* 判法：`criterion_kind` 的判法说明，用与「达成条件」同一个正文节点渲染
-          （Human 2026-11-02「只保留判法即可，样式和达成条件一样，放到名下工作上面」）。
-
-          位置在名下的工作**正上方**而不是紧跟达成条件：它回答的是「这些工作按什么
-          算齐了」，与紧接着要列出的名下工作同属一个判断动作——读者读完判法，下一眼
-          就是「那条判法对着哪些工作看」。夹在达成条件与对齐说明之间则会把「凭什么归属
-          这个目标」推到判法之后，打断归属叙事的连贯。
-
-          闭集外的 `criterion_kind` 没有判法可给：不渲染本节点，也不退而显示分类名
-          （28 §18 红线：不以类推定替代）。不合法本身由字段问题区如实报出。 */}
+      { }
       {kindHint && (
         <ProseNode
           title={getFieldLabel('subgoal_kind_hint', locale)}
@@ -917,20 +786,7 @@ export function SubGoalReadingLayout({
         headerMeta={<span className="ldvh-meta-muted">{servingWork.length}</span>}
         onToggle={() => setServingState((current) => getReadingNodeNextState(current))}
       >
-        {/* 火花落实比值（Human 定案 2026-11-02），口径与卡面**同一处派生**：
-            `utils/servingSparkProgress.ts` 单点算，卡与详情共用，不在两处各算一遍。
-
-            **位置与卡面刻意相反**：卡面在行列表之后（先看有哪几条，再看其中多少已落实，
-            代价只有 3 行）；这里在行列表**之前**——详情面的清单不折叠（实测一条子目标
-            可到 48 行），把汇总放在末尾等于让它出现在没人会滚到的地方，那就不叫「先材料
-            后结论」，叫「结论不可达」。同一份派生、两种排布，都是为了「结论与材料同屏」。
-
-            空集时不画：上面那句空集歧义提示已经说清，同一件事说两遍会让读者以为其中
-            一条是新信息。
-
-            这里读的是 `obj.serving_work` 的**原始行**（带 `status`），不是下面渲染用的
-            `servingWork` 投影——那一层把 `status` 换成了关联状态轴，拿它去数火花会
-            得到 0 条（卡面第一版正是这么错的，2026-11-02 实测发现）。 */}
+        { }
         {servingWork.length > 0 && (
           <div className="mb-2">
             <ServingSparkProgressBar
@@ -945,8 +801,6 @@ export function SubGoalReadingLayout({
           </div>
         )}
         {servingWork.length === 0 ? (
-          // 28 §8.1：空集歧义必须显式标注。它不是「进度 0%」——真的还没拆解，
-          // 与拆解了却没人写 serves，在机械层长得一模一样。
           <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
             {t('objectDetail.subGoalServingEmpty')}
           </p>
@@ -956,12 +810,6 @@ export function SubGoalReadingLayout({
               <li key={`${row.type}-${row.id}`} className="flex min-w-0 items-center gap-2 py-2 first:pt-0 last:pb-0">
                 <ObjectTypeIcon type={row.type} size={12} />
                 <Link
-                  // 路由路径，不是 hash 片段：应用用 BrowserRouter（`App.tsx`），
-                  // `#/objects/...` 只改 fragment、不触发路由——点上去页面不动，
-                  // 读者只会以为「这一行坏了」。
-                  //
-                  // 用 `row.id` 而不是 `row.object_uid`：详情路由只认载体标识
-                  // `<type>-<uuid>`（`showObject` 的 ObjectIdPattern），裸 uuid 会 404。
                   to={row.id ? `/objects/${row.type}/${row.id}` : '.'}
                   className="ldvh-caption min-w-0 flex-1 truncate hover:underline"
                 >
@@ -977,7 +825,6 @@ export function SubGoalReadingLayout({
           </ul>
         )}
         {servingUnreadable.length > 0 && (
-          // 读不到不等于没有（00 §4.6）：无法枚举的类型单列，绝不并进空集。
           <p className={`ldvh-meta mt-2 rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
             {t('objectDetail.subGoalServingUnreadable')}：{servingUnreadable.join('；')}
           </p>
@@ -994,8 +841,6 @@ export function SubGoalReadingLayout({
   );
 }
 
-/** 28 号 §9/§11 终态去向：retired 的 disposition（原位作废的去向与理由）。
- * achieved 不在此列——它不是「退出」，是判据被满足，语义由状态徽标承载。 */
 function SubGoalTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
   const { t } = useI18n();
   const isRetired = obj.status === 'retired';
@@ -1012,10 +857,6 @@ function SubGoalTerminalReadingNode({ obj, locale }: { obj: Record<string, unkno
   );
 }
 
-/** v5 Goal 阅读布局（25 号 §6）：单例冻结锚的详情阅读面——目标陈述（冻结区，
- * 为什么 + 要实现什么）→ 子目标（28 号对象，按 `parent_goal` 反查派生，各带可
- * 判定的达成条件）→ 修订史（change_log 是 HV5 演进链第一环，复用共享流水节点）。
- * Goal 无 relations/urls（25 §5 链顶无上游；路径即身份）。 */
 export function GoalReadingLayout({
   obj,
   locale,
@@ -1037,8 +878,6 @@ export function GoalReadingLayout({
         return [{
           id: record.id.trim(),
           text: record.text.trim(),
-          // 28 §8：显示次序由可选 `order` 承担，身份由 `object_uid` 承担。
-          // 这一屏给读者看的是次序，不是 identity（`id` 就是 uid）。
           order: typeof record.order === 'number' ? record.order : undefined,
           object_uid: typeof record.object_uid === 'string' ? record.object_uid : undefined,
           legacy: record.legacy === true,
@@ -1048,11 +887,9 @@ export function GoalReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {/* 目标陈述（冻结区）：一段话，写给未来会话与新读者。 */}
+      { }
       <ProseNode title={getFieldLabel('goal_statement', locale)} value={statement} locale={locale} />
-      {/* 子目标：按 `parent_goal` 反查派生（28 §8.1，不在本载体存储）——
-          与认知中心目标区同渲染语法（chip + 文本行）。次序取 `order`，
-          缺失即「未定次序」；身份是 object_uid，读者在这一屏不需要它。 */}
+      { }
       {subGoals.length > 0 && (
         <ReadingNodeSection
           title={getFieldLabel('goal_sub_goals', locale)}
@@ -1068,8 +905,7 @@ export function GoalReadingLayout({
                   {typeof subGoal.order === 'number' ? subGoal.order : '·'}
                 </span>
                 <span className="ldvh-caption min-w-0 flex-1">{subGoal.text}</span>
-                {/* 迁移中的旧段行：显式标出，不与会话中的对象行混为一谈
-                    （25 §7 / 28 §14.2）。它也没有可下钻的对象。 */}
+                { }
                 {subGoal.legacy && (
                   <span
                     className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"

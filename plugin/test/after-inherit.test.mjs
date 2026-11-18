@@ -1,14 +1,3 @@
-// 契约测试：受控更新 after 完整性（specs/02 §10.5 实现对齐）
-//
-// 本套测试锁定本单引入的**新契约**：update 路径的 frontmatter 由
-// 「磁盘基线 + 显式声明变更 + 显式删除通道」构造——
-//   · 漏传的字段**继承磁盘**（旧语义「省略即删除」已反转）；
-//   · 删除必须经 frontmatter_removals 显式声明，且仅限该类型白名单；
-//   · 白名单外字段一律拒绝且**零写入**；
-//   · Code 托管字段不可经 after 覆盖、不可经 removals 删除；
-//   · correct 路径不受影响。
-//
-// 8 组用例对应 21 §14 授权范围中的契约测试条目。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -35,10 +24,6 @@ import { SPARK_REMOVABLE_FIELDS } from "../lib/spark-writer.js";
 import { stripLeadingH1 } from "../lib/friction-discovery.js";
 import { testSignature, withTemp } from "./helpers.mjs";
 
-// ---------------------------------------------------------------------------
-// 各类型的 VALID_FM_KEYS（用于白名单自检；与 writer 内常量同源，此处独立列出
-// 以免测试依赖 writer 的内部导出——若二者漂移，自检用例会失败）。
-// ---------------------------------------------------------------------------
 const VALID_FM_KEYS_BY_TYPE = {
   spark: new Set([
     "object_uid", "fact_type_key", "title", "created_at", "status",
@@ -79,19 +64,10 @@ const REMOVABLE_BY_TYPE = {
   goal: GOAL_REMOVABLE_FIELDS,
 };
 
-/**
- * 已退出类型闭集、但仍须可删的字段（存量迁移通道）。
- *
- * 2026-11-02 起 `REMOVABLE ⊆ VALID_FM_KEYS` 这条不变式**按设计不再成立**：字段的自
- * 退役路径就是把「闭集内」→「闭集外、白名单内」。理由（26 §14.2）：闭集收缩后存量
- * 载体仍带着该字段，若把它一并赶出白名单，存量就无法经受控通道清除，全部成为闭集
- * 违规。首次执行是 2026-10 的 `serves`，第二次是 2026-11-02 的 `impact`。
- */
 const RETIRED_FROM_CLOSED_SET_BY_TYPE = {
   friction: ["serves", "impact"],
 };
 
-/** 各类型的必填字段（白名单不得包含它们）。 */
 const REQUIRED_BY_TYPE = {
   spark: ["object_uid", "fact_type_key", "title", "created_at", "status", "question", "scope_boundary", "intent", "summary"],
   friction: ["object_uid", "fact_type_key", "title", "created_at", "status", "phenomenon", "occurrence"],
@@ -101,14 +77,10 @@ const REQUIRED_BY_TYPE = {
   goal: ["goal_key", "title", "status", "created_at"],
 };
 
-/** 终态伴随字段（update 路径不可达，白名单亦不得包含）。 */
 const TERMINAL_COMPANION_FIELDS = new Set([
   "disposition", "relations", "retirement_reason", "retired_at",
 ]);
 
-// ---------------------------------------------------------------------------
-// 组 1：漏字段即继承（核心回归；含条件字段与必填字段）
-// ---------------------------------------------------------------------------
 test("after-inherit: 未携带的字段从磁盘基线继承，不被静默删除（含必填与条件字段）", () => {
   const baseline = {
     object_uid: "11111111-1111-4111-8111-111111111111",
@@ -117,13 +89,12 @@ test("after-inherit: 未携带的字段从磁盘基线继承，不被静默删�
     created_at: "2026-01-01T00:00:00.000Z",
     status: "open",
     phenomenon: "CI 平均 8 分钟",
-    attribution: "CI 子系统",     // 条件字段
+    attribution: "CI 子系统",
     attribution_ref: { object_uid: "22222222-2222-4222-8222-222222222222" },
     occurrence: { count: 1, first_at: "2026-01-01T00:00:00.000Z", last_at: "2026-01-01T00:00:00.000Z" },
     change_log: [{ at: "2026-01-01T00:00:00.000Z", summary: "首建" }],
   };
 
-  // 只声明改 title —— 其余全部省略
   const built = buildUpdateFrontmatter({
     currentFrontmatter: baseline,
     frontmatterAfter: { title: "新标题" },
@@ -136,20 +107,15 @@ test("after-inherit: 未携带的字段从磁盘基线继承，不被静默删�
   assert.equal(built.ok, true, "构造应成功");
   const fm = built.value;
   assert.equal(fm.title, "新标题", "声明的字段被覆盖");
-  // 这就是本单的核心回归：旧实现下这些字段会被静默删除
   assert.equal(fm.phenomenon, "CI 平均 8 分钟", "必填字段 phenomenon 应继承");
   assert.equal(fm.attribution, "CI 子系统", "条件字段 attribution 应继承");
   assert.deepEqual(fm.attribution_ref, { object_uid: "22222222-2222-4222-8222-222222222222" }, "条件字段 attribution_ref 应继承");
   assert.deepEqual(fm.occurrence, baseline.occurrence, "嵌套对象应继承");
   assert.equal(fm.status, "open", "status 应继承");
 
-  // 基线对象未被污染（structuredClone 深拷贝）
   assert.equal(baseline.title, "原始标题", "CAS 基线对象不得被就地修改");
 });
 
-// ---------------------------------------------------------------------------
-// 组 2：显式删除生效
-// ---------------------------------------------------------------------------
 test("after-inherit: frontmatter_removals 声明的字段被删除，未声明者保留", () => {
   const baseline = {
     object_uid: "33333333-3333-4333-8333-333333333333",
@@ -176,16 +142,12 @@ test("after-inherit: frontmatter_removals 声明的字段被删除，未声明�
   assert.equal(built.value.phenomenon, "p", "其余字段继承");
 });
 
-// ---------------------------------------------------------------------------
-// 组 3：越界删除被拒（逐类型：白名单外 / 必填字段 / 终态伴随字段 / 托管字段）
-// ---------------------------------------------------------------------------
 test("after-inherit: 白名单外字段的删除声明被拒（逐类型，fail-closed）", () => {
   for (const [type, removable] of Object.entries(REMOVABLE_BY_TYPE)) {
     const valid = VALID_FM_KEYS_BY_TYPE[type];
     const required = REQUIRED_BY_TYPE[type];
     const baseline = { ...Object.fromEntries([...valid].map((k) => [k, k === "status" ? "open" : "x"])) };
 
-    // (a) 白名单外、且是本类型合法字段
     const outside = [...valid].filter((k) => !removable.has(k) && !CODE_MANAGED_FIELDS.has(k));
     if (outside.length > 0) {
       const built = buildUpdateFrontmatter({
@@ -200,7 +162,6 @@ test("after-inherit: 白名单外字段的删除声明被拒（逐类型，fail-
       assert.match(built.error.code, /removal_not_allowed$/, `${type}: 拒绝码应为 removal_not_allowed`);
     }
 
-    // (b) 必填字段（必在白名单外，应被同一道闸拒绝）
     for (const req of required) {
       const built = buildUpdateFrontmatter({
         currentFrontmatter: baseline,
@@ -213,7 +174,6 @@ test("after-inherit: 白名单外字段的删除声明被拒（逐类型，fail-
       assert.equal(built.ok, false, `${type}: 必填字段 ${req} 不得可删`);
     }
 
-    // (c) 终态伴随字段
     for (const tc of TERMINAL_COMPANION_FIELDS) {
       if (!valid.has(tc)) continue;
       const built = buildUpdateFrontmatter({
@@ -227,7 +187,6 @@ test("after-inherit: 白名单外字段的删除声明被拒（逐类型，fail-
       assert.equal(built.ok, false, `${type}: 终态伴随字段 ${tc} 不得可删`);
     }
 
-    // (d) Code 托管字段
     for (const cm of CODE_MANAGED_FIELDS) {
       if (!valid.has(cm)) continue;
       const built = buildUpdateFrontmatter({
@@ -244,9 +203,6 @@ test("after-inherit: 白名单外字段的删除声明被拒（逐类型，fail-
   }
 });
 
-// ---------------------------------------------------------------------------
-// 组 4：合法转终态（spark open → discarded 时清除 priority）
-// ---------------------------------------------------------------------------
 test("after-inherit: spark 转终态时经 removals 清除 priority（本类型唯一必需的顶层删除）", () => {
   const baseline = {
     object_uid: "55555555-5555-4555-8555-555555555555",
@@ -270,9 +226,6 @@ test("after-inherit: spark 转终态时经 removals 清除 priority（本类型�
   assert.equal(Object.hasOwn(built.value, "priority"), false, "priority 已清除（20 §8：终态必须省略）");
 });
 
-// ---------------------------------------------------------------------------
-// 组 5：合法嵌套清除（删除含嵌套结构的条件字段）
-// ---------------------------------------------------------------------------
 test("after-inherit: 删除携带嵌套结构的条件字段整体生效", () => {
   const baseline = {
     object_uid: "66666666-6666-4666-8666-666666666666",
@@ -300,9 +253,6 @@ test("after-inherit: 删除携带嵌套结构的条件字段整体生效", () =>
   assert.ok(Array.isArray(built.value.implications), "未声明的 implications 应保留");
 });
 
-// ---------------------------------------------------------------------------
-// 组 6：托管字段不可改（after 携带被忽略；removals 声明被拒）
-// ---------------------------------------------------------------------------
 test("after-inherit: Code 托管字段不接受调用方覆盖", () => {
   const baseline = {
     object_uid: "77777777-7777-4777-8777-777777777777",
@@ -334,9 +284,6 @@ test("after-inherit: Code 托管字段不接受调用方覆盖", () => {
   assert.equal(built.value.title, "新", "普通字段仍可覆盖");
 });
 
-// ---------------------------------------------------------------------------
-// 组 7：correct 路径不受影响 + 同一键覆盖/删除冲突被拒
-// ---------------------------------------------------------------------------
 test("after-inherit: 同一键既覆盖又删除的声明自相矛盾，被拒", () => {
   const baseline = {
     object_uid: "88888888-8888-4888-8888-888888888888",
@@ -359,12 +306,6 @@ test("after-inherit: 同一键既覆盖又删除的声明自相矛盾，被拒",
   assert.match(built.error.code, /removals_conflict$/, "拒绝码应为 removals_conflict");
 });
 
-// ---------------------------------------------------------------------------
-// 组 8：白名单自检（REMOVABLE ⊆ VALID ∪ 已退出闭集；不含必填；不含终态伴随；描述为三向口径）
-//
-// 2026-11-02 起「REMOVABLE ⊆ VALID」按设计不再成立——字段退役正是「出闭集、留白名单」
-// 这一步（见 RETIRED_FROM_CLOSED_SET_BY_TYPE 的说明）。
-// ---------------------------------------------------------------------------
 test("after-inherit: 白名单自检——⊆ VALID ∪ 已退出闭集、不含必填与终态伴随字段", () => {
   for (const [type, removable] of Object.entries(REMOVABLE_BY_TYPE)) {
     const valid = VALID_FM_KEYS_BY_TYPE[type];
@@ -380,12 +321,10 @@ test("after-inherit: 白名单自检——⊆ VALID ∪ 已退出闭集、不含
     }
   }
 
-  // 规范口径：norm 与 goal 白名单为空；spark 仅 priority/refs/serves
   assert.equal(NORM_REMOVABLE_FIELDS.size, 0, "norm 白名单应为空");
   assert.equal(GOAL_REMOVABLE_FIELDS.size, 0, "goal 白名单应为空");
   assert.deepEqual([...SPARK_REMOVABLE_FIELDS].sort(), ["priority", "refs", "serves"], "spark 白名单应为 priority/refs/serves");
 
-  // 已退出闭集但仍须可删（26 §14.2 存量迁移通道）：friction 的 serves（2026-10）与 impact（2026-11-02）
   assert.deepEqual(
     [...FRICTION_REMOVABLE_FIELDS].sort(),
     ["attribution", "attribution_ref", "impact"],
@@ -393,10 +332,9 @@ test("after-inherit: 白名单自检——⊆ VALID ∪ 已退出闭集、不含
   );
   assert.equal(VALID_FM_KEYS_BY_TYPE.friction.has("impact"), false, "impact 已退出 friction 闭集，不得再出现在 VALID_FM_KEYS");
 
-  // 白名单含非本类型字段 → 必被 VALID 校验捕获（以 spark 字段混入 friction 为例）
   const built = buildUpdateFrontmatter({
     currentFrontmatter: { object_uid: "u", fact_type_key: "friction", title: "t", created_at: "c", status: "open" },
-    frontmatterAfter: { priority: "P1" },  // priority 不是 friction 的字段
+    frontmatterAfter: { priority: "P1" },
     frontmatterRemovals: null,
     removableFields: FRICTION_REMOVABLE_FIELDS,
     typeLabel: "friction",
@@ -404,15 +342,11 @@ test("after-inherit: 白名单自检——⊆ VALID ∪ 已退出闭集、不含
   });
   assert.equal(built.ok, false, "非本类型字段混入 after 应被闭集校验拒绝");
 
-  // schema 描述已是三向口径
   assert.match(FRONTMATTER_AFTER_DESCRIPTION, /INHERITED/, "after 描述应声明继承语义");
   assert.doesNotMatch(FRONTMATTER_AFTER_DESCRIPTION, /complete target frontmatter \(all fields/, "after 描述不得再教「全字段展开」");
   assert.match(FRONTMATTER_REMOVALS_DESCRIPTION, /DELETE/, "removals 描述应声明删除语义");
 });
 
-// ---------------------------------------------------------------------------
-// 端到端：经真实 writer 验证「漏字段不被删除」与「越界删除零写入」
-// ---------------------------------------------------------------------------
 test("after-inherit e2e: 经 friction writer 更新时漏传 attribution 不再丢失（本单修复的实测事故）", async () => {
   await withTemp("after-inherit-e2e.", async (base) => {
     const factSourceRoot = join(base, "facts");
@@ -433,7 +367,6 @@ test("after-inherit e2e: 经 friction writer 更新时漏传 attribution 不再�
     assert.equal(read1.ok, true);
     assert.equal(read1.value.frontmatter.attribution, "主控会话", "前置：attribution 已在盘上");
 
-    // 关键：只传 title（模拟 2026-10-16 漏抄 attribution 的那次销账调用）
     const updated = await updateFrictionObject({
       factSourceRoot,
       objectUid: created.value.object_uid,
@@ -474,7 +407,6 @@ test("after-inherit e2e: 越界删除被拒且零写入", async () => {
     const read1 = await readFrictionObject({ factSourceRoot, objectUid: created.value.object_uid });
     const fileBefore = await readFile(read1.value.file, "utf-8");
 
-    // phenomenon 是必填字段、不在白名单内
     const rejected = await updateFrictionObject({
       factSourceRoot,
       objectUid: created.value.object_uid,
@@ -488,7 +420,6 @@ test("after-inherit e2e: 越界删除被拒且零写入", async () => {
     assert.equal(rejected.ok, false, "越界删除必须被拒");
     assert.match(rejected.error.code, /removal_not_allowed$/, "拒绝码应为 friction/removal_not_allowed");
 
-    // 零写入：文件逐字节未变
     const fileAfter = await readFile(read1.value.file, "utf-8");
     assert.equal(fileAfter, fileBefore, "被拒时不得发生任何写入");
   });

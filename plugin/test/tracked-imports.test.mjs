@@ -1,28 +1,3 @@
-/**
- * 已跟踪文件不得 import 未纳入版本控制的文件。
- *
- * WHY THIS EXISTS
- * `e25dc43`（2026-10-19 02:08）给 `lib/adr-tools.js` 加了
- * `import { objectRef } from "./object-reference.js"`，但那个新文件**忘记
- * `git add`**。此后连续 14 个提交都带着这条断链，而**本地一切正常**——
- * 因为文件就躺在工作树里，`import` 当然成功。
- *
- * 只有净检出（clone / worktree / CI）才会暴露：
- *     import('plugin/lib/adr-tools.js') → ERR_MODULE_NOT_FOUND
- * 而且断的不止一个模块：spark-tools / pitfall-tools 都 import 它，
- * 四个模块一起起不来。
- *
- * （2026-11-16 注：上文所述 `lib/adr-tools.js` 已随 ADR 事实类型撤除而删除；
- * 本段按历史原貌保留，所述断链事故是当时真实发生的，不因模块撤除而改写。）
- *
- * 现有测试全绿也报不出来：它们跑在**同一个工作树**里，同样能读到那个未跟踪
- * 文件。这个缺陷的盲区正好是「工作树 ≠ 提交内容」，所以判据必须直接问 git
- * 「这个文件在版本控制里吗」，而不是问文件系统「这个文件存在吗」。
- *
- * 判据只覆盖一类：相对路径 import 指向的**已存在于磁盘**的文件不在 git 索引里。
- * 故意不覆盖「路径根本不存在」（那是拼写错误，Node 运行时会立刻炸，测试本来
- * 也跑不起来），也不覆盖 node: 内置与裸包名。
- */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -38,7 +13,6 @@ function git(args) {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" });
 }
 
-/** git 是否可用且当前目录在仓库内——不可用时跳过，绝不伪造通过。 */
 function gitUsable() {
   try {
     git(["rev-parse", "--show-toplevel"]);
@@ -48,24 +22,15 @@ function gitUsable() {
   }
 }
 
-/** 索引中存在的路径集合（相对仓库根）。`ls-files -z` 避免路径含空格时被拆开。 */
 function trackedPaths() {
   const raw = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" });
-  // **统一成正斜杠**：git 输出恒为 `/`，而 `path.resolve` 在 Windows 上产出
-  // `\`。不归一会使 `tracked.has(targetRel)` 对每个文件都判 false——实测
-  // 84 个 plugin/lib 文件全被误报为「不在索引中」（纯 Windows 缺陷，POSIX 无感）。
   return new Set(raw.split("\0").filter(Boolean).map(toPosix));
 }
 
-/** 把任意平台路径分隔符归一为正斜杠（索引键的唯一形态）。 */
 function toPosix(p) {
   return p.replace(/\\/g, "/");
 }
 
-/**
- * 抓取源码里的相对说明符：`from "./x.js"`、`import("./x.js")`、`import "./x.js"`。
- * 只认以 `.` 开头的，`node:` 内置与裸包名不在此列。
- */
 function relativeSpecifiers(source) {
   const found = new Set();
   const patterns = [
@@ -85,17 +50,16 @@ test("已跟踪的源文件不得 import 未纳入版本控制的文件", (t) =>
     return;
   }
   const tracked = trackedPaths();
-  // 只看已跟踪的源文件：未跟踪文件本来就不该作为「已提交状态」的代表。
   const sources = [...tracked].filter((p) => p.startsWith("plugin/") && p.endsWith(".js"));
 
   const offenders = [];
   for (const relPath of sources) {
     const absPath = join(repoRoot, relPath);
-    if (!existsSync(absPath)) continue; // 索引里有、盘上没有（删除待提交），另有检查负责
+    if (!existsSync(absPath)) continue;
     const source = readFileSync(absPath, "utf8");
     for (const spec of relativeSpecifiers(source)) {
       const target = resolve(dirname(absPath), spec);
-      if (!existsSync(target)) continue; // 真·路径不存在，运行时会报，不归这条管
+      if (!existsSync(target)) continue;
       const targetRel = toPosix(target.slice(repoRoot.length + 1));
       if (!tracked.has(targetRel)) {
         offenders.push(`${relPath} → ${spec}（${targetRel} 不在索引中）`);
@@ -113,8 +77,6 @@ test("已跟踪的源文件不得 import 未纳入版本控制的文件", (t) =>
 });
 
 test("判据本身有效：能识别出未跟踪目标（防止用例空转）", () => {
-  // 上一条用例的失效形态是「永久绿」：如果 relativeSpecifiers 抓不到东西，或
-  // trackedPaths 恰好为空集，它会无条件通过。这里直接钉住两个基本事实。
   const sample = [
     'import { a } from "./alpha.js";',
     'import "./beta.js";',
@@ -137,32 +99,16 @@ test("判据本身有效：能识别出未跟踪目标（防止用例空转）",
   );
 });
 
-// ── 被 try 包住的动态 import 断链（2026-11-16） ────────────────────────────
-//
-// 上面的判据刻意跳过「路径根本不存在」，理由是「Node 运行时立刻炸」。该理由
-// 对**静态** import 成立，对**被 try 包住的动态** import 不成立：
-//
-//   实测（`ddae5f72` 删除 `experience-review-stage.js`，`lifecycle.js:1703` 仍
-//   动态 import 它）：`ERR_MODULE_NOT_FOUND` 被外层 catch 吞掉并记成
-//   `friction-promotion-threw`。于是**每一次**摩擦阈值晋升都失败，而进程不崩、
-//   测试全绿、日志里只写「晋升失败」——看不出根因是模块不存在。
-//
-// 所以这一类必须有独立判据：**扫动态 import 的字面量路径，盘上不存在即失败**。
-// 它比静态 import 更危险：静态的会让整个模块起不来（立刻可见），动态的只在
-// 那条分支被走到时才失效，且通常已被 try 包住。
 
 test("动态 import 的字面量路径必须存在于磁盘（被 try 包住的断链不会炸，只能靠这条抓）", async () => {
   const { readdirSync, readFileSync, existsSync } = await import("node:fs");
   const { dirname, join, resolve } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const libDir = join(dirname(dirname(fileURLToPath(import.meta.url))), "lib");
-  // 只扫 lib 下的 .js；动态 import 的字面量形态是 import("./x.js")。
   const files = readdirSync(libDir).filter((name) => name.endsWith(".js"));
   const broken = [];
   for (const file of files) {
     const text = readFileSync(join(libDir, file), "utf8");
-    // 字面量动态 import：import("...") / import('...')。模板串不在本判据内
-    // （其路径在运行时才成形，机械层无法核对——如实留空，不假装覆盖）。
     const pattern = /\bimport\s*\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g;
     let match;
     while ((match = pattern.exec(text)) !== null) {

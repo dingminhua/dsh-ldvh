@@ -1,20 +1,12 @@
-// Tests for 调度侧观察区间累积器（现位于 plugin/lib/turn-accumulator.js）。
-//
-// 历史：本文件原测 `friction-window.js` 的累积器与引证核对（D1）。2026-11-17
-// 删除水位/静置检查点路径时，`friction-window.js` 整体删除：累积器已在批次 1
-// 迁入 `turn-accumulator.js`，引证核对（`verifyQuotation`）随路径 B 一并移除，
-// 故本文件只保留累积器（`windowFrom` 等）用例。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createWindowAccumulator } from "../lib/turn-accumulator.js";
 
-/** 造一个 assistant/message 事件（形状取自宿主 SessionEventMap）。 */
 function assistantEvent(turn, blocks) {
   return { type: "assistant/message", data: { turn, step: 1, message: { content: blocks }, stream: [] } };
 }
 
-/** 造一个 user/message 事件（载荷是消息体本身，**无 turn 字段**）。 */
 function userEvent(blocks) {
   return { type: "user/message", data: { id: "m1", content: blocks, source: { kind: "user" } } };
 }
@@ -23,9 +15,6 @@ function turnStart(turn) {
   return { type: "turn/start", data: { turn } };
 }
 
-// ---------------------------------------------------------------------------
-// 累积（只消费已发布事件，不读会话日志）
-// ---------------------------------------------------------------------------
 
 test("累积：助手文本按轮次摘出（只取 text 块，与 child.js 同口径）", () => {
   const acc = createWindowAccumulator();
@@ -66,9 +55,6 @@ test("累积：非预期会话的事件被忽略（多会话共存时不串线�
   assert.equal(w.items[0].assistant, "我的会话");
 });
 
-// ---------------------------------------------------------------------------
-// 切分：区间内容由调度侧给出（D1 的核心）
-// ---------------------------------------------------------------------------
 
 test("切分：水位之后的内容才进窗口（首次为 null = 覆盖全部既有内容）", () => {
   const acc = createWindowAccumulator();
@@ -123,35 +109,11 @@ test("累积：reset 清空（会话切换）", () => {
   assert.deepEqual(acc.snapshot(), { turns: 0, pendingUser: false, firstObservedTurn: null });
 });
 
-// ---------------------------------------------------------------------------
-// 2026-11-03：失败消息须能区分「引错地方」与「引文落在被切掉的尾部」
-//
-// 材料按轮施加 20000 字符上限（specs/11 §7.1），超出部分被 clamp 切掉并置
-// `truncated`。两种成因的处置完全不同：前者是执行体该改，后者是本次交付范围
-// 不足以支持判断、执行体没有错。此前两者产生逐字相同的消息，且消息里只留引文
-// 前 80 字、不说明被截过——待处置队列 18 条 `quote_not_in_window` 因此至今
-// 无从归因。这三条钉住：默认（未截断）口径不变、截断口径改词、显示须标原长。
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// friction-37458a09：逐字引证校验拒收「形状不同、内容相同」的引文
-//
-// 判据放宽的是**形状**（Markdown 装饰、空白码位），不是内容。这组用例三条正向
-// （剥掉装饰后仍须被认作材料原文）、两条反向控制（真差异仍须被拒，防止「放宽」
-// 被做成「形同不校验」）。
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// 缺陷 D6：水位跨进程持久化，而累积器随进程存活 → 重启后区间可能有缺口
-//
-// 形态：宿主重启后累积器从空开始，水位仍是从前那次的值。若放行，该次运行的
-// 「no-discovery」会让水位推进越过**本进程从未观察**的那段，使其永久不被观察
-// （宿主只发布事件、不回放；本模块按 §8.4 纪律不读会话日志）。
-// ---------------------------------------------------------------------------
 
 test("D6：重启后在水位与首见轮次之间检出未观察缺口", () => {
   const acc = createWindowAccumulator();
-  // 模拟：进程重启后只看到 turn 21 起的内容，而水位说应从 turn 11 起覆盖
   acc.observe(null, assistantEvent(21, [{ type: "text", text: "装载后的第一段。" }]));
   const w = acc.windowFrom(10);
   assert.deepEqual(w.unobserved, { from: 11, to: 20 }, "缺口须被如实标出，而不是当作区间已覆盖");
@@ -196,7 +158,6 @@ test("D6：容量淘汰不改变「最小已见轮次」这一事实", () => {
 
 test("发现②护栏：累积器从未收到任何事件时，缺口必须被报出（上界未知）", () => {
   const acc = createWindowAccumulator();
-  // 本进程什么都没看到，而水位要求从 32 起覆盖 —— 这正是「刚重启/事件流未达」
   const w = acc.windowFrom(31);
   assert.deepEqual(
     w.unobserved,
@@ -212,16 +173,6 @@ test("发现②护栏：上述情形下不得被当作『区间已完整覆盖�
   assert.ok(w.unobserved !== null, "有水位却无任何材料，必然存在缺口——判据是『水位 > 0 且未见过任何轮次』");
 });
 
-// ---------------------------------------------------------------------------
-// 一轮之内有多条 assistant/message（2026-10-11 修复）
-// ---------------------------------------------------------------------------
-//
-// 宿主把**每一次** assistant 输出都发成一条 `assistant/message`——一轮里有多少个
-// assistant 步骤就有多少条，步间还夹着工具调用。用真实会话实测：1411 条分布在
-// 55 轮，单轮最多 147 条。
-//
-// 修复前每条**覆盖**前一条，于是整轮只剩最后一条。两个后果都实测到过（见下两条
-// 测试各自的注释）。这两条是**同一根因**的两面：把「一条消息」当成了「整轮正文」。
 
 test("一轮内多条 assistant/message 须**累积**，不得只留最后一条", () => {
   const acc = createWindowAccumulator();
@@ -231,34 +182,25 @@ test("一轮内多条 assistant/message 须**累积**，不得只留最后一条
   acc.observe(null, assistantEvent(7, [{ type: "text", text: "第三步：提交完成。" }]));
   const w = acc.windowFrom(-1);
   assert.equal(w.items.length, 1, "同一轮仍只占一个条目");
-  // 三条**都在**（修复前只剩「第三步」一条）。
   const a = w.items[0].assistant;
   assert.ok(a.includes("第一步"), `不得丢掉第一步（实际：${JSON.stringify(a)}）`);
   assert.ok(a.includes("第二步"), "不得丢掉第二步");
   assert.ok(a.includes("第三步"), "最后一步当然也要在");
-  // 顺序须是发生序（它决定 clamp 截取哪一段前缀）。
   assert.ok(a.indexOf("第一步") < a.indexOf("第二步"), "须保持发生顺序");
   assert.ok(a.indexOf("第二步") < a.indexOf("第三步"), "须保持发生顺序");
 });
 
 test("空文本的 assistant/message（纯工具调用）**不得抹掉**本轮已有内容", () => {
-  // 实测：22% 的 assistant/message 没有 text 块（纯工具调用）。修复前轮到这类
-  // 消息时 `clipped` 为空串，写入即把该轮已累积的 assistant 文本清空——本会话
-  // 的 turn 55 因此变空（25 条消息、1531 字可用，最后剩 31 字，且被清成空）。
   const acc = createWindowAccumulator();
   acc.observe(null, turnStart(9));
   acc.observe(null, assistantEvent(9, [{ type: "text", text: "有价值的分析结论。" }]));
-  // 纯工具调用：content 里没有 text 块。
   acc.observe(null, assistantEvent(9, [{ type: "tool_use", name: "bash", input: { command: "ls" } }]));
   const w = acc.windowFrom(-1);
   assert.equal(w.items[0].assistant, "有价值的分析结论。", "空消息不得抹掉已有文本");
-  // 且不得因此把条目变成空的。
   assert.notEqual(w.items[0].assistant, "", "不得被清空");
 });
 
 test("空消息**在前**、有文本在后：文本仍须入账（两个方向都验）", () => {
-  // 上面那条验的是「有文本 → 空消息」。这条验反序「空消息 → 有文本」，
-  // 确保修复不是靠「只在非空时写」这种碰巧成立。
   const acc = createWindowAccumulator();
   acc.observe(null, turnStart(11));
   acc.observe(null, assistantEvent(11, [{ type: "tool_use", name: "bash", input: {} }]));
@@ -268,8 +210,6 @@ test("空消息**在前**、有文本在后：文本仍须入账（两个方向�
 });
 
 test("累积后仍受单轮上限约束，且**截取前缀**（确定性规则，不做语义取舍）", () => {
-  // 11 §11 禁止让切分依据落在 AI 判断上，故「保留哪一段」必须是**确定性**规则。
-  // 这里取前缀（按发生顺序），与 clamp 既有语义 `slice(0, max)` 一致。
   const acc = createWindowAccumulator({ maxCharsPerTurn: 10 });
   acc.observe(null, assistantEvent(1, [{ type: "text", text: "0123456789" }]));
   acc.observe(null, assistantEvent(1, [{ type: "text", text: "ABCDEFGHIJ" }]));
@@ -279,22 +219,16 @@ test("累积后仍受单轮上限约束，且**截取前缀**（确定性规则�
 });
 
 test("截断标记在后续消息到来后仍然为 true（合并只会更满，不会回退）", () => {
-  // 注：此测试**不是**在守护「只升不降」那种防御——累积语义下合并文本只增不减，
-  // `clamp` 是 `slice(0, max)`，故 truncated 不可能由 true 翻回 false（曾写过一个
-  // `|| previous.truncated` 的保护，实测**无法用任何测试区分**，属不可达代码，
-  // 已删除）。本测试守的是更弱但真实的一条：**截断事实不得丢失**——材料被截过就
-  // 必须一直标着，否则提示词里的截断提醒不再出现，执行体会以为看全了。
   const acc = createWindowAccumulator({ maxCharsPerTurn: 10 });
-  acc.observe(null, assistantEvent(1, [{ type: "text", text: "0123456789ABCDEF" }]));  // 触发截断
+  acc.observe(null, assistantEvent(1, [{ type: "text", text: "0123456789ABCDEF" }]));
   assert.equal(acc.windowFrom(-1).items[0].truncated, true, "先置起");
-  acc.observe(null, assistantEvent(1, [{ type: "text", text: "短" }]));                 // 后续消息
+  acc.observe(null, assistantEvent(1, [{ type: "text", text: "短" }]));
   const item = acc.windowFrom(-1).items[0];
   assert.equal(item.truncated, true, "截断事实须保留");
   assert.equal(item.assistant, "0123456789", "且仍截取前缀");
 });
 
 test("真实形状回归：单轮 25 条消息、其中含空消息，须全部累积且不被清空", () => {
-  // 复现本会话 turn 55 的形状（25 条、末几条为空文本的纯工具调用）。
   const acc = createWindowAccumulator();
   acc.observe(null, turnStart(55));
   for (let i = 1; i <= 22; i += 1) {
@@ -309,22 +243,12 @@ test("真实形状回归：单轮 25 条消息、其中含空消息，须全部�
   assert.ok(a.includes("第 22 步"), "须含最后一条有文本的消息");
 });
 
-// ---------------------------------------------------------------------------
-// 默认单轮上限 20000（11 §7.1「单轮字符上限」段）
-//
-// 这三条锁的是**默认值本身**的行为，而不是「参数传得对不对」——上面已有的
-// 截断用例都显式传 `maxCharsPerTurn: 10`，只证明机制形状，不证明线上取值。
-// 2026-11-02 之前该默认值是 2000，实测使 78.8% 的轮次被砍（P50 3278 字），
-// 而 §7.1 又要求执行体「逐字引证」——被砍掉的原文不可能被引证。
-// ---------------------------------------------------------------------------
 
-/** 造一个恰好 n 个字符的确定性文本（内容与长度都可断言）。 */
 function blockOfLength(n) {
   return "x".repeat(n);
 }
 
 test("默认上限 20000：超过 2000 字的回复完整保留、不标记截断（旧值 2000 会砍掉）", () => {
-  // 3278 是实测的 P50 单轮字符数——超过 2000 是常态，不是极端情形。
   const text = blockOfLength(3278);
   const acc = createWindowAccumulator();
   acc.observe(null, assistantEvent(1, [{ type: "text", text }]));
@@ -344,7 +268,6 @@ test("默认上限 20000：接近上限（15772 字，实测最大单轮）仍�
 });
 
 test("默认上限 20000：恰在上限处不截断，超一字符即截断并如实标记", () => {
-  // 边界两侧各测一次：20000 是**包含**的（与 §7.1「前 20000 字」一致）。
   const atLimit = createWindowAccumulator();
   atLimit.observe(null, assistantEvent(1, [{ type: "text", text: blockOfLength(20000) }]));
   const at = atLimit.windowFrom(null);
@@ -360,11 +283,7 @@ test("默认上限 20000：恰在上限处不截断，超一字符即截断并�
 });
 
 test("默认上限 20000 不是零损失：超长单轮仍被砍且如实标记（防「等价于全文」的旧结论复发）", () => {
-  // 2026-11-02 重测发现：语料变化后确有单轮超过 20000（实测最大 28048 字），
-  // 上限 20000 下仍损失 0.21%，不是 0。旧结论「与完全删除上限逐字节相同」曾
-  // 同时写在代码注释与 §7.1，两处均已更正；本条用例守住这个事实——
-  // **断言的是「会损失」而不是「不会损失」**，方向与直觉相反，故意如此。
-  const overlong = 28048; // 实测最大单轮（2026-11-02，645 会话 / 1331 轮）
+  const overlong = 28048;
   const acc = createWindowAccumulator();
   acc.observe(null, assistantEvent(1, [{ type: "text", text: blockOfLength(overlong) }]));
   const w = acc.windowFrom(null);

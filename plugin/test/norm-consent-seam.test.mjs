@@ -1,26 +1,8 @@
-// Direct unit tests for `requestNormConsent` (plugin/lib/host-seams.js).
-//
-// Why this file exists: norm-writer.test.mjs injects a FAKE seam, so it proves the
-// call sites are wired but never exercises the seam's own parse. An independent
-// review measured that gap on a now-retired type's seam: falling
-// back to `answers[0]` and dropping the `agent` forwarding left every
-// norm-writer call-site case green. The 27 §15 Gate fails closed only if this
-// function itself refuses every answer shape other than an exact affirmative AND
-// carries the live agent (without it the host forwarder declines → NO_PROVIDER).
-//
-// This file also owns the 200-char `question` bound and the "no detail block"
-// rule for 27 §15 asks (Human 2026-11-13): the host imposes no length check, so
-// nothing but these assertions holds it.
-//
-// **本文件是从一个已撤除类型的同类接缝测试改造的**：两者的接缝解析形态必须逐一
-// 对应，否则「那一类守住了、Norm 漏了」这类不对称会长期潜伏。改造后须逐行核过
-// 残留（主句写 Norm、从句仍写旧类型的那种半改状态是最难发现的）。
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createHostSeams } from "../lib/host-seams.js";
 
-/** Install seams against a ctx whose answerer is driven by `ask`. */
 function installWith(ask) {
   const seams = createHostSeams();
   const ctx = {
@@ -40,10 +22,8 @@ function installWith(ask) {
 
 const QUESTION_ID = "ldvh-norm-consent";
 
-/** The 呈报内容 the caller must supply (27 §15). */
 const REPORT = "查重结论：与既有 active 方向键无同名\n决定陈述：示例方向规范。\n适用范围：示例管辖范围。";
 
-/** A live-looking agent carrier: the forwarder matches on identity. */
 const AGENT = { marker: "live-agent" };
 
 const CALL = {
@@ -54,9 +34,6 @@ const CALL = {
   signal: undefined,
 };
 
-// ---------------------------------------------------------------------------
-// Fail-closed: no answerer
-// ---------------------------------------------------------------------------
 
 test("norm consent: no answerer installed → refused, and no question is asked", async () => {
   const { seams, install } = installWith(null);
@@ -66,9 +43,6 @@ test("norm consent: no answerer installed → refused, and no question is asked"
   install.dispose();
 });
 
-// ---------------------------------------------------------------------------
-// The 呈报内容 requirement — asking without the report is itself a refusal
-// ---------------------------------------------------------------------------
 
 test("norm consent: an empty/absent 呈报内容 is refused WITHOUT asking a content-free question", async () => {
   for (const summary of [undefined, null, "", "   "]) {
@@ -82,9 +56,6 @@ test("norm consent: an empty/absent 呈报内容 is refused WITHOUT asking a con
   }
 });
 
-// ---------------------------------------------------------------------------
-// The exact affirmative grants; every other shape refuses
-// ---------------------------------------------------------------------------
 
 test("norm consent: the exact affirmative label grants", async () => {
   const { seams, install } = installWith(async () => ({ answers: [{ id: QUESTION_ID, selected: ["确认"] }] }));
@@ -113,10 +84,6 @@ test("norm consent: decline / no choice / wrong id / empty answers all refuse", 
 });
 
 test("norm consent: an affirmative given to ANOTHER question in the same batch does not grant", async () => {
-  // The exact defect an independent review proved was untested on the retired seam:
-  // falling back to `answers[0]` would grant Norm consent from a "yes" given to
-  // a different question. The affirmative here comes FIRST, so a first-entry
-  // fallback grants.
   const { seams, install } = installWith(async () => ({
     answers: [
       { id: "ldvh-registration-consent", selected: ["确认"] },
@@ -136,9 +103,6 @@ test("norm consent: a throwing answerer fails closed (ASK_ABORTED is not consent
   install.dispose();
 });
 
-// ---------------------------------------------------------------------------
-// Transport: agent + signal forwarding (both are load-bearing)
-// ---------------------------------------------------------------------------
 
 test("norm consent: the live agent is forwarded (without it the host declines with NO_PROVIDER)", async () => {
   let seen = "absent";
@@ -164,16 +128,6 @@ test("norm consent: the cancellation signal is forwarded (sole release for an ab
   install.dispose();
 });
 
-// ---------------------------------------------------------------------------
-// The dialog carries ONE line (Human 2026-11-13)
-//
-// 决定原文：「所有经过 ldvh 业务的提请，都要求内容简洁，title 字数在 200 字内，
-// 没有其它细节信息」。故弹窗只放一行动作标题、**不带 `detail`**；27 §15.2 的
-// 呈报内容由主控在调用之前写进对话正文。
-//
-// 如实边界（写在这里，因为这里正是承载点）：机械层**不再证明 Human 看到过
-// 完整呈报**，只证明取得过一次明确肯定答复。该缺口登记于 27 §15.2。
-// ---------------------------------------------------------------------------
 
 test("norm consent: a very long 呈报内容 still yields a bounded, detail-free dialog", async () => {
   const longReport = Array.from({ length: 80 }, (_, i) => `第${i}行为退休据实说明的一部分，内容用于撑长呈报。`).join("\n\n");
@@ -183,8 +137,6 @@ test("norm consent: a very long 呈报内容 still yields a bounded, detail-free
     return { answers: [{ id: QUESTION_ID, selected: ["确认"] }] };
   });
   await seams.requestNormConsent({ ...CALL, action: "retire", summary: longReport });
-  // 断言用**字面值 200**，刻意不引用 ASK_QUESTION_MAX_CHARS：与实现共用同一常量
-  // 等于拿实现验实现——把常量改成 5000 时用例仍全绿（实测，friction-661831ae 同型）。
   assert.ok(seen.question.length <= 200, `question must stay within the 200-char bound, got ${seen.question.length}`);
   assert.equal(seen.detail, undefined, "呈报不随弹窗下发（Human 2026-11-13）");
   assert.ok(!seen.question.includes("第0行为"), "the report must not be pushed into the title");
@@ -193,9 +145,6 @@ test("norm consent: a very long 呈报内容 still yields a bounded, detail-free
 });
 
 test("norm consent: an over-long shell is actually clamped (the bound must BIND, not merely cap)", async () => {
-  // 前一个用例的外壳约 30 字，clamp 从不触发，故它只证明「不超」，不证明「会截」。
-  // 这里用超长 objectTitle 把外壳顶过 200，逼 clamp 真的动手：断言必须**达到**
-  // 上界附近且被截断，而不是原样放过。否则把 bound 改成 5000 也不会红。
   const hugeTitle = "超长标题".repeat(200);
   let seen = null;
   const { seams, install } = installWith(async (request) => {

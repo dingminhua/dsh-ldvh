@@ -1,6 +1,3 @@
-/**
- * 提交记录 API 路由：返回 git 提交日志和 commit 详情
- */
 
 import { Router, type Request, type Response } from 'express'
 import { getGitCommit, getGitLog, getGitShow } from '../services/git.js'
@@ -8,7 +5,6 @@ import { ProjectScopeError, requestProject } from '../services/requestScope.js'
 
 const router = Router()
 
-/** GET /api/changelog?count=20 — 返回 git log 列表 */
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const count = Math.min(Math.max(parseInt(req.query.count as string) || 50, 1), 200)
@@ -22,7 +18,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-/** GET /api/changelog/:hash — 返回指定 commit 的 stat 信息 */
 router.get('/:hash', async (req: Request, res: Response): Promise<void> => {
   try {
     const { hash } = req.params

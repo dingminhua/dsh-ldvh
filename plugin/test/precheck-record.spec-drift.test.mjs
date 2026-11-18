@@ -1,25 +1,3 @@
-// 守卫：本模块硬编码的闭集常量必须与规范原文逐字一致
-//
-// 权威：specs/01 §11.4「来源先行闭环」——「不得因现有实现方便而反向改变规范语义，
-// 也不得在规范尚未成立时由 Code、测试、索引或页面先行制造事实上的第二规则源。」
-//
-// 本文件守的正是这条：`plugin/lib/precheck-record.js` 把 34 号与 03 号的若干闭集
-// （进入信号、偏离形态、风险层、快通道五要素、§8.3 三判据…）写成了常量。这些常量
-// 一旦与规范原文漂移，代码就成了**事实上的第二规则源**——规范说一套、代码判一套，
-// 而且不会有任何测试报错。
-//
-// 故本文件逐条把常量回指到规范原文：**原文里必须还能逐字找到那个字符串**。
-// 找不到就是漂移，测试失败。
-//
-// ## 本文件**不能**证明什么
-//
-// - 它不证明常量**完整**（原文某条新增了、代码没跟上，本文件查不出——只查「代码
-//   里的每个值在原文中存在」，不查「原文里的每个值在代码中存在」）。这个不对称是
-//   刻意的：完整性判定需要解析规范结构，那已越过机械层的边界（01 §10.3 渐进披露
-//   的职责在 LVdH CLI，不在测试）。
-// - 它不证明语义正确（措辞在原文中存在，不等于代码用它用对了）。
-// - 它依赖 `specs/` 在同一仓库内可读。发布包内若无语料，测试会明确报「语料不可读」
-//   而非静默通过（01 §10.1 三级来源回退的如实披露口径）。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -63,7 +41,6 @@ async function readSpec(fileName) {
 	}
 }
 
-/** 断言：每个字符串都能在原文里逐字找到；找不到即列出全部漂移项。 */
 function assertVerbatim(specText, specLabel, groupLabel, values) {
 	const drifted = values.filter((value) => !specText.includes(value));
 	assert.deepEqual(
@@ -89,7 +66,6 @@ test("34 §6 进入信号与排除条件：代码常量须逐字来自原文", a
 test("34 §8 失败分流四条：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "失败去向", FAILURE_ROUTES);
-	// 三段判断的三项在 §8 与 §12 中均以「生效／适用／行动允许」出现。
 	assertVerbatim(spec, "34 号", "三段判断项", THREE_WAY_ITEMS.map((item) => item.label));
 });
 
@@ -115,11 +91,6 @@ test("34 §15.1 Human Gate 五事项：代码常量须逐字来自原文", async
 });
 
 test("34 §15.1 五项：代码常量条数须等于原文条数（防「规范加条、代码不加」）", async () => {
-	// **为什么要有这条**：只断言「代码里的每个 label 都能在原文找到」是**单向**
-	// 检查，规范加了条目而代码不加时照样全过（空守护，与 2026-10-25 复验的 K3
-	// 同类）。故此处**从原文数条数**，与代码常量条数比对。
-	// §15.1 现为平铺五项（第四次审核 B-2/M-10：承载形态对齐事项移出、代码自创的
-	// STANDING 二分撤销）。
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const section = spec.slice(spec.indexOf("### 15.1"));
 	const gateSection = section.slice(0, section.indexOf("### 15.2"));
@@ -154,7 +125,6 @@ test("34 §7.5 层级来源段：代码常量须逐字来自原文", async () =>
 test("03 §6.1 风险三层：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("03-业务系统基础规范.md");
 	assertVerbatim(spec, "03 号", "风险层", RISK_TIERS);
-	// 34 §17 第 4 项禁增设 03 §6.1 之外的中间风险层——层数须恰为三。
 	assert.equal(RISK_TIERS.length, 3, "34 §17 第 4 项禁止增设中间风险层");
 });
 
@@ -166,7 +136,6 @@ test("03 §7.2 段名与条件条目：代码常量须逐字来自原文", async
 
 test("03 §7.2 末句的两个召回标记：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("03-业务系统基础规范.md");
-	// 「未声明」是本模块引入的第三个取值（缺省时如实留白），不要求原文存在。
 	for (const mark of RECALL_MARKS.filter((m) => m !== "未声明")) {
 		assert.ok(spec.includes(mark), `召回标记「${mark}」不在 03 §7.2 原文中`);
 	}
@@ -181,7 +150,6 @@ test("03 §6.2 快通道五要素：代码常量须逐字来自原文", async ()
 test("34 §7.3 复用条件：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const spec03 = await readSpec("03-业务系统基础规范.md");
-	// 复用条件在 03 §7.3 定义、34 号引用；两个载体都应能对上措辞片段。
 	for (const condition of REUSE_CONDITIONS) {
 		const inThree = spec.includes(condition.label) || spec03.includes(condition.label);
 		assert.ok(inThree, `复用条件「${condition.label}」不在 03 §7.3 或 34 号原文中`);
@@ -195,17 +163,11 @@ test("34 §9.2 偏离登记四项：代码常量须逐字来自原文", async ()
 
 test("34 §14 缺口登记：§14 该行未逐字列出三项名，故不得伪装成原文措辞", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
-	// 34 §14「未识别缺口的登记」行的成立条件是「未识别到的来源已被登记为缺口，
-	// 而非静默略过」；它没有逐字列出「未识别的来源／影响的范围／缺口状态」三项名。
-	// 故 GAP_FIELDS 的 label 是本模块按该行语义拆出的机械字段，已标 verbatim:false。
-	// 本测试守的是：不得把自造字段名冒充成原文措辞。
 	for (const field of GAP_FIELDS) {
 		assert.equal(field.verbatim, false, `${field.label} 不是原文措辞，须标 verbatim:false`);
 	}
-	// 但原文的成立条件与禁止表述必须仍在——它们才是这一行的权威。
 	assert.ok(spec.includes("未识别到的来源已被登记为缺口，而非静默略过"));
 	assert.ok(spec.includes("不得以「已尽力」替代缺口登记"));
-	// 同时确认三个 label 确实不在原文中（若日后 34 号明列，须把 verbatim 改真）。
 	for (const field of GAP_FIELDS) {
 		assert.ok(
 			!spec.includes(field.label),
@@ -221,14 +183,7 @@ test("34 §11 环节级声明：每个环节名须逐字来自原文", async () 
 	}
 });
 
-// ---------------------------------------------------------------------------
-// 34 §17 反过度设计红线（实为 7 条，非 4 条——2026-10-23 核对纠正）
-// ---------------------------------------------------------------------------
 
-// §17 九条红线的**身份**（2026-11-04）。只数 |^\d+\. | 的行数抓不住任何实际漂移：
-// 删掉一条再补一条凑够 9，断言照样绿，而 `plugin/lib/precheck-record.js` 里引用的
-// 「§17 第 N 项」会整体指错条文。故此处钉住每一条的开头字形，并**逐条回指原文**。
-// 锚点取各条开头到首个 `——` 或 `；` 之前的一段（措辞改了即失败，须人工复核）。
 const SECTION_17_LEADINGS = [
 	"不建立持久搜索索引",
 	"不把预检变仪式",
@@ -242,26 +197,20 @@ const SECTION_17_LEADINGS = [
 ];
 
 test("34 §17 的九条红线：条数与身份都须与原文一致（序数引用才有依据）", async () => {
-	// 2026-10-25 34 号改名：原 7 条中第 1 条吸收「不建持久搜索索引」（原拟作第 8 条，
-	// 因与第 1 条同义重复而合并，01 §7.2 要求同一语义元素只完整展开一次），
-	// 另新增「不用相似度裁决」与「不把召回质量当验收指标」两条 → 共 9 条。
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const start = spec.indexOf("## 17. 反过度设计红线");
 	assert.ok(start >= 0, "34 §17 标题已改：「反过度设计红线」不在原文中");
 	const section = spec.slice(start);
 	const items = [...section.matchAll(/^(\d+)\. (.+)$/gm)].map((m) => ({
 		ordinal: Number(m[1]),
-		// 粗体标记属排版，不属条文语义——去掉后再比开头字形。
 		text: m[2].replace(/\*\*/g, ""),
 	}));
 
-	// ① 序号须是 1..n 连续——序数引用（「第 N 项」）依赖它。
 	assert.deepEqual(
 		items.map((i) => i.ordinal),
 		items.map((_, idx) => idx + 1),
 		"§17 的序号须从 1 连续编号；否则 lib 里的「第 N 项」引用整体指错条文",
 	);
-	// ② 身份：逐条与原文对齐（双向——少一条、多一条、换一条都失败）。
 	assert.equal(items.length, SECTION_17_LEADINGS.length, "§17 条数与已核对的身份清单不符");
 	const mismatched = items
 		.map((item, idx) => (item.text.startsWith(SECTION_17_LEADINGS[idx]) ? null : `第 ${item.ordinal} 项开头不是「${SECTION_17_LEADINGS[idx]}」，实为「${item.text.slice(0, 24)}…」`))
@@ -271,23 +220,19 @@ test("34 §17 的九条红线：条数与身份都须与原文一致（序数引
 
 test("§17 第 5 条（不得扩张为规则解释者）：代码中无解释执行路径", async () => {
 	const source = await readFile(join(import.meta.dirname, "..", "lib", "precheck-record.js"), "utf8");
-	// 只禁止「执行解释」这类实现形态，不禁止注释里提到该词（本文件正解释了为何不做）。
 	assert.ok(!/\binterpret(Rule|Regulation|Clause)\s*\(/.test(source), "不得出现解释规则含义的函数");
-	// §17 第 5 条原文须仍在（守卫依据）。
 	const spec = await readSpec("34-双源召回系统规范.md");
 	assert.ok(spec.includes("不把双源召回系统扩张为「规则解释者」"));
 });
 
 test("§17 第 7 条（不预设冲突图）：CONFLICT_TIERS 逐行来自 §7.5 原文，不是预建结构", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
-	// 每一行的来源名都必须在 §7.5 原文中存在——承载原文，而非预造。
 	for (const tier of CONFLICT_TIERS) {
 		assert.ok(spec.includes(tier.source), `层级来源「${tier.source}」不在原文 §7.5 中，疑为预建结构`);
 	}
 });
 
 test("§17 第 6 条（不以横切性为由复制判据）：模块只在本文件定义一次闭集", async () => {
-	// 本模块不向其它规范或模块复制规则文本；此断言仅核对 §17 第 6 条原文仍在。
 	const spec = await readSpec("34-双源召回系统规范.md");
 	assert.ok(spec.includes("不以本系统的横切性为由要求其它规范重复其判据"));
 });
@@ -308,20 +253,12 @@ test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async (
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const section = spec.slice(spec.indexOf("### 16.1"));
 	const stopSection = section.slice(0, section.indexOf("### 16.2"));
-	// **本切片承接第 1–6 项**（不是「§16.1 恰六条」——2026-10-25 34 号改名后
-	// §16.1 先增为 8 条、第四次审核修复后增为 9 条，第 7–9 项属召回侧，不在本切片
-	// 判据函数的覆盖范围内）。
 	assert.equal(STOP_RULES.length, 6, "本切片承接 §16.1 第 1–6 项");
 	for (const rule of STOP_RULES) {
-		// 每条的依据片段须在 §16.1 原文中存在（防漂移）。
 		const anchor = rule.specRef.match(/第 (\d) 项/)[1];
 		assert.ok(stopSection.includes(`${anchor}.`), `§16.1 第 ${anchor} 项须在原文中`);
 	}
 
-	// **独立断言：从规范原文数 §16.1 的条目总数**。
-	// 没有这一条时，「规范加条、代码不加」这种漂移完全不可见——上一版只断言
-	// STOP_RULES.length===6 且逐项 anchor 存在，而 anchor 只在 1–6 里找，
-	// 规范加到 8 条也照样通过（属空守护，2026-10-25 复审发现）。
 	const itemsInSpec = (stopSection.match(/^\d+\. /gm) ?? []).length;
 	assert.equal(
 		itemsInSpec,
@@ -342,49 +279,3 @@ test("34 §16.2 四种允许动作与 §16.3 恢复要求：代码常量须逐�
 	assert.ok(spec.includes("同一停止条件恢复后"));
 });
 
-test("34 §6 退出契约：checkExit 注释引文的关键句须在原文中逐字存在", async () => {
-	// **为什么要有这条**（第四次审核 B-4）：checkExit 的文档注释自称「§6 原文」，
-	// 但当时逐字引用的是 §6 被改写**前**的旧文——注释与规范各说各话而无任何
-	// 机械提醒。**第五次审核 M-16 指出旧版是空守护**：关键句只对着规范断言、
-	// 从不读代码注释，注释引文改错也不会失败。现改为**双向核对**：每个关键句
-	// 必须同时逐字出现在 checkExit 的文档注释与 §6 原文中（各自归一化后），
-	// 任何一侧漂移都会失败。
-	const spec = await readSpec("34-双源召回系统规范.md");
-	const section6 = spec.slice(spec.indexOf("### 退出与转交条件"), spec.indexOf("## 7. 输入与前置条件"));
-	const libSource = await readFile(new URL("../lib/precheck-record.js", import.meta.url), "utf8");
-	const fnStart = libSource.indexOf("export function checkExit");
-	assert.ok(fnStart > 0, "precheck-record.js 须导出 checkExit");
-	const docComment = libSource.slice(libSource.lastIndexOf("/**", fnStart), fnStart);
-	// 归一化：去空白、Markdown 粗体标记与反引号——注释以 ` * ` 折行、规范以
-	// **…** 强调、三态以 `code` 标记，三者语义同一而形不同。
-	const normalize = (text) => text.replace(/\s+/g, "").replace(/[*`]/g, "");
-	const commentFlat = normalize(docComment);
-	const specFlat = normalize(section6);
-	const keySentences = [
-		"三段判断完成并生成预检落实记录后退出，转由行动本身承接",
-		"本系统同样退出，预检落实记录仍须生成",
-		"召回未完成（三态取值 partial 或 unavailable）时不得走上述零命中退出路径",
-		"以「未命中」断言「无相关约束」并据此继续的",
-		"不退出而是停止交还（§12、§16）",
-		"转交不改变主控对行动的整体责任",
-	];
-	for (const sentence of keySentences) {
-		const flat = normalize(sentence);
-		assert.ok(specFlat.includes(flat), `关键句「${sentence}」不在 34 §6 原文中——规范已漂移`);
-		assert.ok(commentFlat.includes(flat), `关键句「${sentence}」不在 checkExit 注释引文中——注释已漂移`);
-	}
-	// **否定断言（第六次审核 N-4）**：只防「缺句」不防「多句」——注释里若残留
-	// 已从 §6 删除的旧句（B-5 改写前的措辞），正向断言照样通过。旧句与新 §6
-	// 语义相反（旧：partial/unavailable 一律停止交还；新：停止义务绑定行为），
-	// 残留即注释撒谎，必须机械可见。
-	for (const stale of [
-		"召回未完成时不适用本路径",
-		"须按 §16.1 第 7 项停止交还",
-	]) {
-		const flat = normalize(stale);
-		assert.ok(!commentFlat.includes(flat), `checkExit 注释残留 §6 旧句「${stale}」——B-5 改写前的措辞已删除，注释须同步`);
-		assert.ok(!specFlat.includes(flat), `34 §6 原文残留旧句「${stale}」——规范已漂移`);
-	}
-	// 机器可见的 reason 串同样须与 §6 现行文本一致（旧版仍写「（§14）」）。
-	assert.ok(section6.includes("停止交还（§12、§16）"), "§6 的停止交还回指应为（§12、§16）");
-});

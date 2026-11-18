@@ -5,7 +5,6 @@ const { chromium } = require('playwright');
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.emulateMedia({ colorScheme: 'dark' });
 
-  // Direct navigation - capture frames during page load
   await page.goto('http://localhost:5173/objects/intent/intent-0001');
 
   for (let i = 0; i <= 15; i++) {

@@ -1,15 +1,3 @@
-// Tests for plugin/lib/spec-registry.js: identity-block parsing, heading-path
-// resolution and L0–L4 projection.
-//
-// Authority: specs/01 §6 (identity block contract, elaborated by 01.Att.02
-// field tables) and 01.Att.03 §4 (L0–L4 disclosure levels).
-//
-// Real-corpus assertion: the real specs/01–10 and the three attachments must
-// all parse as `ok: true` — that is the v5 self-consistency check. specs/00
-// was formerly the documented exception (its `code_consumption` values used
-// snake_case instead of the responsibility-identifier kebab-case pattern);
-// those values were fixed to kebab-case in the 2026-09-10 §2/§3 restructure,
-// so specs/00 is now asserted separately as parsing successfully as well.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readdir, readFile } from "node:fs/promises";
@@ -28,7 +16,6 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const specsRoot = join(__dirname, "..", "..", "specs");
 
-/** Build a minimal YAML identity block string for the given { ldvh_spec: {...} } object. */
 function identityBlock(yamlObject) {
 	const rootKey = Object.keys(yamlObject)[0];
 	const fields = yamlObject[rootKey];
@@ -44,14 +31,10 @@ function identityBlock(yamlObject) {
 	return lines.join("\n");
 }
 
-/** Wrap h1 + identity block + optional body in a full spec document. */
 function specDoc(h1, yamlObject, body = "## 1. Demo\n\n正文。") {
 	return `---\n${identityBlock(yamlObject)}\n---\n\n# ${h1}\n\n${body}`;
 }
 
-// ---------------------------------------------------------------------------
-// splitIdentityBlock
-// ---------------------------------------------------------------------------
 
 test("splitIdentityBlock accepts the canonical file-head formation", () => {
 	const text = specDoc("示例规范", { ldvh_spec: { spec_key: "demo", spec_id: "99", spec_kind: "spec", title: "示例规范", canonical_path: "specs/99-示例.md", parent_spec: "", relation: "", positioning: "p", scope: "s" } });
@@ -107,13 +90,9 @@ test("splitIdentityBlock ignores a later yaml example fence inside the body", ()
 	const text = specDoc("示例", { ldvh_spec: { spec_key: "demo", spec_id: "99", spec_kind: "spec", title: "示例", canonical_path: "specs/99-示例.md", parent_spec: "", relation: "", positioning: "p", scope: "s" } }, body);
 	const result = splitIdentityBlock(text);
 	assert.equal(result.ok, true);
-	// identity block yamlText must contain only the identity's own fields
 	assert.ok(!result.value.yamlText.includes("example:"));
 });
 
-// ---------------------------------------------------------------------------
-// parseIdentityBlock: scalar quoting and flow sequences
-// ---------------------------------------------------------------------------
 
 test("parseIdentityBlock accepts a double-quoted scalar", () => {
 	const yaml = `ldvh_spec:
@@ -253,9 +232,6 @@ test("parseIdentityBlock rejects a flow mapping value", () => {
 	assert.equal(result.error.code, "identity/field_invalid");
 });
 
-// ---------------------------------------------------------------------------
-// parseIdentityBlock: responsibility identifier and spec id patterns
-// ---------------------------------------------------------------------------
 
 test("parseIdentityBlock rejects a spec_key that starts with a digit", () => {
 	const yaml = `ldvh_spec:
@@ -354,9 +330,6 @@ test("parseIdentityBlock rejects an attachment_id that misses the Att segment", 
 	assert.equal(result.error.code, "identity/field_invalid");
 });
 
-// ---------------------------------------------------------------------------
-// parseIdentityBlock: parent_spec / relation pairing
-// ---------------------------------------------------------------------------
 
 test("parseIdentityBlock accepts parent_spec+relation both empty (parentless)", () => {
 	const yaml = `ldvh_spec:
@@ -441,9 +414,6 @@ test("parseIdentityBlock rejects parent_spec pointing at the document itself", (
 	assert.equal(result.error.code, "identity/field_invalid");
 });
 
-// ---------------------------------------------------------------------------
-// parseIdentityBlock: basis / supersedes / related_specs self-reference
-// ---------------------------------------------------------------------------
 
 test("parseIdentityBlock rejects basis that names the document's own key", () => {
 	const yaml = `ldvh_spec:
@@ -500,10 +470,6 @@ test("parseIdentityBlock rejects related_specs that names the document itself", 
 });
 
 test("parseIdentityBlock rejects `dimensions` as an unknown field", () => {
-	// The `dimensions` identity field was retired by Human decision: it carried
-	// no judgement and duplicated the rosters of 00 §2.3/§3.3/§3.4/§3.6, which
-	// drifted each time a business system changed. Re-declaring it must fail as
-	// an unknown field rather than be silently tolerated (01.Att.02 §1).
 	const yaml = `ldvh_spec:
   spec_key: "demo"
   spec_id: "99"
@@ -521,9 +487,6 @@ test("parseIdentityBlock rejects `dimensions` as an unknown field", () => {
 	assert.equal(result.error.code, "identity/unknown_field");
 });
 
-// ---------------------------------------------------------------------------
-// parseIdentityBlock: title and canonical_path
-// ---------------------------------------------------------------------------
 
 test("parseIdentityBlock rejects an empty title", () => {
 	const yaml = `ldvh_spec:
@@ -576,9 +539,6 @@ test("parseIdentityBlock rejects a malformed canonical_path", () => {
 	assert.equal(result.error.code, "identity/field_invalid");
 });
 
-// ---------------------------------------------------------------------------
-// parseIdentityBlock: root profile
-// ---------------------------------------------------------------------------
 
 const rootYaml = `ldvh_spec:
   spec_key: "ldvh-root"
@@ -604,12 +564,6 @@ test("parseIdentityBlock accepts a fully legal root profile", () => {
 });
 
 test("parseIdentityBlock accepts a root profile with an empty related_specs list (per 01.Att.02 §3 table)", () => {
-	// The 01.Att.02 §3 root-profile table explicitly allows `related_specs: []`
-	// (必填；允许空列表). The current implementation rejects it with
-	// `related_specs must not be empty` — see the "疑似实现缺陷" note in the
-	// test report. This test documents the contract: a constructed root
-	// profile with related_specs: [] is legal per 01.Att.02 §3; if the
-	// implementation evolves to honour the table, the test starts passing.
 	const yaml = `ldvh_spec:
   spec_key: "ldvh-root"
   spec_id: "00"
@@ -630,11 +584,6 @@ test("parseIdentityBlock accepts a root profile with an empty related_specs list
 });
 
 test("parseIdentityBlock rejects a root profile whose code_consumption uses snake_case (responsibility-identifier contract)", () => {
-	// This is the contract-violation that the real specs/00 exhibits: its
-	// code_consumption values use underscores (spec_identity_block) instead
-	// of the responsibility-identifier pattern (kebab-case). The contract
-	// says reject; the implementation rejects. Real specs/00 therefore
-	// fails to parse, which is the test that the contract is alive.
 	const tampered = rootYaml.replace(
 		'code_consumption: ["ldvh-root", "specification-model-foundation", "work-model-foundation", "fact-model-foundation", "action-template-foundation", "helper-service-boundary", "fact-source-traceability", "work-object-and-governance", "dsh-environment-binding", "code-practice-and-test", "web-presentation-and-interaction"]',
 		'code_consumption: ["spec_identity_block", "spec_read_contract"]',
@@ -680,9 +629,6 @@ test("parseIdentityBlock rejects code_consumption on a non-root spec", () => {
 	assert.equal(result.error.code, "identity/unknown_field");
 });
 
-// ---------------------------------------------------------------------------
-// parseIdentityBlock: attachment profile
-// ---------------------------------------------------------------------------
 
 test("parseIdentityBlock accepts a minimal attachment", () => {
 	const yaml = `ldvh_attachment:
@@ -739,9 +685,6 @@ test("parseIdentityBlock rejects an attachment that declares parent_spec", () =>
 	assert.equal(result.error.code, "identity/unknown_field");
 });
 
-// ---------------------------------------------------------------------------
-// parseSpecDocument: cross-checks H1 and canonical_path
-// ---------------------------------------------------------------------------
 
 test("parseSpecDocument accepts a document with matching H1, title and canonical_path", () => {
 	const text = specDoc("示例", { ldvh_spec: { spec_key: "demo", spec_id: "99", spec_kind: "spec", title: "示例", canonical_path: "specs/99-示例.md", parent_spec: "", relation: "", positioning: "p", scope: "s" } });
@@ -771,9 +714,6 @@ test("parseSpecDocument skips the canonical_path check when no actualPath is sup
 	assert.equal(result.ok, true, result.error?.message);
 });
 
-// ---------------------------------------------------------------------------
-// extractHeadings and resolveHeadingPath
-// ---------------------------------------------------------------------------
 
 test("extractHeadings records H2 and H3 with 1-based line numbers", () => {
 	const text = "# 一级\n\n```yaml\nx: 1\n```\n\n## 一\n\n段落\n\n### 一.一\n\n细节\n\n## 二";
@@ -789,27 +729,15 @@ test("extractHeadings records H2 and H3 with 1-based line numbers", () => {
 	assert.equal(headings[2].text, "二");
 });
 
-// resolveHeadingPath tests: use body text WITHOUT a trailing newline so that
-// endLine calculations are predictable and do not count phantom lines.
 test("resolveHeadingPath returns the H2 slice when the heading has no following same-or-higher heading", () => {
-	// Line 1: ## 唯一小节
-	// Line 2: (blank)
-	// Line 3: 正文 A
-	// Line 4: (blank)
-	// Line 5: ## 第二节
 	const text = "## 唯一小节\n\n正文 A\n\n## 第二节";
 	const result = resolveHeadingPath(text, "唯一小节");
 	assert.equal(result.ok, true, result.error?.message);
 	assert.equal(result.value.startLine, 1);
-	// sectionEnd finds the next H2 ("第二节") at line 5; endLine = 5 - 1 = 4
 	assert.equal(result.value.endLine, 4);
 });
 
 test("resolveHeadingPath returns the file end when the H2 has no following same-or-higher heading", () => {
-	// Line 1: ## 唯一一节
-	// Line 2: (blank)
-	// Line 3: 正文
-	// (no further ## or ### at any level)
 	const text = "## 唯一一节\n\n正文";
 	const result = resolveHeadingPath(text, "唯一一节");
 	assert.equal(result.ok, true, result.error?.message);
@@ -818,17 +746,6 @@ test("resolveHeadingPath returns the file end when the H2 has no following same-
 });
 
 test("resolveHeadingPath resolves an H2/H3 path with a same-level boundary", () => {
-	// Line 1: ## 父节
-	// Line 2: (blank)
-	// Line 3: ### 子节 A
-	// Line 4: (blank)
-	// Line 5: A 正文
-	// Line 6: (blank)
-	// Line 7: ### 子节 B
-	// Line 8: (blank)
-	// Line 9: B 正文
-	// Line 10: (blank)
-	// Line 11: ## 下个父节
 	const text = "## 父节\n\n### 子节 A\n\nA 正文\n\n### 子节 B\n\nB 正文\n\n## 下个父节";
 	const result = resolveHeadingPath(text, "父节/子节 A");
 	assert.equal(result.ok, true, result.error?.message);
@@ -872,17 +789,12 @@ test("resolveHeadingPath rejects an H3 that appears multiple times inside its H2
 });
 
 test("resolveHeadingPath strips the numeric H2 prefix that real specs use", () => {
-	// The real spec H2 lines look like "## 3. 职责边界" — the path argument
-	// must match the heading's exact text after the regex strips the "## " prefix.
 	const text = "## 3. 职责边界\n\n正文\n\n## 4. 其它";
 	const result = resolveHeadingPath(text, "3. 职责边界");
 	assert.equal(result.ok, true, result.error?.message);
 	assert.equal(result.value.startLine, 1);
 });
 
-// ---------------------------------------------------------------------------
-// contentFingerprint
-// ---------------------------------------------------------------------------
 
 test("contentFingerprint is sha256 hex and stable", () => {
 	const a = contentFingerprint("hello\n");
@@ -893,11 +805,7 @@ test("contentFingerprint is sha256 hex and stable", () => {
 	assert.notEqual(a, c);
 });
 
-// ---------------------------------------------------------------------------
-// projectLayer
-// ---------------------------------------------------------------------------
 
-// A plain spec identity with no parent so basis can include ldvh-root freely.
 const plainSpecYaml = `ldvh_spec:
   spec_key: "demo"
   spec_id: "99"
@@ -913,7 +821,6 @@ const plainSpecYaml = `ldvh_spec:
   related_specs: ["work-model-foundation"]
 `;
 
-/** Parse plainSpecYaml once for all projectLayer tests. */
 const plainSpecIdentity = parseIdentityBlock(plainSpecYaml).value;
 
 test("projectLayer L0 contains only the five identity anchors", () => {
@@ -924,7 +831,6 @@ test("projectLayer L0 contains only the five identity anchors", () => {
 	assert.equal(out.title, "示例");
 	assert.equal(out.canonical_path, "specs/99-示例.md");
 	assert.equal(out.carrier_kind, "ldvh_spec");
-	// scope and positioning are L1+ only
 	assert.equal(out.scope, undefined);
 	assert.equal(out.positioning, undefined);
 	assert.equal(out.basis, undefined);
@@ -970,7 +876,7 @@ test("projectLayer on an attachment omits spec-only fields at L2", () => {
 	const identity = parseIdentityBlock(attYaml).value;
 	const l1 = projectLayer(identity, "L1");
 	assert.equal(l1.layer, "L1");
-	assert.equal(l1.scope, undefined); // attachments don't carry scope
+	assert.equal(l1.scope, undefined);
 	const l2 = projectLayer(identity, "L2");
 	assert.equal(l2.layer, "L2");
 	assert.equal(l2.basis, undefined);
@@ -979,16 +885,7 @@ test("projectLayer on an attachment omits spec-only fields at L2", () => {
 	assert.equal(l2.authorized_attachments, undefined);
 });
 
-// ---------------------------------------------------------------------------
-// Real-corpus self-consistency
-// ---------------------------------------------------------------------------
 
-// **2026-11-02：这里原先写死 `["01".."10"]`，20–29 十份事实类型规范从不被校验。**
-// 后果实测：28 号与 29 号的正文骨架示例块里各写了一行 `# 子目标` / `# 开发日志`，
-// 被 splitIdentityBlock 当成第二个 H1，两份规范**完全无法被读取入口列为候选**，
-// 而本用例照样全绿。写死号段是错的目标：本用例守的是「specs/ 下每一份现行
-// 规范都必须可解析」，与「当时有哪几份」无关。改为扫全目录——新增规范自动纳入，
-// 不需要人工改数字（同类教训见 friction-943940d6：写死规模的断言随语料增长转红）。
 test("parseSpecDocument parses EVERY current carrier under specs/ (no fixed id list)", async () => {
 	const allFiles = (await readdir(specsRoot)).filter((name) => /^[0-9]{2,}-[^/]+\.md$/.test(name));
 	assert.ok(allFiles.length >= 20, `expected the current corpus, found only ${allFiles.length} carriers`);
@@ -1011,17 +908,11 @@ test("parseSpecDocument parses EVERY current carrier under specs/ (no fixed id l
 	}
 });
 
-// 围栏内的 `#`/`##` 行按 GFM 是字面文本，不得被当成标题。
-// 这一类缺陷有两个真实实例，都由本文件的三处逐行匹配造成：
-//   · 28/29 的示例块 `# 子目标` / `# 开发日志` → 误判为第二个 H1，整份规范读不到；
-//   · 26 号 §8 示例块的 `## 现象`/`## 入账依据`/`## 处置` → L3 读取被静默截断 9 行。
-// 下面两组断言把这两条分别钉住，且都针对**行为**而不是针对文件名。
 test("fenced pseudo-headings never count as the identity H1", () => {
 	const text = "---\nx: 1\n---\n\n# 真正的标题\n\n正文\n\n```\n# 示例里的标题\n## 示例里的二级\n```\n\n后文\n";
 	const result = splitIdentityBlock(text);
 	assert.equal(result.ok, true, result.error?.message);
 	assert.equal(result.value.h1, "真正的标题");
-	// 围栏内的 `##` 行同样不是标题——否则 extractHeadings 会把它当成一节
 	assert.deepEqual(
 		extractHeadings(text).map((h) => h.text),
 		[],
@@ -1030,7 +921,6 @@ test("fenced pseudo-headings never count as the identity H1", () => {
 });
 
 test("fenced pseudo-headings neither appear in headings nor truncate an L3 slice", () => {
-	// §8 的示例块里有 `## 伪标题`，其后还有真正属于 §8 的正文。
 	const text = [
 		"## 8. 契约",
 		"",
@@ -1050,7 +940,6 @@ test("fenced pseudo-headings neither appear in headings nor truncate an L3 slice
 	assert.deepEqual(headings.map((h) => h.text), ["8. 契约", "9. 下一节"], "fenced ## 不得被当作标题");
 	const slice = resolveHeadingPath(text, "8. 契约");
 	assert.equal(slice.ok, true, slice.error?.message);
-	// §8 必须一直延伸到 §9 之前（第 10 行），不能被示例块里的伪标题切在第 5 行
 	assert.equal(slice.value.endLine, 10);
 	const served = text.split("\n").slice(slice.value.startLine - 1, slice.value.endLine);
 	assert.ok(served.some((line) => line === "正文 B"), "§8 的正文 B 必须在读取结果中（截断会静默丢掉它）");
@@ -1059,11 +948,5 @@ test("fenced pseudo-headings neither appear in headings nor truncate an L3 slice
 test("parseSpecDocument parses the real specs/00 after the code_consumption contract fix", async () => {
 	const text = await readFile(join(specsRoot, "00-理念与构成.md"), "utf8");
 	const result = parseSpecDocument(text, "specs/00-理念与构成.md");
-	// The contract says code_consumption members must match the
-	// responsibility-identifier regex `[a-z][a-z0-9]*(?:-[a-z0-9]+)*`.
-	// specs/00 formerly used snake_case values (spec_identity_block …), which
-	// the implementation correctly rejected as `identity/field_invalid`; the
-	// values were fixed to kebab-case in the 2026-09-10 §2/§3 restructure, so
-	// the real root spec now parses like every other current member.
 	assert.equal(result.ok, true, `specs/00 failed: ${result.error?.code} ${result.error?.message}`);
 });

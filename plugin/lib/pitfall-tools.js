@@ -1,26 +1,3 @@
-// LDVH pitfall mechanical layer — runtime wiring.
-//
-// This module connects the Pitfall writer (pitfall-writer.js, specs/23 §13 +
-// specs/03 §9) to the governed tool surface so the main controller can
-// drive it from a live session:
-//
-//   - pitfall-read-object  (effect: read)             — precise F3 read by
-//     object_uid: frontmatter, body, mechanical issues and fingerprint.
-//   - pitfall-list-objects (effect: read)             — F0/F1 discovery:
-//     dedup/precheck-relevant projection (title/scope/status/trigger_signal),
-//     active-only by default (23 §12: discarded stays out of ordinary
-//     candidates).
-//   - pitfall-write-object (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal) and CAS update
-//     with change_log: same-status updates (active→active,
-//     and the terminal discarded→discarded errata) are errata/supplement-
-//     only (scope field-identical, 23 §9.3), active→discarded is terminal.
-//
-// Authorities: specs/05 §6 (operation declaration + common envelope),
-// §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
-// write-back read-back), specs/23 §13 (type-specific mechanical checks).
-// Dedup semantic comparison (23 §6.2) is AI work recorded in the creation
-// proposal — the list tool only supplies the deterministic inputs.
 
 import {
   createPitfallObject,
@@ -41,44 +18,28 @@ import { objectRef, objectRefOf } from "./object-reference.js";
 const OPERATIONS = {
   "pitfall-read-object": {
     toolName: "ldvh_pitfall_read",
-    summary: "Precise read of one Pitfall fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/23 §13)",
+    summary: "Precise read of one Pitfall fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/25 §13)",
     effect: "read"
   },
   "pitfall-list-objects": {
     toolName: "ldvh_pitfall_list",
-    summary: "Enumerate Pitfall fact objects (F0/F1 discovery): dedup/precheck-relevant projection (title/scope/status/trigger_signal) for the governed project; active-only by default (specs/03 §8, specs/23 §12)",
+    summary: "Enumerate Pitfall fact objects (F0/F1 discovery): dedup/precheck-relevant projection (title/scope/status/trigger_signal) for the governed project; active-only by default (specs/03 §8, specs/25 §12)",
     effect: "read"
   },
   "pitfall-write-object": {
     toolName: "ldvh_pitfall_write",
     writeShaped: true,
-    summary: "Controlled write of Pitfall fact objects: create (受控创建，通道与授权依 23 §13：代理记录通道/Human 入口) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13). **A delegated (subagent) caller may only create** — update, errata and terminal transitions are refused for it by this surface (23 §13 代理记录通道边界、Human 2026-11-16)",
+    summary: "Controlled write of Pitfall fact objects: create (受控创建，通道与授权依 25 §13：代理记录通道/Human 入口) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 25 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/25 §13). **A delegated (subagent) caller may only create** — update, errata and terminal transitions are refused for it by this surface (25 §13 代理记录通道边界、Human 2026-11-16)",
     effect: "may_change_state"
   },
-  // 开工授权入口（Human 决定 2026-11-16）。**根会话专用**：它不写事实源，只把
-  // 「本会话授权它的下一个分身自行入账经验」这条决定记进授权账，故 effect 是
-  // may_change_state 而**不标 writeShaped**——writeShaped 的射程是「能改受控事实」，
-  // 这条改的是插件自己的运行状态，与 pending-queue-resolve 同层。
   "pitfall-arm-delegate": {
     toolName: "ldvh_pitfall_arm_delegate",
     rootOnly: true,
-    summary: "Arm the NEXT delegated subagent of THIS governed root session to record experience (Pitfall) on its own: grant lifetime is one child session and one bounded window (default 15 min). Only the three Pitfall tools reach that child, and it may only create (23 §13 代理记录通道). Root sessions only — a delegated caller is refused",
+    summary: "Arm the NEXT delegated subagent of THIS governed root session to record experience (Pitfall) on its own: grant lifetime is one child session and one bounded window (default 15 min). Only the three Pitfall tools reach that child, and it may only create (25 §13 代理记录通道). Root sessions only — a delegated caller is refused",
     effect: "may_change_state"
   }
 };
 
-/**
- * 该调用者是「被派生的分身」吗。
- *
- * 判据与 `lifecycle.js` 的 `install()` 完全同源（不是另立一套）：`origin ===
- * "subagent"` 与 `parentSession` 非空**任一为真**即为分身，但
- * `isSeeded && delegationDepth === 0` 的**种子根会话**除外——宿主用 `parentSession`
- * 记录前缀继承来源，把这条误判为分身会让它永久拿不到工具（2026-10-20 实测失效面）。
- *
- * 为什么在工具面再判一次而不只靠注册面：注册面决定「看得见」，这里决定「调得动」。
- * 少了这一道，把 `ldvh_pitfall_write` 交给分身就等于同时交出「废止任意 active」
- * 与「改写任意既有对象」两项能力——写入器本身不区分调用者（独立审核 B4 实测）。
- */
 function isDelegatedCaller(header) {
   if (header === undefined || header === null) return false;
   if (header.origin === "subagent") return true;
@@ -89,9 +50,6 @@ function isDelegatedCaller(header) {
 
 const FACT_SOURCE_ROOT_DIR = "ldvh-base";
 
-// ---------------------------------------------------------------------------
-// Envelope helpers (05 §8 common response semantics)
-// ---------------------------------------------------------------------------
 
 function envelope(operationKey, outcome, fields) {
   return { operation_key: operationKey, outcome, ...fields };
@@ -117,20 +75,12 @@ async function governedProject(dshHomePath, exec) {
   return { ok: true, scope, project: scope.project };
 }
 
-/** The change_log signature fields, from the authoritative session record. */
 async function signatureFor(deps, exec) {
   const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
   if (!route.ok) return { ok: false, reason: route.reason };
-  // Return the BRANDED carrier, not a plain object: the writers only accept
-  // the branded form, and returning a plain object here is what let the
-  // update paths silently drop the signature (found 2026-09-12). Branding
-  // at the source makes it impossible for a caller to pass the wrong one.
   return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
 }
 
-// ---------------------------------------------------------------------------
-// pitfall-read-object / pitfall-list-objects / pitfall-write-object handlers
-// ---------------------------------------------------------------------------
 
 async function executeReadObject(args, exec, deps) {
   const governed = await governedProject(deps.dshHomePath, exec);
@@ -151,8 +101,6 @@ async function executeReadObject(args, exec, deps) {
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
   const read = await readPitfallObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
-    // Distinguish "not found / bad uid shape" (rejected) from carrier-level
-    // defects (unavailable — the object exists but cannot be consumed).
     const rejectedCodes = new Set(["pitfall/invalid_uid", "pitfall/object_not_found"]);
     const outcome = rejectedCodes.has(read.error.code) ? "rejected" : "unavailable";
     return envelope("pitfall-read-object", outcome, {
@@ -237,7 +185,7 @@ async function executeListObject(args, exec, deps) {
     gaps,
     verification: { checks: ["directory-scan", "frontmatter-parse"], passed: gaps.length === 0 },
     follow_up: [
-      "dedup (23 §6.2) is a semantic comparison over title/symptoms/root-cause — performed by the AI on this projection, never by the tool",
+      "dedup (25 §6.2) is a semantic comparison over title/symptoms/root-cause — performed by the AI on this projection, never by the tool",
       "pitfall-read-object for the F3 full content of any candidate",
     ]
   });
@@ -261,25 +209,13 @@ async function executeWriteObject(args, exec, deps) {
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
 
-  // ── 分身调用面（Human 决定 2026-11-16，23 §13 代理记录通道）────────────
-  //
-  // 三道机械检查，缺一不可，且都是**审核发现的直接后果**：
-  //   ① 只允许 create：update 覆盖「勘误/补充」与唯一的终态流转 `active→discarded`
-  //      （pitfall-writer.js 的合法转换表）。审查实测：写入器不区分调用者，故只给
-  //      write 工具就等于把「废止任意一条经验」交给分身——「条文写不得、机械零拦截」
-  //      就是本处要消除的形态（审核 B4）。
-  //   ② 授权账复核：注册面给过工具不等于此刻仍有权限。授权会过期（默认 15 分钟），
-  //      过期后的分身应停止写入而不是继续被信任。
-  //   ③ 项目对齐（审核 B5）：注册按父级继承判定、写入按子级 cwd 自判，二者可错位到
-  //      **另一个**受辖项目，那会把经验写进别人的账本。故核对本次判定的项目根与
-  //      授权时记录的项目根一致。
   if (isDelegatedCaller(exec?.agent?.session?.header)) {
     if (action !== "create") {
       return envelope("pitfall-write-object", "rejected", {
         result: null,
         scope: { requested: action, completed: [], not_completed: [action] },
         sources: [{ kind: "authorization", path: "experience-arming ledger" }],
-        gaps: [`delegated_caller_may_only_create: 23 §13 代理记录通道的分身只被授权**新建**经验；action=${action}（含唯一的终态流转 active→discarded）不属其授权范围，须由主控或 Human 执行`],
+        gaps: [`delegated_caller_may_only_create: 25 §13 代理记录通道的分身只被授权**新建**经验；action=${action}（含唯一的终态流转 active→discarded）不属其授权范围，须由主控或 Human 执行`],
         verification: { checks: ["governance-scope", "caller-capability"], passed: false },
         follow_up: ["把该诉求交回主控，由主控经受控入口执行；或由 Human 处置终态流转"]
       });
@@ -292,7 +228,7 @@ async function executeWriteObject(args, exec, deps) {
         sources: [],
         gaps: ["arming_ledger_unavailable: 本组合未装配经验授权账，分身不得写入事实源（fail-closed）"],
         verification: { checks: ["governance-scope", "arming-ledger"], passed: false },
-        follow_up: ["改由主控经受控入口写入（23 §13 Human 入口/主控路径）"]
+        follow_up: ["改由主控经受控入口写入（25 §13 Human 入口/主控路径）"]
       });
     }
     const childSessionId = exec?.agent?.session?.header?.id ?? exec?.agent?.id;
@@ -310,13 +246,6 @@ async function executeWriteObject(args, exec, deps) {
   }
 
   const sig = await signatureFor(deps, exec);
-  // Human requirement 2026-09-12: "changelog 和提交都要机械署名，不能署名的
-  // 要报告 human". The commit half is already enforced by the Git Gate
-  // trailer rules; this is the object half. When the authoritative
-  // signature cannot be obtained the write is REFUSED and reported here,
-  // rather than recorded as an unsigned stable fact (03 §6.1 says Code
-  // fills the signature; 09 requires a definite unavailable outcome for
-  // blank/historical sessions and model switches).
   if (!sig.ok) {
     return envelope("pitfall-write-object", "unavailable", {
       result: null,
@@ -344,7 +273,6 @@ async function executeWriteObject(args, exec, deps) {
     if (!created.ok) {
       return writeRejected("pitfall-write-object", created, factSourceRoot);
     }
-    // 03 §9.4 item 5: precise read-back of the current file after create.
     const readBack = await readPitfallObject({ factSourceRoot, objectUid: created.value.object_uid });
     if (!readBack.ok || readBack.value.fingerprint !== created.value.fingerprint) {
       return envelope("pitfall-write-object", "partial", {
@@ -373,11 +301,9 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  // action === "update"
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
-  // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
@@ -387,10 +313,6 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("pitfall-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
-  // 缺什么报什么：`frontmatter_after` 与正文是两个独立通道（02 §10.5），合成一句
-  // 「两者都必填」会让调用方看不出究竟缺哪一项——实测本窗口有 5 次失败其实是正文
-  // 已给、`frontmatter_after` 未给，却被读成「要重抄全文」。`frontmatter_after` 传
-  // 空对象 `{}` 合法（各类型入口参数面均标「须携带，可为空对象」）。
   if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
     return invalidRequest("pitfall-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
   }
@@ -408,10 +330,6 @@ async function executeWriteObject(args, exec, deps) {
     frontmatterRemovals,
     bodyMarkdownAfter,
     changeSummary,
-    // Update path MUST brand the carrier exactly like the create path: a plain
-    // {provider,model} object is rejected by resolveAuthoritativeSignature(), so
-    // passing sig.value here silently wrote an unsigned change_log entry while
-    // the envelope still reported sig.ok === true (no gap). Found 2026-09-12.
     sessionSignature: sig.ok ? sig.value : null,
   });
   if (!updated.ok) {
@@ -435,8 +353,6 @@ async function executeWriteObject(args, exec, deps) {
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
       changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
-      // 写入侧的警告（如载体内聚差异；21 §263「只报告不阻断」）。放进 result 才能被
-      // renderEnvelope 渲染成 `warning:` 行——只留在 envelope 里模型侧看不见。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
         : {})
@@ -451,8 +367,6 @@ async function executeWriteObject(args, exec, deps) {
 
 function writeRejected(operationKey, failureResult, factSourceRoot) {
   const code = failureResult.error.code;
-  // Mechanical rejections (source-defined conditions refusing the write) vs
-  // availability failures (carrier/IO-level problems). Both are zero-write.
   const mechanicalCodes = new Set([
     "pitfall/frontmatter_invalid", "pitfall/body_invalid", "pitfall/coherence_invalid",
     "pitfall/initial_state_violation", "pitfall/status_required", "pitfall/status_transition_invalid", "pitfall/status_terminal",
@@ -470,21 +384,14 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     follow_up: code === "pitfall/cas_conflict"
       ? ["re-read the object (pitfall-read-object), reconcile the concurrent change, and retry with the fresh fingerprint"]
       : code === "pitfall/status_terminal"
-        ? ["discarded Pitfalls are read-only (23 §9.2); a substantively changed mechanism goes through a NEW Pitfall object"]
+        ? ["discarded Pitfalls are read-only (25 §9.2); a substantively changed mechanism goes through a NEW Pitfall object"]
         : code === "pitfall/supplement_boundary"
-          ? ["scope changed — create a NEW Pitfall object for the different impact range (23 §9.3)"]
+          ? ["scope changed — create a NEW Pitfall object for the different impact range (25 §9.3)"]
           : ["fix the reported mechanical issues and retry; zero write has occurred"]
   });
 }
 
-// ---------------------------------------------------------------------------
-// pitfall-arm-delegate — 根会话记一条开工授权（Human 决定 2026-11-16）
-// ---------------------------------------------------------------------------
 
-/**
- * 只有**根会话**能记授权。判据复用 isDelegatedCaller（同一套 header 判据，不另立），
- * 反向即根。header 缺失时按分身处理拒绝——拿不到身份就没有可核验的授权主体。
- */
 async function executeArmDelegate(args, exec, deps) {
   const operationKey = "pitfall-arm-delegate";
   const header = exec?.agent?.session?.header;
@@ -549,8 +456,6 @@ async function executeArmDelegate(args, exec, deps) {
       project_path: e.project_path,
       armed_at: e.armed_at,
       expires_at: e.expires_at,
-      // 授权范围逐字回给调用方：不写出来，主控很容易把「授权一个分身记一条经验」
-      // 读成「授权分身自由使用这三个工具」。范围里最容易被忽略的是**只能新建**。
       grants: "下一个由本会话派生的分身：ldvh_pitfall_list / read / write，且 write 仅 action=create；有效期至 expires_at，绑定一个分身子会话后即占用",
       purpose: e.purpose
     },
@@ -558,14 +463,10 @@ async function executeArmDelegate(args, exec, deps) {
     sources: [{ kind: "authorization", path: "experience-arming ledger" }],
     gaps: [],
     verification: { checks: ["caller-kind", "governance-scope", "arm-persist"], passed: true },
-    follow_up: ["派生分身并交其任务书；分身写入后主控须精确读回核对存在性与 status，并在当次交还报告（23 §13）"]
+    follow_up: ["派生分身并交其任务书；分身写入后主控须精确读回核对存在性与 status，并在当次交还报告（25 §13）"]
   });
 }
 
-// ---------------------------------------------------------------------------
-// Registration (same shape as spark-tools.js — mounted from
-// registerLdvhTools, so tools land only in governed sessions)
-// ---------------------------------------------------------------------------
 
 function text(body) {
   return [{ type: "text", text: body }];
@@ -581,9 +482,6 @@ function renderEnvelope(operationKey, value) {
   if (result?.scope !== undefined) lines.push(`scope: ${result.scope}`);
   if (result?.trigger_signal !== undefined) lines.push(`trigger_signal: ${result.trigger_signal}`);
   if (result?.disposition !== undefined) lines.push(`disposition: ${result.disposition}`);
-  // Full fingerprint, never truncated (03 §9.5): the render output is the
-  // model's only window on the tool result — a truncated fingerprint makes
-  // the CAS baseline unobtainable and blocks every controlled update.
   if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
   if (result?.body_valid !== undefined) lines.push(`body_valid: ${result.body_valid}`);
   if (result?.read_back?.ok !== undefined) lines.push(`read_back: ${result.read_back.ok ? "ok" : "FAILED"}`);
@@ -596,13 +494,8 @@ function renderEnvelope(operationKey, value) {
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "pitfall")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
-  // **warnings 必须进模型可见文本**：只留在 envelope 里等于没给（与
-  // `mechanical_issues` 此前「写入路径算出来了、投影与呈现两侧各 0 处命中」
-  // 同一失效模式）。与 gaps 同层渲染，用 `warning:` 前缀区分——gap 是缺口
-  // 披露，warning 是不阻断的提示。
   const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
-  // **follow_up 必须进模型可见文本**（05 §8「给出可继续读取、分页、回读、修复、分流或 Human 决定入口」）。此前本渲染只打 gap:/warning: 行，envelope 里算出的 follow_up 对模型侧那行文本不可见——与「只数据显示在 envelope 等于没给」同一失效模式；Goal/Norm/SubGoal/基础批次四处都已渲染，这里补齐以消除不一致。逐条目 stringify 与 gap/warning 同为结构化记录兜底。
   for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
   return text(lines.join("\n"));
 }
@@ -610,19 +503,16 @@ function renderEnvelope(operationKey, value) {
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
 
 function parameterSchemaFor(operationKey) {
-  // Models mis-shape open objects when they see additionalProperties:true
-  // with no declared properties — every Pitfall data object declares its
-  // shape explicitly (mirrors 23 §8 field contract).
   const pitfallFrontmatter = {
     type: "object",
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; failure-mechanism short title (highlight the platform when environment-specific)" },
-      status: { type: "string", enum: ["active", "discarded"], description: "**REQUIRED on create — there is no default; omitting it is rejected with pitfall/status_required.** create: status=active is the only initial state (23 §13 — both the Human entry and the 11 §10.2 mechanical channel create active; the draft candidate state was cancelled 2026-11-03); update: the only legal transition is active→discarded (terminal, read-only afterwards) — 23 §9/§13" },
-      scope: { type: "string", description: "impact & applicability statement; must appear verbatim in the 影响与适用范围 body section (carrier coherence, 23 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
+      status: { type: "string", enum: ["active", "discarded"], description: "**REQUIRED on create — there is no default; omitting it is rejected with pitfall/status_required.** create: status=active is the only initial state (25 §13 — both the Human entry and the 25 §13 main-controller channel create active; the draft candidate state was cancelled 2026-11-03); update: the only legal transition is active→discarded (terminal, read-only afterwards) — 25 §9/§13" },
+      scope: { type: "string", description: "impact & applicability statement; must appear verbatim in the 影响与适用范围 body section (carrier coherence, 25 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       trigger_signal: { type: "string", description: "when to re-examine this experience (dependency version change, environment migration, etc.); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the experience; when non-empty the body must carry a 证据 section" },
-      disposition: { type: "string", description: "terminal destination & reason; required iff status=discarded, forbidden while active (23 §8)" },
+      disposition: { type: "string", description: "terminal destination & reason; required iff status=discarded, forbidden while active (25 §8)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "scope"],
@@ -642,7 +532,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["active", "all"], description: "active = default (current experience baseline, 23 §12 — 2026-11-03 起 Pitfall 无 draft 待确认档，候选与已入档是同一批对象); all = include discarded for review/historical tracing" },
+          status: { type: "string", enum: ["active", "all"], description: "active = default (current experience baseline, 25 §12 — 2026-11-03 起 Pitfall 无 draft 待确认档，候选与已入档是同一批对象); all = include discarded for review/historical tracing" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
         },
         additionalProperties: false
@@ -680,9 +570,6 @@ function parameterSchemaFor(operationKey) {
 }
 
 export function toolDescriptorFor(operationKey, operation, handler) {
-  // Register through defineTool so the DSH argument check actually runs: the
-  // bare-descriptor path only asserts output/timeoutMs shape and stores the
-  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
   return defineTool({
     name: operation.toolName,
     description: operation.summary,
@@ -691,9 +578,6 @@ export function toolDescriptorFor(operationKey, operation, handler) {
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);
-        // Prune undefined values (JSON round-trip): the harness lossless-JSON
-        // validation rejects them, and conditional fields legitimately produce
-        // undefined on objects where they are absent.
         return { envelope: JSON.parse(JSON.stringify(result)) };
       } catch (error) {
         return {
@@ -715,21 +599,6 @@ export function toolDescriptorFor(operationKey, operation, handler) {
   });
 }
 
-/**
- * 注册 Pitfall 工具批次。
- *
- * **两种注册面（Human 决定 2026-11-16，23 §13 代理记录通道）**：
- *
- * - `surface: "root"`（缺省）——受管辖的根会话，取得全部四个操作。开工授权入口
- *   `ldvh_pitfall_arm_delegate` 标了 `rootOnly`，只有这一面注册它。
- * - `surface: "child"`——**被开工授权绑定的那个分身**，只取得 read / list / write
- *   三个操作。刻意不给 arm：分身能给自己记授权，就等于权限可以自我繁殖，那条
- *   「一次性、可过期」的纪律立刻失效。
- *
- * 为什么按操作逐条判而不另建一张子表：OPERATIONS 是唯一权威，两张表会漂移
- * （仓内已有一次「硬编码清单与真实暴露面不一致」的教训，见下方 writeShaped 注释）。
- * 判据取声明本身：`rootOnly === true` 的操作不进 child 面。
- */
 export function registerPitfallTools(ctx, deps, { surface = "root" } = {}) {
   const handlers = {
     "pitfall-read-object": (args, exec) => executeReadObject(args, exec, deps),
@@ -740,15 +609,12 @@ export function registerPitfallTools(ctx, deps, { surface = "root" } = {}) {
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
     if (surface === "child" && operation.rootOnly === true) continue;
-    // Coverage is registered from the declaration itself, so the guard's target
-    // set always matches the tools this build really exposes (a hardcoded list
-    // drifts into phantom or stale entries).
     if (operation.writeShaped === true) registerWriteShapedTool(operation.toolName);
     disposers.push(ctx.tools.register(toolDescriptorFor(operationKey, operation, handlers[operationKey])));
   }
   return () => {
     for (const dispose of disposers) {
-      try { dispose(); } catch { /* already removed */ }
+      try { dispose(); } catch {   }
     }
   };
 }

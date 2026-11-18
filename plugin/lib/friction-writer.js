@@ -1,39 +1,3 @@
-/**
- * dsh-ldvh — Friction fact-object writer (minimal controlled writer).
- *
- * Implements the mechanical slice of specs/26 §13 (受控操作) and the
- * shared read-back/CAS contract from specs/03 §9:
- *
- *  - create:  flat single-file carrier
- *             (ldvh-base/frictions/friction-<uid>.md) with YAML frontmatter
- *             + markdown body. Code assigns object_uid + created_at and
- *             generates the H1 from title; creation validates the
- *             type-specific mechanical checks (closed sets, phenomenon
- *             single-sentence, fixed H2 sections incl. conditional 处置,
- *             carrier coherence).
- *  - read:    returns frontmatter + body + file-level content
- *             fingerprint (SHA-256).
- *  - update:  CAS — two guarded lanes (26 §9):
- *               * status-preserving = 补充级: status must be field-identical
- *                 to the CAS baseline (攒账计数/现象补充/归因后补；变了就
- *                 拒绝——状态变化走流转).
- *               * state transitions (Human-gated): open→resolved (销账) /
- *                 →voided (废弃) / →accepted (接受不可清偿)。2026-10 修订：
- *                 observing 退出闭集，阈值晋升改由 friction-observation-buffer
- *                 侧完成（11 §12bis.1）。/ →voided / →accepted follow §9.2;
- *                 resolved requires 1..n informs relations with resolvable
- *                 targets; resolved, voided & accepted are terminal &
- *                 read-only.
- *
- * Carrier coherence (26 §8): frontmatter phenomenon is the single
- * authoritative text — the 现象 body section must contain it verbatim.
- *
- * Red lines honoured (26 §18): no urls field, no decorative fields at all
- * (the `impact` exception was removed on 2026-11-02 — its two claimed
- * consumers §12 aggregation and the heavy-bypasses-buffer "重大即显" path
- * were never implemented in Code, so the anchor lived only inside the spec
- * text), three body sections only (ledger-light).
- */
 
 import { createHash, randomUUID } from "node:crypto";
 import { access, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
@@ -47,120 +11,45 @@ import { h2Titles, sectionContent } from "./markdown-structure.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
 
-// ---------------------------------------------------------------------------
-// Constants (specs/26 §7, §8, §9, §11)
-// ---------------------------------------------------------------------------
 
 const FRICTION_TYPE_KEY = "friction";
 
-/** Directory under the fact-source root that carries Friction objects. */
 export const FRICTION_DIRECTORY = "frictions";
 
-/** Fixed body H2 sections (26 §8); 处置 is conditional on resolved/voided/accepted. */
 const BODY_H2_REQUIRED = ["现象", "入账依据"];
 const BODY_H2_DISPOSITION = "处置";
 
-// 26 §9（2026-10 修订，Human 决定：观察不进事实源）：状态闭集四值。
-// `observing` 已退出——观察材料由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象）。
-// `accepted`（2026-10 新增）：阻碍真实但不可清偿，记录一次、不再报告；是终态。
 const STATUSES = new Set(["open", "resolved", "voided", "accepted"]);
-// 2026-11-02（Human 定案「摩擦取消 中 轻 重 这种分级制度」）：`impact` 字段连
-// 同其闭集常量一并撤销，理由见 26 §8 与 §18 第 1 条（该条由此恢复无例外）。
 
-// 26 §13：`correct` 的补填通道只接受**新进入闭集**的字段。闭集扩张时在此登记
-// （首个用例：occurrence——§8 于 2026-11 新增必填）。不在此集合内的字段一律拒绝：
-// 补填本就在闭集里的字段属受控更新，不得走终态更正入口。
 const CORRECT_ADDABLE_FIELDS = new Set(["occurrence", "disposition"]);
 
-// 26 §13：`correct` 的删除通道只接受两类字段——已退出闭集者，或存在即违反 §8
-// 条件约束者。闭集收缩或条件约束建立时在此登记。
-// `impact`（2026-11-02 加入）：存量终态对象（resolved/voided）走本通道清除该字段。
 const CORRECT_REMOVABLE_FIELDS = new Set(["serves", "occurrence", "impact"]);
 
-/**
- * 第三类删除许可（26 §13，2026-10 扩围）：**目标已退役的锚点字段**。
- *
- * 只含锚点型字段（当前仅 `attribution_ref`）。该类的准入不只靠"字段在名单里"，
- * 还须机械核验**其目标此刻不可解析**——即目标对象确实已不存在。仅凭字段名放行
- * 会把「归因缺失」伪装成「目标已退役」，是数据伪造（26 §13 明文）。
- *
- * **存在理由**（与 26 §13「悬空锚点的可达性约束」是一对）：`attribution_ref` 的
- * 可解析性核验发生在任何写入之前，故目标一旦消失，该终态载体此后既不能 update
- * （终态只读）也不能 correct（核验先拦）。若无本类，闭集收缩必然在终态对象上留下
- * 无法清除的悬空锚点。实测用例：abf557e1 的 attribution_ref 指向 observing 载体
- * 5d5862c9，而该状态随 2026-10 闭集收缩退出、其载体经 Human 决定删除。
- */
 const CORRECT_REMOVABLE_ANCHOR_FIELDS = new Set(["attribution_ref"]);
 
-/**
- * Relation keys allowed for Friction (26 §11 — closed set).
- *
- * 2026-10-28: `paired-with` joins `informs`. The pairing names the same-root
- * cross-role counterpart (a Pitfall), so that "the debt" and "the knowledge"
- * can be enumerated in both directions (26 §11, 23 §11). It is state-neutral
- * on the Friction side — a pair exists whether or not the debt is settled.
- */
 const FRICTION_RELATION_KEYS = new Set(["informs", "paired-with"]);
 
-/** `informs` targets resolve inside the **existing fact-object directories** (26 §11).
- *
- * G2 裁定（2026-11-15）：`informs` 的目标不再限定为某一个（现已撤除的）类型，
- * 改为「现存事实对象目录」——目标身份由载体自身的 `fact_type_key` 承担，Code 只核
- * 「该 uid 在某个已登记目录里确有载体」。把目标钉在单一目录，会让 `26 §14.1` 的
- * resolved `informs ≥ 1` 不变量在目标类型撤除后**永久不可达**；按目录集合核验
- * 仍是确定性、可复算的机械检查。
- *
- * 形态为 `[类型短名, 目录名]`：载体文件名是 `<类型短名>-<uuid>.md`，两者都必须给出。
- */
 const INFORMS_TARGET_DIRS = [
   ["spark", "sparks"],
   ["pitfall", "pitfalls"],
   ["report", "reports"],
   ["friction", "frictions"],
   ["norm", "norms"],
-  // 2026-11-16：规范 `26:298` 的「关系展开」机械值已把 `informs` 目标落成六类型枚举
-  // （`spark|norm|pitfall|report|friction|subgoal`，与 `02 §7.1` 值域同集）。本表原缺
-  // `subgoals`——即「机械值宣告可展开、受控写入却直接判不可解析」的 Code 窄于规范
-  // （`01 §11.4`）。同型先例见 spark-writer 的 refs 目标表曾漏该目录。
   ["subgoal", "subgoals"],
 ];
 
-/** paired-with targets resolve inside the Pitfall directory (26 §11 / 23 §11). */
 const PAIRED_WITH_TARGET_DIR = "pitfalls";
 
-/** Title cap (26 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
 
-/** UUID format check (03 §6.1 canonical UUIDv4, version nibble 4). */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-/** 40 位 commit hash（26 §9.2 commit 例外的目标形态；短 hash 与 ref 名不接受）。 */
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 
-/** Closed set of frontmatter keys (26 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "phenomenon", "attribution", "attribution_ref", "relations", "occurrence", "disposition", "change_log",
 ]);
 
-/**
- * `occurrence` 的形状校验（26 §8；**三入口统一**）。
- *
- * ## 为什么必须共享（2026-10 修订，实测缺陷）
- *
- * 此前只有 `correct` 的补填分支校验 occurrence 的**成员**，而 `create` / `update`
- * 只查「有没有这个字段」。后果是 fail-open：携带已删除字段的载体一路落盘——
- * 实测 `createFrictionObject` 接受 `occurrence: { count, first_at, last_at,
- * human_return_at }` 并原样写入，而 §8 的闭集早已删除 `human_return_at`。
- *
- * 该缺陷的形态值得记一笔：**校验写在了最容易写的那条路径上**（correct 的补填分支
- * 因为要逐个字段判断，顺带做了成员校验），而真正高频的 create/update 反而只查了
- * 存在性。因此这里把校验收到一处，三个入口都调它。
- *
- * 成员闭集由 §8 定：`{ count, first_at, last_at }`，**不多不少**。多出任何字段
- * （包括已删除的 `human_return_at`）即拒——「不得以空字段或占位代替判断」（§8 末）。
- *
- * @returns {{ok:true}|{ok:false,code:string,message:string}}
- */
 function validateOccurrenceShape(occurrence) {
   if (typeof occurrence !== "object" || occurrence === null || Array.isArray(occurrence)) {
     return failure("friction/occurrence_invalid", "occurrence must be an object (26 §8)");
@@ -188,22 +77,8 @@ function validateOccurrenceShape(occurrence) {
   return { ok: true };
 }
 
-/**
- * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
- *
- * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
- * 终态伴随字段（disposition/relations/retirement_reason/retired_at）在 update 路径不可达
- * （终态只读），故不列。
- *
- * `impact`（2026-11-02 加入）：该字段已退出 §8 闭集（26 §8 删除行），存量 open 对象
- * 须经受控更新的 `frontmatter_removals` 清除它；终态对象走 `correct`，其清除白名单
- * 见 CORRECT_REMOVABLE_FIELDS。同一纪律的第二次执行（首次是 2026-10 的 `serves`）。
- */
 export const FRICTION_REMOVABLE_FIELDS = new Set(["attribution", "attribution_ref", "impact"]);
 
-// ---------------------------------------------------------------------------
-// Result helpers
-// ---------------------------------------------------------------------------
 
 function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
@@ -213,17 +88,6 @@ function success(value) {
   return { ok: true, value };
 }
 
-/**
- * 26 §8/§11（2026-10 订正）：attribution_ref 的规范形态是对象 { object_uid }
- * （锚点型）。列表/详情投影时把两种合法承载归一到对象形态：裸 string 为存量
- * 兼容（历史载体写法），提升为 { object_uid: <string> }；对象形态取其
- * object_uid。形状不合法者返回 undefined —— 不把坏数据投影出去
- * （回归点：原 `typeof === 'string'` 判定把对象形态静默丢弃）。
- *
- * 这是投影归一的**唯一**权威：friction-tools.js 直接 import 本函数，不再内联
- * 副本（2026-10 复核发现 7——两份逐字等价的 copy 一旦漂移，就会出现「详情归一
- * 了、列表没归一」这类只在某一种读法上暴露的分叉）。
- */
 export function normalizeAttributionRef(value) {
   if (typeof value === "string" && value.length > 0) {
     return { object_uid: value };
@@ -240,7 +104,6 @@ export function normalizeAttributionRef(value) {
   return undefined;
 }
 
-/** Fact-type directories scanned when resolving an anchor reference. */
 const ATTRIBUTION_REF_DIRS = [
   ["spark", "sparks"],
   ["pitfall", "pitfalls"],
@@ -249,22 +112,9 @@ const ATTRIBUTION_REF_DIRS = [
   ["norm", "norms"],
 ];
 
-/**
- * 26 §8/§11 可解析性：`attribution_ref` 出现时，Code 必须核验其 object_uid 指向
- * 同项目某**已存在**的事实对象；不可解析即拒绝入账（零写）。
- *
- * 为什么必须在写流程里做、而不是只做形态校验：26 §8 的承诺是「出现时由 Code
- * 机械核验可解析」。只校验形态（uuid 长得像）等于允许一个指向空气的锚点通过，
- * 而 §12 按归因机械聚合会把这条账算到一个不存在的对象头上——形态合法但语义
- * 悬空，正是一类静默错误的上游形态。
- *
- * 返回 { ok:true } 或 { ok:false, code, message }。裸 string 与对象形态都按
- * 存量兼容接受（归一后取 object_uid），形状问题由 validateFrictionFrontmatter
- * 在更早的关口拦下，这里只负责「指向的对象在不在」。
- */
 async function verifyAttributionRefResolves(factSourceRoot, frontmatter) {
   const uid = normalizeAttributionRef(frontmatter.attribution_ref)?.object_uid;
-  if (typeof uid !== "string" || uid.length === 0) return { ok: true }; // 未出现 = 不经此核验（26 §8：出现不强制）
+  if (typeof uid !== "string" || uid.length === 0) return { ok: true };
   const target = uid.toLowerCase();
   for (const [, dir] of ATTRIBUTION_REF_DIRS) {
     const abs = join(factSourceRoot, dir);
@@ -272,18 +122,13 @@ async function verifyAttributionRefResolves(factSourceRoot, frontmatter) {
     try {
       entries = await readdir(abs, { withFileTypes: true });
     } catch {
-      continue; // 目录缺失 = 该类型未在本项目落地，继续扫其余类型
+      continue;
     }
     for (const entry of entries) {
       if (!entry.isFile()) continue;
       if (!/\.(md|yaml|yml)$/.test(entry.name)) continue;
       const raw = await readFile(join(abs, entry.name), "utf8").catch(() => null);
       if (raw === null) continue;
-      // 行首锚定 + 不带 \s* 前缀：只认顶层 object_uid 声明行。带 `^\s*` 会把
-      // relations 成员或正文里的缩进 uid 也当成「本载体声明的身份」，那会让
-      // 「引用别处出现过的 uid」被误判为可解析（fail-open 方向，2026-10 复核发现 6）。
-      // 捕获值再走 UUID_PATTERN：本函数只在 writer 内部使用，直接复用同一格式常量，
-      // 不让「可解析」与「合法 uid」分裂成两套判定。
       const uidMatch = raw.match(/^object_uid:[ \t]*["']?([^"'\s]+)["']?[ \t]*$/m);
       if (uidMatch && UUID_PATTERN.test(uidMatch[1]) && uidMatch[1].toLowerCase() === target) return { ok: true };
     }
@@ -295,15 +140,7 @@ async function verifyAttributionRefResolves(factSourceRoot, frontmatter) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Validation (the mechanical slice of specs/26 §8, §9, §13, §14.1)
-// ---------------------------------------------------------------------------
 
-/**
- * phenomenon 单句陈述 (26 §8, same mechanical shape as 20/22 号):
- * at most one sentence-terminal character (。？！) and, when present,
- * it must end the string. "现象非结论" is AI review scope.
- */
 export function isSingleSentence(text) {
   if (typeof text !== "string" || text.length === 0) return false;
   const terminals = text.match(/[。？！]/g) ?? [];
@@ -318,7 +155,6 @@ export function isSingleSentence(text) {
 export function validateFrictionFrontmatter(frontmatter) {
   const issues = [];
 
-  // Closed-set check (26 §8): unknown fields reject the object
   for (const k of Object.keys(frontmatter)) {
     if (!VALID_FM_KEYS.has(k)) {
       issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 26 §8)`);
@@ -350,34 +186,20 @@ export function validateFrictionFrontmatter(frontmatter) {
     issues.push(`status: must be one of ${[...STATUSES].join("/")}`);
   }
 
-  // occurrence (26 §8, 2026-10 修订)：形状与**成员闭集**。此处是 create 与 update
-  // 的共同关口，故校验放这里；correct 的补填分支另调同一函数（validateOccurrenceShape）——
-  // 三入口共用一份判据，避免"只有一处做了成员校验"的漂移。
-  //
-  // **必填性不在此判**：`voided` 且来源为闭集收缩改判者可缺该字段（§14.2 豁免），
-  // 故缺失的判定留在各入口（create 要求必带；correct 的补填分支自己决定）。此处只
-  // 校验"出现了就必须合法"。
   if (frontmatter.occurrence !== undefined) {
     const shape = validateOccurrenceShape(frontmatter.occurrence);
     if (!shape.ok) issues.push(shape.error.message);
   }
 
-  // attribution (26 §8): conditional — present means non-empty (后补 via supplement).
   if (frontmatter.attribution !== undefined) {
     if (typeof frontmatter.attribution !== "string" || frontmatter.attribution.length === 0) {
       issues.push("attribution: when present must be a non-empty string (03 §6.1 — omit when not yet attributable)");
     }
   }
 
-  // attribution_ref (26 §8/§11 锚点型, 2026-10 订正): conditional — when present
-  // it must be the object form { object_uid } with a syntactically valid uuid.
-  // A bare string is lifted (存量兼容) so legacy carriers keep validating; any
-  // other shape rejects the frontmatter. 语义可解析性（object_uid 指向的载体
-  // 真实存在）由 create/update/correct 流程核验 —— 它们握有 factSourceRoot。
   if (frontmatter.attribution_ref !== undefined) {
     const ref = frontmatter.attribution_ref;
     if (typeof ref === "string") {
-      // 存量裸字符串：提升后仍须是合法 uuid（空串/乱形状拒）
       if (ref.length === 0 || !UUID_PATTERN.test(ref)) {
         issues.push("attribution_ref: bare string must be a valid object_uid uuid (26 §8/§11 锚点型)");
       }
@@ -390,8 +212,6 @@ export function validateFrictionFrontmatter(frontmatter) {
     }
   }
 
-  // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
-  // 只核已存在的条目，不要求 change_log 本身存在（存量载体的该字段由写入方保证）。
   if (Array.isArray(frontmatter.change_log)) {
     for (const [i, entry] of frontmatter.change_log.entries()) {
       if (typeof entry !== "object" || entry === null) continue;
@@ -404,15 +224,6 @@ export function validateFrictionFrontmatter(frontmatter) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * Validate the relations contract (26 §11 + 02 §8.2).
- *
- * Mechanical scope: key closed set ({informs, paired-with}), per-key status
- * gating (informs only on resolved; paired-with state-neutral), cardinality,
- * minimal entry/target shape, no duplicates, no self-reference. Target
- * resolvability is checked by the create/update flows (they need the fact
- * source root) — and each key resolves against its own directory set.
- */
 export function validateFrictionRelations(frontmatter, selfUid = null) {
   const issues = [];
   const relations = frontmatter.relations;
@@ -426,11 +237,6 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
     return { ok: false, issues };
   }
 
-  // Status gating is PER KEY (26 §9.1, 2026-10-28): `informs` is the settling
-  // edge and appears only on resolved; `paired-with` is a static same-root
-  // fact and appears in any state. Gating the whole array on resolved (the
-  // previous shape) would make an `open` debt unable to name its counterpart,
-  // which is exactly when the pairing is established.
   const hasInforms = relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs");
   if (hasInforms && frontmatter.status !== "resolved") {
     issues.push(`relations: informs may only appear on status=resolved, got status=${JSON.stringify(frontmatter.status)} (26 §11)`);
@@ -442,7 +248,6 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       issues.push("relations[]: members must be objects");
       continue;
     }
-    // 02 §8.2 公共形状: relation_key + target only
     const relExtra = Object.keys(rel).filter((k) => k !== "relation_key" && k !== "target" && k !== "evidence_locator");
     if (relExtra.length > 0) {
       issues.push(`relations[]: entry carries fields beyond relation_key/target/evidence_locator (${relExtra.join(", ")}) — 02 §8.2 公共形状`);
@@ -459,11 +264,6 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       issues.push(`relations[]: target must be an object (02 §8.2)`);
       continue;
     }
-    // target 的两种合法形态（02 §8.2）：`{object_uid}` 或 `{commit}`——**互斥**。
-    // commit 形态是唯一允许 target 不带 object_uid 的情形：解药本身是一次受控提交、
-    // 没有任何对象身份（02 §8.1 commit 形态 / 26 §9.2 commit 例外）。
-    // `paired-with` 指向事实对象，**不采用** commit 例外（26 §11 只字未提）——
-    // 一个 commit 不是「同源跨角色的经验」，用 commit 表达配对等于换掉语义。
     const targetKeys = Object.keys(target);
     const hasUid = typeof target.object_uid === "string";
     const hasCommit = typeof target.commit === "string";
@@ -487,7 +287,6 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       if (extraWithCommit.length > 0) {
         issues.push(`relations[]: a commit-form target carries fields beyond commit (${extraWithCommit.join(", ")}) — 02 §8.2`);
       }
-      // commit 形态下 evidence_locator 不得并存（后者附加在 object_uid 上）
       if (rel.evidence_locator !== undefined && rel.evidence_locator !== null) {
         issues.push("relations[]: a commit-form target must not carry evidence_locator — the two mechanisms are not mixed (02 §8.1)");
       }
@@ -505,13 +304,8 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       continue;
     }
 
-    // evidence_locator：闭集只有 commit 一形——该项由类型来源登记（26 §11 2026-11-05），
-    // 公共侧只定「附加在 object_uid target 上」与「不得与 target.commit 混用」（02 §8.1）。
     const locator = rel.evidence_locator;
     if (locator !== undefined && locator !== null) {
-      // 采用面只到 `informs`（26 §11 2026-11-05 登记）：`paired-with` 无「解药」语义，
-      // 给它挂一个「修复发生在哪次提交」的定位没有任何可解释的含义。机械拒绝而非
-      // 静默忽略——后者会让写入方以为该定位被记下了。
       if (key !== "informs") {
         issues.push(`relations[]: evidence_locator is adopted for informs only (26 §11); got relation_key ${JSON.stringify(key)}`);
       }
@@ -539,25 +333,6 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * Resolve every `relations` target against the fact source (26 §11).
- *
- * Target directory is dispatched **by relation_key**, never by a shared set:
- *   - `informs`     → any existing fact-object directory (the remedy);
- *   - `paired-with` → Pitfall objects (the same-root cross-role counterpart).
- * Sharing one directory set would let a pairing point at the remedy target, which
- * is not "another role of the same root" by any reading of 26 §11.
- *
- * Commit form (02 §8.1) belongs to `informs` only (26 §9.2). A `commit`
- * appearing in either `target.commit` or `evidence_locator.commit` must resolve
- * in the repository; with no resolver the check fails closed rather than
- * passing an unverified carrier.
- *
- * Semantic relevance and target status stay in AI/Human judgement — this
- * function answers only "does it resolve".
- *
- * @returns {Promise<{ok: true} | {ok: false, code: string, message: string}>}
- */
 async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCommitResolver, selfUid = null } = {}) {
   for (const rel of frontmatter.relations ?? []) {
     const target = rel?.target;
@@ -583,18 +358,11 @@ async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCo
           await access(join(factSourceRoot, PAIRED_WITH_TARGET_DIR, `pitfall-${targetUid}${ext}`));
           resolvedPaired = true;
           break;
-        } catch { /* try next ext */ }
+        } catch {   }
       }
       if (!resolvedPaired) {
         return { ok: false, code: "friction/relation_target_unresolvable", message: `paired-with target ${targetUid} does not resolve to an existing Pitfall object in ${PAIRED_WITH_TARGET_DIR}` };
       }
-      // 2026-10-28（审核 N4）：目录 + 文件名只是**位置**证据，不是类型证据。
-      // 复核 `fact_type_key`，否则一个被误放进 pitfalls/ 的异类型载体也会被当成
-      // 配对目标（该形态与「以打包产物文本检索缺席当作服务不存在」同类：拿间接
-      // 信号当身份判定）。读不出该键时 fail-closed——无法核验即不通过。
-      // **类型键复核必须真的 fail-closed**（2026-10-28 复核 S-2：初版在「读不到」
-      // 与「没有该行」两种情形都放行，注释却声称 fail-closed——注释比代码严是伪保障）。
-      // 目录 + 文件名只是位置证据；类型身份由 `fact_type_key` 承载。
       const pairedPath = join(factSourceRoot, PAIRED_WITH_TARGET_DIR, `pitfall-${targetUid}.md`);
       const pairedRaw = await readFile(pairedPath, "utf8").catch(() => null);
       if (pairedRaw === null) {
@@ -617,7 +385,7 @@ async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCo
           await access(join(factSourceRoot, dir, `${type}-${targetUid}${ext}`));
           resolvedTarget = true;
           break;
-        } catch { /* try next */ }
+        } catch {   }
       }
       if (resolvedTarget) break;
     }
@@ -628,33 +396,8 @@ async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCo
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Body structure + carrier coherence
-// ---------------------------------------------------------------------------
 
-/**
- * 入参 `bodyMarkdown` / `bodyMarkdownAfter` 的**形态前置**：不得自带 H1。
- *
- * 本函数的写入侧契约是「正文自 H2 起、H1 由 `assembleBody` 从 title 生成」——
- * 该契约此前**只写在错误文案里，代码从不校验**（实测 `typeof … !== "string"` 一条
- * 即为全部检查）。后果是一次真实的累积性数据损坏（2026-10-12 定位）：
- * `readFrictionObject().body` 是**含**生成式 H1 的整份正文，而调用方把它直接回传给
- * 更新入口，于是每写一次就多一个 H1。真实账本实测 3 条中招（`3048937d` H1=3、
- * `545cca82` H1=2、`bf73fad4` H1=2；其余 21 条为 1——只有被这些路径写过的才中招）。
- *
- * **为什么此前无人发现**：`validateFrictionBodyStructure` 只比对「首个非空行是否为
- * `# <title>`」、H2 序列与各段非空，**不数 H1 的个数**，故重复 H1 恰好绕过全部结构校验；
- * 而 §8.4 第 5 项的精确回读只比对 `count`/`last_at`。两条通道都给绿灯，损坏因此静默。
- *
- * 修法取「拒绝 + 指明去处」而非「静默剥离」：`bodyMarkdown*` 是调用方显式提供的
- * **完整目标正文**，静默改写它会掩盖调用方的误解（本次缺陷正是一个被掩盖的误解）；
- * 且 §8.4 要求 fail-closed。真正的剥离责任在调用方——本模块导出 `stripLeadingH1`
- * 供其使用，读-改-写路径必须先剥再传。
- *
- * @returns {{ok: true} | {ok: false, message: string}}
- */
 function requireBodyWithoutH1(bodyMarkdown, fieldName) {
-  // 只查**开头**的 H1：正文里作为字面内容出现的 `# ` 行（例如引用的规范片段）不受限。
   if (/^\s*#\s+\S/.test(bodyMarkdown)) {
     return {
       ok: false,
@@ -669,12 +412,6 @@ function requireBodyWithoutH1(bodyMarkdown, fieldName) {
 
 
 
-/**
- * Validate the assembled body structure. The body passed here is the full
- * file body starting with the generated `# ${title}` H1 (26 §8).
- * 处置 section presence ⇔ status resolved/voided/accepted (26 §8 conditional).
- * Returns { ok, issues }.
- */
 export function validateFrictionBodyStructure(body, title, status) {
   const issues = [];
   const expectDisposition = status === "resolved" || status === "voided" || status === "accepted";
@@ -698,7 +435,6 @@ export function validateFrictionBodyStructure(body, title, status) {
     }
   }
 
-  // Non-empty check for every H2 section
   const sections = body.split(/^## /m).slice(1);
   for (const sec of sections) {
     const secTitle = sec.split("\n")[0].trim();
@@ -706,7 +442,6 @@ export function validateFrictionBodyStructure(body, title, status) {
     if (content.length === 0) issues.push(`body: section "${secTitle}" is empty`);
   }
 
-  // 处置 H2 presence ⇔ resolved/voided/accepted (26 §8 conditional)
   const hasDispositionH2 = h2.includes(BODY_H2_DISPOSITION);
   if (hasDispositionH2 !== expectDisposition) {
     issues.push(`body: "## 处置" section presence (${hasDispositionH2}) must match status resolved/voided/accepted (${expectDisposition}) — 26 §8 条件出现`);
@@ -715,19 +450,12 @@ export function validateFrictionBodyStructure(body, title, status) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * Carrier coherence (26 §8): frontmatter phenomenon is the single
- * authoritative text — the 现象 body section must contain it verbatim.
- */
 export function validateCarrierCoherence(frontmatter, body) {
-  // Human 2026-11-10（`spark-f0ba9997`）：字段是索引与摘要、正文是展开，二者
-  // **不需逐字一致**——故差异一律进 `warnings`，不进 `issues`，更不阻断写入。
-  // 保留本函数是为了差异仍可被如实报告（不是静默当作一致），与 Spark 同形。
   const warnings = [];
   const text = typeof frontmatter.phenomenon === "string" ? frontmatter.phenomenon.trim() : "";
-  if (text.length === 0) return { ok: true, issues: [], warnings }; // presence checked in validateFrictionFrontmatter
+  if (text.length === 0) return { ok: true, issues: [], warnings };
   const content = sectionContent(body, "现象");
-  if (content === null) return { ok: true, issues: [], warnings }; // section presence checked in body structure
+  if (content === null) return { ok: true, issues: [], warnings };
   if (!content.includes(text)) {
     warnings.push(carrierCoherenceMessage({
       section: "现象", field: "phenomenon", declared: text, actual: content, clause: "26 §8, §14.1",
@@ -736,9 +464,6 @@ export function validateCarrierCoherence(frontmatter, body) {
   return { ok: true, issues: [], warnings };
 }
 
-// ---------------------------------------------------------------------------
-// File helpers
-// ---------------------------------------------------------------------------
 
 export function frictionFileName(uid) { return `friction-${uid}.md`; }
 
@@ -754,11 +479,6 @@ function buildFileContent(frontmatter, body) {
   return `---\n${stringifyYaml(orderFrontmatterFields(frontmatter), { lineWidth: 0 })}---\n\n${body.trim()}\n`;
 }
 
-/**
- * 展示层输出序（同既有 writer 约定）：语义块在前
- * （标题/状态/现象/归因/信号归属/处置），引用与身份居后，
- * change_log 沉底。只重排键序，不新增、不删除、不改值。
- */
 const FRONTMATTER_FIELD_ORDER = [
   "title", "status",
   "phenomenon", "attribution",
@@ -772,7 +492,6 @@ function orderFrontmatterFields(frontmatter) {
   for (const key of FRONTMATTER_FIELD_ORDER) {
     if (key in frontmatter) ordered[key] = frontmatter[key];
   }
-  // 闭集校验已保证无表外字段；防御性保留任何遗漏键（原序跟在表后）。
   for (const key of Object.keys(frontmatter)) {
     if (!(key in ordered)) ordered[key] = frontmatter[key];
   }
@@ -780,12 +499,8 @@ function orderFrontmatterFields(frontmatter) {
 }
 
 async function atomicWriteFile(filePath, content) {
-  // Random tmp suffix (F8): a deterministic `${filePath}.tmp` would let two
-  // concurrent writers on the same path clobber each other's staging file.
   const tmp = `${filePath}.${randomUUID().slice(0, 8)}.tmp`;
   await writeFile(tmp, content, "utf8");
-  // Write verification: read back and compare before rename —
-  // catches partial writes (disk-full at flush time, etc.)
   const written = await readFile(tmp, "utf8");
   if (written !== content) {
     await unlink(tmp).catch(() => {});
@@ -794,32 +509,20 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-/** Validate objectUid format (path-injection guard). */
 function assertValidUid(objectUid) {
   return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
 }
 
-/** Assemble the file body: generated H1 + caller-provided markdown. */
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
 
-// ---------------------------------------------------------------------------
-// Create (specs/03 §9.4 + specs/26 §13)
-// ---------------------------------------------------------------------------
 
 export async function createFrictionObject(args) {
   const {
     factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null,
-    // 26 §11（2026-10-28）：`paired-with` 可在创建时声明，其目标须可解析。
-    // commit 形态属 informs（创建时被拒），故创建路径通常用不到 resolver；
-    // 仍接收它以保持同一校验函数在两条路径上行为一致。
     gitCommitResolver = null,
   } = args;
-  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
-  // signed BY CODE and may not be written unsigned. Without a branded carrier the
-  // write is REFUSED; the caller reports it for Human handling (09 requires a
-  // definite unavailable outcome for blank/historical sessions).
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
@@ -831,38 +534,25 @@ export async function createFrictionObject(args) {
   const createH1 = requireBodyWithoutH1(bodyMarkdown, "bodyMarkdown");
   if (!createH1.ok) return failure("invalid_request", createH1.message);
 
-  // Code-assigned identity (03 §6.2)
   const uid = randomUUID();
   const now = new Date().toISOString();
-  // Strip caller-only params (change_summary is a call argument, not object metadata)
   const { change_summary: _stripped, ...draftFields } = frontmatterDraft;
   const frontmatter = { ...draftFields };
   frontmatter.object_uid = uid;
   frontmatter.fact_type_key = FRICTION_TYPE_KEY;
   frontmatter.created_at = now;
-  // 26 §9（2026-10 修订）：初态 open — create must never enter resolved/voided/accepted.
   if (frontmatter.status !== undefined && frontmatter.status !== "open") {
     return failure("friction/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (26 §9 — 观察态已退出闭集；销账/废弃/接受是流转，不是初态)`);
   }
   frontmatter.status = "open";
-  // 26 §8：disposition 是终态伴随字段——创建必为 open，故一律不得带。
   if (frontmatter.disposition !== undefined) {
     return failure("friction/frontmatter_invalid", "create must not carry disposition (26 §8: 出现 ⇔ status ∈ {resolved, voided, accepted}；初态为 open)");
   }
-  // 26 §8（2026-10 修订）：occurrence 必填，形状 { count, first_at, last_at }
-  // ——`human_return_at` 随 `open → observing` 流转一并删除。
-  // count 取「该账目成立时已确认的观察次数」（晋升时由同源条目数写入）。
   if (frontmatter.occurrence === undefined) {
     return failure("friction/frontmatter_invalid", "create must carry occurrence { count, first_at, last_at } (26 §8 必填)");
   }
   const occurrenceShape = validateOccurrenceShape(frontmatter.occurrence);
   if (!occurrenceShape.ok) return occurrenceShape;
-  // 26 §11 (2026-10-28): `informs` cannot exist at creation — it is written by
-  // the settling transition. `paired-with` MAY be declared at creation: the
-  // same-root counterpart is often known the moment the debt is recorded, and
-  // forcing a second write just to add one edge invites a forgotten pairing.
-  // The key-level gate lives in validateFrictionRelations; only the settling
-  // edge is blocked here.
   if (Array.isArray(frontmatter.relations)
       && frontmatter.relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs")) {
     return failure("friction/frontmatter_invalid", "create must not carry informs relations (26 §11: informs only attaches to a resolved transition)");
@@ -873,7 +563,6 @@ export async function createFrictionObject(args) {
     summary: frontmatterDraft.change_summary ?? "受控创建 Friction 对象",
   }];
 
-  // Validate
   const fmCheck = validateFrictionFrontmatter(frontmatter);
   if (!fmCheck.ok) {
     return failure("friction/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
@@ -882,25 +571,19 @@ export async function createFrictionObject(args) {
   if (!relCheck.ok) {
     return failure("friction/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
   }
-  // 26 §8/§11：attribution_ref 出现时核验 object_uid 指向已存在的事实对象（零写拒绝）。
   const attrCheck = await verifyAttributionRefResolves(factSourceRoot, frontmatter);
   if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
-  // 26 §11（2026-10-28）：`paired-with` 可在创建时声明，故此处须核验其目标
-  // 解析（零写拒绝）——与 update 路径共用同一校验函数，不建第二套规则。
   if (Array.isArray(frontmatter.relations) && frontmatter.relations.length > 0) {
     const relTargets = await verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCommitResolver });
     if (!relTargets.ok) return failure(relTargets.code, relTargets.message);
   }
 
-  // Body structure + carrier coherence (26 §8, §14.1)
   const body = assembleBody(frontmatter.title, bodyMarkdown);
   const bodyCheck = validateFrictionBodyStructure(body, frontmatter.title, frontmatter.status);
   if (!bodyCheck.ok) {
     return failure("friction/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
-  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
-  // Write (single flat file, atomic)
   const typeDir = join(factSourceRoot, FRICTION_DIRECTORY);
   await mkdir(typeDir, { recursive: true });
   const filePath = objectFilePath(factSourceRoot, uid);
@@ -911,24 +594,13 @@ export async function createFrictionObject(args) {
   return success({ object_uid: uid, file: filePath, fingerprint });
 }
 
-// ---------------------------------------------------------------------------
-// Read (specs/03 §9.2 precise read-back)
-// ---------------------------------------------------------------------------
 
-/**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
- *
- * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `friction/invalid_uid`
- * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
- * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
- */
 async function resolveFrictionObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("friction/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
   }
   const { objectUid, shortId, declaredType, projectId } = parsed.value;
-  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
   if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
     return { ok: false, error: failure("friction/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
   }
@@ -990,22 +662,13 @@ export async function readFrictionObject(args) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Update via CAS (specs/02 §10.5 — 完整目标 after + content_fingerprint 绑定，:333；+ specs/26 §9, §13)
-// ---------------------------------------------------------------------------
 
 export async function updateFrictionObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
     frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null,
-    // commit 例外（26 §9.2）需要核验目标 commit 在本仓真实存在。resolver 由调用方
-    // 注入（writer 不自行执行 git）；未注入时该核验 fail-closed，不静默放行。
     gitCommitResolver = null,
   } = args;
-  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
-  // signed BY CODE and may not be written unsigned. Without a branded carrier the
-  // write is REFUSED; the caller reports it for Human handling (09 requires a
-  // definite unavailable outcome for blank/historical sessions).
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
 
@@ -1029,17 +692,6 @@ export async function updateFrictionObject(args) {
     return failure("friction/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
 
-  // 26 §9.2: resolved、voided 与 accepted 均为终态（终态不重开）；销错/记错/接受错的账走 26 §13 的 correct。
-  // voided 于 2026-11 进入闭集、accepted 于 2026-10 进入闭集——新终态均须在此拦截。
-  //
-  // **`accepted` 的计数豁免（2026-11-02，Human 决定 —— 26 §9.3）**：`accepted`
-  // 仍不可「重开」（状态不得变化、正文不得改写），但**允许 `occurrence` 递增**。
-  // Human 原文：「此类问题就不要重复记录和报告了，但是可以增加被观察到的次数」。
-  // 该例外只开在 `accepted` 上，且只对 `occurrence` 一个字段——`resolved` /
-  // `voided` 照旧完全只读（一个已不再复现、一个是记错的账，计数都没有对象）。
-  //
-  // 闸的判据用「提议值与磁盘基线的差异字段集」而不是「调用方声称要写什么」：
-  // 后者可被伪造（声称只改计数却顺手改别的），差异集是调用方无法自证的。
   const prevStatus = current.value.frontmatter.status;
   const isTerminal = prevStatus === "resolved" || prevStatus === "voided" || prevStatus === "accepted";
   if (isTerminal) {
@@ -1055,7 +707,6 @@ export async function updateFrictionObject(args) {
     }
     const baseline = current.value.frontmatter;
     const changedKeys = Object.keys(frontmatterAfter).filter((key) => {
-      // Code 托管字段不参与差异判定（它们由写入侧重写，不是调用意图）
       if (key === "object_uid" || key === "fact_type_key" || key === "created_at" || key === "change_log") return false;
       const next = frontmatterAfter[key];
       if (next === undefined) return false;
@@ -1069,12 +720,6 @@ export async function updateFrictionObject(args) {
       );
     }
     if (typeof bodyMarkdownAfter === "string" && bodyMarkdownAfter.length > 0) {
-      // accepted 的正文（含现象段与处置段）必须逐字冻结——只增数字不增叙述。
-      //
-      // 剥离生成的 H1 后逐字比对。**不 import `friction-discovery.js` 的
-      // `stripLeadingH1`**：该模块已 import 本模块，反向引用会成环（ESM 下会拿到
-      // 未初始化的绑定）。此处内联同一正则并注明同源；两处判据一致由用例守
-      // （test/friction-writer.test.mjs 的「H1 剥离口径两处一致」）。
       const bodyWithoutH1 = current.value.body.replace(/^\s*#\s+.*(\n+|$)/, "").replace(/^\s+/, "");
       if (bodyMarkdownAfter !== bodyWithoutH1) {
         return failure(
@@ -1085,10 +730,6 @@ export async function updateFrictionObject(args) {
     }
   }
 
-  // Build updated frontmatter; strip the call-only param
-  // Build updated frontmatter — 「磁盘基线 + 显式声明变更 + 显式删除通道」
-  // （specs/02 §10.5 实现对齐）：漏传的字段**继承磁盘**，不再被静默删除。
-  // 需要删除必须经 frontmatter_removals 声明（限 FRICTION_REMOVABLE_FIELDS）。
   const built = buildUpdateFrontmatter({
     currentFrontmatter: current.value.frontmatter,
     frontmatterAfter,
@@ -1099,7 +740,6 @@ export async function updateFrictionObject(args) {
   });
   if (!built.ok) return failure(built.error.code, built.error.message);
   const fm = built.value;
-  // ④ Code 重设托管字段
   fm.object_uid = objectUid;
   fm.fact_type_key = FRICTION_TYPE_KEY;
   fm.created_at = current.value.frontmatter.created_at;
@@ -1109,15 +749,8 @@ export async function updateFrictionObject(args) {
     return failure("friction/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (open/resolved/voided/accepted, 26 §9)`);
   }
 
-  // 26 §9.3 补充边界：status 保持不变的更新是补充级（攒账计数/现象补充/
-  // 归因后补）——status 与 CAS 基线逐字段一致（变了走流转，本入口即流转）。
   const isTransition = nextStatus !== prevStatus;
-  // 26 §13：闭集校验只施加于目标状态，历史源状态不因闭集收缩而被拒绝。
   if (!isTransition && prevStatus === "open") {
-    // 26 §9.3（2026-10-28）：补充级更新是 `paired-with` 的**建立点**——「先有
-    // 账、后来才发现它与某条既有经验同源」是正常路径，故此处只拦销账专用的
-    // `informs`，不拦配对边。整数组拦截会让配对只能靠再走一次流转补，而流转
-    // 属 Human Gate——等于把「记一条配对」升级成一次决定。
     const supplementInforms = Array.isArray(fm.relations)
       && fm.relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs");
     if (supplementInforms) {
@@ -1125,15 +758,8 @@ export async function updateFrictionObject(args) {
     }
   }
 
-  // 26 §9.2 transition guards:
   if (isTransition) {
-    // 2026-10 修订：`observing → open`（阈值）与 `open → observing`（放回留观）
-    // 两条流转已随观察态退出闭集而删除——Human 决定「不存在放回」。
-    // 合法流转为 open→resolved（销账）、→voided（废弃）、→accepted（接受不可清偿），护栏在下面。
     if (nextStatus === "resolved") {
-      // open→resolved：informs 1..n 在销账流转写入。**必须按 key 计**——
-      // 2026-10-28 起 relations 里有第二种 key，只数数组长度会让「只有 paired-with
-      // 没有 informs」的销账通过，而销账的去向正是由 informs 承载的（26 §9.1）。
       const informsCount = Array.isArray(fm.relations)
         ? fm.relations.filter((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs").length
         : 0;
@@ -1141,8 +767,6 @@ export async function updateFrictionObject(args) {
         return failure("friction/relations_invalid", "resolving requires 1..n informs relations pointing at the remedy objects (26 §9.2/§11)");
       }
     }
-    // 26 §8：disposition 出现 ⇔ status ∈ {voided, accepted}——终态须带，其余状态须清。
-    // resolved 不设该字段：其去向已由 informs 机械承载，另设会造出第二个来源。
     if (nextStatus === "voided" || nextStatus === "accepted") {
       if (typeof fm.disposition !== "string" || fm.disposition.trim().length === 0) {
         return failure("friction/frontmatter_invalid", `transition into ${nextStatus} must carry a non-empty disposition (26 §8: 终态去向说明) — 列表卡据此呈现废弃/接受理由`);
@@ -1151,8 +775,6 @@ export async function updateFrictionObject(args) {
       return failure("friction/frontmatter_invalid", `disposition must appear only on voided/accepted records (26 §8: 出现 ⇔ status ∈ {voided, accepted}); transition into ${nextStatus} must clear it`);
     }
     if (nextStatus === "voided" || nextStatus === "accepted") {
-      // →voided / →accepted：informs 不得出现（26 §9.1/§13）。**paired-with 是例外**：
-      // 废弃/接受不删配对边（26 §9.1 行 / §9.4）——接受时债未清偿，规避经验仍需要。
       const terminalInforms = Array.isArray(fm.relations)
         && fm.relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs");
       if (terminalInforms) {
@@ -1168,7 +790,6 @@ export async function updateFrictionObject(args) {
     summary: changeSummary,
   }];
 
-  // Validate
   const fmCheck = validateFrictionFrontmatter(fm);
   if (!fmCheck.ok) {
     return failure("friction/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues });
@@ -1177,24 +798,18 @@ export async function updateFrictionObject(args) {
   if (!relCheck.ok) {
     return failure("friction/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
   }
-  // 26 §8/§11：归因锚点出现（含「归因后补」的补充级更新）时核验可解析（零写拒绝）。
   const attrCheck = await verifyAttributionRefResolves(factSourceRoot, fm);
   if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
 
-  // 26 §11：关系目标解析——两条路径（create / update）共用同一校验函数，
-  // 不建第二套规则（09 §5.5 同一 validator 的同一纪律）。
   const relTargets = await verifyRelationTargetsResolve(factSourceRoot, fm, { gitCommitResolver, selfUid: objectUid });
   if (!relTargets.ok) return failure(relTargets.code, relTargets.message);
 
-  // Body structure + carrier coherence on the updated object
   const body = assembleBody(fm.title, bodyMarkdownAfter);
   const bodyCheck = validateFrictionBodyStructure(body, fm.title, fm.status);
   if (!bodyCheck.ok) {
     return failure("friction/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
-  // Atomic single-file write
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
@@ -1202,34 +817,11 @@ export async function updateFrictionObject(args) {
   return success({ fingerprint: fileFingerprint(content) });
 }
 
-/**
- * 终态事实更正（`correct`；26 §13，Human 决定 2026-10-09）。
- *
- * 存在理由：§9.2 要求「销错的账按事实更正修正」，而本类型此前只有补充级更新
- * （机械拒绝改 status）与状态流转（终态不重开）——销错的 resolved 账无路可改。
- *
- * 可改范围：**正文（含处置段）与 relations**——恰是销账时写错的两处（02:386 事实
- * 更正与关系变更是不同动作，本入口覆盖两者）。逐字不变：status/title/phenomenon/
- * attribution/created_at/change_log（Code 追加一条）。
- *
- * 与其它类型 correct 的关键差异：那里 `next` 是落盘对象的克隆、调用方**完全
- * 无法触及任何 frontmatter 字段**（只改正文）；这里 relations 是销账动作写入的产物，
- * 写错时必须能改，故显式接收 `relationsAfter` 并对其重新跑全套关系校验与解析。
- */
 export async function correctFrictionObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
     relationsAfter = null, bodyMarkdownAfter, changeSummary, humanAuthorization,
-    // 2026-10（Human 裁定）：correct 入口可**显式删除**一个已从类型闭集移除的
-    // frontmatter 字段（首个用例：serves——26 §8 于 2026-10 删除该字段，9 份
-    // 存量中 1 份为 resolved 终态，无法经受控更新删除）。删除是显式声明而非
-    // 隐式克隆：调用方不声明则该字段逐字继承，声明则只允许「删除」这一个动作。
-    // 不得用于新增或改值——那会把终态更正变成受控更新。
     frontmatterRemovals = [],
-    // 2026-11（Human 裁定）：与 frontmatterRemovals 对称的**补填**通道。闭集扩张
-    // 时（新必填字段进入 §8，首个用例：occurrence），既有终态对象无法经受控更新
-    // 触及，本是唯一受控补填途径。约束同 removals：只允许补填**新进入闭集的
-    // 字段**、不得改已有字段的值、不得编造不可据实推得的值。
     frontmatterAdditions = null,
     sessionSignature = null, gitCommitResolver = null,
   } = args;
@@ -1238,7 +830,6 @@ export async function correctFrictionObject(args) {
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("invalid_request", "changeSummary is required (03 §10.5: 每次实际修改恰好一条 change_log)");
   }
-  // 更正与其它受控更新同权限（26 §13 / 02 §10.5）；无授权记录的更正请求 fail-closed。
   if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
     return failure("invalid_request", "humanAuthorization is required for a terminal fact correction (26 §13 终态事实更正；Human 确认；无授权记录的更正请求 fail-closed)");
   }
@@ -1254,7 +845,6 @@ export async function correctFrictionObject(args) {
     return failure("friction/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
   const fm = current.value.frontmatter;
-  // 26 §13：correct 适用于 resolved、voided 与 accepted 三个终态，分支校验。
   if (fm.status !== "resolved" && fm.status !== "voided" && fm.status !== "accepted") {
     return failure(
       "friction/correction_requires_terminal",
@@ -1262,8 +852,6 @@ export async function correctFrictionObject(args) {
     );
   }
   if (fm.status === "voided" || fm.status === "accepted") {
-    // voided/accepted 支（26 §13 + 2026-10-28）：`informs` 不得出现（终态的账无解药）；
-    // **`paired-with` 可保留**——废弃/接受不删配对边（26 §9.1 行 / §9.4）。
     const rel = fm.relations;
     if (rel !== undefined && !Array.isArray(rel)) {
       return failure("friction/relations_invalid", `${fm.status} correct branch: relations must be absent or an array (26 §13)`);
@@ -1276,16 +864,9 @@ export async function correctFrictionObject(args) {
   if (!Array.isArray(frontmatterRemovals)) {
     return failure("invalid_request", "frontmatterRemovals must be an array when provided (26 §13)");
   }
-  // 终态判定的逐字继承：除 relations 与显式声明的字段删除外，一切取自落盘对象，
-  // 调用方无法触及。
   const next = structuredClone(fm);
   const removedFields = [];
   for (const field of frontmatterRemovals) {
-    // 26 §13：可删两类字段。① 已退出闭集者（serves——§8 于 2026-10 删除）；
-    // ② 存在即违反 §8 条件约束者（occurrence——§14.2 豁免 `voided` 对象携带该
-    // 字段，即「本不该有」；2026-11 扩围，首个实例是 3048937d 被误回填）。
-    // 缺失即 no-op 的一部分（下方 body/relations/removals/additions 全未变才判
-    // no-op），故此处不单独拒绝「字段本就不存在」。
     if (CORRECT_REMOVABLE_FIELDS.has(field)) {
       if (Object.prototype.hasOwnProperty.call(next, field)) {
         delete next[field];
@@ -1293,13 +874,9 @@ export async function correctFrictionObject(args) {
       }
       continue;
     }
-    // ③ 目标已退役的锚点字段（26 §13，2026-10 扩围）。**准入须两项同时成立**：
-    //    字段是锚点型，且其目标此刻**不可解析**。核验放在这里而不是靠调用方自觉——
-    //    「目标确实不在了」是这个许可的全部正当性，机械层必须自己核。
     if (CORRECT_REMOVABLE_ANCHOR_FIELDS.has(field)) {
       const anchorUid = normalizeAttributionRef(next[field])?.object_uid;
       if (anchorUid === undefined) {
-        // 字段不存在或形状不可读：按 no-op 处理（与 ①② 同一口径），不额外报错。
         continue;
       }
       const resolves = await verifyAttributionRefResolves(factSourceRoot, { attribution_ref: next[field] });
@@ -1319,15 +896,12 @@ export async function correctFrictionObject(args) {
       `correct may only remove fields retired from the type's closed set, fields violating §8 conditional constraints, or anchor fields whose target no longer resolves; got ${JSON.stringify(field)} (26 §13: 终态事实更正不得新增或改值 frontmatter)`,
     );
   }
-  // 26 §13 对称的补填动作：闭集扩张时补填新进入闭集的字段。
   const addedFields = [];
   if (frontmatterAdditions !== null) {
     if (typeof frontmatterAdditions !== "object" || Array.isArray(frontmatterAdditions)) {
       return failure("invalid_request", "frontmatterAdditions must be an object when provided (26 §13)");
     }
     for (const [field, value] of Object.entries(frontmatterAdditions)) {
-      // ① 只允许补填「新进入闭集」的字段——当前唯一实例是 occurrence（§8 于 2026-11
-      // 新增必填）。补填本就在闭集里的字段属受控更新，不得走本入口。
       if (!CORRECT_ADDABLE_FIELDS.has(field)) {
         return failure(
           "friction/correction_addition_not_permitted",
@@ -1335,7 +909,6 @@ export async function correctFrictionObject(args) {
           + "(26 §13: 本动作不构成「correct 可改 frontmatter 值」的先例——可补的是「字段之无」，不是「字段的值」)",
         );
       }
-      // ② 已存在即拒绝：补填不用于改值（改值属受控更新或状态流转）。
       if (Object.prototype.hasOwnProperty.call(next, field)) {
         return failure(
           "friction/correction_addition_exists",
@@ -1343,9 +916,7 @@ export async function correctFrictionObject(args) {
           + "field; changing an existing value is not this channel's business (26 §13)",
         );
       }
-      // ③ 值的形状须满足 §8 的契约（object 且含 count/first_at/last_at）。
       if (field === "disposition") {
-        // §8：该字段只属于 voided 或 accepted。补填到其余状态一律拒绝。
         if (next.status !== "voided" && next.status !== "accepted") {
           return failure("friction/frontmatter_invalid", `disposition may only be filled on a voided or accepted record (26 §8: 出现 ⇔ status ∈ {voided, accepted}); got status=${JSON.stringify(next.status)}`);
         }
@@ -1354,8 +925,6 @@ export async function correctFrictionObject(args) {
         }
       }
       if (field === "occurrence") {
-        // 与 create/update 共用同一校验（见 validateOccurrenceShape 的说明）——
-        // 三处各写一份必然会漂移，而这个缺陷最初的形态正是「只有这一处做了校验」。
         const shape = validateOccurrenceShape(value);
         if (!shape.ok) return shape;
       }
@@ -1368,14 +937,11 @@ export async function correctFrictionObject(args) {
       return failure("friction/relations_invalid", "relationsAfter must be an array when provided (26 §13)");
     }
     if (fm.status === "voided" || fm.status === "accepted") {
-      // 26 §13 voided/accepted 支 + 2026-10-28：`informs` 不得出现；`paired-with` 可保留
-      // （26 §9.1 行 / §9.4：废弃/接受不删配对边）。
       const terminalInforms = relationsAfter.filter((r) => r !== null && typeof r === "object" && r.relation_key === "informs").length;
       if (terminalInforms > 0) {
         return failure("friction/relations_invalid", `${fm.status} correct branch: informs must be absent (26 §9.1); got ${terminalInforms}`);
       }
     } else {
-      // resolved 必有 informs（26 §11）；更正后仍须满足。
       const informsCount = relationsAfter.filter((r) => r !== null && typeof r === "object" && r.relation_key === "informs").length;
       if (informsCount === 0) {
         return failure("friction/relations_invalid", `a resolved friction must carry at least one informs relation (26 §11); got ${informsCount}`);
@@ -1388,41 +954,20 @@ export async function correctFrictionObject(args) {
   if (!relCheck.ok) {
     return failure("friction/relations_invalid", "corrected relations failed mechanical checks", { issues: relCheck.issues });
   }
-  // 26 §8/§11：correct 继承落盘 frontmatter，attribution_ref 若存在同样须可解析
-  // （受控更正是唯一改终态记录的入口，不能成为绕过锚点核验的后门）。
   const attrCheck = await verifyAttributionRefResolves(factSourceRoot, next);
   if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
 
-  // 关系目标解析（含 commit locator），与 update / create 路径共用同一函数——
-  // 三处各抄一份会在改动 key 闭集或目标目录时漂移（2026-10-28 新增 paired-with
-  // 时即有此风险：只改一处会让 correct 接受一个其它入口拒绝的配对）。
   const relTargetsCorrect = await verifyRelationTargetsResolve(factSourceRoot, next, { gitCommitResolver, selfUid: objectUid });
   if (!relTargetsCorrect.ok) return failure(relTargetsCorrect.code, relTargetsCorrect.message);
 
-  // 正文结构 + 载体内聚（26 §13；resolved 的处置段必在）。
   const body = assembleBody(next.title, bodyMarkdownAfter);
   const bodyCheck = validateFrictionBodyStructure(body, next.title, next.status);
   if (!bodyCheck.ok) {
     return failure("friction/body_invalid", "corrected body failed structural checks", { issues: bodyCheck.issues });
   }
-  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
-  // no-op 拒绝（审核发现⑤）：正文与 relations 均未变时不得追加一条声称更正过的
-  // change_log——那会让账目历史出现「改过但其实没改」的假记录（02 §10.5 不记录 no-op）。
-  // 正文比对去尾随空白：落盘时末尾恒有一个换行，直接比对会把每次调用都当成「有改动」。
   const trimEnd = (text) => text.replace(/\s+$/, "");
   const bodyUnchanged = trimEnd(assembleBody(fm.title, bodyMarkdownAfter)) === trimEnd(current.value.body);
-  // relations 比对必须**键序无关**（审核复审发现 A）：JSON.stringify 对键序敏感，
-  // 而 relations 经 YAML 落盘后键序由序列化器决定。调用方以等价键序重传会被误判为
-  // 「有变更」，从而追加一条声称更正过的 change_log——恰是本条要防的假记录形态。
-  // 故按 schema 规范化（每条关系固定取 relation_key / target.object_uid /
-  // evidence_locator.commit）后逐字段比较。
-  //
-  // **与 `validateFrictionRelations` 的闭集是两处独立字面量**（第三轮复审遗留建议）：
-  // 扩 relations schema（02 §8.2 公共形状）时**两处必须同步更新**。当前假 no-op 风险
-  // 被 validate 的前置校验封闭（extra 字段在到达这里之前已被拒），故不可达；但若先放宽
-  // validate 而忘了这里，新字段会被本函数**静默丢弃**——两个仅在该字段上不同的 relations
-  // 会被判「无变更」，从而漏掉一次真实更正。
   const normalizeRelations = (rels) => {
     const list = Array.isArray(rels) ? rels : [];
     return list.map((rel) => {
@@ -1430,9 +975,6 @@ export async function correctFrictionObject(args) {
       return {
         relation_key: source.relation_key ?? null,
         object_uid: source.target?.object_uid ?? null,
-        // 两处 commit 来源都要投影：target.commit（02 §8.1 解药形态）与
-        // evidence_locator.commit（附加定位）。只投影其一会让「仅改另一处 commit」
-        // 的真实变更被判成无变更。
         target_commit: source.target?.commit ?? null,
         locator_commit: source.evidence_locator?.commit ?? null,
       };
@@ -1444,8 +986,6 @@ export async function correctFrictionObject(args) {
     return failure("friction/no_op", "correction would change neither the body, the relations, the removed fields nor the added fields — 02 §10.5 不记录 no-op；refusing to append a change_log entry that claims a correction happened");
   }
 
-  // 变更摘要内嵌授权文本（审核发现②：授权须逐字留痕，不能只「必填」后丢弃）。
-  // 措辞对齐 21 号 correct，便于读者识别这是「终态事实更正」而非一次状态推进。
   next.change_log = [...(fm.change_log ?? []), {
     at: new Date().toISOString(),
     ...sig.signature,
@@ -1457,17 +997,7 @@ export async function correctFrictionObject(args) {
   return success({ fingerprint: fileFingerprint(content) });
 }
 
-// ---------------------------------------------------------------------------
-// List / F0–F1 discovery (specs/03 §8, specs/26 §12)
-// ---------------------------------------------------------------------------
 
-/**
- * `dir` 或其祖先中存在「存在但不是目录」的路径吗？
- *
- * 用于区分 Windows 上同码的两种 ENOENT：「这一层没有」与「再往上被一个普通文件
- * 挡住了」。POSIX 上前者由 ENOTDIR 单独表达，故本函数实际只在 Windows 分支被
- * 调用到，但实现本身跨平台成立。
- */
 async function isNonDirectoryAncestor(dir) {
   let cursor = dir;
   for (;;) {
@@ -1483,13 +1013,6 @@ async function isNonDirectoryAncestor(dir) {
   }
 }
 
-/**
- * Enumerate Friction objects (F0/F1: deterministic filter + minimal
- * projection). Default status filter: open only (26 §12 2026-10 修订：观察态
- * 活账——攒够待修的候选源；resolved 与 voided 均为终态，仅精确引用/历史追溯
- * 时展开)；includeResolved（历史命名，语义为「含全部终态」）includes all.
- * Files that fail to parse are reported in `invalid` — never skipped silently.
- */
 export async function listFrictionObjects(args) {
   const { factSourceRoot, includeResolved = false, limit = 200 } = args;
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
@@ -1505,15 +1028,6 @@ export async function listFrictionObjects(args) {
     scanned = await scanCarrierDirectory(typeDir, "friction");
   } catch (error) {
     if (error?.code === "ENOENT") {
-      // **ENOENT 不等于「目录不存在」**（2026-11-04 修，Windows 专属）。
-      //
-      // Windows 在「路径上某个祖先是普通文件」时对 `readdir` 也报 **ENOENT**
-      // （POSIX 报 ENOTDIR）。原实现一律返回「空目录 + complete:true」，于是
-      // `<facts>/frictions` 的前缀被一个普通文件挡住时，这里报「一笔账都没有」，
-      // 与「确实没有账」外观完全相同——审核执行体据此安心新起 group 键，正是
-      // 「投影不可得须如实声明缺口」那条守卫要防的形态（34 §12）。
-      // 与 `source-recall.js` 的 `readdirOrEmpty`、`observation-buffer.js` 的
-      // `firstNonDirectoryAncestor` 同一处置。
       if (await isNonDirectoryAncestor(typeDir)) {
         return failure("friction/directory_unavailable", `cannot read frictions directory: ${typeDir} is not a directory`);
       }
@@ -1525,8 +1039,6 @@ export async function listFrictionObjects(args) {
   const invalid = [...scanned.invalid];
   const items = [];
   for (const carrier of scanned.carriers) {
-    // 身份取载体自己声明的 object_uid（02 §7.1）；文件名只参与「是否不符」的
-    // 判定，该判定与记录在 `carrier-scan.js`（单点）。
     const uid = carrier.uid;
     const content = carrier.content;
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
@@ -1546,36 +1058,17 @@ export async function listFrictionObjects(args) {
       invalid.push({ file: carrier.file, reason: `status ${JSON.stringify(status)} outside the closed set` });
       continue;
     }
-    // 26 §12（2026-10 修订）：默认候选只含 open——观察态已退出闭集，账本里不存在
-    // 「攒够待修的候选源」这一状态；resolved、voided 与 accepted 为终态，仅在「精确引用/
-    // 历史追溯」时展开。参数名 includeResolved 沿用历史命名，其实际语义是
-    // 「包含全部终态」（resolved + voided + accepted）——三个终态一并由此开关控制。
     if (!includeResolved && (status === "resolved" || status === "voided" || status === "accepted")) continue;
     items.push({
       object_uid: uid,
-      // 02 §9.3（候选条款）：类型短名进投影，使渲染层能直接给出「类型短名 + 短标识」
-      // 的指称形态，而不必在渲染点硬编码类型短名（那会形成第二权威）。
       fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : "",
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
-      // **`phenomenon` 必须进投影**（2026-11-01 审核 N1 修）：11 §7.1 的账本侧交付面
-      // 明列它，理由是「同一笔账的同源复观」要靠**现象句**判断，只给标题则执行体
-      // 看到的是一句提炼过的短标题，判不出这次观察是否在讲同一件事。字段一直在
-      // frontmatter 里（本函数作用域内），此前只是没被投影出来。
       phenomenon: typeof frontmatter.phenomenon === "string" ? frontmatter.phenomenon : "",
       status,
       attribution: typeof frontmatter.attribution === "string" ? frontmatter.attribution : undefined,
-      // 26 §8/§11（2026-10 订正）：attribution_ref 是对象形态 { object_uid }
-      // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃
-      // 裸 string 为存量兼容，归一为对象形态后投影。
       attribution_ref: normalizeAttributionRef(frontmatter.attribution_ref),
-      // 26 §8 两条 UI 消费字段：occurrence 是「该阻碍被观察到多少次」的直接依据
-      // （晋升时由同源条目数写入，此后作补充级记账），disposition 是 voided/accepted
-      // 的终态去向（列表卡终态框直读，不必进详情页）。二者都在 F1 投影内。
       occurrence: frontmatter.occurrence && typeof frontmatter.occurrence === "object" ? frontmatter.occurrence : undefined,
       disposition: typeof frontmatter.disposition === "string" ? frontmatter.disposition : undefined,
-      // 26 §11/§12（2026-10-28）：配对目标的薄投影。**这是 `paired-with` 的机械
-      // 反查入口**——反向投影由反查本字段得出，Pitfall 侧不写反向边（02 §8.2
-      // 不变量 4）。缺了它，配对就是无消费方的装饰字段（26 §18 第 1 条）。
       paired_with: Array.isArray(frontmatter.relations)
         ? frontmatter.relations
             .filter((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "paired-with")
@@ -1586,43 +1079,17 @@ export async function listFrictionObjects(args) {
     });
   }
 
-  // Newest first — the natural order for dedup scans and resumption.
   items.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
   const complete = items.length <= limit;
   const projected = complete ? items : items.slice(0, limit);
   return success({ items: projected, total: items.length, complete, invalid });
 }
 
-// Exported for the schema/writer agreement guard (test/schema-writer-agreement.test.mjs):
-// the tool-plane JSON Schema must admit every field this closed set accepts, and a
-// field added here without a matching schema entry is unreachable via the tools.
 export { VALID_FM_KEYS };
-// 导出状态闭集供类型契约测试断言（test/friction-four-state.test.mjs）：闭集是
-// 26 §9 的机械口径，测试必须对着它而非复制一份字面量，否则规范与代码同时漂移。
 export { STATUSES as STATUSES_EXPORT_FOR_TEST };
-// 导出补填通道的白名单供契约测试断言（test/friction-four-state.test.mjs 的姊妹
-// 断言）：26 §13 只允许补填「新进入闭集」的字段，当前唯一实例是 occurrence。
 export { CORRECT_ADDABLE_FIELDS as CORRECT_ADDABLE_FIELDS_FOR_TEST };
 export { CORRECT_REMOVABLE_FIELDS as CORRECT_REMOVABLE_FIELDS_FOR_TEST };
 
-/**
- * Reverse lookup: which Friction debts pair with this Pitfall? (26 §11/§12)
- *
- * This is the **mechanical reverse projection** the single-sided storage design
- * depends on: `paired-with` lives only on the Friction side, so "which debt does
- * this piece of knowledge correspond to?" is answered by scanning carriers, not
- * by a stored back-edge (02 §8.2 invariant 4 — reverse indexes are Code/Web
- * derived and never written back into objects).
- *
- * Without a real reader the relation would be a consumer-less decorative field
- * (26 §18 item 1). The §9.4 conversion obligation is a judgement duty; this
- * function is the retrieval half that makes the pair actually findable.
- *
- * Read-only. Returns every carrier (any status — a pair outlives the debt being
- * settled, voided or accepted, 26 §9.1) whose `paired-with` names this uid.
- *
- * @returns {Promise<{ok:true, value:{items:Array}} | {ok:false, error:{code:string,message:string}}>}
- */
 export async function findFrictionsPairedWith(args) {
   const { factSourceRoot, targetUid } = args;
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
@@ -1631,15 +1098,11 @@ export async function findFrictionsPairedWith(args) {
   if (typeof targetUid !== "string" || !UUID_PATTERN.test(targetUid)) {
     return failure("invalid_request", `targetUid must be a canonical UUID (02 §8.2), got ${JSON.stringify(targetUid)}`);
   }
-  // includeResolved: a pairing survives resolve/void, so every status is a hit.
   const listed = await listFrictionObjects({ factSourceRoot, includeResolved: true, limit: 200 });
   if (!listed.ok) return listed;
   const wanted = targetUid.toLowerCase();
   const items = listed.value.items.filter((item) =>
     Array.isArray(item.paired_with) && item.paired_with.some((uid) => uid.toLowerCase() === wanted));
-  // **完整度必须透传**（2026-10-28 复核 S-1）：26 §12 承诺「返回所有」，而 list 通道
-  // 有 limit。若在此静默截断，调用方会把「没查完」当成「没有配对」——23 §9.4 的
-  // 「取不到时按无配对处理」正好会踩这个坑。与 list 通道的 gaps 纪律同一口径。
   const complete = listed.value.complete !== false;
   return success({
     items,

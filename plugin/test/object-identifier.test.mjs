@@ -1,9 +1,3 @@
-// 对象标识解析的契约测试（plan 第 4、5 步）。
-//
-// 钉住三件事：①四种书写形态各自解析到同一 canonical object_uid；②非法形态、
-// 类型前缀不符、短标识碰撞各自有确定错误码（不得静默回退或自动裁决）；
-// ③FACT_TYPE_DIRECTORIES 与九个 writer 的 *_DIRECTORY 常量逐项相等——否则本表
-// 会漂移成第二权威。
 
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
@@ -19,13 +13,8 @@ import {
 } from "../lib/object-identifier.js";
 
 const UID = "71930c4a-f43f-439e-88bd-3aff7d07d37c";
-// fileURLToPath 而非 URL.pathname：Windows 下 file: URL 的 pathname 带前导 '/'
-// （如 /D:/...），直接交给 fs 会解析失败；fileURLToPath 产出平台原生绝对路径。
 const FACT_ROOT = fileURLToPath(new URL("../../ldvh-base/", import.meta.url));
 
-// ---------------------------------------------------------------------------
-// 1. 纯形态解析：四种书写形态
-// ---------------------------------------------------------------------------
 
 test("形态一：裸 canonical UUIDv4", () => {
   const r = parseObjectIdentifier(UID);
@@ -74,9 +63,6 @@ test("首尾空白被容忍（模型面常带空白）", () => {
   assert.equal(parseObjectIdentifier("  spark-71930c4a  ").value.shortId, "71930c4a");
 });
 
-// ---------------------------------------------------------------------------
-// 2. 非法形态：每一种都有确定错误码，不静默回退
-// ---------------------------------------------------------------------------
 
 test("空串与非字符串 → malformed", () => {
   assert.equal(parseObjectIdentifier("").error.code, IDENTIFIER_ERRORS.MALFORMED);
@@ -110,9 +96,6 @@ test("十六进制大写被归一为小写", () => {
   assert.equal(parseObjectIdentifier(UID.toUpperCase()).value.objectUid, UID);
 });
 
-// ---------------------------------------------------------------------------
-// 3. 载体反查：唯一命中、类型不符、不存在、碰撞
-// ---------------------------------------------------------------------------
 
 test("短标识反查到唯一 canonical uid", async () => {
   const r = await resolveShortId({ factSourceRoot: FACT_ROOT, shortId: "71930c4a" });
@@ -136,7 +119,6 @@ test("不存在的短标识 → not_found", async () => {
 });
 
 test("碰撞时拒绝并列出全部候选，不自动裁决", async () => {
-  // 注入 readdir：让两个类型目录各返回一个前 8 位相同的载体。
   const collide = "aaaaaaaa-1111-4222-8333-444444444444";
   const injected = async (dir) => {
     if (dir.endsWith("/sparks")) return [`spark-${collide}.md`];
@@ -159,13 +141,9 @@ test("目录缺失不算错误（该类型尚无对象）", async () => {
   assert.equal(r.value.factTypeKey, "spark");
 });
 
-// ---------------------------------------------------------------------------
-// 4. 类型目录表须与八个 writer 的常量逐项相等
-// ---------------------------------------------------------------------------
 
 test("FACT_TYPE_DIRECTORIES 与七个 writer 的 *_DIRECTORY 常量一致", async () => {
   const writers = {
-    // devlog-writer.js 随 29 号撤除不再纳入本表（存量暂留为历史档案）。
     friction: ["friction-writer.js", "FRICTION_DIRECTORY"],
     norm: ["norm-writer.js", "NORM_DIRECTORY"],
     pitfall: ["pitfall-writer.js", "PITFALL_DIRECTORY"],
@@ -191,12 +169,8 @@ test("类型闭集与 object-reference 一致（同一事实不得有第二个�
   assert.equal(isRegisteredFactType("nope"), false);
 });
 
-// ---------------------------------------------------------------------------
-// 5. 项目前缀：本层可判（调用方传入当前项目 id），他项目须拒绝
-// ---------------------------------------------------------------------------
 
 test("项目前缀与当前项目不符时，解析器本身不判（它不知道当前项目）", () => {
-  // 解析器只把声明的 projectId 原样带出，不做裁决——这是分层边界。
   const r = parseObjectIdentifier(`other-proj@spark-${UID}`);
   assert.equal(r.ok, true);
   assert.equal(r.value.projectId, "other-proj");
@@ -237,9 +211,6 @@ test("读取入口：类型前缀与实际类型不符时给出 type_prefix_mism
   assert.match(r.error.message, /type_prefix_mismatch/);
 });
 
-// ---------------------------------------------------------------------------
-// 6. 写路径不得随读路径放宽（scope 边界：写错对象的代价与读错不对等）
-// ---------------------------------------------------------------------------
 
 test("其余六个 writer 的写路径仍各自持有 canonical-only 门", () => {
   const writers = ["friction", "norm", "pitfall", "report", "spark", "subgoal"];

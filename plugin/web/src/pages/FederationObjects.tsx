@@ -1,11 +1,3 @@
-/**
- * 联邦对象列表（全部管辖计划 Step 4）——五类事实对象的跨项目聚合视图。
- *
- * 卡片语言沿用统一对象卡基线（ObjectCardFrame + 各类型内容组件原样复用）；
- * 联邦增量仅两处：卡片顶部项目色 chip（来源维度标识）与项目筛选 chips。
- * 打开对象即进入其所属项目的单项目详情（selectProject + 导航），本页不复制详情阅读。
- * 单项目专属页（目录/变更/提交）在联邦态由 Sidebar 灰显，不在本页处理。
- */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2, RefreshCw } from 'lucide-react';
@@ -27,20 +19,8 @@ import { getTypeLabel } from '@/i18n/locales';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
 
-// 29 号 DevLog 已于 2026-11-14 撤除，退出联邦类型值域。
 const OBJECT_TYPES = ['pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const;
 
-/** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称 + 计数），单选。
- *
- * **统一走 `ldvh-tab-list` 家族**（`docs/01 §1.4` 约束 7：筛选、视图切换和同层 tab
- * 控件统一使用该家族；`docs/11 §4` 曾把本处登记为「仍使用手造 tab 变体」的欠账）。
- *
- * 此前本处手写 `buttonClass` 自定圆角、边框、内距与 hover，虽有注释自称「tab 视觉」，
- * 但与同层筛选控件（对象页状态筛选）外观并不一致——同一动作两套皮肤。
- *
- * 项目色点**保留**：它承载项目身份识别（`docs/01 §1.10` 色彩 5「对象类型色优先用于
- * 识别这个对象是什么」），不是装饰；色点落在 tab 按钮内部，不改变按钮几何。
- */
 function ProjectFilterChips({
   projects,
   active,
@@ -123,10 +103,7 @@ export default function FederationObjects() {
   );
 
   const openObject = (item: FederationObjectItem) => {
-    // 进入对象所属项目的单项目详情——联邦卡是入口不是第二阅读器。
     selectProject(item.federationProject.id);
-    // 带 `from`：详情页据此知道读者是从**联邦聚合列表**进来的，返回时回联邦侧
-    // （子目标详情页一律回聚焦页，见 ObjectDetail 的 returnPath 判定）。
     navigate(`/objects/${currentType}/${item.id}`, {
       state: { from: `/federation/objects/${currentType}` },
     });
@@ -200,7 +177,7 @@ export default function FederationObjects() {
                 onOpen={() => openObject(item)}
                 showNonActiveReason={false}
               >
-                {/* 项目来源 chip：色点 + 项目 ID（复制友好），第三正交维度的卡片落点 */}
+                { }
                 <button
                   type="button"
                   onClick={() => openObject(item)}

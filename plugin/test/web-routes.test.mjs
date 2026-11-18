@@ -8,14 +8,6 @@ import { parse as parseYaml } from "yaml";
 import * as ldvhPlugin from "../lib/index.js";
 import { withTemp } from "./helpers.mjs";
 
-/**
- * Remove a temp tree, tolerating the brief Windows EBUSY window.
- *
- * On Windows a handle can outlive its owner by a few milliseconds (the harness's
- * HTTP server / fs.watch closing asynchronously), so an immediate `rm` fails
- * with EBUSY even though nothing leaks. The bound keeps a real leak failing
- * loudly instead of retrying forever.
- */
 async function removeTreeWithRetry(target, attempts = 10) {
 	for (let attempt = 1; ; attempt += 1) {
 		try {
@@ -29,10 +21,6 @@ async function removeTreeWithRetry(target, attempts = 10) {
 	}
 }
 
-/**
- * A minimal in-memory webServer stub: records every register() call so the
- * test can assert route registration / disposal without a real HTTP server.
- */
 class MemoryWebServer {
 	constructor() {
 		this.registered = [];
@@ -49,11 +37,6 @@ class MemoryWebServer {
 	}
 }
 
-/**
- * Minimal tools-registry stub: records register() calls and hands back
- * disposers, so tests can assert the LDVH tool batch lifecycle without a
- * real dsh-tools service.
- */
 class MemoryTools {
 	constructor() {
 		this.registered = [];
@@ -70,10 +53,6 @@ class MemoryTools {
 	}
 }
 
-/**
- * Minimal systemPrompt stub: records section() registrations and their
- * disposers, mirroring the dsh-system-prompt ScopedLayers lifecycle.
- */
 class MemorySystemPrompt {
 	constructor() {
 		this.sections = [];
@@ -92,22 +71,14 @@ class MemorySystemPrompt {
 
 async function createHarness(config = {}, { withWebServer = true, deferWebServer = false, dshHomePath } = {}) {
 	const root = new Context();
-	// deferWebServer keeps the MemoryWebServer instance in the harness but
-	// withholds the `provide` call: the plugin mounts while webServer is
-	// absent, reproducing the real-host ordering where the service comes up
-	// only after the plugin fiber already exists.
 	const webServer = withWebServer ? new MemoryWebServer() : void 0;
 	if (webServer !== void 0 && !deferWebServer) root.provide("webServer", webServer);
 	if (dshHomePath !== void 0) root.provide("dshHomePath", dshHomePath);
-	// The plugin also injects the P0 AI-facing services; provide recording
-	// stubs so its fiber activates in tests exactly like on the real host.
 	const tools = new MemoryTools();
 	root.provide("tools", tools);
 	const systemPrompt = new MemorySystemPrompt();
 	root.provide("systemPrompt", systemPrompt);
 
-	// 0.1.7 起设置值由插件自己的 Config 承载（不再注册 settings 服务），因此
-	// 这里把 config 直接交给插件，由 Cordis 按插件导出的 Config schema 解析。
 	await root[Symbol.for("cordis.init")]?.();
 
 	const fiber = root.registry.plugin(ldvhPlugin, config);
@@ -121,17 +92,9 @@ async function disposeHarness(harness) {
 	await harness.root.fiber.dispose();
 }
 
-/** 插件自己的 Config（0.1.7 起「设置即 Config」，不再是 settings.yaml 命名空间文档）。 */
 const enabledDocument = { webEnabled: true };
 const disabledDocument = { webEnabled: false };
 
-/**
- * Route inventory under the current contract:
- *   - 2 web routes (/ldvh/api + /ldvh), gated on the `webEnabled` setting.
- *   - 1 always-on governance-state route (/ldvh/state) for the Client
- *     indicator: it must survive the Web switch, because "is this session
- *     governed?" is a governance signal, not a Web-panel feature.
- */
 const WEB_ROUTE_COUNT = 2;
 const STATE_ROUTE_COUNT = 1;
 const TOTAL_ROUTE_COUNT = WEB_ROUTE_COUNT + STATE_ROUTE_COUNT;
@@ -160,22 +123,17 @@ test("registers routes when web is explicitly enabled", async () => {
 test("webEnabled false: routes stay registered but answer 404; the state route is unaffected", async () => {
 	const harness = await createHarness(disabledDocument);
 	try {
-		// 0.1.7 起开关不再挂/卸路由（volatile 字段没有变更通知），而是注册一次、
-		// 每次请求现判——所以路由账本恒定，行为差异体现在请求结果上。
 		const apiRoute = harness.webServer.routes("prefix").find((r) => r.path === "/ldvh/api");
 		const spaRoute = harness.webServer.routes("prefix").find((r) => r.path === "/ldvh");
 		assert.ok(apiRoute, "expected the /ldvh/api route to stay registered");
 		assert.ok(spaRoute, "expected the /ldvh route to stay registered");
 
-		// 关闭时两条前缀路由都必须拒绝，且理由可机械识别（LDVH_WEB_DISABLED）。
 		for (const path of ["/ldvh/api", "/ldvh"]) {
 			const res = await callRoute(harness.webServer, path, undefined);
 			assert.equal(res.status, 404, `expected 404 from ${path} while web is disabled`);
 			assert.equal(res.body?.error?.code, "LDVH_WEB_DISABLED", `expected a gating reason from ${path}`);
 		}
 
-		// ...but the governance-state route must survive: the indicator is a
-		// governance signal and must not depend on the Web-presentation switch.
 		const stateRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh/state");
 		assert.equal(stateRoutes.length, STATE_ROUTE_COUNT, "governance-state route must stay mounted regardless of the web switch");
 		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT);
@@ -185,11 +143,6 @@ test("webEnabled false: routes stay registered but answer 404; the state route i
 });
 
 test("stays inactive when the host webServer is absent (no apply, no claim, no crash)", async () => {
-	// New semantics: the plugin declares `inject: ["webServer"]`, so without
-	// the service its fiber stays INACTIVE and apply() never runs. The harness
-	// keeps a MemoryWebServer instance (deferWebServer) but never provides it —
-	// a headless composition. `await fiber` on an INACTIVE fiber settles
-	// immediately (it does not hang), no route is claimed, and nothing crashes.
 	const harness = await createHarness({}, { deferWebServer: true });
 	try {
 		assert.equal(harness.root.get("webServer"), void 0, "webServer service must not be provided");
@@ -200,21 +153,12 @@ test("stays inactive when the host webServer is absent (no apply, no claim, no c
 });
 
 test("registers both routes when webServer is provided after the plugin mounts (inject race regression)", async () => {
-	// Regression for the injection timing bug: the plugin used to snapshot
-	// ctx.get("webServer") during apply, so mounting before the host webServer
-	// service came up froze the value as undefined and silently skipped route
-	// registration forever. With `inject: ["webServer"]` the fiber stays
-	// INACTIVE until the service appears; providing it afterwards must notify →
-	// reload → re-run apply() and register both routes.
 	const harness = await createHarness({}, { deferWebServer: true });
 	try {
-		// Mounted before webServer existed: nothing claimed yet.
 		assert.equal(harness.webServer.routes("prefix").length, 0, "no routes before webServer is provided");
 
-		// The host now brings the webServer service up.
 		harness.root.provide("webServer", harness.webServer);
 
-		// The notify → reload → apply chain settles asynchronously; poll.
 		await waitForRoutes(harness.webServer, TOTAL_ROUTE_COUNT);
 
 		const apiRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh/api");
@@ -226,11 +170,6 @@ test("registers both routes when webServer is provided after the plugin mounts (
 	}
 });
 
-/**
- * Poll until the given webServer records the expected number of live prefix
- * routes (used when activation settles asynchronously after a service is
- * provided post-mount). Fails the test on timeout.
- */
 async function waitForRoutes(webServer, expectedCount, timeoutMs = 2000) {
 	const deadline = Date.now() + timeoutMs;
 	for (;;) {
@@ -247,15 +186,9 @@ test("webEnabled true: gated routes let requests through to their handlers", asy
 	try {
 		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT);
 
-		// 开启时 gated() 必须放行：请求要落到真正的处理器上（这里用一条必然
-		// 404 的 API 路径验证——关键是**不是** gating 造成的 404）。
 		const res = await callRoute(harness.webServer, "/ldvh/api/__no_such_endpoint__", undefined);
 		assert.notEqual(res.body?.error?.code, "LDVH_WEB_DISABLED", "enabled switch must let the request reach the handler");
 
-		// 关闭 → 放行路径立即翻转（同一进程、同一路由账本，无重挂）。
-		// 说明：config 是 Cordis 解析出的 volatile 引用，测试里改的是插件持有的
-		// 同一份 Config 对象时才会影响 gating；此处仅断言开启态的行为，关闭态由
-		// 上面 "webEnabled false" 用例以独立 config 覆盖。
 	} finally {
 		await disposeHarness(harness);
 	}
@@ -284,11 +217,6 @@ test("supports a clean remount", async () => {
 	}
 });
 
-/**
- * Poll for a file to appear (the plugin's startup carrier chain is
- * fire-and-forget, so the write is not awaited by apply()).
- * Returns the file content once readable; fails the test on timeout.
- */
 async function waitForCarrier(filePath, timeoutMs = 2000) {
 	const deadline = Date.now() + timeoutMs;
 	for (;;) {
@@ -320,11 +248,6 @@ test("apply() ensures the empty registration carrier when dshHomePath is availab
 	});
 });
 
-/**
- * Drive one registered prefix handler in memory and return { status, body }.
- * The harness records handlers rather than serving HTTP, so tests call them
- * directly with a minimal req/res pair.
- */
 async function callRoute(webServer, path, query) {
 	const route = webServer.routes("prefix").find((r) => path.startsWith(r.path));
 	assert.ok(route !== undefined, `no registered prefix route serves ${path}`);
@@ -340,9 +263,6 @@ async function callRoute(webServer, path, query) {
 	return { status: res.statusCode, body: chunks.length === 0 ? null : JSON.parse(chunks.join("")) };
 }
 
-// ---------------------------------------------------------------------------
-// /ldvh/state/governance endpoint behaviour
-// ---------------------------------------------------------------------------
 
 test("state endpoint answers unknown for an untracked sessionId (fail-closed, never guessed)", async () => {
 	const harness = await createHarness();
@@ -400,11 +320,6 @@ test("state endpoint resolves a cwd directly against the real registration", asy
 			await disposeHarness(harness);
 		}
 	} finally {
-		// Windows can still hold a handle on the tree for a moment after the
-		// harness is disposed (an fs.watch/HTTP handle closing asynchronously),
-		// and `rm` then fails with EBUSY rather than leaking anything. Retrying
-		// with a short backoff is the portable remedy; a genuinely locked tree
-		// still fails after the bounded attempts, so this does not mask a leak.
 		await removeTreeWithRetry(tempRoot);
 	}
 });

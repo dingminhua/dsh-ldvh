@@ -10,9 +10,6 @@ import {
   ResearchSession,
 } from "../lib/research-session.js";
 
-// ---------------------------------------------------------------------------
-// §5 入口澄清
-// ---------------------------------------------------------------------------
 
 test("analyzeClarificationNeeds detects multi-meaning terms", () => {
   const result = analyzeClarificationNeeds("调研编排系统在 DSH 中的实现", "");
@@ -32,7 +29,6 @@ test("analyzeClarificationNeeds detects unbounded scope (no time/version)", () =
 test("analyzeClarificationNeeds returns no questions for well-bounded question", () => {
   const result = analyzeClarificationNeeds("What is the latest stable version of Node.js v22?", "版本确认");
   assert.ok(result.ok);
-  // "version" in the text should prevent scope ambiguity
 });
 
 test("buildClarificationLogEntry builds a human answer entry", () => {
@@ -46,14 +42,8 @@ test("buildClarificationLogEntry builds a declined entry", () => {
   assert.ok(entry.answer.includes("未澄清"));
 });
 
-// ---------------------------------------------------------------------------
-// §6 三层收敛
-// ---------------------------------------------------------------------------
 
 test("evaluateConvergence returns sufficient when all covered and no high gaps", () => {
-  // 33 §8.1 第 1 项要求「每个子问题至少有 confirmed 覆盖」，故这条示例必须
-  // 真的覆盖 q1——旧版这里没打 sub_question_key，靠「未标注即视为覆盖」的
-  // 宽松兜底才过。兜底已移除（见下一例），示例随之补上归属标注。
   const result = evaluateConvergence(
     { confirmed: [{ statement: "s1", sub_question_key: "q1" }], gaps: [] },
     { subQuestions: ["q1"], roundNumber: 1, maxRounds: 4, consecutiveNoGainRounds: 0 },
@@ -62,11 +52,6 @@ test("evaluateConvergence returns sufficient when all covered and no high gaps",
   assert.equal(result.reason, "sufficient");
 });
 
-// 33 §8.1：sufficient 要求「每个子问题至少有 confirmed 证据覆盖」。当有子问题
-// 却没有任何一条 confirmed 带 sub_question_key 时，「覆盖」在字形上判不了。
-// 旧实现把这种判不了直接当通过（注释自认 "lenient"），被破坏性验证抓到：
-// 3 个子问题只调研了 1 个、都没打标签，也会判 sufficient——报告于是带着
-// 「充分收敛」的结论交付，而三个子问题实际只碰了一个。判不了 ≠ 通过。
 test("evaluateConvergence: untagged evidence cannot satisfy sufficient (判不了不等于通过，33 §8.1)", () => {
   const result = evaluateConvergence(
     { confirmed: [{ statement: "s1" }], gaps: [] },
@@ -118,9 +103,6 @@ test("evaluateConvergence does not stop mid-round with progress", () => {
   assert.equal(result.stop, false);
 });
 
-// ---------------------------------------------------------------------------
-// §7 三态证据
-// ---------------------------------------------------------------------------
 
 test("shapeEvidence accepts a valid confirmed finding", () => {
   const result = shapeEvidence({
@@ -160,11 +142,6 @@ test("shapeEvidence accepts a valid gap finding", () => {
 });
 
 test("shapeEvidence reads uncertain/gap from the nested objects declared by the tool schema", () => {
-  // Regression (2026-09-10 R1): the tool schema (research-tools.js
-  // findingSchema) declares `issue`/`gap` as nested objects mirroring the
-  // Research frontmatter entries; shapeEvidence used to read flat top-level
-  // fields, so AI callers following the schema were always rejected with a
-  // misleading error.
   const uncertain = shapeEvidence({
     statement: "s", state: "uncertain",
     issue: { issue: "冲突", reason: "两个来源说法不一致" },
@@ -181,8 +158,6 @@ test("shapeEvidence reads uncertain/gap from the nested objects declared by the 
 });
 
 test("shapeEvidence rejects flat uncertain/gap fields with a schema-shaped error", () => {
-  // Flat fields (the old bug's implicit contract) must fail loudly so the
-  // caller follows the schema-declared nested shape.
   const uncertain = shapeEvidence({ statement: "s", state: "uncertain", issue: "顶层字段", reason: "顶层字段" });
   assert.ok(!uncertain.ok);
   assert.equal(uncertain.error.code, "evidence/issue_missing");
@@ -198,14 +173,9 @@ test("shapeEvidence rejects unknown state", () => {
   assert.equal(result.error.code, "evidence/bad_state");
 });
 
-// ---------------------------------------------------------------------------
-// §8 引用闭环审计
-// ---------------------------------------------------------------------------
 
 test("auditCitationLoop passes when references match", () => {
   const confirmed = [{ statement: "s1", quotes: [{ text: "verbatim text here", anchor: "a", source: "https://x.com" }] }];
-  // §10.2 的形态是「[n] 逐字引文」——编号与引文必须紧邻。旧用例把两者隔了半句
-  // 话（"... as stated in [1]."），按 §10.3 第 3 项恰恰是不合格的写法。
   const body = "The finding is [1]「verbatim text here」, as stated.";
   const result = auditCitationLoop(body, confirmed);
   assert.ok(result.ok, JSON.stringify(result.issues));
@@ -213,7 +183,6 @@ test("auditCitationLoop passes when references match", () => {
 
 test("auditCitationLoop requires the [n] to sit next to its quote (§10.3 第3项)", () => {
   const confirmed = [{ statement: "s1", quotes: [{ text: "verbatim text here", anchor: "a", source: "https://x.com" }] }];
-  // 编号存在、引文逐字存在，但两者被整句无关文字隔开 —— 归属无法判定，不得放行。
   const body = "The finding is 「verbatim text here」 as stated in [1] after much discussion.";
   const result = auditCitationLoop(body, confirmed);
   assert.ok(!result.ok);
@@ -222,7 +191,6 @@ test("auditCitationLoop requires the [n] to sit next to its quote (§10.3 第3�
 
 test("auditCitationLoop checks every quote on a line, not just the first (§10.3 第2项)", () => {
   const confirmed = [{ statement: "s1", quotes: [{ text: "real quote", anchor: "a", source: "https://x.com" }] }];
-  // 同行第二个引文是编造的；旧实现 `line.match(/「([^」]+)」/)` 无 g 标志，只看第一个。
   const body = "[1]「real quote」 and also 「fabricated sentence」";
   const result = auditCitationLoop(body, confirmed);
   assert.ok(!result.ok);
@@ -230,8 +198,6 @@ test("auditCitationLoop checks every quote on a line, not just the first (§10.3
 });
 
 test("auditCitationLoop ignores 「」 emphasis when the document uses no [n] regime", () => {
-  // 45 份真实报告里 41 份正文含「」，绝大多数是强调用法（「已投递」与「被执行」
-  // 是两件事）。体制一（内联编号）未启用时引号不承担引用语义，只走溯源锚点体制。
   const confirmed = [{ statement: "s1", quotes: [{ text: "verbatim text here", anchor: "a", source: "https://x.com" }] }];
   const body = "这里「已投递」与「被执行」是两件事，正文不使用引用编号。";
   const result = auditCitationLoop(body, confirmed);
@@ -250,7 +216,6 @@ test("auditCitationLoop resolves 溯源 refs against the evidence sources (§10.
 
 test("auditCitationLoop does not mistake identifier subscripts for reference numbers", () => {
   const confirmed = [{ statement: "s1" }];
-  // `uncertain[0]` / `gaps[1]` 是指标下标，不是 §10.2 的声明编号。
   const body = "见 uncertain[0] 与 gaps[1]。";
   const result = auditCitationLoop(body, confirmed);
   assert.ok(result.ok, JSON.stringify(result.issues));
@@ -266,25 +231,14 @@ test("auditCitationLoop flags out-of-range reference", () => {
 
 test("auditCitationLoop flags unanchored inline quote", () => {
   const confirmed = [{ statement: "s1", quotes: [{ text: "different text", anchor: "a", source: "https://x.com" }] }];
-  // 启用 [n] 体制后引号才承担引用语义；此处的引文不在任何条目里。
   const body = "Quote [1]「this is not in evidence」 here.";
   const result = auditCitationLoop(body, confirmed);
   assert.ok(!result.ok);
   assert.ok(result.issues.some((i) => i.includes("not found in any evidence")));
 });
 
-// ---------------------------------------------------------------------------
-// §10 引用闭环审计 — 声明形状与实现形状必须一致
-//
-// 回归背景：工具 schema 把 `confirmed` 声明为 string[]，而审计函数读
-// `c.quotes`，按声明形状调用即 TypeError（"Cannot read properties of
-// undefined (reading 'some')"），descriptor 的 catch 把它包成
-// execution_error —— 引用闭环这道门在它自己的契约上不可用。以下用例同时
-// 钉住「两种形状都能被接受」与「不可核验时不得放行」。
-// ---------------------------------------------------------------------------
 
 test("auditCitationLoop accepts the tool-declared shape (bare statement strings)", () => {
-  // The schema told callers to pass this; it used to throw.
   const result = auditCitationLoop("Finding [1] holds.", ["only a statement"]);
   assert.ok(result.ok, JSON.stringify(result.issues));
 });
@@ -303,8 +257,6 @@ test("auditCitationLoop still catches an out-of-range reference in the bare-stat
 });
 
 test("auditCitationLoop fails closed on quotes it cannot check, naming the real cause", () => {
-  // No entry carries quotes → the quote is UNVERIFIABLE, not proven wrong.
-  // The gate must not go green, and the message must not accuse the quote.
   const result = auditCitationLoop("Finding 「some quote」 [1].", ["only a statement"]);
   assert.ok(!result.ok, "unverifiable quote evidence must not pass the gate");
   assert.ok(result.issues.some((i) => i.includes("cannot be checked")));
@@ -314,14 +266,9 @@ test("auditCitationLoop fails closed on quotes it cannot check, naming the real 
 test("auditCitationLoop does not throw on malformed entries (non-object garbage is dropped, not crashed on)", () => {
   const result = auditCitationLoop("Finding [1].", [null, { statement: "s" }, 42]);
   assert.ok(Array.isArray(result.issues));
-  // null and 42 carry no statement, so they are dropped; [1] then points at the
-  // single real entry and the audit is honest about what it could check.
   assert.ok(result.ok, JSON.stringify(result.issues));
 });
 
-// ---------------------------------------------------------------------------
-// §10 交付合同
-// ---------------------------------------------------------------------------
 
 test("checkDeliveryContract passes clean body", () => {
   const result = checkDeliveryContract("Clean body with no placeholders.");
@@ -338,9 +285,6 @@ test("checkDeliveryContract flags template placeholder", () => {
   assert.ok(!result.ok);
 });
 
-// ---------------------------------------------------------------------------
-// ResearchSession (integration)
-// ---------------------------------------------------------------------------
 
 test("ResearchSession full flow: clarify → rounds → sufficient → finalize", () => {
   const session = new ResearchSession({
@@ -352,7 +296,6 @@ test("ResearchSession full flow: clarify → rounds → sufficient → finalize"
 
   session.registerSource("https://example.com/solo-thinking", "solo-thinking", "源码仓库");
 
-  // Round 1: one confirmed finding
   const r1 = session.submitRound([{
     statement: "fork worker 继承父检查点且排除写工具",
     state: "confirmed",
@@ -364,7 +307,6 @@ test("ResearchSession full flow: clarify → rounds → sufficient → finalize"
   assert.equal(r1.reason, "sufficient");
   assert.equal(r1.accepted.length, 1);
 
-  // Finalize
   const final = session.finalize();
   assert.ok(final.ok, JSON.stringify(final.error));
   assert.equal(final.value.stopping_reason, "sufficient");
@@ -388,11 +330,6 @@ test("ResearchSession no-gain flow: two empty rounds converge", () => {
   assert.equal(r2.reason, "no-gain");
 });
 
-// 更正（2026-10-25）：旧用例在此断言「零证据 no-gain 的 finalize 成功」，
-// 与 24 §8 直接冲突——三态至少一项、urls 必填非空，两者都不允许空 bundle
-// 成为对象。于是 finalize 返回的 bundle 只能被唯一的消费者（writer）拒绝，
-// 调用方要到落盘那一刻才看到一个像自己填错的 frontmatter 错误。
-// 现在 finalize 当场拒绝并指出补救方向（把未覆盖范围记为 gap）。
 test("ResearchSession: zero-evidence finalize is refused — the bundle could never become an object (24 §8)", () => {
   const session = new ResearchSession({
     question: "一个没有任何证据的问题",
@@ -455,9 +392,6 @@ test("ResearchSession finalize rejects unconverged session", () => {
 });
 
 test("finalize returns lossless-JSON-safe urls after auto-registration (no undefined summary)", () => {
-  // Regression (2026-09-10 R1): submitRound's auto registerSource used to
-  // pass an undefined summary; the finalize bundle then failed the harness
-  // lossless-JSON round-trip with an "invalid output" tool error.
   const session = new ResearchSession({ question: "q", purpose: "p", maxRounds: 3 });
   session.submitRound([
     { statement: "s", state: "confirmed", evidence: { text: "t", anchor: "a", source: "https://auto-registered.com", confidence: "high" } },
@@ -469,7 +403,6 @@ test("finalize returns lossless-JSON-safe urls after auto-registration (no undef
   assert.equal(entry.ref, "https://auto-registered.com");
   assert.equal(typeof entry.title, "string");
   assert.equal(entry.summary, "");
-  // Harness round-trip: undefined values would silently vanish here.
   const roundTripped = JSON.parse(JSON.stringify(final.value));
   assert.deepEqual(roundTripped.urls, final.value.urls);
 });
@@ -478,16 +411,12 @@ test("ResearchSession rejects confirmed with unregistered source at finalize", (
   const session = new ResearchSession({
     question: "q", purpose: "p", subQuestions: [], maxRounds: 3,
   });
-  // Register a different source than the one used in the evidence
   session.registerSource("https://registered.com", "registered", "");
   session.submitRound([{
     statement: "s", state: "confirmed",
     evidence: { text: "t", anchor: "a", source: "https://unregistered.com", confidence: "high" },
   }]);
-  // Auto-registration should have happened via submitRound, so this test
-  // verifies the mechanism works. Let's verify the source was auto-registered.
   const final = session.finalize();
-  // If auto-registration worked, finalize should succeed
   assert.ok(final.ok, "auto-registration of sources should make finalize succeed");
 });
 
@@ -500,20 +429,10 @@ test("ResearchSession rejects bad findings and keeps good ones", () => {
     { statement: "good", state: "confirmed", sub_question_key: "sq", evidence: { text: "t", anchor: "a", source: "https://good.com", confidence: "high" } },
     { statement: "bad", state: "invalid-state" },
   ]);
-  // 条数之外还须认出**是哪一条**：两个各为 1 的结果无法区分「好的收下、坏的拒掉」
-  // 与「坏的收下、好的拒掉」——后者正是本用例要防的形态（只数个数抓不住）。
-  // rejected 条目形状是 { finding, error }（research-session.js 的拒收路径）。
   assert.deepEqual(r.accepted.map((f) => f.statement), ["good"]);
   assert.deepEqual(r.rejected.map((x) => x.finding?.statement), ["bad"]);
 });
 
-// ---------------------------------------------------------------------------
-// §13 交付合同（checkDeliveryContract）
-//
-// 33 §13 的交付表列三项判据：「无占位符；每项声明挂 evidence；无 UNVERIFIED
-// 未标注」。旧实现只查占位符，而工具把这一项结果当作整个合同结论返回 ok:true
-// ——「每项声明挂证据」从未被检查过。以下用例锁住后两项。
-// ---------------------------------------------------------------------------
 
 const DELIVERY_BODY = (unitLines) => `## 研究问题
 外部对象是什么？

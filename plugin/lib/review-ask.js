@@ -1,144 +1,26 @@
-/**
- * dsh-ldvh — 两处把关询问：复杂任务判定 + 询问 + 答复留痕。
- *
- * ## 这是什么（Human 2026-11-13 决定）
- *
- * 保留两项把关：**行动前审核**与**行动后复核**，落地方式为**两处询问**：
- *
- *   1. 主控判定当次任务属「复杂任务」、**方案已有候选**、且
- *      `preActionReviewAskEnabled` 打开时，动手改动之前询问 Human「是否安排代理审查」
- *      （没有候选时不问：没有可核对的对象，32 §6.4）；
- *   2. 主控判定一件复杂任务做完、且 `postWorkReviewAskEnabled` 打开时，
- *      收口前询问 Human「是否安排代理复核」。
- *
- * **两处都不使行动暂停**：`00 §2.5`「请示本身不是行动放行的前提，也不使行动在
- * 取得答复前暂停」，`32 §3.4` 明禁把「未取得答复」处置为「必须暂停」。
- * 未取得答复时按既有路径继续并如实说明。
- *
- * **开关不开就没有这两处询问**——这是 Human 的原话「打开才有，否则就是不安排
- * 审核与复核」。
- *
- * ## 静默执行（2026-11-13 晚 Human 确认 A1）
- *
- * 两处询问之上还有一枚**执行档位**开关 `reviewAskSilentRunEnabled`：打开后
- * 判为复杂任务时**不问，直接按设置安排**那次核对。它不是第三处把关，也不
- * 越过各自的询问开关（关着的那一处静默没有作用对象）。免掉的是**询问**，
- * 不是**核对**——故它仍产出派发模板，并要求在交付里留痕迹（`silentRunNotice`）。
- *
- * ## 判据从哪来（不新造）
- *
- * 「复杂任务」的判据**不新增**，但两处来源的**性质不同**（2026-11-13 更正）：
- *
- * - `specs/04 §6.1`：工作指向「怎么做」层面的方案时——**建立或修改结构性事物**、
- *   **存在多个可选路径的选型**、**方向可能与既定决策冲突**；
- * - `specs/04 §6.1` 的排除清单（取反）：方向未定／尚无可执行方案的议题（归 Spark）、
- *   当次行动可直接处理且不需跨会话保留的低风险改动（不对象化）、已定决策的表达（归 Human 决定与规范源）、
- *   需要持续跟踪的系统性阻碍（归 26 号 Friction）、过程日志／逐条聊天／工具输出／单纯执行提醒
- *   ——**取反即「属于复杂任务」**。
- *
- * **条数不写死在本模块**：上面那份是**内容**枚举，不是「共 N 条」的计数断言。
- * 2026-11-14 行动前审查指出：任何把条数抄进实现的地方，都会在 04 号下一次改条目时
- * 变成一句假话——而它假的时候没有任何测试会红（本仓无判据逐字守护，见测试注）。
- *
- * 本模块把这两处编译成一份**可读的判据清单**交给主控（用于判断），并**不机械
- * 判定**——本模块只做「开关读值 + 询问 + 留痕」，复杂度判定属 AI 语义判断。
- *
- * ## 点位排除（2026-11-14 Human 决定，判据之后另有一道）
- *
- * Human 原话：「调研类任务，提交类任务，不符合触发条件」，并补充「LDVH 内部 CLI
- * 的操作也不需要审核和复核，比如转换一个事实对象状态」；追问落点时答「就是判断是否
- * 要触发审核或者复核的时候」——即排除的是**请示的触发**，不是「复杂任务」的定义。
- *
- * 故本模块**没有**把这些类别塞进 `COMPLEXITY_CRITERIA`，而是另立
- * `GATE_POINT_EXCLUSIONS`（见该常量），落在 `specs/32 §4.2`：判为复杂之后，
- * 当次工作**整件**属于那三类之一才不发出该处请示；混合任务照旧判。`specs/04 §6.1`
- * 一字未动——两张清单互不顶替是 32 §19 第 5 项的明文义务，把计数或条目抄进本模块
- * 而不写清归属，就是造出第二份权威（10 §5.3）。
- *
- * ## 如实声明边界（00 §4.6，不得省写）
- *
- * **本模块提供的不是机械保障，是「AI 按开关执行的自律 + 询问留痕」。**
- *
- * 具体说：
- *
- * - 「这次任务算不算复杂」由**主控判断**，机械层不判定。判错了、或主控压根没
- *   判，本模块不会拦——它只在主控**调用**时工作。
- * - 询问走宿主 `ctx.userQuestions.ask`（与既有路由询问同一入口），答复由
- *   宿主记录；但**「主控有没有真的来问」机械层不知道**。这与既有覆盖闸
- *   那种「没写记录就拒绝写入」不同：那里有一道闸读记录，这里没有闸。
- * - 因此**不得**把本模块的实现表述为「审查/复核已获机械保障」。它保障的只有
- *   两件事：开关真的决定问不问（读了就算数）、问过的答复可回读（不留痕重问）。
- *
- * ## 为什么答复要留痕（复用既有先例的教训，不是新发明）
- *
- * 同目录的路由答复账目记录了两个**实测**失效：
- *
- *   1. **重试必重问**——答复只在内存里被消费一次，写入失败后重试无处可读，
- *      只能再问一次；
- *   2. **事实不可回读**——宿主询问走 waterfall，**不进入会话事件流**，事后无法
- *      从任何权威记录回答「问过没有、答了什么」。实测后果是主控误判「询问未
- *      发生」，在工具之外补问了一次。
- *
- * 这两条对两处新询问**同样成立**（同一入口、同一失效面），故复用同一形态：
- * 按内容指纹记答复，位于 `~/.dsh/ldvh/`，**不进事实源、不构成授权凭据**。
- *
- * ## 载体与既有答复账目的关系
- *
- * 不复用既有的路由答复账目——那个载体的键闭集语义已定，把 `review|skip` 塞进去
- * 会污染它。故**另立一个同目录、同形态的文件** `review-ask-decisions.json`。两者
- * 同属「辅助机制的运行状态」，都不进事实源。
- */
 
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 
-/** DSH home 下的相对位置（与 route ledger、水位、待处置队列同层）。 */
 const LEDGER_RELATIVE_PATH = ["ldvh", "review-ask-decisions.json"];
 
-/** 环形保留上限（与 route ledger 的 50 同量级：询问是低频事件）。 */
 const MAX_ENTRIES = 50;
 
-/**
- * 把关询问行的折叠标签（宿主渲染格式：`上下文注入 · <插件名> · <本标签>`）。
- *
- * **单一来源**（2026-11-13 独立审核 MINOR #7）：此前 guidance.js 与
- * lifecycle.js 各写一遍同一字符串，靠 client-contract.test.mjs 的正则比两处
- * 源码文本保持一致——那不是单一来源，是「两份副本 + 一条断言盯着它们别跑偏」。
- * 本常量落在 review-ask.js（两处都已 import 它），改动只需改这一处。
- *
- * **不带插件名**：宿主已经填了 `dsh-ldvh`，再写一遍会渲染成
- * 「上下文注入 · dsh-ldvh · 把关询问 · dsh-ldvh · …」。
- */
 export const REVIEW_ASK_ROW_SUMMARY = "把关询问 · 待你决定是否安排代理";
 
-/**
- * task 缺失时的退化占位词。
- *
- * **它与 null 同义**（2026-11-13 独立审核 MAJOR-2）：占位词会被写进载体，若
- * 复用门只看「task 非空」，占位词记录会被判为「可复用」——模型传恒定字符串时
- * 静默复用复发，那条修复等于没做。故读取侧须把它也视同 null。
- */
 export const REVIEW_ASK_PLACEHOLDER_TASK = "当次任务";
 
-/** 两处询问的位置闭集。 */
 export const REVIEW_ASK_POINTS = Object.freeze({
   PRE_ACTION: "pre-action",
   POST_WORK: "post-work",
 });
 
-/** 答复闭集：问过就算数，`skip` 是一个**明确的答复**，不是「没答」。 */
 export const REVIEW_ASK_ANSWERS = Object.freeze({
   REVIEW: "review",
   SKIP: "skip",
 });
 
-/**
- * 「复杂任务」的判据清单（供主控判断，非机械判定）。
- *
- * 每条都标出处，使主控能回指到规范原文而不是记住一句话。**清单本身不新增
- * 判据**——它是 04 §6.1 两处既有条文的编译产物。
- */
 export const COMPLEXITY_CRITERIA = Object.freeze([
   {
     key: "structural-change",
@@ -157,62 +39,11 @@ export const COMPLEXITY_CRITERIA = Object.freeze([
   },
   {
     key: "not-clearly-direct",
-    // **这一条是合成条目**：04 §6.1 的排除清单是一份多项列表，本条把它的各项
-    // 压缩成一句「不属于该清单」。压缩是有损的——所以 label 里逐项列出内容，
-    // 让主控能对照原文而不是记住这句话。
-    //
-    // **不要在本注释里以「原文：」引述它**（2026-11-14 独立复核证伪）：此处曾写
-    // 「原文：『以下内容不形成复杂任务：……』」，而全仓 grep 该句式**零命中**——
-    // 04 §6.1 排除清单首行的实际起句是「**排除五条**（迁居依据见 ADR …）：方向未定、…」
-    // （该括注为当时的原文；它已随 ADR 事实类型撤除而从 04 号删去，此处按历史原貌保留）。
-    // 带引号声称是原文、其实不是原文，比漏一条更糟：下一个读者会拿它去比对规范、
-    // 得出「规范被我改过」的错误结论，并按它推导排除面。
-    //
-    // **也不写条数**：04 那次逐条核对确有一次真实收获（第五条「过程日志、逐条聊天、
-    // 工具输出与单纯执行提醒」曾被实现漏记，后果是主控会把「一条执行提醒」判成复杂
-    // 任务去请示 Human）。那个教训记在**内容**上——把「第 N 条」写进代码，它就变成
-    // 一句随 04 改条目而失真的计数断言，而本仓没有任何判据逐字守护会让它变红。
-    //
-    // **指针更正**（2026-11-14 行动前审查 MINOR-1）：原标签写「不属于 §6.3 五条排除
-    // 项」，而这张清单的权威在 **04 §6.1**；`32 §6.3` 是「排除条件」一节，2026-11-14
-    // 起它还承载着 32 自己的点位排除两层口径。同一句里两个编号混用，会把「算不算
-    // 复杂」与「要不要请示」两件不同的事读成一件（32 §19 第 5 项明禁互相顶替）。
     label: "不属于 04 §6.1 的排除清单（方向未定／当次可直接处理的低风险改动／已定决策／系统性阻碍／过程日志与工具输出与单纯执行提醒）",
     source: "specs/04 §6.1 排除清单取反",
   },
 ]);
 
-/**
- * 点位排除清单（供主控判断，非机械判定）。
- *
- * **它不是判据，也不进 `COMPLEXITY_CRITERIA`**（2026-11-14 Human 决定，
- * `specs/32 §4.2`）：
- *
- * - `COMPLEXITY_CRITERIA` 是 `specs/04 §6.1` 那份判据（正面条件 + 排除清单）的编译产物，
- *   管「这件工作算不算复杂任务」——权威在 04 号，本模块只引用，也不替它记条数；
- * - 本清单是 `specs/32 §4.2` 的编译产物，管「已判为复杂任务的这一处，还要不要去问
- *   Human」——权威在 32 号。32 §19 第 5 项明文禁止两份清单互相顶替。
- *
- * 所以它是一条**后置**判断：先按上面那份判为复杂，再看是否整件落在下面三类里。
- * 命中即该处不发出请示，但**仍须**完成 04 §6.1 的方案收敛自查、仍须履行任何 Human
- * Gate 的提请、仍须履行 00 §2.5 独立审核的适用范围（受保护内容修改、下位规范建立
- * 或实质修改、进入事实源的事实规范候选）——三项见 32 §4.2「不免除清单」，一项都不能省。
- *
- * 各条的 `carried` 写的是**承接面**，不是「已经查过了」的结论。
- *
- * **这三类的前提是「错误形状可由机械校验判定」**（格式、逐条对应、引用逐字一致、
- * 指纹匹配、目标可解析）；机械校验与代理审核互不替代（04 §6.4），本模块不得把前者
- * 表述成后者。
- *
- * 事实规范候选的承接完整性核对面，由 `27 §15` 第 1 项与 `00 §4.4`／`00 §2.9`
- * 第 2 项的独立审核各自独任（`32 §4.2` 删除第 4 类时的 F8 登记）；该义务不因
- * 点位排除的条目数变化而减免（`00 §4.4` 明文不可取消或减免），本模块也不据此
- * 声称已核对——把 `carried` 读成「已核对」正是 `32 §4.2` 据实边界段明禁的读法。
- *
- * `notExcluded` 是**误豁免护栏**（32 §4.2「排除不成立的情形」）：排除按当次工作
- * **整体**判定，不按动作切分。没有这一栏，「这次里有一段是调研」就会被读成整件免问，
- * 而 04 §6.1 的取反推导一旦被这样污染，事后不可见（32 §16）。
- */
 export const GATE_POINT_EXCLUSIONS = Object.freeze([
   {
     key: "pure-research",
@@ -245,90 +76,29 @@ function success(value) {
   return { ok: true, value };
 }
 
-/**
- * 从 volatile 引用或普通值读一个布尔开关（与 index.js 的 readSwitch 同语义）。
- *
- * **不在这里写默认值**：默认值由 schema 的 `.default(false)` 承载，本函数只在
- * 取不到值时如实返回 `undefined`，由调用方决定怎么处置——静默兜底会让「Human
- * 显式关掉」与「配置没读到」不可区分（本仓既有失效形态，见 idle-settings.js）。
- */
 function readSwitchValue(value) {
   const raw = value !== null && typeof value === "object" && typeof value.get === "function" ? value.get() : value;
   if (raw === undefined || raw === null) return undefined;
-  // **只认布尔真值**（2026-11-13 自查所修）。
-  //
-  // 原实现是 `return raw !== false`——把任何非 false 的东西都当成开启。实测
-  // `"false"`、`0`、`""` 全部解析为 **true**。这条路径通向「询问 Human」，
-  // 所以方向必须偏保守：**不确定就当关**。
-  //
-  // 为什么这个方向的错误更危险：默认关闭是 Human 明确的期望（「关着就完全不问」）。
-  // 一旦配置面传进来非布尔值（profile 手写成 `"false"` 字符串、或某个中间层
-  // 做了字符串化），`raw !== false` 会让它**无故开启**——Human 没打开过开关，
-  // 却被问了。反过来（把 `1` 当成关）只会少问一次，代价小得多。
-  //
-  // 取 `=== true` 也顺手消掉一个陷阱：`new Boolean(false)` 这类对象在
-  // `!== false` 下为真，在 `=== true` 下为假。
   return raw === true;
 }
 
-/**
- * 读出两处询问的当前开关状态。
- *
- * @param {object|null} config - 本插件的 Cordis Config。
- * @returns {{preAction: boolean, postWork: boolean, preActionKnown: boolean, postWorkKnown: boolean,
- *   silentRun: boolean, silentRunKnown: boolean}}
- *   `silentRun` 是**执行档位**（不问直接做）而非第三处把关，见 index.js 的 schema 注释。
- */
 export function resolveReviewAskSettings(config) {
   const pre = readSwitchValue(config?.preActionReviewAskEnabled);
   const post = readSwitchValue(config?.postWorkReviewAskEnabled);
   const silent = readSwitchValue(config?.reviewAskSilentRunEnabled);
   return {
-    // 未设置时按「关」——与 schema 默认一致；但**另带 known 标记**，使消费方
-    // 能区分「Human 关掉了」与「配置面取不到」（后者应如实报告，不假装是关）。
     preAction: pre === true,
     postWork: post === true,
     preActionKnown: pre !== undefined,
     postWorkKnown: post !== undefined,
-    // 静默执行（2026-11-13 晚 Human 确认 A1）：**只作用在「已判定为复杂任务」
-    // 之后的询问环节**，不影响任何 Human Gate。
     silentRun: silent === true,
     silentRunKnown: silent !== undefined,
   };
 }
 
-/**
- * 该位置在执行档位上是「问」还是「静默」。
- *
- * 返回三态而非布尔——**「静默执行目标位置不存在」与「静默执行」是两回事**：
- *
- * - `{ mode: "ask" }`：对应询问开关开着、静默关 → 照旧问 Human；
- * - `{ mode: "silent" }`：对应询问开关开着、静默开 → **不问**，直接安排那次核对；
- * - `{ mode: "off" }`：对应询问开关关着 → 不问也不安排。
- *
- * **静默不越过询问开关**（这是本函数唯一的判断）：`preActionReviewAskEnabled`
- * 关着时，即使静默开着也不派代理——关掉询问开关的语义是「这一处不必有人盯着」，
- * 若静默能越过它，关开关就失去了「省掉这次核对」的意思。Human 原话是
- * 「打开后才自动执行而不请示」：**静默是询问的替代形态，不是询问的取消**。
- *
- * @param {object|null} settings - `resolveReviewAskSettings` 的返回值
- * @param {"pre-action"|"post-work"} point
- * @returns {{mode: "ask"|"silent"|"off", point: string|null, silentUnknown: boolean}}
- */
 export function reviewAskMode(settings, point) {
   const enabled = askEnabledFor(settings, point);
   if (!enabled) return { mode: "off", point: point ?? null, silentUnknown: false };
-  // **「静默开关取不到」必须在这里被真正处理**（2026-11-13 独立复核 MAJOR-4）。
-  //
-  // 原实现只在 `silentRun === true` 且 `silentRunKnown === false` 时标记
-  // `silentUnknown`——而真实读取器里 `silentRun = silent === true`、
-  // `silentRunKnown = silent !== undefined`，**该组合不可能出现**：那个分支
-  // 是死代码，两条测试却在手工构造它并互相矛盾。
-  //
-  // 真实的「取不到」是 `silentRunKnown === false`（配置里没有这个键）——
-  // 它现在落进 `ask` 分支，即**照旧询问**。这不是缺陷，是保守选择，但必须
-  // **如实报告**：否则配了静默却没生效时，Human 看不出「开关没被读到」与
-  // 「我关掉了」的区别（本仓既有失效形态）。
   if (settings?.silentRunKnown === false) {
     return { mode: "ask", point, silentUnknown: true };
   }
@@ -336,39 +106,19 @@ export function reviewAskMode(settings, point) {
   return { mode: "ask", point, silentUnknown: false };
 }
 
-/**
- * 静默执行的**痕迹行**（00 §4.6 据实声明；11 §6.2 对「无痕抑制」的同源纪律）。
- *
- * 「静默」指的是**不问**，不是**不留痕**。这两件事必须分开：一次静默执行若在
- * 交付里什么都不说，Human 事后无从判断「这轮到底派没派代理、为什么没问他」，
- * 那与本仓反复否定的「无痕迹的抑制」是同一类缺陷。
- *
- * 故每次静默执行须原样引用本函数产出的这一行（而不是「说一句大概」）——
- * 固定的形态使它在交付里可被辨识、可被核对。
- */
 export function silentRunNotice({ point, task } = {}) {
   const what = point === REVIEW_ASK_POINTS.PRE_ACTION ? "行动前审查" : "收口前复核";
   const subject = typeof task === "string" && task.trim().length > 0 ? task.trim() : "当次任务";
-  // **时态须如实**（独立复核 MINOR-9）：产出这一行时工具只返回了派发模板，
-  // 代理**尚未派出**。写「已安排」会把一件还没发生的事说成已发生——
-  // 故写「将按此安排」，由主控派发后在交付里回报结果。
   return `【静默执行】${what}：已按设置跳过询问，将按返回的模板安排一次零上下文代理核对（${subject}）。此为执行痕迹，不构成授权凭据，也不代表核对已完成。`;
 }
 
 
-/** 该位置对应的开关是否打开。未知位置返回 false（不猜）。 */
 export function askEnabledFor(settings, point) {
   if (point === REVIEW_ASK_POINTS.PRE_ACTION) return settings?.preAction === true;
   if (point === REVIEW_ASK_POINTS.POST_WORK) return settings?.postWork === true;
   return false;
 }
 
-/**
- * 候选内容指纹——决定「这是不是同一件事」的唯一依据。
- *
- * 稳定输入（位置 + 任务描述 + 范围）排序后取 SHA-256：同一件事重试时指纹相同，
- * 于是既有答复被复用、不重问；内容一变指纹即变，须重新询问。
- */
 export function reviewAskFingerprint({ point, task, scope }) {
   const payload = [
     point === undefined ? "" : String(point),
@@ -404,7 +154,6 @@ async function readAll(dshHomePath) {
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    // 损坏**不按空处理**：把「读不出来」当成「没问过」会导致重复提问。
     return failure("review-ask/malformed", `the review-ask carrier is not valid JSON: ${String(error?.message ?? error)}`);
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -416,9 +165,6 @@ async function readAll(dshHomePath) {
   return success(parsed);
 }
 
-/**
- * 按指纹查既有答复。`value` 为对象即「问过且答过，直接复用」；为 null 即「未问过」。
- */
 export async function findReviewAskDecision(dshHomePath, fingerprint) {
   if (typeof fingerprint !== "string" || fingerprint.length === 0) {
     return failure("review-ask/invalid_key", "fingerprint is required to look up a review-ask decision");
@@ -446,12 +192,6 @@ function serialize(key, task) {
   return run;
 }
 
-/**
- * 记录一条答复。
- *
- * **只有已确定的答复才允许入载体**：空答复是「未决策」，写成记录会让下一次误以为
- * 问过了而复用一个不存在的决定。
- */
 export async function recordReviewAskDecision(dshHomePath, entry = {}) {
   try {
     return await recordReviewAskDecisionInner(dshHomePath, entry);
@@ -479,8 +219,6 @@ async function recordReviewAskDecisionInner(dshHomePath, entry) {
   }
   const at = typeof entry.at === "string" && entry.at.length > 0 ? entry.at : new Date().toISOString();
   const record = { fingerprint, point, answer, at };
-  // 任务原话逐字保留（它是 Human 的），截断到 500 字符避免单条撑大载体——
-  // 超出部分对「认出问的是哪件事」已无增益，完整原话仍在该次会话记录里。
   if (typeof entry.task === "string" && entry.task.trim().length > 0) {
     const text = entry.task.trim();
     record.task = text.length > 500 ? `${text.slice(0, 500)}…` : text;
@@ -500,53 +238,12 @@ async function recordReviewAskDecisionInner(dshHomePath, entry) {
   });
 }
 
-/**
- * 组装一次询问的呈报内容。
- *
- * **只产出 `question`，不产出 `detail`**（Human 2026-11-13，两次指认）：
- * ① 判据不进入对话框——判据是 AI 用来**决定要不要问**的输入，问出来时已经用过
- *    一次了；再摆给 Human，等于让他复核 AI 的推理，而不是回答那个待决问题。
- * ② detail 与紧随其后的两个选项说的是同一件事，卡片上于是三处重复。
- *
- * **为什么不把内容塞进 question**：宿主询问的标题区不可滚动，长内容会把选项挤出
- * 视野。2026-11-13 Human 决定的形态是：**弹窗只留一行标题（≤ 200 字），
- * 不带 detail**；需要 Human 一读再答的材料（判据、呈报正文）一律写在**对话
- * 正文**里，由主控在他作答之前给出。这条对 LDVH 自己的三处 consent 接缝同样
- * 成立（见 `host-seams.js` 的 `composeAskTitle`）。
- *
- * @returns {{question: string}} —— **无 detail 键**
- */
-// **不接受 criteria 参数**（2026-11-13）：判据不再进入对话框，故没有理由让
-// 调用方把它递进来。签名收紧即约束——留着可传的参数，早晚有人传。
 export function composeReviewAsk({ point, task } = {}) {
   const isPre = point === REVIEW_ASK_POINTS.PRE_ACTION;
   const what = isPre ? "代理审查" : "代理复核";
-  // **任务描述要短**（Human 2026-11-13：「只写要做什么」）。问题标题是 Human
-  // 一眼扫过的那一行，写成长段落等于没写。超长时截断并加省略号——宁可让他
-  // 看到「……」，也不要让标题挤成三行。
-  //
-  // 上限 60 字符：加上「——要不要安排代理审查？」（约 13 字）后仍在宿主
-  // `ask_user_question` 的 200 字符限额内，且能在卡片里单行显示。
-  // **占位词与空值同义**（2026-11-13 独立审核 MAJOR-2 的绕过口）。
-  //
-  // 「当次任务」是 task 缺失时的**退化占位**。但它同时被写进载体（task 字段），
-  // 于是「历史记录的 task 非空」这一复用判据会被占位词骗过——模型若每次都传
-  // 占位词（或任何恒定字符串），指纹退化成 point+scope，历史记录 task 非空 ⇒
-  // 判「可复用」⇒ **静默复用复发**，MAJOR-2 等于没修。
-  //
-  // 故占位词在**两处**都要视同 null：此处（写入载体）与 host-seams.js 的复用门
-  // （读取时判定）。单点修不够——只修写入侧则载体里不再有占位词，但只修读取侧
-  // 则载体里的占位词记录仍会被判为「可复用」。
   const PLACEHOLDER_TASK = "当次任务";
   const rawTask = typeof task === "string" && task.trim().length > 0 ? task.trim() : PLACEHOLDER_TASK;
-  // 注意：此处**不**归一化——占位词在卡片上显示为中性的「当次任务」是对的。
-  // 归一化只发生在**载体与复用门**两侧（host-seams.js），因为那里判的是
-  // 「这件事是什么」，而非「怎么显示」。
   const TASK_TITLE_MAX = 60;
-  // **截断不得劈开代理对**（2026-11-13 独立审核 NIT #8）：`slice` 按 UTF-16 码元
-  // 切，若第 60 位正好落在 emoji 的中间，会留下一个孤立高代理项，渲染成乱码。
-  // host-seams.js 的 `clampHead` 是同一问题的同形处理；本路径不经过它，
-  // 故就地补一步：若切点前一位是高代理项、切点处是低代理项，退一格再切。
   const cutAt = (text, max) => {
     if (text.length <= max) return text;
     let end = max;
@@ -557,31 +254,7 @@ export function composeReviewAsk({ point, task } = {}) {
   };
   const taskTitle = rawTask.length > TASK_TITLE_MAX ? `${cutAt(rawTask, TASK_TITLE_MAX)}…` : rawTask;
 
-  // ── 只写「要做什么」和「要不要审」（Human 2026-11-13 明确要求）──────────
-  //
-  // 原实现把整段判据清单（4 条，各带 specs 条目出处）塞进 `detail`，标题还写
-  // 「是否安排代理审查（动手前）？」。Human 的实际反馈：「对话框里写的太啰嗦了，
-  // 判据不用写，只写要做什么而是否需要审核」。
-  //
-  // **那不是措辞问题，是把两件事混进了一个呈报面**：
-  //   - Human 的面要回答的是「这件事要不要找人挑错」——他需要知道**做什么**；
-  //   - 判据是 AI 用来**决定要不要问**的，问出来之后已经用过一次了，
-  //     再摆给 Human 是让他复核 AI 的推理，而不是回答那个待决问题。
-  //
-  // 故 `question` = 「<要做什么>——要不要安排<审查/复核>？」，**不出现任何判据
-  // 条目与规范出处**。判据仍由 `COMPLEXITY_CRITERIA` 承载、供 AI 判定使用
-  // （见 guidance 注入行），只是不再进入这个对话框。
-  // 后果信息由**选项的 description** 承担（见 host-seams.js 的注册处）。
   const head = `${taskTitle}——要不要安排${what}？`;
 
-  // **不产出 detail**（Human 2026-11-13，截图指认）。
-  //
-  // 原 detail 写「安排：……结论回来后再收口。跳过：本次不做独立把关，直接推进。」
-  // ——与紧随其下的两个选项**说的是同一件事**，只是换了个说法。卡片上于是出现
-  // 三处重复：detail 一段、选项一、选项二。
-  //
-  // 宿主契约里 `detail` 是 optional（`z.string().optional()`，缺省时卡片不渲染
-  // 该块），故这里直接不产出该字段；后果信息改由**选项的 description** 承担
-  // ——那才是 Human 实际会读的地方（选项就在答案输入框上方）。
   return { question: head };
 }

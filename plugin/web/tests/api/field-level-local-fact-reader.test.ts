@@ -5,8 +5,6 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { listLocalFacts, readLocalFact, type LocalFactScope } from '../../api/services/localFactReader.ts';
 
-// v5 Pitfall 载体（23 §7）：.md + frontmatter + 正文；文件名编码 UID（兼容纯序号/ULID 段）。
-// ADR 事实类型已于 2026-11-15 撤除，本组通用能力改以 Pitfall 夹具验证。
 const base = [
   'fact_type_key: pitfall',
   'status: active',
@@ -14,7 +12,6 @@ const base = [
   'scope: Applies to this fixture',
 ].join('\n');
 
-/** 组装 v5 Pitfall markdown 载体正文（frontmatter + H1 + 症状段）。 */
 function pitfallMarkdownCarrier(objectUid: string, extraFrontmatter = ''): string {
   const frontmatterLines = ['---', `object_uid: ${objectUid}`, 'title: UID projection'];
   if (extraFrontmatter.trim()) frontmatterLines.push(extraFrontmatter);
@@ -28,7 +25,6 @@ test('field-level reader preserves canonical UID authority without adding a deri
   const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
   try {
-    // 23 §7：文件名编码 UID（pitfall-<uid>.md），frontmatter 携带 object_uid。
     const uid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
     await writeFile(path.join(directory, `pitfall-${uid}.md`), pitfallMarkdownCarrier(uid), 'utf8');
     const listed = await listLocalFacts('pitfall', scope);
@@ -47,7 +43,6 @@ test('field-level reader discovers a UID-native Crockford carrier name', async (
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
-  // 23 §7 兼容段：ULID25 文件名在 Pitfall 预期载体名闭集内（.md 载体）。
   const objectId = 'pitfall-01KZXN5TXNEBSRC6HHGTBQKAJ4';
   try {
     await writeFile(
@@ -69,7 +64,6 @@ test('field-level reader keeps recoverable field defects separate from unreadabl
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
-  /** 组装 Pitfall markdown 载体：frontmatterExtra 覆盖默认 title 行以构造字段缺陷。 */
   const carrierWith = (frontmatterLines: string[]) => [
     '---',
     ...frontmatterLines,
@@ -84,29 +78,24 @@ test('field-level reader keeps recoverable field defects separate from unreadabl
     '',
   ].join('\n');
   try {
-    // pitfall-0001：缺 title（field_issues 可恢复缺陷）。
     await writeFile(path.join(directory, 'pitfall-0001.md'), carrierWith([
       'object_uid: 11111111-2222-4333-8444-555555555555',
     ]), 'utf8');
-    // pitfall-0002：title 类型不匹配。
     await writeFile(path.join(directory, 'pitfall-0002.md'), carrierWith([
       'object_uid: 11111111-2222-4333-8444-555555555556',
       'title: [not, text]',
     ]), 'utf8');
-    // pitfall-0003：契约外未知字段（unconsumed_field）。
     await writeFile(path.join(directory, 'pitfall-0003.md'), carrierWith([
       'object_uid: 11111111-2222-4333-8444-555555555557',
       'title: Legacy',
       'legacy_owner: old',
     ]), 'utf8');
-    // pitfall-0004：契约外嵌套未知结构。
     await writeFile(path.join(directory, 'pitfall-0004.md'), carrierWith([
       'object_uid: 11111111-2222-4333-8444-555555555558',
       'title: Nested',
       'unknown_tree:',
       '  before: after',
     ]), 'utf8');
-    // pitfall-0005：frontmatter 未闭合（markdown 载体的 unreadable 形态）。
     await writeFile(path.join(directory, 'pitfall-0005.md'), '---\nobject_id: [unterminated\n', 'utf8');
 
     const listed = await listLocalFacts('pitfall', scope);
@@ -155,8 +144,6 @@ test('Spark evolution members without a timestamp and forbidden Pitfall tags rem
   await mkdir(sparkDir, { recursive: true });
   await mkdir(pitfallDir, { recursive: true });
   try {
-    // v5 Spark 载体（20 §7）：.md + frontmatter + 正文；文件名编码 UID；
-    // fact_type_key 为类型短名（03 §6.1 值域，24 号 research 同形）。
     await writeFile(path.join(sparkDir, 'spark-3f2504e0-4f89-41d3-9a0c-0305e82c3301.md'), [
       '---',
       'object_uid: 3f2504e0-4f89-41d3-9a0c-0305e82c3301',
@@ -224,10 +211,6 @@ test('fact_type_key values outside the registered short-name closure surface as 
   const directory = path.join(root, 'ldvh-base', 'sparks');
   await mkdir(directory, { recursive: true });
   try {
-    // 03 §6.1（对齐后）：fact_type_key 值域为类型短名——spec_key 形态
-    // （`spark-fact-type`，规范文档层身份键）不作为字段值；写入它属于值域
-    // 漂移，读取层如实报 identity_mismatch（不静默归一），对象保持 readable
-    // 供 Human 在字段问题面核对原文。
     await writeFile(path.join(directory, 'spark-7c4d5e6f-8a9b-4c0d-9e1f-2b3c4d5e6f7a.md'), [
       '---',
       'object_uid: 7c4d5e6f-8a9b-4c0d-9e1f-2b3c4d5e6f7a',
@@ -266,7 +249,6 @@ test('change_log accepts the current three-field signature shape without retired
   const directory = path.join(root, 'ldvh-base', 'sparks');
   await mkdir(directory, { recursive: true });
   try {
-    // v5 Spark 载体（20 §7）：fact_type_key 为类型短名（03 §6.1 值域）。
     await writeFile(path.join(directory, 'spark-0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d.md'), [
       '---',
       'object_uid: 0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d',
@@ -388,7 +370,6 @@ test('yaml_source carries the verbatim YAML text — unknown fields, order and c
   const directory = path.join(root, 'ldvh-base', 'reports');
   await mkdir(directory, { recursive: true });
   try {
-    // 顺序非字母序、含注释、含契约外未知字段 tags —— yaml_source 必须逐字保留这三者。
     const rawFrontmatter = [
       '# 顶部注释：机器索引层',
       'title: 原文保真夹具',
@@ -412,10 +393,8 @@ test('yaml_source carries the verbatim YAML text — unknown fields, order and c
       assert.equal(detail.item.yaml_source, rawFrontmatter);
       assert.ok(detail.item.yaml_source.includes('# 顶部注释'));
       assert.ok(detail.item.yaml_source.indexOf('title:') < detail.item.yaml_source.indexOf('tags:'));
-      // 未知字段进入未解析结构（契约面如实报告），但 yaml_source 仍逐字保留它。
       assert.ok((detail.item.unparsed_structures ?? []).some((s) => s.path === 'tags'));
       assert.ok(detail.item.yaml_source.includes('tags: [legacy]'));
-      // 注入字段不进 yaml_source：object_id 由文件名推导，文件里没有。
       assert.ok(!detail.item.yaml_source.includes('object_id'));
     }
   } finally {
@@ -426,8 +405,6 @@ test('yaml_source carries the verbatim YAML text — unknown fields, order and c
 test('markdown carriers carry their frontmatter verbatim as yaml_source', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  // 全部 v5 类型已是 markdown 载体——yaml_source 承载 frontmatter
-  // 逐字原文（含注释、原顺序、原引号风格），正文由 report_body 承载。
   const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
   try {
@@ -437,9 +414,7 @@ test('markdown carriers carry their frontmatter verbatim as yaml_source', async 
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'readable');
-      // frontmatter 逐字原文（含尾随换行）——不做任何修剪。
       assert.equal(detail.item.yaml_source, frontmatter);
-      // 正文走 report_body 通道，不混入 yaml_source。
       assert.match(String(detail.item.fact_object?.report_body ?? ''), /## 摘要/);
     }
   } finally {
@@ -453,10 +428,6 @@ test('an unknown frontmatter key surfaces as an unparsed structure instead of be
   const directory = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(directory, { recursive: true });
   const objectUid = '11111111-3333-4444-8555-666666666666';
-  // 本用例原本钉住的是「`recall_digest` 是已登记公共字段、不得判为未解析结构」。
-  // 该字段已于 2026-11-11 从事实源退场（02 §7.1），故用例改为钉住**通用机制**：
-  // 任何未登记进契约的键都必须如实进入 `unparsed_structures`，而不是被静默丢弃。
-  // 这比盯着某一个字段更耐久——它描述的是读取层的契约边界，不是某个字段的存废。
   await writeFile(path.join(directory, `pitfall-${objectUid}.md`), [
     '---',
     `object_uid: ${objectUid}`,

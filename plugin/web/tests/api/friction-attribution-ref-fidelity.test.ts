@@ -6,23 +6,6 @@ import { test } from 'node:test';
 import { showObject } from '../../api/services/facts.ts';
 import { type LocalFactScope } from '../../api/services/localFactReader.ts';
 
-/**
- * 26 §8/§11「锚点型」attribution_ref 在读取层的保真回归。
- *
- * 缺陷形态：真实载体的 attribution_ref 是**对象形态** `{ object_uid }`（与
- * relations 的 target 同一承载），而字段契约一度登记为 `string`。读取层按
- * `typeof === 'string'` 判定 → 对象形态被记成 type_mismatch → 字段**静默
- * 丢弃**：详情页上看不到归因锚点，读者无从判断这条账算到了谁头上，也没有
- * 任何报错。
- *
- * 注意 showObject 的装配形态：`plugin/web/api/services/facts.ts` 把
- * `item.fact_object` **摊平**进 data 顶层（`...item.fact_object`），data 上
- * 并没有 `fact_object` 键——断言必须直取顶层键（此点曾把第一版本测试写失败）。
- *
- * §11 已定案：attribution_ref 必须是对象形态，裸字符串不得承载。读取层不做
- * 归一（归一是 CLI 投影侧为存量兼容而做的），故裸串在此应当如实报
- * type_mismatch 而不是被悄悄提升——静默纠正也是静默丢弃的镜像形态。
- */
 
 const FRICTION_UID = '0198f1c7-8a2b-4c3d-9e4f-abcdef123456';
 const ANCHOR_UID = '8d5437b7-91c4-4cbe-af27-1d6f305297af';
@@ -71,8 +54,6 @@ async function readFriction(attributionRefYaml: string) {
 test('object-form attribution_ref survives the read projection (26 §8/§11 锚点型)', async () => {
   const data = await readFriction(`  object_uid: ${ANCHOR_UID}`);
 
-  // facts.ts 把 fact_object 摊平进 data 顶层——不存在的 'fact_object' 键会静默
-  // 让断言变成 no-op，故这里直接断言顶层并顺带钉住「不是嵌套形态」。
   assert.equal('fact_object' in data, false, 'showObject flattens fact_object into the top level');
   assert.ok('attribution_ref' in data, 'the anchor must not be silently dropped by the read layer');
   assert.deepEqual(

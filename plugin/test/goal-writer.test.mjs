@@ -1,13 +1,3 @@
-// Tests for plugin/lib/goal-writer.js — the singleton Goal writer.
-//
-// Authority: specs/25 §5 (identity/carrier, singleton exemptions), §6 (field
-// contract + fixed body H2), §7 (status closure), §11 §12 (controlled
-// operations, anchor stability), plus the shared 03 §9 contract and the
-// Human requirement that every change_log entry is mechanically signed.
-//
-// The singleton shape is the defining difference from 20–24/27, so the tests
-// below concentrate on what only a singleton can get wrong: the second-create
-// refusal, path-as-identity (no uid/type key), and anchor stability.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -33,13 +23,9 @@ import { skipWithoutCorpus } from "./helpers.mjs";
 
 const SIG = authoritativeSignature({ provider: "test-provider", model: "test-model" });
 
-// 25 §7 (2026-11): goal.md carries 目标陈述 only — sub-goals are SubGoal
-// objects now (28). The legacy `## 子目标` section survives only as a
-// one-way migration state, so the default fixture no longer uses it.
 const validBody = () =>
 	`## 目标陈述\n\n这是一个项目目标陈述，说明为什么与要实现什么。\n`;
 
-/** A carrier still in the pre-migration shape (legacy section present). */
 const legacyBody = (subGoals = "SG-1 第一条判据\nSG-2 第二条判据") =>
 	`## 目标陈述\n\n这是一个项目目标陈述，说明为什么与要实现什么。\n\n## 子目标\n\n${subGoals}\n`;
 
@@ -49,13 +35,6 @@ async function freshRoot(base) {
 	return root;
 }
 
-/**
- * Write a carrier in the PRE-2026-11 shape (goal.md still carrying a
- * `## 子目标` section), bypassing the writer.
- *
- * Direct write is deliberate: the creation entry now refuses this shape, so the
- * migration path can only be exercised against a carrier that already exists.
- */
 async function writeLegacyGoal(root) {
 	const fm = [
 		"goal_key: project-goal",
@@ -69,9 +48,6 @@ async function writeLegacyGoal(root) {
 	await writeFile(join(root, "goal.md"), `---\n${fm}\n---\n\n# 项目目标\n\n${legacyBody()}`, "utf8");
 }
 
-// ---------------------------------------------------------------------------
-// identity & carrier (25 §5)
-// ---------------------------------------------------------------------------
 
 test("carrier is the fixed singleton path — path IS identity", async () => {
 	await withTemp("goal.", async (base) => {
@@ -86,7 +62,6 @@ test("carrier is the fixed singleton path — path IS identity", async () => {
 		assert.equal(created.value.file, join(root, GOAL_RELATIVE_PATH));
 		assert.equal(goalFilePath(root), join(root, "goal.md"));
 
-		// 25 §5: no object_uid / fact_type_key / type subdirectory.
 		const raw = await readFile(created.value.file, "utf8");
 		assert.doesNotMatch(raw, /object_uid/);
 		assert.doesNotMatch(raw, /fact_type_key/);
@@ -112,7 +87,6 @@ test("create refuses a second Goal — the singleton is fail-closed (25 §11)", 
 		});
 		assert.equal(second.ok, false);
 		assert.equal(second.error.code, "goal/already_exists");
-		// The original must be untouched.
 		const after = await readGoalObject({ factSourceRoot: root });
 		assert.equal(after.value.frontmatter.title, "T");
 	});
@@ -148,9 +122,6 @@ test("create refuses the multi-instance fields 25 declares not adopted", async (
 	});
 });
 
-// ---------------------------------------------------------------------------
-// body contract (25 §6)
-// ---------------------------------------------------------------------------
 
 test("body must be exactly 目标陈述 — 方法与规划 is not accepted (25 §7)", async () => {
 	await withTemp("goal.", async (base) => {
@@ -179,8 +150,6 @@ test("a statement-only goal is a legal intermediate state (25 §7)", async () =>
 		});
 		assert.equal(r.ok, true, JSON.stringify(r.error));
 		const read = await readGoalObject({ factSourceRoot: root });
-		// 28 §8.1: sub-goals are derived by `parent_goal` reverse lookup, not
-		// stored on this carrier. None seeded ⇒ the derived set is empty.
 		assert.deepEqual(read.value.sub_goals, []);
 	});
 });
@@ -192,9 +161,6 @@ test("body structure validation requires a non-empty 目标陈述", () => {
 	assert.ok(r.issues.some((i) => /目标陈述 section must be present and non-empty/.test(i)));
 });
 
-// ---------------------------------------------------------------------------
-// 目标陈述长度上限（25 §7，2026-11-02 Human 决定：≤ 200 字符硬上限）
-// ---------------------------------------------------------------------------
 
 test("目标陈述 200 字符通过、201 字符拒绝（25 §7 硬上限）", () => {
 	const at = (n) => `# 项目目标\n\n## 目标陈述\n\n${"字".repeat(n)}\n`;
@@ -221,13 +187,11 @@ test("超限拒绝写入，且不得截断后写入（25 §7 拒绝纪律）", a
 		});
 		assert.equal(r.ok, false, "超限必须被拒绝");
 		assert.equal(r.error.code, "goal/body_invalid");
-		// 拒绝而不是截断：文件不应被创建，读者不该读到一条被悄悄砍过的陈述。
 		await assert.rejects(() => readFile(join(root, "goal.md"), "utf8"));
 	});
 });
 
 test("上限按去除首尾空白后的正文段计，段内换行照常计入", () => {
-	// 换行排版不得成为绕过上限的手段：段内换行与空白都计入长度。
 	const padded = `# 项目目标\n\n## 目标陈述\n\n\n\n${"字".repeat(200)}\n\n\n`;
 	assert.equal(validateGoalBodyStructure(padded).ok, true, "首尾空白不计入");
 
@@ -236,8 +200,6 @@ test("上限按去除首尾空白后的正文段计，段内换行照常计入",
 });
 
 test("存量 87 字陈述仍合规（上限不追溯改写既有内容）", async () => {
-	// Human 2026-11-02：现有 87 字不需要改。这条防的是「新上限一上线就把本仓
-	// 自己的 goal.md 判成不合规」——那会让受控读取与近期动态一起失读。
 	const raw = await readFile(
 		join(fileURLToPath(new URL("../../", import.meta.url)), "ldvh-base", "goal.md"),
 		"utf8",
@@ -248,9 +210,6 @@ test("存量 87 字陈述仍合规（上限不追溯改写既有内容）", asyn
 	assert.ok(section.length > 0 && section.length <= 200, `本仓陈述长度 ${section.length} 须 ≤ 200`);
 });
 
-// ---------------------------------------------------------------------------
-// sub-goal anchors (25 §11 §12)
-// ---------------------------------------------------------------------------
 
 test("parseSubGoals reads SG-n entries and flags malformed lines", () => {
 	const parsed = parseSubGoals("SG-1 第一条\nSG-2 第二条\n没有锚点的一行\n");
@@ -262,18 +221,11 @@ test("parseSubGoals reads SG-n entries and flags malformed lines", () => {
 test("legacy 子目标 section: dropping it now SUCCEEDS and reports what it dropped (25 §7 2026-11)", async () => {
 	await withTemp("goal.", async (base) => {
 		const root = await freshRoot(base);
-		// Seed the pre-migration shape by writing the carrier directly: the
-		// creation entry already refuses a legacy section (see below).
 		await writeLegacyGoal(root);
 		const cur = await readGoalObject({ factSourceRoot: root });
 		assert.equal(cur.value.body_valid, true, JSON.stringify(cur.value.body_issues));
 		assert.equal(hasLegacySubGoalSection(cur.value.body), true);
 
-		// 2026-11-01: this used to be REFUSED unless every SG-n had already been
-		// migrated to a SubGoal object. That precondition died with the anchor —
-		// `serves` no longer points at SG-n, so dropping the section cannot
-		// orphan anything. The mechanical layer can no longer prove migration,
-		// so it does the only honest thing: drop, and hand the text back.
 		const r = await updateGoalObject({
 			factSourceRoot: root,
 			expectedFingerprint: cur.value.fingerprint,
@@ -346,7 +298,6 @@ test("create refuses a NEW carrier carrying the legacy 子目标 section (25 §7
 });
 
 test("anchor stability: rewriting or reordering SG-n is refused; adding is allowed", async () => {
-	// A rewritten number is a delete+add, so the delete half is what fires.
 	const rewritten = validateAnchorStability(["SG-1", "SG-2"], ["SG-1", "SG-9"]);
 	assert.equal(rewritten.ok, false);
 	const reordered = validateAnchorStability(["SG-1", "SG-2"], ["SG-2", "SG-1"]);
@@ -365,26 +316,20 @@ test("readServableSubGoals resolves sub-goals from SubGoal carriers, not from go
 			bodyMarkdown: validBody(),
 			sessionSignature: SIG,
 		});
-		// No sub-goals yet ⇒ no resolvable anchors.
 		const empty = await readServableSubGoals({ factSourceRoot: root });
 		assert.equal(empty.ok, true, JSON.stringify(empty.error));
 		assert.deepEqual(empty.value.sub_goals, []);
 
-		// Adding a SubGoal object makes it servable WITHOUT touching goal.md.
 		await seedSubGoals(root, ["SG-1", "SG-2"]);
 		const listed = await readServableSubGoals({ factSourceRoot: root });
 		assert.deepEqual(listed.value.sub_goals.map((g) => g.object_uid), [subGoalUid(1), subGoalUid(2)]);
 
-		// A retired sub-goal is not a valid `serves` target, so it drops out.
 		await seedSubGoals(root, ["SG-3"], { status: "retired", indexOffset: 10 });
 		const retiredOnly = await readServableSubGoals({ factSourceRoot: root });
 		assert.deepEqual(retiredOnly.value.sub_goals.map((g) => g.object_uid), [subGoalUid(1), subGoalUid(2)]);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// status lifecycle (25 §7)
-// ---------------------------------------------------------------------------
 
 test("achieved is terminal — a later update is refused (25 §7 冻结)", async () => {
 	await withTemp("goal.", async (base) => {
@@ -425,9 +370,6 @@ test("a third status value is not in the closure (25 §7)", async () => {
 	assert.ok(r.issues.some((i) => /status: must be one of active\/achieved/.test(i)));
 });
 
-// ---------------------------------------------------------------------------
-// shared 03 §9 contract
-// ---------------------------------------------------------------------------
 
 test("read reports a missing goal as not_initialised, not as an error (25 §10)", async () => {
 	await withTemp("goal.", async (base) => {
@@ -494,7 +436,6 @@ test("create and update refuse an unsigned change_log entry (Human 2026-09-12)",
 		assert.equal(create.ok, false);
 		assert.equal(create.error.code, "signature_unavailable");
 		assert.match(create.error.message, /REPORT TO HUMAN/);
-		// A forged plain object is not a signature either.
 		const forged = await createGoalObject({
 			factSourceRoot: root,
 			frontmatterDraft: { title: "T", change_summary: "init" },
@@ -502,7 +443,6 @@ test("create and update refuse an unsigned change_log entry (Human 2026-09-12)",
 			sessionSignature: { provider: "forged", model: "x" },
 		});
 		assert.equal(forged.error.code, "signature_unavailable");
-		// Nothing written by either refusal.
 		const read = await readGoalObject({ factSourceRoot: root });
 		assert.equal(read.error.code, "goal/not_initialised");
 	});
@@ -532,21 +472,14 @@ test("splitBodySections returns the H2 sections in order", () => {
 
 test("readServableSubGoals reports the real repo sub-goals (integration)", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	// The repository's own goal.md must parse under this writer's contract —
-	// otherwise the writer and the live carrier disagree.
 	const root = fileURLToPath(new URL("../../ldvh-base", import.meta.url));
 	const r = await readServableSubGoals({ factSourceRoot: root });
 	assert.equal(r.ok, true, JSON.stringify(r.error));
 	assert.equal(r.value.status, "active");
-	// The live repo carries four sub-goals; the assertion is on COUNT and ORDER
-	// (1..4) rather than on uids, because uids are Code-minted identities.
 	assert.equal(r.value.sub_goals.length, 4);
 	assert.deepEqual(r.value.sub_goals.map((g) => g.order), [1, 2, 3, 4]);
 });
 
-// ---------------------------------------------------------------------------
-// tools layer (goal-tools.js)
-// ---------------------------------------------------------------------------
 
 test("goal tools: read/write lifecycle through the real tool handlers", async () => {
 	const { mkdir } = await import("node:fs/promises");
@@ -565,12 +498,10 @@ test("goal tools: read/write lifecycle through the real tool handlers", async ()
 		const { handlers } = makeExecute({ dshHomePath: (...p) => join(home, ...p) });
 		const ctx = { agent: { session: { header: { cwd: repo } } } };
 
-		// Absent singleton → unavailable with the 25 §10 reason (reads not blocked).
 		const absent = await handlers["goal-read-object"]({}, ctx);
 		assert.equal(absent.outcome, "unavailable");
 		assert.match(absent.gaps[0], /goal\/not_initialised/);
 
-		// Writing without a session authority → refused and reported for Human.
 		const unsigned = await handlers["goal-write-object"]({
 			action: "create",
 			frontmatter_draft: { title: "T", change_summary: "init" },
@@ -580,24 +511,12 @@ test("goal tools: read/write lifecycle through the real tool handlers", async ()
 		assert.ok(unsigned.gaps.some((g) => /signature_unavailable/.test(g)), JSON.stringify(unsigned.gaps));
 		assert.ok(unsigned.gaps.some((g) => /REPORT TO HUMAN/.test(g)));
 
-		// Still absent — the refusal must not have written anything.
 		const stillAbsent = await handlers["goal-read-object"]({}, ctx);
 		assert.equal(stillAbsent.outcome, "unavailable");
 	});
 });
 
 test("goal tools: goal-read-object derives sub-goals from SubGoal carriers, never crashing on them", async () => {
-	// 回归（真缺陷，长期未发现）：`derive` 分支直取 `derived.items`，而
-	// `listSubGoalObjects` 返回的是 `success({ value: { items } })` 信封——`items`
-	// 恒为 `undefined`，`derivedItems.map(...)` 必抛
-	// `Cannot read properties of undefined (reading 'map')`。
-	//
-	// 之所以长期没被发现：本项目当时没有任何一条用例在**存在子目标**的项目上调
-	// `goal-read-object`——上面那条 lifecycle 用例只覆盖「goal.md 不存在」。空项目
-	// 走的是 `derived.ok && value.items.length === 0` 之外的分支吗？不是：空项目同样
-	// 会 map 一个空数组，所以只要 `value` 读对就没事；真正的分界是「有没有子目标」，
-	// 而旧代码连空项目也会抛（`undefined.map`）。因此这条用例必须以**有子目标**
-	// 的项目为夹具，否则复现不到。
 	const { makeExecute } = await import("../lib/goal-tools.js");
 	const { initRepo, git } = await import("./helpers.mjs");
 	await withTemp("goal-tools-subgoals.", async (base) => {
@@ -635,7 +554,6 @@ test("goal tools: goal-read-object derives sub-goals from SubGoal carriers, neve
 		const ctx = { agent: { session: { header: { cwd: repo } } } };
 
 		const read = await handlers["goal-read-object"]({}, ctx);
-		// 不得抛异常：old code throws before this line even returns.
 		assert.equal(read.outcome, "completed", JSON.stringify(read.gaps));
 		assert.equal(read.result.sub_goals.length, 2, JSON.stringify(read.result.sub_goals));
 		assert.equal(read.result.sub_goals_unresolved, false);
@@ -643,7 +561,6 @@ test("goal tools: goal-read-object derives sub-goals from SubGoal carriers, neve
 			assert.equal(typeof sg.object_uid, "string");
 			assert.equal(typeof sg.title, "string");
 			assert.equal(typeof sg.order, "number");
-			// 28 §7：`anchor` 随 SG-n 废止而退场，不得以 undefined 键冒充「有编号但缺失」。
 			assert.equal("anchor" in sg, false);
 		}
 	});
@@ -656,9 +573,6 @@ test("goal tools: an invalid action is an invalid_request, not a write", async (
 	assert.equal(r.outcome, "invalid_request");
 });
 
-// ---------------------------------------------------------------------------
-// 回归：独立审核发现的缺陷（2026-09-12）
-// ---------------------------------------------------------------------------
 
 test("REGRESSION: read→echo-back update is idempotent — the H1 is never doubled", async () => {
 	await withTemp("goal-rt.", async (base) => {
@@ -669,9 +583,6 @@ test("REGRESSION: read→echo-back update is idempotent — the H1 is never doub
 			bodyMarkdown: validBody(),
 			sessionSignature: SIG,
 		});
-		// Feed back exactly what read returned, three times. `readGoalObject`
-		// returns the body INCLUDING the H1, so a non-idempotent assembly
-		// doubles it — which is what happened to the real goal.md (94a51bf).
 		for (let i = 1; i <= 3; i += 1) {
 			const cur = await readGoalObject({ factSourceRoot: root });
 			const r = await updateGoalObject({
@@ -702,9 +613,6 @@ test("REGRESSION: a malformed anchor cannot escape the legacy-section guard (25 
 		const root = await freshRoot(base);
 		await writeLegacyGoal(root);
 		const cur = await readGoalObject({ factSourceRoot: root });
-		// Each malformed shape must be REFUSED with a precise code — otherwise
-		// the anchor stops parsing (anchor: null), becomes invisible to the
-		// comparison, and deleting it would be silently accepted.
 		for (const [label, sub] of [
 			["no separator", "SG-3三"],
 			["colon", "SG-3: 三"],
@@ -728,15 +636,11 @@ test("REGRESSION: a malformed anchor cannot escape the legacy-section guard (25 
 });
 
 test("parseSubGoals tolerates a list marker and reports anchor-shaped failures", () => {
-	// A leading marker is tolerated (hand-edited files may use one).
 	assert.equal(parseSubGoals("- SG-1 判据")[0].anchor, "SG-1");
 	assert.equal(parseSubGoals("* SG-2 判据")[0].anchor, "SG-2");
-	// `SG-0` parses but is flagged non-canonical.
 	const zero = parseSubGoals("SG-0 判据")[0];
 	assert.equal(zero.anchor, "SG-0");
 	assert.equal(zero.malformed, true);
-	// Anchor-shaped text that does not parse carries a reason so the writer can
-	// refuse instead of silently ignoring it.
 	const broken = parseSubGoals("SG-3: 判据")[0];
 	assert.equal(broken.anchor, null);
 	assert.match(String(broken.reason), /looks like a sub-goal anchor/);
@@ -757,7 +661,6 @@ test("REGRESSION: the carrier FILE mode is checked, not just the directory (07 �
 			"projects: []", 'default_project_id: ""', "",
 		].join("\n"));
 
-		// Directory correct, file world-readable → must be refused.
 		await ch(file, 0o644);
 		const resolveHome = (...p) => join(home, ...p);
 		const wide = await evaluateRegistrationEntry(resolveHome);
@@ -765,7 +668,6 @@ test("REGRESSION: the carrier FILE mode is checked, not just the directory (07 �
 		assert.equal(wide.error.code, "registration_permission_unverified");
 		assert.match(wide.error.message, /file permission is wider than 0600/);
 
-		// Compliant 0600 → accepted.
 		await ch(file, 0o600);
 		const ok = await evaluateRegistrationEntry(resolveHome);
 		assert.equal(ok.ok, true, JSON.stringify(ok));

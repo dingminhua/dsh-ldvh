@@ -61,7 +61,6 @@ if (!r1.stop) {
 }
 
 if (session.stoppingReason === null) {
-  // Round 3: round-cap (reached maxRounds=3)
   const r3 = session.submitRound([
     {
       statement: "GitHub Projects 的 roadmap 视图按 milestone 组织，支持按 repository/filter 分组",
@@ -83,7 +82,6 @@ console.log("Finalize ok:", final.ok);
 if (!final.ok) { console.error(final.error); process.exit(1); }
 console.log("Stopping:", final.value.stopping_reason, "| Confirmed:", final.value.confirmed.length, "| Uncertain:", final.value.uncertain.length, "| Gaps:", final.value.gaps.length);
 
-// Build analysis body
 const confirmedSection = final.value.confirmed.map((c, i) =>
   "### 发现 " + (i + 1) + "：" + c.statement + "\n\n置信度：" + c.confidence + "。摘录：「" + c.quotes[0].text + "」（" + c.quotes[0].source + "，锚点：" + c.quotes[0].anchor + "）[" + (i + 1) + "]"
 ).join("\n\n");
@@ -115,7 +113,6 @@ const analysisBody = [
   "后续：LDVH 蓝图五个待裁决问题的业界依据已获取，可进入 Human 裁决阶段。",
 ].join("\n");
 
-// Create the Research object
 const createResult = await createResearchObject({
   factSourceRoot: "/Users/dmh2002/DshProject/dsh-ldvh/ldvh-base",
   frontmatterDraft: {
@@ -152,7 +149,6 @@ console.log("Directory:", createResult.value.directory);
 console.log("Files:", createResult.value.files);
 console.log("Fingerprint:", createResult.value.fingerprint.slice(0, 20) + "...");
 
-// Read back to verify
 const readBack = await readResearchObject({
   factSourceRoot: "/Users/dmh2002/DshProject/dsh-ldvh/ldvh-base",
   objectUid: createResult.value.object_uid,

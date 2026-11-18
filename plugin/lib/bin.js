@@ -15,11 +15,6 @@ function valueAfter(args, flag) {
   return args[index + 1];
 }
 
-/**
- * 07 §5.6 refusal shape for a CLI invocation that lacks the explicit-intent
- * carrier. A CLI has no host answerer to ask, so the Human running the command
- * must state the intent; a bare invocation is not consent.
- */
 function humanIntentRequired(what, flag) {
   return {
     ok: false,
@@ -56,11 +51,6 @@ async function main(argv) {
         process.stderr.write("install requires --id PROJECT_ID\n");
         return 2;
       }
-      // 07 §5.4/§5.6: the installation transaction REGISTERS the project, so it
-      // is a registration write and needs the same explicit-intent carrier as
-      // `register`. (08 §6's settings-page click is the Web carrier; a CLI
-      // invocation has no click, hence the flag.) Enforcing this on `register`
-      // but not here left the whole gate bypassable by one command.
       if (!argv.includes("--human-confirmed")) {
         result = humanIntentRequired("installation registers the project", "--human-confirmed");
       } else {
@@ -72,8 +62,6 @@ async function main(argv) {
         }, { runnerPath, workspaceRoot: packageRoot });
       }
     } else if (command === "uninstall-hook") {
-      // Removing the managed hook weakens a live mechanical protection while
-      // the project stays governed, so it carries the same intent requirement.
       if (!argv.includes("--human-confirmed")) {
         result = humanIntentRequired("removing the managed Git hook weakens enforcement", "--human-confirmed");
       } else {
@@ -86,10 +74,6 @@ async function main(argv) {
         process.stderr.write("register requires --id PROJECT_ID\n");
         return 2;
       }
-      // 07 §5.6: "登记或取消仅由 Human 明确意图触发". A CLI invocation has no
-      // host answerer to ask, so the intent must be carried EXPLICITLY by the
-      // Human running the command. The flag is that carrier; without it the
-      // entry must fail closed rather than treat the invocation as consent.
       if (!argv.includes("--human-confirmed")) {
         result = humanIntentRequired("registration changes who is governed", "--human-confirmed");
       } else {
@@ -106,7 +90,6 @@ async function main(argv) {
         process.stderr.write("unregister requires --id PROJECT_ID\n");
         return 2;
       }
-      // 07 §5.6 applies to cancellation too: same explicit-intent carrier.
       if (!argv.includes("--human-confirmed")) {
         result = humanIntentRequired("cancellation changes who is governed", "--human-confirmed");
       } else {

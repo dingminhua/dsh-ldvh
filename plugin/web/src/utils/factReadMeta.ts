@@ -30,13 +30,7 @@ const EXACT_READ_METADATA_FIELDS = new Set([
   'coverage_status',
   'observed_at',
   'read_issues',
-  // report_body 是 markdown 载体正文的读取层投影名（localFactReader 把正文塞进
-  // 投影对象时起的名字），不是 frontmatter 字段——对象文件里它不存在。YAML 源
-  // 视图只呈现机器索引层（frontmatter），正文由分节阅读布局与阅读面板承载；
-  // 不排除会把整篇正文伪装成一个 YAML 字段并造成双重呈现。
   'report_body',
-  // yaml_source 是文件中 YAML 部分的逐字原文（读取层透传），YAML 源视图直接
-  // 直显它本身；仅当它缺席时 reconstruction 才兜底，且不得把它当事实字段重建。
   'yaml_source',
 ]);
 
@@ -75,7 +69,6 @@ function asIssues(value: unknown): FactReadIssue[] {
     });
 }
 
-/** Source metadata is accepted only from an exact fact-detail payload, never from a route target or object ID. */
 export function getFactReadMeta(value: Record<string, unknown> | undefined): FactReadMeta {
   const readStatus = asReadStatus(value?.read_status);
   return {
@@ -100,14 +93,12 @@ export function isReadableFact(meta: FactReadMeta): meta is FactReadMeta & {
     && meta.carrier !== undefined;
 }
 
-/** Strip the exact-read envelope before rendering reconstructed carrier data. */
 export function projectFactObjectFields(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(value).filter(([field]) => !EXACT_READ_METADATA_FIELDS.has(field)),
   );
 }
 
-/** Reconstruct readable YAML data without changing scalar types or exposing the exact-read envelope. */
 export function reconstructFactYaml(value: Record<string, unknown>): string {
   return dumpYaml(projectFactObjectFields(value), {
     noRefs: true,
@@ -116,11 +107,6 @@ export function reconstructFactYaml(value: Record<string, unknown>): string {
   });
 }
 
-/**
- * 24 §7 规范阅读序（展示层约定，Human 2026-09-09 定）：语义块在前（标题/状态/
- * 研究三要素/三态证据/澄清启发/退出语义），引用与身份居后，change_log 沉底。
- * 与 plugin/lib/research-writer.js 的 FRONTMATTER_FIELD_ORDER 同源同值。
- */
 const RESEARCH_FRONTMATTER_DISPLAY_ORDER = [
   'title', 'status',
   'research_question', 'research_purpose', 'stopping_reason',
@@ -131,13 +117,6 @@ const RESEARCH_FRONTMATTER_DISPLAY_ORDER = [
   'change_log',
 ];
 
-/**
- * 展示时按 24 §7 规范阅读序重排 research frontmatter（Human 2026-09-09：
- * 不强制书写顺序，展示的时候排序）。内容保真：以 yaml_source 原文解析出的
- * 真实字段为界——不注入（如文件名推导的 object_id 不出现）、不过滤（未知
- * 字段按原序跟在阅读序之后，有什么显示什么），只重排键序。原文不可解析时
- * 原样返回（有问题看得见），不静默兜底。
- */
 export function sortedResearchFrontmatterYaml(rawSource: unknown): string | undefined {
   if (typeof rawSource !== 'string' || rawSource.length === 0) return undefined;
   let parsed: unknown;

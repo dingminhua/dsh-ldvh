@@ -71,8 +71,6 @@ test('legacy reference fields are not projected', () => {
 });
 
 test('commit-form targets project as relations, not unresolved (02 §8.1 commit 形态)', () => {
-  // 回归：commit 形态的 target 此前落进 unresolved 桶，导致 commit 级解药
-  // （如 bf73fad4 的 informs）在阅读界面上完全不可见。
   const commit = 'e4e178fd7e3293f47003ed0150ab1128cc6ae0ef';
   const projected = projectFactReadingAssociations({
     relations: [{ relation_key: 'informs', target: { commit } }],
@@ -80,7 +78,6 @@ test('commit-form targets project as relations, not unresolved (02 §8.1 commit 
   assert.deepEqual(projected.unresolved, []);
   assert.equal(projected.relations.length, 1);
   assert.deepEqual(projected.relations[0].target, { commit });
-  // 分组：commit 目标单列一组，不并进 'uid' 或任何对象类型
   assert.deepEqual(
     groupRelationsByTargetType(projected.relations).map((g) => g.factTypeKey),
     ['commit'],
@@ -114,8 +111,6 @@ test('commit-form targets fall back to no title when the subject is unavailable'
 });
 
 test('commit-form targets reject mixed shapes and non-hex values (02 §8.1/§8.2)', () => {
-  // 互斥与形状纪律在阅读层同样成立：混带 object_uid、短 hash、非 hex 一律不可解析，
-  // 须留在 unresolved 而不是被静默渲染成一个「像 commit」的目标。
   const projected = projectFactReadingAssociations({
     relations: [
       { relation_key: 'informs', target: { commit: 'a'.repeat(40), object_uid: '0198f1c7-8a2b-4c3d-9e4f-123456789abc' } },
@@ -182,13 +177,11 @@ test('refs project as their own reading set, never as relations', () => {
   const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
   const resolvedTarget = { governedProjectId: 'sample', factTypeKey: 'research', objectId: 'research-0007' };
   const obj = {
-    // 03 §7.2 分工纪律：relations 承载生命周期关系、refs 承载普通内容关联。
     relations: [{ relation_key: 'merged-into', target: { governed_project_id: 'sample', fact_type_key: 'spark', object_id: 'spark-0012' } }],
     factRefs: [{ objectUid, resolvedTarget, available: true, title: '某调研' }],
   };
   const refs = projectFactReadingRefs(obj);
   assert.deepEqual(refs, [{ originPath: 'factRefs[0]', objectUid, resolvedTarget }]);
-  // refs 不进入 relations 集合，反之亦然——两者语义互不替代。
   const associations = projectFactReadingAssociations(obj);
   assert.deepEqual(associations.relations.map((r) => r.relationKey), ['merged-into']);
   assert.equal('objectUid' in associations.relations[0].target, false);

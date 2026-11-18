@@ -1,28 +1,14 @@
-/**
- * 一次性回填脚本：为 21 条 open Spark 补 priority 字段（20 §8，Human 裁定 A）。
- *
- * 走受控写入（updateSparkObject）：CAS + change_log + 精确回读。
- * 分档取自 docs/spark-priority-backfill-proposal.md（Human 确认按计划推进，
- * 保留随时临时调整的权力）。
- *
- * 用法：node scripts/backfill-spark-priority.mjs [--dry-run]
- */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSparkObject, updateSparkObject } from '../lib/spark-writer.js';
 import { authoritativeSignature } from '../lib/signature-channel.js';
 
-// `URL.pathname` is NOT a filesystem path: on Windows it yields `/D:/...` (a
-// drive-relative spelling with a leading slash) which `join` then mangles into
-// an unresolvable path. fileURLToPath gives the native form on every platform.
 const REPO = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '');
-/** 事实源根：writer 在 factSourceRoot 下拼 sparks/，故取 ldvh-base。 */
 const FACT_SOURCE_ROOT = join(REPO, 'ldvh-base');
 const SPARKS = join(FACT_SOURCE_ROOT, 'sparks');
 const DRY = process.argv.includes('--dry-run');
 
-/** title → priority（来自已确认的回填建议表）。 */
 const ASSIGNMENTS = {
   'Norm 承载层补建': 'P0',
 
@@ -52,7 +38,6 @@ const ASSIGNMENTS = {
 
 const sig = authoritativeSignature({ provider: 'workbuddy', model: 'deepseek-v4.1-flash' });
 
-/** 在 frontmatter 文本中插入 priority 行（紧随 serves 之后；无 serves 则紧随 summary 段末）。 */
 function insertPriority(frontmatterText, priority) {
   const lines = frontmatterText.split('\n');
   const servesIdx = lines.findIndex((l) => /^serves:/.test(l));
@@ -107,7 +92,6 @@ for (const { uid, title, file } of openSparks) {
     continue;
   }
 
-  // 重建完整 frontmatter：按既有键序插入 priority 后再拼回正文。
   const raw = await readFile(join(SPARKS, file), 'utf8');
   const m = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(raw);
   if (!m) {
@@ -115,12 +99,9 @@ for (const { uid, title, file } of openSparks) {
     continue;
   }
   const [, fmText, rawBody] = m;
-  // writer 的 assembleBody 会用 title 重新拼 H1，故传入的 body 须从 H2 起
-  // （与 create/update 的既有契约一致；带上 H1 会触发 body_invalid）。
   const body = rawBody.replace(/^\s*#\s+.*\n/, '');
   const nextFmText = insertPriority(fmText, priority);
 
-  // 解析新 frontmatter 为对象（交由 writer 校验闭集与状态互斥）。
   const { parse: parseYaml } = await import('yaml');
   const parsed = parseYaml(nextFmText);
 
@@ -144,7 +125,6 @@ for (const { uid, title, file } of openSparks) {
     failures.push(`${title}: ${res.error?.code} ${res.error?.message}`);
     continue;
   }
-  // 精确回读
   const back = await readSparkObject({ factSourceRoot: FACT_SOURCE_ROOT, objectUid: uid });
   const got = back.ok ? back.value.frontmatter?.priority : undefined;
   if (got !== priority) {

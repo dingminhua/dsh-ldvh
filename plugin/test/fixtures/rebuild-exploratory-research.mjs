@@ -1,11 +1,3 @@
-/**
- * Rebuild the blueprint research as a proper exploratory research object:
- *   调查阶段 H2 (four H3) = the survey facts (what the products do)
- *   analysis sections     = the actual research (patterns, comparison,
- *                           what it means for LDVH)
- * Also disables YAML line-wrapping so long Chinese statements stay on
- * one line and the frontmatter is human-readable.
- */
 import { rm } from "node:fs/promises";
 import { createResearchObject, readResearchObject, updateResearchObject } from "../../lib/research-writer.js";
 import { shellAuthoritativeSignature } from "../../lib/session-signature.js";
@@ -65,7 +57,6 @@ const implications = [
   { finding_ref: confirmed[11].statement, implication: "Jira 沙箱+Review changes 与 LDVH 蓝图受控更新（CAS+change_log）同构——业界先例支持蓝图走受控通道而非自由编辑" },
 ];
 
-// --- Body: exploratory = 调查阶段 H2 + four H3, then analysis ---
 const surveyBody = [
   "### 调查问题与范围",
   "三个业界头部产品（Linear、GitHub Projects、Jira Plans）的项目状态总览/蓝图功能各是什么结构？按固定结构、更新机制、人机交互三个子问题搜集官方文档证据。收敛后的研究问题：LDVH 蓝图的六区块设计在业界有无先例、更新机制可吸收哪些模式。",
@@ -136,7 +127,6 @@ if (!result.ok) {
 }
 console.log("New object:", result.value.object_uid);
 
-// Retire the previous attempt (31c2cf86) — it was directed-type with pure listing, not real research
 const prevRead = await readResearchObject({ factSourceRoot: ROOT, objectUid: PREV_UID });
 if (prevRead.ok) {
   const retired = await updateResearchObject({

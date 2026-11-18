@@ -1,32 +1,3 @@
-// 守卫：召回模块硬编码的「从规范抄来的知识」必须与规范原文一致。
-//
-// ## 为什么需要这个文件（2026-10-24，第 70 轮）
-//
-// 召回模块里有三处常量是**从 20–27 各类型规范里抄下来的**：
-//
-//   1. `REGISTERED_FACT_TYPES`——哪些事实类型进入召回；
-//   2. `DEFAULT_STATUSES_BY_TYPE`——每个类型默认取哪些状态；
-//   3. 参与匹配的 frontmatter 字段清单。
-//
-// 抄下来那一刻，它们就固定了。**规范改了、新增了类型，代码不知道**，
-// 也没有任何东西会提醒——这正是 `01 §11.4`「来源先行闭环」禁的
-// 「事实上的第二规则源」：规范说一套、代码判一套。
-//
-// ## 本文件覆盖的五种变动
-//
-//   1. **新增规范**：`specs/` 下出现新载体 → 应由目录扫描自动生效（另有用例验证）；
-//   2. **修改规范**：已有的某个类型规范改了状态闭集 → 本文件的逐字回指会失败；
-//   3. **新增事实类型**：`20–29` 出现新类型规范 → 本文件检查白名单是否覆盖；
-//   4. **修改事实类型**：某类型的状态闭集变化 → 逐字回指失败；
-//   5. **新增事实**：`ldvh-base/` 下出现未知类型的目录 → 由「未登记类型须如实披露」用例守护。
-//
-// ## 本文件**不能**证明什么
-//
-// - 不证明常量**完整**：只查「代码里的每个值在原文中存在」，不查「原文里的每个值
-//   在代码中存在」——完整性判定需解析规范结构，已越过机械层的边界
-//   （与 `precheck-record.spec-drift.test.mjs` 同口径）。
-// - 不证明语义正确（措辞存在 ≠ 代码用对了）。
-// - 依赖 `specs/` 在同仓库可读；不可读时显式失败，不静默通过。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -43,16 +14,14 @@ import {
 const ROOT = join(import.meta.dirname, "..", "..");
 const SPECS_DIR = join(ROOT, "specs");
 
-/** 类型 → 它的事实规范文件名（20–29，21/22/29 号空位）。这是**唯一映射来源**，不得在别处再抄一份。 */
 const TYPE_SPEC_FILES = Object.freeze({
-	spark: "20-Spark-火花.md",
-	pitfall: "23-Pitfall-踩坑经验.md",
+	spark: "22-Spark-火花.md",
+	pitfall: "25-Pitfall-踩坑经验.md",
 	report: "24-Report-报告.md",
-	goal: "25-Goal-项目目标.md",
+	goal: "20-Goal-项目目标.md",
 	friction: "26-Friction-摩擦账本.md",
-	norm: "27-Norm-事实规范.md",
-	subgoal: "28-SubGoal-子目标.md",
-	// 29 号 DevLog 已于 2026-11-14 撤除（01 §8 号位表为空位），映射随之删除。
+	norm: "23-Norm-事实规范.md",
+	subgoal: "21-SubGoal-子目标.md",
 });
 
 async function readSpec(name) {
@@ -70,8 +39,6 @@ test("specs 语料可读（不可读须显式失败，不得静默通过）", as
 });
 
 test("① 新增规范：specs/ 下新增载体须自动可召回（无需改代码）", async () => {
-	// 这条验证「目录扫描」这一设计本身：新增一份规范，不改任何代码，
-	// 它就应该能被召回。若将来有人把规范清单也写成硬编码，本用例会失败。
 	const r = await recallForAction({
 		action: "业务系统 职责 边界",
 		root: ROOT,
@@ -80,42 +47,19 @@ test("① 新增规范：specs/ 下新增载体须自动可召回（无需改代
 		includeFacts: false,
 	});
 	assert.ok(r.specs.length > 0, "应能召回规范");
-	// 关键：扫描到的规范数应显著多于「注册表里的类型数」——说明是扫目录而非查清单。
 	assert.ok(
 		r.coverage?.specsScanned === undefined || r.coverage.specsScanned > 8,
 		"规范侧应扫描整个 specs/ 目录，而非固定清单",
 	);
 });
 
-test("②③ 事实类型白名单须覆盖 20–27 全部类型规范（新增类型即失败）", async () => {
-	// 反向检查：`specs/` 下每个 `2x-*` 事实类型规范，都必须在白名单里。
-	// 若将来新增 28 号类型规范而没同步白名单，本用例失败——这正是
-	// 「新增事实类型」这一种变动需要的提醒。
+test("②③ 事实类型白名单须覆盖 20–26 全部类型规范（新增类型即失败）", async () => {
 	const entries = await readdir(SPECS_DIR);
-	// **不能用 `2\d` 这种编号区间**（2026-10-24 实测发现）：编号一旦超过 29
-	// （如新增 98 号类型规范），正则就漏掉，检查静默失效。
-	//
-	// 改用**内容判据**：凡 frontmatter 里 `parent_spec` 指 `fact-model-foundation`
-	// 或 `business-system-foundation` 的、且 `spec_kind: "spec"` 的载体，
-	// 都是事实类型规范。这比编号可靠——编号会变，归属关系不会。
 	const allMd = entries.filter((f) => f.endsWith(".md"));
 	const typeSpecFiles = [];
 	for (const file of allMd) {
 		const text = await readSpec(file);
 		if (text === null) continue;
-		// **判据第四次修订（2026-11-01，实测驱动）**：此前用「正文表格里
-		// `| \`fact_type_key\` | \`spark\` |` 形态」判定，实际漏掉了 24、25、28
-		// ——把 24/25/28/29 判成「非类型规范」，于是「新增类型即失败」这条用例
-		// **对它们完全不生效**（29 号加入时该用例照样全绿，是这个漏洞的直接证据）。
-		//
-		// 漏判的形态各异：
-		//   · 24 号的短名不在表格里，而是正文句 `` `fact_type_key` 固定为 `research`。``
-		//   · 28/29 号写成 `` | `fact_type_key` | `subgoal`（值域登记见 02 §7.1） | ``
-		//     ——短名后还有括号说明，不满足「短名即该 cell 全部内容」。
-		//
-		// 改用 **`spec_key` 命名约定**：`02 §7.1` 明文登记「规范身份键 `spec_key`
-		// （`<type>-fact-type` 形态）是规范文档层标识」。该约定是规范侧登记的，
-		// 不是本用例自造的启发式；实测 20–29 全部命中，00–11 与 30–36 全部不命中。
 		const specKeyMatch = /spec_key:\s*"([^"]+)"/.exec(text);
 		const declaresOwnKey = specKeyMatch !== null && /-fact-type$/.test(specKeyMatch[1]);
 		const isTypeSpec = /spec_kind:\s*"spec"/.test(text) && declaresOwnKey;
@@ -128,7 +72,6 @@ test("②③ 事实类型白名单须覆盖 20–27 全部类型规范（新增�
 		const m = /^(\d+)-/.exec(file);
 		if (m === null) continue;
 		const prefix = m[1];
-		// 20–27 是已知的八类；28 及以后若有新规范，须同步到白名单与映射。
 		const known = Object.entries(TYPE_SPEC_FILES).find(([, specFile]) => specFile.startsWith(`${prefix}-`));
 		if (known === undefined) {
 			missing.push(`specs/${file} 是类型规范，但未登记在 TYPE_SPEC_FILES / REGISTERED_FACT_TYPES 中`);
@@ -146,27 +89,12 @@ test("②③ 事实类型白名单须覆盖 20–27 全部类型规范（新增�
 });
 
 test("②④ 每类型的默认候选状态须在规范原文中逐字可回指", async () => {
-	// 「修改事实类型」这一种变动靠这里守：若某个类型规范的默认候选变了
-	// （例如 `open` 改成 `open/merged`），而代码常量没跟上，本用例失败。
-	//
-	// 回指方式：每个类型规范都有「默认候选…」的措辞。逐字检查代码里的每个
-	// 状态值都确实出现在该规范原文中——值消失了就是漂移。
 	for (const [type, statuses] of Object.entries(DEFAULT_STATUSES_BY_TYPE)) {
 		const specFile = TYPE_SPEC_FILES[type];
 		assert.ok(specFile !== undefined, `类型「${type}」缺规范映射`);
 		const text = await readSpec(specFile);
 		assert.notEqual(text, null, `规范不可读：specs/${specFile}`);
 
-		// **逐字查单个状态词不够**（2026-10-24 实测发现）：例如 `open` 这个词在
-		// Spark 规范里别处也出现，把「默认候选只包含 open」改成「pending」后，
-		// 单查 `open` 仍然通过——检查形同虚设。
-		//
-		// 故改为**锚定「默认候选…」那句话**：取出原文里含「默认候选」的片段，
-		// 要求代码声明的每个状态值都出现在**该片段内**。这样规范一改默认范围，
-		// 检查立刻失败。
-		// **「默认候选」可能出现多次**（2026-10-24 实测）：23 号第一处讲的是
-		// 「draft 不进入默认候选」的排除说明，主句在后面。故须在该规范里
-		// 找出**确实枚举了状态值的那一处**，而不是第一个匹配。
 		const defaultSentence = (() => {
 			const hits = [];
 			let from = 0;
@@ -179,13 +107,11 @@ test("②④ 每类型的默认候选状态须在规范原文中逐字可回指"
 				from = idx + 4;
 			}
 			if (hits.length === 0) return null;
-			// 优先取「含代码声明的状态值」的那一处；都没有则取最后一处（通常是主句）。
 			const withStatus = hits.find((h) => statuses.some((s) => h.includes(s)));
 			return withStatus ?? hits[hits.length - 1];
 		})();
 
 		if (defaultSentence === null) {
-			// 该类型规范不使用「默认候选」措辞（如 Goal 单例）——显式跳过而非静默通过。
 			continue;
 		}
 
@@ -197,9 +123,8 @@ test("②④ 每类型的默认候选状态须在规范原文中逐字可回指"
 			);
 		}
 	}
-	// 白名单里每个类型都须有默认状态定义，否则该类型默认召回为空。
 	for (const type of REGISTERED_FACT_TYPES) {
-		if (type === "goal") continue; // Goal 是单例，不使用多例状态机（25 §7）
+		if (type === "goal") continue;
 		assert.ok(
 			DEFAULT_STATUSES_BY_TYPE[type] !== undefined,
 			`白名单含类型「${type}」但缺默认候选状态定义——该类型将默认零召回`,
@@ -208,30 +133,20 @@ test("②④ 每类型的默认候选状态须在规范原文中逐字可回指"
 });
 
 test("⑤ 未登记类型目录不得被静默忽略（须进 gaps）", async () => {
-	// 「新增事实」这一种变动：若 `ldvh-base/` 下出现白名单外的类型目录，
-	// 当前实现会**静默挡掉**——用户完全不知道有一类事实看不见。
-	// 本用例要求它至少在 gaps 或 uncheckedRange 里如实披露。
 	const base = join(ROOT, "ldvh-base");
 	const entries = await readdir(base, { withFileTypes: true }).catch(() => []);
 	const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-	// **只算含实际载体的目录**：召回披露的是「有事实但类型未登记」（source-recall
-	// 里 scopedFacts 的未登记 fact），空目录没有任何载体，进不了 gaps——这是正确
-	// 行为。git 不跟踪空目录，类型撤除后删掉载体留下的空壳（如本轮重构后的
-	// adrs/researches/workcases）会被下面的目录名过滤误判成「有未登记事实」。
-	// 与实现对齐：目录里没有 .md 载体就不算「未登记类型」，不要求披露。
 	const withCarriers = [];
 	for (const d of dirs) {
 		const files = await readdir(join(base, d)).catch(() => []);
 		if (files.some((f) => f.endsWith(".md"))) withCarriers.push(d);
 	}
-	// **目录名是复数**（norms/pitfalls/…），类型名是单数（norm/pitfall/…）。
-	// 直接比目录名会把全部已知类型误判为「未登记」。已实测踩过此坑。
 	const knownDirs = new Set(REGISTERED_FACT_TYPES.map((t) => `${t}s`));
-	knownDirs.add("reports"); // research 的复数是不规则形式
-	knownDirs.add("goal.md");    // 单例，不是目录
+	knownDirs.add("reports");
+	knownDirs.add("goal.md");
 	const unknown = withCarriers.filter((d) => !knownDirs.has(d) && !knownDirs.has(`${d}s`) && d !== "observation-buffer");
 
-	if (unknown.length === 0) return; // 当前无未知类型，跳过（但下面的实现断言仍需成立）
+	if (unknown.length === 0) return;
 
 	const r = await recallForAction({ action: "任意查询", root: ROOT, limit: 5 });
 	const disclosed = (r.gaps ?? []).some((g) => /未登记|未识别|未知类型/.test(g)) ||
@@ -244,11 +159,6 @@ test("⑤ 未登记类型目录不得被静默忽略（须进 gaps）", async ()
 });
 
 test("⑥ frontmatter 匹配字段清单须与类型规范的字段定义一致", async () => {
-	// 「修改事实类型」的另一种形态：新增一个 frontmatter 字段（如新的
-	// `trigger_signal` 类），而 `detail` 匹配面没跟上——该字段内容对召回不可见。
-	//
-	// 这里逐项检查：代码里参与匹配的每个字段名，都须在 02（公共字段）或
-	// 对应类型规范中出现过。
 	const spec02 = await readSpec("02-事实源与事实模型基础规范.md");
 	assert.notEqual(spec02, null, "02 号规范不可读");
 
@@ -263,7 +173,7 @@ test("⑥ frontmatter 匹配字段清单须与类型规范的字段定义一致"
 	assert.deepEqual(
 		missing,
 		[],
-		`以下参与匹配的 frontmatter 字段在 02 或 20–27 原文中都找不到——` +
+		`以下参与匹配的 frontmatter 字段在 02 或 20–26 原文中都找不到——` +
 			`可能是字段已改名/废弃而代码未跟随：${missing.join(" / ")}`,
 	);
 });

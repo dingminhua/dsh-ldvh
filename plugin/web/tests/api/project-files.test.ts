@@ -7,17 +7,6 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { after, before, test } from 'node:test'
 
-/**
- * Canonicalize a path the SAME way the API does.
- *
- * `api/services/governanceScope.ts` resolves fixtures with `realpathSync.native`,
- * which on Windows expands the 8.3 short name (`ADMINI~1`) that `os.tmpdir()`
- * hands back — while plain `realpathSync` keeps it. Comparing the API's native
- * form against the non-native one therefore fails only on Windows, with the two
- * strings differing by nothing but `Administrator` vs `ADMINI~1`. Using the
- * native variant here lines the expectation up with the product instead of
- * loosening the assertion.
- */
 const canonical = (value: string): string => fs.realpathSync.native(value)
 
 const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-project-files-workspace-'))
@@ -50,8 +39,6 @@ fs.writeFileSync(
 
 process.env.LDVH_ROOT = projectRoot
 process.env.LDVH_WORKSPACE_ROOT = workspaceRoot
-// v5 现状：治理范围经 Node git 解析，不依赖 v4 Python Helper。登记载体指向本测试
-// 自建的工作区治理 YAML，触发 governanceScope 的 Node git 分支。CI 可用覆盖。
 process.env.LDVH_GOVERNED_PROJECTS_CONFIG = path.resolve(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.yaml')
 process.env.LDVH_WEB_WORKTREE_LOCATOR = projectRoot
 
@@ -84,8 +71,6 @@ before(async () => {
 })
 
 after(async () => {
-  // 先强制断开 keep-alive 连接，避免 close 回调等待空闲连接自然超时，
-  // 再关闭 server 停止接受新连接。
   server.closeAllConnections?.()
   await new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve())
@@ -202,17 +187,12 @@ test('rejects Project Files when Code governance cannot verify the workspace', a
 })
 
 test('recovers a restored governance carrier without a restart', async () => {
-  // v5 现状等价语义：登记载体（LDVH_GOVERNED_PROJECTS_CONFIG）临时不可读时，
-  // 治理范围解析失败并如实返回；载体恢复后，同一进程的下一次请求无需重启即再次可用
-  // （governanceScope.currentVerifiedScope 对失败解析不缓存，交由后续请求重试）。
   const configPath = process.env.LDVH_GOVERNED_PROJECTS_CONFIG!
   const parkedPath = path.join(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.parked')
   fs.renameSync(configPath, parkedPath)
   try {
     const failed = await get('/api/project-files/projects')
     assert.equal(failed.response.status, 500)
-    // 错误文案经 i18n 本地化（governedProjectsSettings 抛中文、governanceScope 抛英文），
-    // 断言只锚定错误结构存在，避免绑定具体语言。
     assert.ok(String(failed.body.error).length > 0, 'governance error message must not be empty')
   } finally {
     fs.renameSync(parkedPath, configPath)

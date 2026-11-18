@@ -1,23 +1,3 @@
-// LDVH spark mechanical layer — runtime wiring.
-//
-// This module connects the Spark writer (spark-writer.js, specs/20 §13 +
-// specs/03 §9) to the governed tool surface so the main controller can
-// drive it from a live session:
-//
-//   - spark-read-object  (effect: read)             — precise F3 read by
-//     object_uid: frontmatter, body, mechanical issues and fingerprint.
-//   - spark-list-objects (effect: read)             — F0/F1 discovery:
-//     dedup-relevant projection (title/question/status/serves/refs),
-//     open-only by default.
-//   - spark-write-object (effect: may_change_state) — controlled create
-//     (C1 proposal confirmed by Human) and CAS update with change_log,
-//     against the governed project's fact source.
-//
-// Authorities: specs/05 §6 (operation declaration + common envelope),
-// §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
-// write-back read-back), specs/20 §13 (type-specific mechanical checks).
-// Dedup semantic comparison (20 §6.2) is AI work recorded in the creation
-// proposal — the list tool only supplies the deterministic inputs.
 
 import {
   createSparkObject,
@@ -28,9 +8,6 @@ import {
   listSparkObjects,
   resolveRefsTargets,
   SPARK_DIRECTORY,
-  // 删除白名单与 writer 同源（与 friction-tools 同一做法）：schema 的 enum 由
-  // writer 的具名常量算出，二者不可能漂移。schema 是模型读到的唯一入口——
-  // 枚举写小了不是「拦住越权」，而是让模型以为某个合法的删除不存在。
   SPARK_REMOVABLE_FIELDS,
 } from "./spark-writer.js";
 import { defineTool } from "@deepseek-ai/dsh-tools";
@@ -62,19 +39,6 @@ const OPERATIONS = {
   "spark-write-object": {
     toolName: "ldvh_spark_write",
     writeShaped: true,
-    // `create` and a terminal transition (implemented/discarded) are the two
-    // 20 §16 Human Gates carried by a host question (requestSparkConsent), so
-    // this tool can block on a person. The timeout budget is PER TOOL, not per
-    // action, so the whole tool must declare no wall-clock deadline — otherwise
-    // every CAS update silently pays for the Human wait and a late answer is
-    // DISCARDED by a 30s timeout, leaving the gate unenforced in real
-    // compositions. See the other fact tools for the identical discipline and
-    // the descriptor factory for how the flag is consumed.
-    //
-    // Note the third 20 §16 Gate (问题/边界大改) deliberately does NOT route
-    // through an ask: it is a `09 §6` weak constraint — the implementation
-    // returns the before/after comparison and must not judge it. That return
-    // happens inside an already-running tool call, so it introduces no wait.
     awaitsHumanDecision: true,
     summary: "Controlled write of Spark fact objects: create (after Human-confirmed C1 proposal incl. dedup result) and CAS update with change_log, against the governed project's fact source (specs/03 §9.4–§9.5, specs/20 §13)",
     effect: "may_change_state"
@@ -83,9 +47,6 @@ const OPERATIONS = {
 
 const FACT_SOURCE_ROOT_DIR = "ldvh-base";
 
-// ---------------------------------------------------------------------------
-// Envelope helpers (05 §8 common response semantics)
-// ---------------------------------------------------------------------------
 
 function envelope(operationKey, outcome, fields) {
   return { operation_key: operationKey, outcome, ...fields };
@@ -111,20 +72,12 @@ async function governedProject(dshHomePath, exec) {
   return { ok: true, scope, project: scope.project };
 }
 
-/** The change_log signature fields, from the authoritative session record. */
 async function signatureFor(deps, exec) {
   const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
   if (!route.ok) return { ok: false, reason: route.reason };
-  // Return the BRANDED carrier, not a plain object: the writers only accept
-  // the branded form, and returning a plain object here is what let the
-  // update paths silently drop the signature (found 2026-09-12). Branding
-  // at the source makes it impossible for a caller to pass the wrong one.
   return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
 }
 
-// ---------------------------------------------------------------------------
-// spark-read-object / spark-write-object handlers
-// ---------------------------------------------------------------------------
 
 async function executeReadObject(args, exec, deps) {
   const governed = await governedProject(deps.dshHomePath, exec);
@@ -145,8 +98,6 @@ async function executeReadObject(args, exec, deps) {
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
   const read = await readSparkObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
-    // Distinguish "not found / bad uid shape" (rejected) from carrier-level
-    // defects (unavailable — the object exists but cannot be consumed).
     const rejectedCodes = new Set(["spark/invalid_uid", "spark/object_not_found"]);
     const outcome = rejectedCodes.has(read.error.code) ? "rejected" : "unavailable";
     return envelope("spark-read-object", outcome, {
@@ -160,14 +111,6 @@ async function executeReadObject(args, exec, deps) {
   }
   const value = read.value;
   const fm = value.frontmatter;
-  // refs 在载体里只存 object_uid（03 §7.2 最小形态）。读路径补出目标类型与标题，
-  // 使指称形态 objectRef 能用上、读者也看得出「指向哪一类对象」——这是**派生
-  // 投影**，不回写载体（下方 frontmatter.refs 仍是原样的最小形态）。
-  // 解析不到的保留裸 uid：丢弃会让「载体声明了关联、响应看不见」比裸标识更坏。
-  //
-  // 注意这里**不**按 `ok` 判定：`resolveRefsTargets` 在目标解析不到时返回
-  // `ok:false` 并列出 missing，但 `resolved` 里仍有已解析成功的条目——读取路径
-  // 要的正是「能解析的都补上，解析不到的保留裸 uid」，而不是整体降级。
   const refsLookup = Array.isArray(fm.refs) && fm.refs.length > 0
     ? await resolveRefsTargets(factSourceRoot, fm.refs)
     : null;
@@ -215,13 +158,6 @@ async function executeListObject(args, exec, deps) {
   }
   const includeTerminal = args?.status === "all";
   const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
-  // **收窄参数原样下传，不做类型预筛**（独立审核 m1，2026-10-27 修）：原先写
-  // `typeof args?.keyword === "string" ? args.keyword : null`，于是 `keyword: 123`
-  // 或 `priorities: "P1"` 被**静默降级成「不筛」**——调用方以为筛过了，实际拿到
-  // 全集，比直接报错危险得多（`02 §9.2` 禁把零结果当无约束，同理禁把「筛错了」
-  // 当「没筛」）。现在只把 `undefined` 归一成 `null`（未提供），**其余一切值原样
-  // 交给 writer**——那里的 fail-closed 校验会拒掉类型错误，这正是「校验只在
-  // writer 一处」的应有含义。
   const keyword = args?.keyword === undefined ? null : args.keyword;
   const priorities = args?.priorities === undefined ? null : args.priorities;
   const serves = args?.serves === undefined ? null : args.serves;
@@ -242,9 +178,6 @@ async function executeListObject(args, exec, deps) {
   if (!value.complete) {
     gaps.push(`projection truncated at limit=${limit} of ${value.total} matching objects — narrow the filter or raise the limit; do not treat this page as the full set (03 §8.1)`);
   }
-  // 过滤结果是「集合被收窄过」这一事实，必须进 gaps 而不是只写在 result 里：
-  // 否则一条**零命中**的收窄查询与「库里真没有这类方向」在信封上无法区分
-  // （`02 §9.2`：禁把零结果当无约束；同理禁把「筛掉了」当「不存在」）。
   const appliedFilters = [];
   if (value.filters.keyword !== null) appliedFilters.push(`keyword=${JSON.stringify(value.filters.keyword)}`);
   if (value.filters.priorities !== null) appliedFilters.push(`priorities=${value.filters.priorities.join("/")}`);
@@ -282,36 +215,15 @@ async function executeListObject(args, exec, deps) {
   });
 }
 
-/**
- * Present the 20 §16 呈报内容 for a Spark creation and obtain the Human's
- * confirmation through the host answerer. Returns `null` when confirmation was
- * granted, or the rejection envelope to return instead.
- *
- * 20 §16 requires the Human to receive the elements they are judging. The
- * report below carries the dedup conclusion (20 §6.2), question, scope_boundary
- * and serves — the same set the type source names. It is built from the draft
- * the caller supplied, so it cannot diverge from what will be written.
- */
 function sparkCreateReport(draft, dedupResult) {
   const lines = [];
   lines.push(`查重结论：${String(dedupResult).trim()}`);
   if (typeof draft.question === "string" && draft.question.trim().length > 0) lines.push(`调查问题：${draft.question.trim()}`);
   if (typeof draft.scope_boundary === "string" && draft.scope_boundary.trim().length > 0) lines.push(`调查边界：${draft.scope_boundary.trim()}`);
   lines.push(`serves：${typeof draft.serves === "string" && draft.serves.trim().length > 0 ? draft.serves.trim() : "（未声明）"}`);
-  // 空行分段（friction-7a64bbe2 例①）：宿主把这份呈报按 **Markdown** 渲染，而单个
-  // `\\n` 在 Markdown 里不产生段落——四个独立字段会塌成一段连续文字，字段名与值
-  // 齐平、被误读为上一行的续行。空行才是段落边界，用它分隔字段既保住层级，也不
-  // 引入任何 Markdown 语法（纯文本读者看到的就是空行，同样是清晰的分段）。
   return lines.join("\n\n");
 }
 
-/** 20 §16 呈报内容 for a terminal transition: target status, the full
- * disposition, and (for a merge/split) every relation target.
- *
- * `resolveTargetType` 是本工具无关的**类型解析回调**（`(uid) => type | undefined`，
- * 通常由 `resolveRefsTargets` 换来）。关系目标在载体里只存 `object_uid`
- * （03 §7.2 最小形态），呈报要按 02 §9.3 的指称形态输出就得先知道目标类型；
- * 解析不到时退回裸短标识而非丢弃——与 refs 行同一条边界。 */
 function sparkTerminalReport(frontmatterAfter, resolveTargetType) {
   const lines = [];
   lines.push(`拟转状态：${String(frontmatterAfter?.status ?? "").trim() || "（缺失）"}`);
@@ -322,7 +234,6 @@ function sparkTerminalReport(frontmatterAfter, resolveTargetType) {
     const targets = relations
       .map((r) => {
         const uid = typeof r?.target?.object_uid === "string" ? r.target.object_uid : "";
-        // 02 §9.3：指称形态是「类型短名 + 8 位短标识」，不再是完整 36 位 UUID。
         const type = typeof uid === "string" && uid.length > 0 && typeof resolveTargetType === "function"
           ? resolveTargetType(uid)
           : undefined;
@@ -332,20 +243,9 @@ function sparkTerminalReport(frontmatterAfter, resolveTargetType) {
       .join("；");
     lines.push(`关系目标：${targets}`);
   }
-  // 空行分段，同 sparkCreateReport（friction-7a64bbe2 例①）。
   return lines.join("\n\n");
 }
 
-/**
- * Route one of the two mechanically-carried 20 §16 Gates through the host
- * question entry. Fail-closed on every path that is not an explicit
- * affirmative: no answerer, a failed ask, or a declined/unchosen answer.
- *
- * The THIRD 20 §16 Gate (问题/边界大改) deliberately does not appear here — it
- * is a 09 §6 weak constraint whose judgement stays with the Human; the
- * implementation only returns the before/after comparison (see the update
- * path) and must not claim that gate is mechanically guaranteed.
- */
 async function requestSparkGate(deps, exec, { action, objectTitle, summary }) {
   const gate = deps?.hostSeams;
   if (gate === undefined || typeof gate.requestSparkConsent !== "function") {
@@ -367,12 +267,7 @@ async function requestSparkGate(deps, exec, { action, objectTitle, summary }) {
     action,
     objectTitle,
     summary,
-    // The host forwarder reaches the browser answerer only when the request
-    // carries the live agent — without it the waterfall exhausts to NO_PROVIDER.
     agent: exec?.agent,
-    // This ask has no wall-clock deadline (`awaitsHumanDecision` in OPERATIONS):
-    // the caller's signal is the only release for an abandoned prompt, and
-    // forwarding it makes the ask abort (ASK_ABORTED) rather than hang.
     signal: exec?.signal,
   });
   if (consent?.granted === true) return { ok: true };
@@ -389,21 +284,6 @@ async function requestSparkGate(deps, exec, { action, objectTitle, summary }) {
   };
 }
 
-/**
- * Compute the 20 §13/§16 大改 judgement material: the before/after comparison
- * for `question` and `scope_boundary`.
- *
- * This is the mechanically-forceable part of a 09 §6 weak constraint. The
- * implementation RETURNS the evidence the Human needs and does not judge
- * whether a change is 大改 — `09 §5` finds that undecidable in form. Two
- * consequences the caller must not misread:
- *
- *  - A returned delta means the comparison was SUPPLIED, not that the change
- *    was confirmed. 20 §16 says this Gate is not mechanically verifiable, so
- *    this field is not evidence that the Gate was satisfied.
- *  - A `null` return means the fields did not change (nothing to judge), not
- *    that the Gate was passed.
- */
 async function sparkBoundaryDelta({ factSourceRoot, objectUid, frontmatterAfter }) {
   const before = await readSparkObject({ factSourceRoot, objectUid });
   if (!before.ok) return null;
@@ -494,13 +374,6 @@ async function executeWriteObject(args, exec, deps) {
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
   const sig = await signatureFor(deps, exec);
-  // Human requirement 2026-09-12: "changelog 和提交都要机械署名，不能署名的
-  // 要报告 human". The commit half is already enforced by the Git Gate
-  // trailer rules; this is the object half. When the authoritative
-  // signature cannot be obtained the write is REFUSED and reported here,
-  // rather than recorded as an unsigned stable fact (03 §6.1 says Code
-  // fills the signature; 09 requires a definite unavailable outcome for
-  // blank/historical sessions and model switches).
   if (!sig.ok) {
     return envelope("spark-write-object", "unavailable", {
       result: null,
@@ -519,17 +392,10 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("spark-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 当前理解') are required for action=create", "create");
     }
-    // 20 §6.2/§17.7: dedup MUST be executed before creation and its conclusion
-    // recorded. The comparison is semantic (03 §8.2 forbids a mechanical
-    // similarity verdict), so the AI supplies the conclusion — but it must
-    // supply ONE, and it is then presented to the Human below rather than
-    // staying an unrecorded assertion.
     const dedupResult = args?.dedup_result;
     if (typeof dedupResult !== "string" || dedupResult.trim().length === 0) {
       return invalidRequest("spark-write-object", "dedup_result is required for action=create (20 §6.2/§17.7): state the semantic dedup conclusion against existing open and terminal Sparks (e.g. \"no same-topic Spark found\" / \"overlaps <uid> but is a distinct direction\"). Dedup is not mechanically decidable — the conclusion stays with you, but an unrecorded one is a Stop Condition.", "create");
     }
-    // 20 §13 候选同一性：指纹是 create 的入口必填项，未携带即零写入。此处提前
-    // 给出可读诊断（写入侧同样核一遍，两处判据同源、不另立规则）。
     const expectedCandidateFingerprint = typeof args?.expected_candidate_fingerprint === "string"
       && args.expected_candidate_fingerprint.length > 0
       ? args.expected_candidate_fingerprint
@@ -546,11 +412,6 @@ async function executeWriteObject(args, exec, deps) {
       }, factSourceRoot);
     }
 
-    // 20 §13 候选同一性的**等值**比对也前移到此处：与上面的「是否携带」一样，
-    // 它是一次**廉价拒绝**，必须排在 Human Gate 之前。本文件下方
-    // （writeRejected 上方）已立过同一规矩：「every cheap refusal must precede
-    // the ask … a question cannot be un-asked」。实测缺陷（2026-11-14 复核）：
-    // 指纹不一致曾被放在 Gate 之后，于是人答完才被拒——白问一次。
     const actualCandidateFingerprint = computeSparkCreateCandidateFingerprint(draft, bodyMarkdown);
     if (actualCandidateFingerprint !== expectedCandidateFingerprint) {
       return writeRejected("spark-write-object", {
@@ -563,10 +424,6 @@ async function executeWriteObject(args, exec, deps) {
       }, factSourceRoot);
     }
 
-    // Every mechanical check runs FIRST, on a dry run that allocates nothing.
-    // 20 §16 requires an explicit Human confirmation; asking for a candidate
-    // the writer is already certain to refuse would spend the Human's attention
-    // on an action that can never land.
     const dry = await createSparkObject({
       factSourceRoot,
       frontmatterDraft: draft,
@@ -577,10 +434,6 @@ async function executeWriteObject(args, exec, deps) {
     if (!dry.ok) {
       return writeRejected("spark-write-object", dry, factSourceRoot);
     }
-    // 20 §16: creation requires an explicit Human confirmation through
-    // the host answerer. Fail closed when the ask entry is absent — silence is
-    // not consent, and an unconfirmed candidate must not silently become an
-    // object (00 §3.4: without a scope-clear response the matter stays paused).
     const consent = await requestSparkGate(deps, exec, {
       action: "create",
       objectTitle: typeof draft.title === "string" ? draft.title : null,
@@ -597,7 +450,6 @@ async function executeWriteObject(args, exec, deps) {
     if (!created.ok) {
       return writeRejected("spark-write-object", created, factSourceRoot);
     }
-    // 03 §9.4 item 5: precise read-back of the current file after create.
     const readBack = await readSparkObject({ factSourceRoot, objectUid: created.value.object_uid });
     if (!readBack.ok || readBack.value.fingerprint !== created.value.fingerprint) {
       return envelope("spark-write-object", "partial", {
@@ -626,11 +478,9 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  // action === "update"
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
-  // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
@@ -640,10 +490,6 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("spark-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
-  // 缺什么报什么：`frontmatter_after` 与正文是两个独立通道（02 §10.5），合成一句
-  // 「两者都必填」会让调用方看不出究竟缺哪一项——实测本窗口有 5 次失败其实是正文
-  // 已给、`frontmatter_after` 未给，却被读成「要重抄全文」。`frontmatter_after` 传
-  // 空对象 `{}` 合法（各类型入口参数面均标「须携带，可为空对象」）。
   if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
     return invalidRequest("spark-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
   }
@@ -654,21 +500,11 @@ async function executeWriteObject(args, exec, deps) {
     return invalidRequest("spark-write-object", "change_summary (one short semantic summary for the change_log) is required for action=update", "update");
   }
 
-  // 20 §16 Gate: a transition INTO a terminal state (implemented/discarded,
-  // including merge/split) requires an explicit Human confirmation. Read the
-  // current object first so the request can compare before/after and so the
-  // terminal-before check below is not bypassed by an unreadable target.
   const requestedStatus = frontmatterAfter.status;
   const isTerminalTransition = requestedStatus === "implemented" || requestedStatus === "discarded";
   if (isTerminalTransition) {
     const before = await readSparkObject({ factSourceRoot, objectUid });
     if (!before.ok) return writeRejected("spark-write-object", before, factSourceRoot);
-    // Ask the Human ONLY after the write is known to be mechanically possible.
-    // Confirming a request that the CAS baseline or the writer's own checks
-    // would refuse spends the Human's attention on an action that can never
-    // land — and a stale fingerprint is the common case, since a Gate answer
-    // takes real time while the object may move underneath it. Every cheap
-    // refusal must therefore precede the ask.
     if (before.value.fingerprint !== expectedFingerprint) {
       return writeRejected("spark-write-object", {
         ok: false,
@@ -679,15 +515,6 @@ async function executeWriteObject(args, exec, deps) {
         },
       }, factSourceRoot);
     }
-    // …and the writer's REMAINING checks too, not just the CAS baseline.
-    //
-    // P1 of the independent review of 26be321 (2026-09-26): this comment claimed
-    // "every cheap refusal must precede the ask", but only the CAS comparison
-    // did. A doomed terminal update (illegal relation key / over-long disposition
-    // / unresolvable serves) still consumed one Human question before the writer
-    // rejected it — measured: three such cases each burned exactly one question,
-    // and a question cannot be un-asked. The create path already ran a dry run
-    // before asking; this makes the update path symmetric.
     const updateDry = await updateSparkObject({
       factSourceRoot,
       objectUid,
@@ -703,14 +530,7 @@ async function executeWriteObject(args, exec, deps) {
       return writeRejected("spark-write-object", updateDry, factSourceRoot);
     }
     const wasTerminal = before.value.frontmatter.status !== "open";
-    // A correction of an ALREADY terminal object (20 §9.2: content stays
-    // correctable, status must not change) is not a terminal transition — it
-    // re-states the same status. Requiring a fresh Gate for it would convert
-    // every typo fix into a Human Gate, which 20 §9.2 does not ask for.
     if (!wasTerminal) {
-      // 呈报里的关系目标也要按 02 §9.3 的指称形态输出，而 relation target 在载体里
-      // 只有 object_uid。这里用与 refs 行同一解析器当类型查询表：解析不到的类型
-      // 留给 objectRef 退回裸短标识，绝不猜造类型。
       const relationTargets = Array.isArray(frontmatterAfter?.relations) ? frontmatterAfter.relations : [];
       const relationLookup = relationTargets.length > 0
         ? await resolveRefsTargets(factSourceRoot, relationTargets)
@@ -725,12 +545,6 @@ async function executeWriteObject(args, exec, deps) {
     }
   }
 
-  // 20 §13 (问题/边界大改): a change to question or scope_boundary must be
-  // confirmed first. 09 §5 finds this judgement formally undecidable, so it is
-  // a 09 §6 WEAK constraint — the implementation returns the before/after
-  // comparison that the Human needs to decide, and must NOT decide it itself.
-  // Not blocking is deliberate and is not a substitute for the Human's
-  // judgement; this envelope field must not be read as "大改 already checked".
   const boundaryDelta = await sparkBoundaryDelta({ factSourceRoot, objectUid, frontmatterAfter });
 
   const updated = await updateSparkObject({
@@ -741,10 +555,6 @@ async function executeWriteObject(args, exec, deps) {
     frontmatterRemovals,
     bodyMarkdownAfter,
     changeSummary,
-    // Update path MUST brand the carrier exactly like the create path: a plain
-    // {provider,model} object is rejected by resolveAuthoritativeSignature(), so
-    // passing sig.value here silently wrote an unsigned change_log entry while
-    // the envelope still reported sig.ok === true (no gap). Found 2026-09-12.
     sessionSignature: sig.ok ? sig.value : null,
   });
   if (!updated.ok) {
@@ -768,19 +578,12 @@ async function executeWriteObject(args, exec, deps) {
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
       changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
-      // 写入侧的警告（如载体内聚差异），不阻断。放在 result 内使
-      // renderEnvelope 能把它渲染成 `warning:` 行——只留在 envelope 里，
-      // 模型侧看不见等同于没有。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
         : {})
     },
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
-    // 20 §13 大改项（09 §6 弱约束）：the before/after comparison is RETURNED for
-    // the Human to judge. Its presence means the evidence was supplied — NOT
-    // that the change was confirmed, and not that the Gate is mechanically
-    // guaranteed (20 §16 says this Gate is not mechanically verifiable).
     ...boundaryDelta === null
       ? {}
       : {
@@ -795,8 +598,6 @@ async function executeWriteObject(args, exec, deps) {
 
 function writeRejected(operationKey, failureResult, factSourceRoot) {
   const code = failureResult.error.code;
-  // Mechanical rejections (source-defined conditions refusing the write) vs
-  // availability failures (carrier/IO-level problems). Both are zero-write.
   const mechanicalCodes = new Set([
     "spark/frontmatter_invalid", "spark/body_invalid", "spark/coherence_invalid",
     "spark/relations_invalid", "spark/relation_target_unresolvable", "spark/serves_unresolvable", "spark/refs_unresolvable",
@@ -821,10 +622,6 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Registration (same shape as research-tools.js — mounted from
-// registerLdvhTools, so tools land only in governed sessions)
-// ---------------------------------------------------------------------------
 
 function text(body) {
   return [{ type: "text", text: body }];
@@ -838,11 +635,7 @@ function renderEnvelope(operationKey, value) {
   if (result?.title !== undefined) lines.push(`title: ${result.title}`);
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
   if (result?.serves !== undefined) lines.push(`serves: ${result.serves}`);
-  // refs (20 §8): verbose on the single-object read (uid + resolved title when
-  // available) so the model can see associations without a second call.
   if (Array.isArray(result?.refs) && result.refs.length > 0) {
-    // 指称形态统一走 objectRef（02 §9.3）：目标可解析时是 `pitfall-bb0fe837 标题`，
-    // 解析不到时退化为裸短标识——绝不猜造类型，也绝不丢弃。
     lines.push(`refs: ${result.refs.map((r) => {
       if (r === null || typeof r !== "object") return JSON.stringify(r);
       const ref = objectRef(r, { withTitle: typeof r.title === "string" });
@@ -850,14 +643,8 @@ function renderEnvelope(operationKey, value) {
     }).join(", ")}`);
   }
   if (result?.question !== undefined) lines.push(`question: ${result.question}`);
-  // Full fingerprint, never truncated (03 §9.5): the render output is the
-  // model's only window on the tool result — a truncated fingerprint makes
-  // the CAS baseline unobtainable and blocks every controlled update.
   if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
   if (result?.body_valid !== undefined) lines.push(`body_valid: ${result.body_valid}`);
-  // 预检结论（20 §13）：三个字段必须可见——模型只有这扇窗，藏在 envelope 里
-  // 等同于没有。`mechanical_outcome` 与 `candidate_fingerprint` 缺一，调用方要么
-  // 不知道候选过没过，要么拿不到可携带的指纹。
   if (result?.mechanical_outcome !== undefined) lines.push(`mechanical_outcome: ${result.mechanical_outcome}`);
   if (result?.candidate_fingerprint !== undefined) lines.push(`candidate_fingerprint: ${result.candidate_fingerprint}`);
   if (result?.error_code !== undefined) lines.push(`error_code: ${result.error_code}`);
@@ -866,29 +653,14 @@ function renderEnvelope(operationKey, value) {
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
   if (Array.isArray(result?.items)) {
     for (const item of result.items) {
-      // F1 projection must render title + status + priority + serves + refs
-      // (20 §12). priority was carried by the writer projection but never
-      // printed here, so the model could not see the ordering tier the spec
-      // promises; missing priority is legal (未分档) and renders as no tag.
-      // **命中依据必须出现在 render 行里**（`34 §8.2` 第 1 项）：`render` 是
-      // 模型唯一能看见的文本面，只把 `hitReason` 放进 `result.items` 等于没给——
-      // 模型读不到它，收窄结果与「库里只有这些」在模型侧仍无法区分。
-      // 实测缺陷（范围受限复审，2026-10-28）：数据层已正确产出 hitReason，
-      // 但本行此前不渲染，而新加的用例只断言了 `result.items[].hitReason`，
-      // 于是「规范承诺每条须带命中依据」在唯一可见面上落空，且测试恒绿。
       const hit = typeof item.hitReason === "string" && item.hitReason !== "" ? ` 〔${item.hitReason}〕` : "";
       lines.push(`- ${objectRef(item)} [${item.status}]${item.priority ? ` ${item.priority}` : ""} ${item.title}${item.serves ? ` (${item.serves})` : ""}${hit}${Array.isArray(item.refs) && item.refs.length > 0 ? ` → ${item.refs.map((r) => (r !== null && typeof r === "object" ? objectRef(r) || shortUid(r.object_uid) : String(r))).join(", ")}` : ""}`);
     }
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "spark")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
-  // **warnings 必须进模型可见文本**（2026-11-10）：只留在 envelope 里等于没给——
-  // 与 `mechanical_issues` 此前「写入路径算出来了、投影与呈现两侧各 0 处命中」
-  // 同一失效模式（见书写形态校验的头注释）。故与 gaps 同层渲染，
-  // 但用 `warning:` 前缀区分：gap 是缺口披露，warning 是不阻断的提示。
   const warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
-  // **follow_up 必须进模型可见文本**（05 §8「给出可继续读取、分页、回读、修复、分流或 Human 决定入口」）。此前本渲染只打 gap:/warning: 行，envelope 里算出的 follow_up 对模型侧那行文本不可见——与「只数据显示在 envelope 等于没给」同一失效模式；Goal/Norm/SubGoal/基础批次四处都已渲染，这里补齐以消除不一致。逐条目 stringify 与 gap/warning 同为结构化记录兜底。
   for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
   return text(lines.join("\n"));
 }
@@ -896,9 +668,6 @@ function renderEnvelope(operationKey, value) {
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
 
 function parameterSchemaFor(operationKey) {
-  // Models mis-shape open objects when they see additionalProperties:true
-  // with no declared properties — every Spark data object declares its
-  // shape explicitly (mirrors 20 §8 field contract).
   const evolutionEntry = {
     type: "object",
     properties: {
@@ -917,7 +686,6 @@ function parameterSchemaFor(operationKey) {
     required: ["relation_key", "target"],
     additionalProperties: false
   };
-  /** refs target (03 §7.2 minimal shape: object_uid only, no title copies). */
   const refsEntry = {
     type: "object",
     properties: { object_uid: { type: "string", description: "canonical object_uid of an existing same-project fact object" } },
@@ -1002,22 +770,7 @@ function parameterSchemaFor(operationKey) {
   }
 }
 
-/**
- * `timeoutMs` is omitted for operations that block on a Human answer
- * (`awaitsHumanDecision`) — see the identical note in `ldvh-tools.js` and
- * the other fact tools. The host's per-tool deadline would otherwise discard a
- * late answer, which does not make the gate slower but WRONG: the write would
- * be refused while the Human's confirmation arrives too late to be recorded.
- *
- * This is the consumption point for the flag. Declaring `awaitsHumanDecision`
- * without this line has ZERO effect — the flag would be inert while the
- * envelope kept reporting success (the regression the 09 §5 mutation test
- * guards against).
- */
 export function toolDescriptorFor(operationKey, operation, handler) {
-  // Register through defineTool so the DSH argument check actually runs: the
-  // bare-descriptor path only asserts output/timeoutMs shape and stores the
-  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
   return defineTool({
     name: operation.toolName,
     description: operation.summary,
@@ -1026,9 +779,6 @@ export function toolDescriptorFor(operationKey, operation, handler) {
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);
-        // Prune undefined values (JSON round-trip): the harness lossless-JSON
-        // validation rejects them, and conditional fields legitimately produce
-        // undefined on objects where they are absent.
         return { envelope: JSON.parse(JSON.stringify(result)) };
       } catch (error) {
         return {
@@ -1059,23 +809,16 @@ export function registerSparkTools(ctx, deps) {
   };
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
-    // Coverage is registered from the declaration itself, so the guard's target
-    // set always matches the tools this build really exposes (a hardcoded list
-    // drifts into phantom or stale entries).
     if (operation.writeShaped === true) registerWriteShapedTool(operation.toolName);
     disposers.push(ctx.tools.register(toolDescriptorFor(operationKey, operation, handlers[operationKey])));
   }
   return () => {
     for (const dispose of disposers) {
-      try { dispose(); } catch { /* already removed */ }
+      try { dispose(); } catch {   }
     }
   };
 }
 
 export { OPERATIONS };
 
-// Exported for the digest staleness end-to-end test: the warning must reach the
-// **model-visible text**, not merely the envelope. `mechanical_issues` was once
-// computed on the write path and read by nobody — that is the failure mode this
-// export lets a test rule out (see test/digest-staleness-e2e.test.mjs).
 export { renderEnvelope as renderEnvelopeForTest };

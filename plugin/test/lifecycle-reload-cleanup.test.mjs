@@ -1,35 +1,3 @@
-// Plugin unload/reload hygiene for the per-agent lifecycle (a REAL cordis
-// Context, a REAL scoped agent context, and the REAL host tools service).
-//
-// ## What this file is for
-//
-// The lifecycle installs four kinds of things on a LIVE agent's own fiber:
-//
-//   · the LDVH tool batch (agent-scoped registrations),
-//   · five event listeners (assemble / pre-step / turn-stopping / status /
-//     session-event),
-//   · one silence timer held by the turn-trigger registry,
-//   · one outer fiber effect that owns all of the above.
-//
-// Plugin unload must release exactly those, without disposing the agent and
-// without touching another plugin's effects on the same agent. A reload must
-// install a fresh batch once — not stack a second set on top of the old one.
-//
-// The previous lifecycle tests use a plain object for `agent.ctx`, so they
-// cannot observe duplicate registrations (the host tools registry throws on a
-// duplicate name in the same scope) or the fiber effect table. This file uses
-// `@deepseek-ai/cordis` + `@deepseek-ai/dsh-tools` + `@deepseek-ai/dsh-scope`
-// directly so the host contract is the assertion surface.
-//
-// ## Boundaries
-//
-//   · No production Human question is sent. `ctx.userQuestions` is absent in
-//     the plugin harness; the Human-ask edge case uses a local deferred fake.
-//   · Git worktrees and the registration carrier live under `withTemp`.
-//   · `idleAssistEnabled` is left at its default; no timer is armed except in
-//     the one test that stops a plugin while a silence timer exists.
-//   · The fs module is patched only around a single test, restored in finally,
-//     and only intercepts the exact diagnostic write it needs to hold.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -47,9 +15,6 @@ import { createSessionScopes } from "../lib/session-scopes.js";
 import { registerProject } from "../lib/governed-projects.js";
 import { initRepo, withTemp } from "./helpers.mjs";
 
-// ---------------------------------------------------------------------------
-// Host-shaped harness
-// ---------------------------------------------------------------------------
 
 const LDVH_EVENT_LABELS = new Set([
   'ctx.on("system-prompt/assemble")',
@@ -89,7 +54,6 @@ function waitFor(predicate, { timeout = 3000, interval = 10, label = "condition"
   });
 }
 
-/** Minimal systemPrompt service: the only method ToolsService touches at load. */
 class MemorySystemPrompt {
   tools() {
     return () => {};
@@ -121,17 +85,10 @@ async function createHarness(base) {
   root.provide("systemPrompt", new MemorySystemPrompt());
   await root.registry.plugin(ToolsService);
 
-  // Real host roster: `list()` is what adoption uses; `roots()` is the
-  // roots-only gate. Both return the same live set here.
   const roster = [];
   root.provide("agents", { roots: () => roster, list: () => roster });
   root.provide("dshHomePath", dshHomePath);
-  // Deliberately NO userQuestions service: an accidental ask fails closed
-  // against the real composition instead of reaching a Human.
 
-  // Agent contexts must be scoped contexts (independent fibers) that can see
-  // `ctx.tools`, exactly like the host's agent contexts. A small injector
-  // plugin provides that dependency API without becoming the LDVH plugin.
   const hostFiber = root.registry.plugin({
     name: "test-agent-host",
     inject: ["tools", "systemPrompt"],
@@ -144,8 +101,6 @@ async function createHarness(base) {
   let pluginFiber = null;
 
   function addAgent(id, cwd = project) {
-    // Different key objects keep two agents with the same session id in
-    // different scope layers (the stale-resolve test needs exactly that).
     const scopeKey = { id, nonce: Symbol("scope") };
     const scope = createScope(hostFiber.ctx, scopeKey);
     const agent = {
@@ -168,17 +123,14 @@ async function createHarness(base) {
 
   async function dispose() {
     if (pluginFiber !== null) {
-      try { await pluginFiber.dispose(); } catch { /* best effort */ }
+      try { await pluginFiber.dispose(); } catch {   }
       pluginFiber = null;
     }
     for (const scope of scopes.reverse()) {
-      try { await scope.dispose(); } catch { /* best effort */ }
+      try { await scope.dispose(); } catch {   }
     }
-    try { await hostFiber.dispose(); } catch { /* best effort */ }
-    try { await root.fiber.dispose(); } catch { /* best effort */ }
-    // Plugin startup does fire-and-forget carrier/hook writes. Let those land
-    // before withTemp removes the directory (same reason as the activation
-    // harness).
+    try { await hostFiber.dispose(); } catch {   }
+    try { await root.fiber.dispose(); } catch {   }
     await delay(100);
   }
 
@@ -195,9 +147,6 @@ async function createHarness(base) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Observation helpers
-// ---------------------------------------------------------------------------
 
 function viewOf(harness, record) {
   return harness.root.tools.view(scopeOf(record.agent.ctx));
@@ -238,15 +187,9 @@ async function waitForTools(harness, record, { timeout = 3000 } = {}) {
     timeout,
     label: `LDVH tools for ${record.agent.id}`,
   });
-  // The async judgement installs the whole batch in one synchronous pass; a
-  // second tick makes sure no later duplicate attempt is still in flight when
-  // a test starts asserting.
   await delay(0);
 }
 
-// ---------------------------------------------------------------------------
-// 1. install → stop → rebuild
-// ---------------------------------------------------------------------------
 
 test("lifecycle reload: stop removes this plugin's agent-scoped tools/listeners only, and a rebuild takes over with one set", async () => {
   await withTemp("ldvh-reload.", async (base) => {
@@ -254,23 +197,17 @@ test("lifecycle reload: stop removes this plugin's agent-scoped tools/listeners 
     try {
       const record = harness.addAgent("session-reload");
 
-      // Another plugin's contribution on the SAME agent fiber and scope. It is
-      // the control for "only our effect is disposed".
       let otherEffectDisposed = 0;
       record.agent.ctx.effect(() => () => {
         otherEffectDisposed += 1;
       }, OTHER_EFFECT_LABEL);
       record.agent.ctx.tools.register(otherToolDefinition());
-      // The host contract this test relies on: a duplicate in one scope
-      // throws. Keep it asserted so a synthetic registry cannot silently
-      // accept a leaked second batch.
       assert.throws(
         () => record.agent.ctx.tools.register(otherToolDefinition()),
         /already registered in this scope/,
         "the real tools registry must reject a same-scope duplicate",
       );
 
-      // The agent is already live, so loading the plugin exercises adoption.
       await harness.loadPlugin();
       await waitForTools(harness, record);
 
@@ -290,7 +227,6 @@ test("lifecycle reload: stop removes this plugin's agent-scoped tools/listeners 
       const firstFiber = harness.pluginFiber;
       await firstFiber.dispose();
 
-      // Agent fiber is alive: plugin stop must not dispose it.
       assert.equal(record.agent.ctx.fiber.state, 2, "the agent scope stays active after plugin stop");
       assert.deepEqual(ldvhNames(harness, record), [], "every LDVH tool descriptor is gone");
       assert.ok(visibleNames(harness, record).includes(OTHER_TOOL_NAME), "other plugin's tool survives");
@@ -300,7 +236,6 @@ test("lifecycle reload: stop removes this plugin's agent-scoped tools/listeners 
       assert.equal(otherEffectDisposed, 0, "other plugin's effect was not disposed");
       assert.equal(globalGuardCount(harness.root), 0, "the old host seam guard is disposed");
 
-      // Rebuild: adoption runs again over the still-live agent.
       await harness.loadPlugin();
       await waitFor(() => {
         const definition = definitionOf(harness, record, "ldvh_resolve_governance_scope");
@@ -319,8 +254,6 @@ test("lifecycle reload: stop removes this plugin's agent-scoped tools/listeners 
       assert.equal(globalGuardCount(harness.root), 1, "exactly one host seam guard after rebuild");
       assert.equal(otherEffectDisposed, 0, "the rebuild did not touch the other plugin's effect");
 
-      // The rebuilt seams are callable, not just present: the guard is the
-      // synchronous seam with a directly observable refusal.
       recordJudgementForGuard(harness.project, "unavailable");
       assert.match(
         harness.root.tools.checkGuards({ name: "ldvh_register_governed_project", agent: record.agent }),
@@ -329,14 +262,11 @@ test("lifecycle reload: stop removes this plugin's agent-scoped tools/listeners 
       );
       recordJudgementForGuard(harness.project, "governed");
 
-      // The rebuilt tool is callable through the rebuilt agent context.
       const call = await definitionOf(harness, record, "ldvh_resolve_governance_scope")
         .execute({}, { agent: record.agent });
       assert.equal(call.envelope.operation_key, "resolve-governance-scope");
       assert.equal(call.envelope.result.state, "governed");
 
-      // Agent natural exit while the rebuilt plugin is live: only the other
-      // plugin's effect remains to be disposed by the agent fiber.
       await record.scope.dispose();
       assert.equal(otherEffectDisposed, 1, "agent exit released the other plugin's effect");
       assert.equal(ldvhListenerLabels(record).length, 0, "no LDVH listener survives agent exit");
@@ -349,9 +279,6 @@ test("lifecycle reload: stop removes this plugin's agent-scoped tools/listeners 
   });
 });
 
-// ---------------------------------------------------------------------------
-// 2. agent exits before plugin stop
-// ---------------------------------------------------------------------------
 
 test("lifecycle reload: agent natural exit first makes the later plugin stop a no-op", async () => {
   await withTemp("ldvh-reload.", async (base) => {
@@ -366,8 +293,6 @@ test("lifecycle reload: agent natural exit first makes the later plugin stop a n
       assert.equal(ldvhListenerLabels(record).length, 0, "agent exit removed the listeners");
       assert.equal(lifecycleEffectLabels(record).length, 0, "agent exit removed the lifecycle effect");
 
-      // The plugin still holds no stale disposer that throws on stop, and a
-      // second stop is harmless (cordis returns a settled/absent disposer).
       await harness.pluginFiber.dispose();
       await harness.pluginFiber.dispose();
       assert.equal(globalGuardCount(harness.root), 0, "the plugin guard is gone after the late stop");
@@ -378,9 +303,6 @@ test("lifecycle reload: agent natural exit first makes the later plugin stop a n
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3. plugin stop before agent exit
-// ---------------------------------------------------------------------------
 
 test("lifecycle reload: plugin stop first leaves the agent fiber usable and does not touch another plugin's effect", async () => {
   await withTemp("ldvh-reload.", async (base) => {
@@ -404,8 +326,6 @@ test("lifecycle reload: plugin stop first leaves the agent fiber usable and does
       assert.ok(effectLabels(record).includes(OTHER_EFFECT_LABEL), "other plugin's effect still present");
       assert.equal(otherEffectDisposed, 0, "other plugin's effect not disposed");
 
-      // The agent context is still a working host context: a registration
-      // made after plugin stop succeeds in its own scope.
       const disposeProbe = record.agent.ctx.tools.register({
         name: "after_stop_probe",
         description: "probe",
@@ -425,9 +345,6 @@ test("lifecycle reload: plugin stop first leaves the agent fiber usable and does
   });
 });
 
-// ---------------------------------------------------------------------------
-// 4. stop while the initial governance resolve is still in flight
-// ---------------------------------------------------------------------------
 
 test("lifecycle reload: an in-flight resolve must not register tools after plugin stop", async () => {
   await withTemp("ldvh-reload.", async (base) => {
@@ -439,14 +356,12 @@ test("lifecycle reload: an in-flight resolve must not register tools after plugi
       const record = harness.addAgent("session-pending-resolve");
       harness.root.emit("agent/created", { agent: record.agent, source: "startup" });
 
-      // `resolve()` is async (carrier read), so the batch cannot be present
-      // synchronously after install.
       assert.deepEqual(ldvhNames(harness, record), [], "resolve has not completed yet");
       assert.equal(ldvhListenerLabels(record).length, 5, "listeners are installed synchronously");
 
       const disposal = harness.pluginFiber.dispose();
       await disposal;
-      await delay(150); // let any late resolve callback run
+      await delay(150);
 
       assert.deepEqual(ldvhNames(harness, record), [], "a late resolve must not register after stop");
       assert.equal(ldvhListenerLabels(record).length, 0, "stop removed the listeners");
@@ -458,10 +373,6 @@ test("lifecycle reload: an in-flight resolve must not register tools after plugi
   });
 });
 
-// ---------------------------------------------------------------------------
-// 5. same id: old agent exits while its resolve is in flight, a new agent
-//    with the same id takes over; the stale resolve must not act on it.
-// ---------------------------------------------------------------------------
 
 test("lifecycle reload: a stale resolve from an exited same-id agent must not unregister the new agent's tools", async () => {
   await withTemp("ldvh-reload.", async (base) => {
@@ -476,8 +387,6 @@ test("lifecycle reload: a stale resolve from an exited same-id agent must not un
     const carrierPath = harness.dshHomePath("ldvh", "governed-projects.yaml");
 
     try {
-      // Tag only the old agent's creation chain, so unrelated startup reads of
-      // the same carrier cannot consume the gate and fake the race precondition.
       await harness.loadPlugin();
       fs.promises.readFile = async (path, ...rest) => {
         if (!blockedOnce && String(path) === carrierPath && readOrigin.getStore() === "old-agent") {
@@ -490,9 +399,6 @@ test("lifecycle reload: a stale resolve from an exited same-id agent must not un
       syncBuiltinESMExports();
       patched = true;
 
-      // Old agent: same session id, but its cwd is NOT governed. If a stale
-      // resolve were allowed to drive the new lifecycle, it would judge
-      // `not_governed` and unregister the new agent's tool batch.
       const oldRecord = harness.addAgent("session-same-id", base);
       readOrigin.run("old-agent", () => harness.root.emit("agent/created", { agent: oldRecord.agent, source: "startup" }));
       await waitFor(() => sawBlockedRead, { label: "old resolve blocked at the carrier read" });
@@ -506,7 +412,6 @@ test("lifecycle reload: a stale resolve from an exited same-id agent must not un
       const newDefinition = definitionOf(harness, newRecord, "ldvh_resolve_governance_scope");
       const newCount = ldvhNames(harness, newRecord).length;
 
-      // Let the old judgement finish now that the new agent owns the id.
       releaseRead();
       await delay(150);
 
@@ -528,9 +433,6 @@ test("lifecycle reload: a stale resolve from an exited same-id agent must not un
   });
 });
 
-// ---------------------------------------------------------------------------
-// 6. why the plugin effect is async: unload must await stopLifecycle's drain
-// ---------------------------------------------------------------------------
 
 test("lifecycle reload: plugin unload awaits the lifecycle stop Promise (pending async disposer)", async () => {
   await withTemp("ldvh-reload.", async (base) => {
@@ -542,13 +444,9 @@ test("lifecycle reload: plugin unload awaits the lifecycle stop Promise (pending
     let blockSeen = false;
 
     fs.promises.writeFile = async (path, data, ...rest) => {
-      // Only the disposal-triggered clear ("reason: dispose") is held. The
-      // activity clear from `turn-stopping` must be allowed through.
       if (
         blockStopDiagnostic &&
         typeof data === "string" &&
-        // **2026-11-17**：`silence-cleared` 诊断仍在（`dispose()` 排空期的那条
-        // 在飞落盘写入），但它现在记的是「清理动作被要求过」，不再暗示计时器存在。
         data.includes("silence-cleared") &&
         data.includes('"dispose"')
       ) {
@@ -565,13 +463,9 @@ test("lifecycle reload: plugin unload awaits the lifecycle stop Promise (pending
       harness.root.emit("agent/created", { agent: record.agent, source: "startup" });
       await waitForTools(harness, record);
 
-      // **2026-11-17**：不再「武装一个安静期计时器」来给 stop() 制造排空对象
-      // ——计时器已删除，没有计时器可排空。stop() 现在要排空的是**挂起的登记写入**
-      // （`timers/cleared`），它同样会让 stop 的 Promise 保持 pending。
-      // 事件仍发一遍：它们维护活动记账，只是不再武装任何计时。
       harness.root.emit("agent/turn-stopping", { agent: record.agent, turn: 1 });
       harness.root.emit("agent/status", { agent: record.agent, status: "idle" });
-      await delay(80); // let the earlier activity diagnostic writes settle
+      await delay(80);
 
       blockStopDiagnostic = true;
       const disposal = harness.pluginFiber.dispose();
@@ -582,9 +476,6 @@ test("lifecycle reload: plugin unload awaits the lifecycle stop Promise (pending
       await delay(50);
       assert.equal(settled, false, "plugin unload must await stopLifecycle's pending drain");
 
-      // The synchronous half of cleanup has already happened even though the
-      // stop Promise is still pending; that is the effect of awaiting the
-      // lifecycle's own disposer rather than firing and forgetting it.
       assert.deepEqual(ldvhNames(harness, record), [], "tools already unregistered while stop is pending");
       assert.equal(ldvhListenerLabels(record).length, 0, "listeners already removed while stop is pending");
 
@@ -687,14 +578,13 @@ test("lifecycle reload: cleanup failure is reported while other agents are still
     const registry = createLifecycleRegistry(host, { dshHomePath, workspaceRoot: base, sessionScopes: createSessionScopes() });
     const stop = registry.start();
     try {
-      // 用仍存在的工具做就绪探针：原探针取自一个已撤除的工具。
       await waitFor(() => first.tools.has("ldvh_norm_write") && second.tools.has("ldvh_norm_write"), { label: "both tool batches" });
       await assert.rejects(stop(), /cleanup/i, "a partial cleanup must not be reported as successful");
       assert.equal(first.tools.size, 0, "the failing agent's synchronous cleanup was attempted");
       assert.equal(second.tools.size, 0, "the other agent was cleaned despite the failure");
       assert.ok(warnings.some((message) => message.includes("synthetic agent cleanup failure")), "the failure is logged");
     } finally {
-      try { await stop(); } catch { /* expected synthetic failure */ }
+      try { await stop(); } catch {   }
       await delay(100);
     }
   });

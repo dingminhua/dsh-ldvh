@@ -29,7 +29,6 @@ for (const c of cases) {
   const bodyText = await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' ').slice(0, 260));
   const shot = `${OUT}/${c.name}.png`;
   await page.screenshot({ path: shot, fullPage: false });
-  // detect horizontal overflow
   const overflow = await page.evaluate(() => ({
     scrollW: document.documentElement.scrollWidth,
     clientW: document.documentElement.clientWidth,

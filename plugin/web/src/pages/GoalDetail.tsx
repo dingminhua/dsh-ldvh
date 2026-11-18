@@ -1,12 +1,3 @@
-/**
- * Goal 详情页（/goal）——25 号单例冻结锚的完整阅读面。
- *
- * Goal 不占七类事实对象的 tab/card（25 §5 单例三免：免候选召回、免目录基数
- * 校验），详情经 /api/cognition/goal 直读路由承载（25 §10 消费点直读）。
- * 页面结构对齐 ObjectDetail 的设计语言：ObjectIdentityHeader（Target/
- * emerald 类型徽章 + active/achieved 状态）+ FactReadingContent 共享阅读
- * 布局（GoalReadingLayout：目标陈述 → 子目标 → 修订史）。
- */
 import { useEffect, useState } from 'react';
 import { ObjectIdentityHeader, FactReadingContent, getAuxiliaryMetaEntries } from '@/pages/ObjectDetail';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
@@ -50,8 +41,6 @@ export default function GoalDetail() {
   }, [t]);
 
   if (missing) {
-    // goal.md 尚未创建是合法状态（项目初始化前，25 §7 允许）——如实说明，
-    // 创建走 AI 受控写入路径，Web 不提供写入口。
     return (
       <div className="ldvh-page-frame">
         <div className={`mx-auto max-w-2xl rounded-lg border ${LDVH_WARN_SURFACE_STRONG_CLASS} px-5 py-8 text-center`}>
@@ -85,7 +74,6 @@ export default function GoalDetail() {
   const obj = goal as unknown as Record<string, unknown>;
   const readMeta = getFactReadMeta(obj);
   const typeColor = CATEGORY_COLORS.goal;
-  // 25 §5：单例路径即身份——canonical_path 固定 ldvh-base/goal.md，复制目标即路径。
   const copyTarget = goal.canonical_path ?? 'ldvh-base/goal.md';
   const title = getLocalizedObjectTitle(
     { title: goal.title, title_en: goal.title, title_zh: goal.title },
@@ -103,8 +91,6 @@ export default function GoalDetail() {
           objectType="goal"
           typeColor={typeColor}
           typeLabel={getTypeLabel('goal', locale)}
-          // Human 定案 2026-09-12：goal 不显示状态徽章——active/achieved 由
-          // 阅读布局与近期动态的时间线承载，头部保持单例冻结锚的克制形态。
           source={obj}
           locale={locale}
           updated={<ObjectUpdatedMeta source={obj} updatedAt={getObjectUpdatedAt(obj)} />}

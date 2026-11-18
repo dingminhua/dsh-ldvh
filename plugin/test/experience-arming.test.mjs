@@ -1,15 +1,3 @@
-// Tests for the experience delegate arming (specs/23 §13 代理记录通道,
-// Human 决定 2026-11-16).
-//
-// Two layers are covered here and each matters on its own:
-//   1. experience-arming.js — the ledger's own mechanics (one-shot bind, expiry,
-//      project alignment, durable reload, fail-closed when the ledger is unread).
-//   2. child.js installChild — the ONLY place a delegated session acquires the
-//      three Pitfall tools. Nothing else in the repo exercises this branch (the
-//      child path was previously asserted to register NO tools), so without a
-//      direct test here the whole mechanism would be unverified — exactly the
-//      shape pitfall-b79dc397 records (new guard with no test that reaches it,
-//      mutation survives).
 import assert from "node:assert/strict";
 import test from "node:test";
 import { join } from "node:path";
@@ -36,7 +24,6 @@ function makeAgent(id, header = {}) {
   return agent;
 }
 
-/** Minimal registry-level deps installChild needs (live parent record present). */
 function makeInstaller({ arming, registerChildSurface, events = [], warns = [] }) {
   const agents = new Map();
   const parent = { lastScope: { state: "governed", project: { path: "/repo", id: "demo" } }, scopeState: "governed" };
@@ -74,7 +61,6 @@ test("armed child acquires exactly the three Pitfall tools, and arm is spent", a
     assert.deepEqual(calls, ["child-A"], "被授权的分身应装上能力面");
     assert.ok(events.some((e) => e.hook === "child/experience-armed"));
 
-    // 一次性：同父的下一个分身不得继承（审核 B6 的破口）
     assert.equal(installer(makeAgent("child-B", { ...childHeader })), true);
     assert.deepEqual(calls, ["child-A"], "同父会话的第二个分身不得再取得能力面");
     assert.equal(arming.verifyWrite({ childSessionId: "child-B", projectPath: "/repo" }).ok, false);
@@ -123,7 +109,6 @@ test("surface 注册抛错：留痕、不回滚绑定、不中断安装（fricti
 test("账本未装载时按未授权处理（fail-closed，不给无据的权限）", async () => {
   await withTemp("arm.", async (base) => {
     const arming = createExperienceArming({ dshHomePath: dshHome(join(base, "home")) });
-    // 故意不调用 load()
     const calls = [];
     const { installer } = makeInstaller({ arming, registerChildSurface: (a) => { calls.push(a.id); } });
     assert.equal(installer(makeAgent("child-Q", childHeader)), true);
@@ -148,19 +133,15 @@ test("授权账跨实例复原：重建后同一分身仍可复用绑定，别�
     const first = createExperienceArming({ dshHomePath: home });
     await first.arm({ parentSessionId: "parent-1", projectPath: "/repo", purpose: "x" });
     first.bindForChild({ parentSessionId: "parent-1", childSessionId: "child-R", projectPath: "/repo" });
-    // 绑定是 fire-and-forget 落盘（不阻塞同步的安装路径），故等它真的写出来再断言——
-    // 轮询而不是固定 sleep：固定 sleep 只在快机器上绿，是假过的另一种写法。
-    const ledgerFile = first.ledgerPath();   // 是函数：之前直接取属性拿到的是函数对象
+    const ledgerFile = first.ledgerPath();
     const { readFile } = await import("node:fs/promises");
     let landed = false;
     for (let i = 0; i < 100; i += 1) {
       try {
         if ((await readFile(ledgerFile, "utf8")).includes("child-R")) { landed = true; break; }
-      } catch { /* 尚未写出 */ }
+      } catch {   }
       await new Promise((r) => setTimeout(r, 5));
     }
-    // 必须断言「等到了」，否则循环空转到底也会继续往下走——那是一条恒过的用例，
-    // 比没有用例更糟（它让人以为落盘被验证过）。
     assert.equal(landed, true, `绑定未落盘（授权账 ${ledgerFile} 中找不到 child-R）`);
 
     const second = createExperienceArming({ dshHomePath: home });
@@ -189,13 +170,6 @@ test("无用途的授权被拒：事后读不懂的授权等于不可核验", as
   });
 });
 
-// ---------------------------------------------------------------------------
-// 载体权限与并发（07 §5.6 同层纪律；本批用例是我自查上一轮遗漏时补上的）
-//
-// 上一轮的错误：修了权限却没有一条断言打到它——与我自己批评的「新增防护无直打
-// 用例」（pitfall-b79dc397）同一形态。故此处不仅断言，还对断言做变异检验：
-// 把 mode 选项删掉后必须变红，否则这条用例等于没写。
-// ---------------------------------------------------------------------------
 
 test("授权账以 0600 落盘：含会话标识与项目路径，世界可读即泄漏", async () => {
   await withTemp("arm.", async (base) => {
@@ -209,10 +183,6 @@ test("授权账以 0600 落盘：含会话标识与项目路径，世界可读�
       const dirMode = (await stat(join(home, "ldvh"))).mode & 0o777;
       assert.equal(dirMode, 0o700, `载体目录权限为 ${dirMode.toString(8)}，管辖载体同层取 0700`);
     }
-    // Windows 无 POSIX mode：Node 在 win32 只暴露只读位，stat().mode & 0o777
-    // 恒为 0o666/0o777，0600/0700 不可判定——按红线4 如实登记为未覆盖，
-    // 不拿「Windows 上跑过」冒充权限防护已验收。下面的可读回断言仍照常验证。
-    // 落盘内容仍须可读回（收紧权限不得把功能一起关掉）
     assert.ok((await readFile(arming.ledgerPath(), "utf8")).includes("p1"));
   });
 });
@@ -226,7 +196,6 @@ test("既有 0644 载体在下次写入时被收紧为 0600（存量不靠人工
     const { mkdir, writeFile, chmod, stat } = await import("node:fs/promises");
     const dir = join(home, "ldvh");
     await mkdir(dir, { recursive: true });
-    // 模拟修复前遗留的宽权限载体
     await writeFile(join(dir, "experience-arming.json"), JSON.stringify({ version: 1, entries: [] }), { mode: 0o644 });
     await chmod(join(dir, "experience-arming.json"), 0o644);
     assert.equal((await stat(join(dir, "experience-arming.json"))).mode & 0o777, 0o644, "前置条件：造出宽权限存量");
@@ -245,8 +214,6 @@ test("两个实例并发写账：不得丢条目（锁与串行链各管一层�
     const a = createExperienceArming({ dshHomePath: dshHome(home) });
     const b = createExperienceArming({ dshHomePath: dshHome(home) });
     await a.load(); await b.load();
-    // 各自持有独立内存快照，交错写同一文件：无跨进程锁时后写者会用整账快照
-    // 覆盖前写者，使其中一条授权凭空消失（分身随后静默拿不到能力面）。
     await Promise.all([
       a.arm({ parentSessionId: "p-a", projectPath: "/repo", purpose: "A" }),
       b.arm({ parentSessionId: "p-b", projectPath: "/repo", purpose: "B" })

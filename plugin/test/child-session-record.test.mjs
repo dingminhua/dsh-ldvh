@@ -1,22 +1,8 @@
-// child-session-record.js unit tests (2026-10-18 「子代理登记表被清空」 修复 · 步骤 3).
-//
-// The module is the durable half of the child registry: it answers「这个 id 是不是
-// 本会话派出的隔离子代理，它的结论是什么」from the child's own session record, for
-// children the live registry can no longer see (they finished before a plugin
-// rebuild). These tests pin the four things the review channel depends on:
-//
-//   1. identity comes from the header the HOST wrote (origin: "subagent");
-//   2. lineage comes from parentSession, walked upward — a session from an
-//      unrelated conversation can never be cited as this caller's reviewer;
-//   3. the conclusion is the child's OWN last text (a text-less final turn never
-//      clears an earlier real product — same rule as child.js live capture);
-//   4. every failure is a stated reason, never a weaker substitute (00 §4.6).
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveChildFromSessionRecord } from "../lib/child-session-record.js";
 
-/** Host-shaped stub: open(id, "read") → handle with read()/close(). */
 function stubPersistence(sessions, opened = []) {
 	return {
 		async open(id, mode) {
@@ -46,11 +32,6 @@ const toolOnly = (seq, turn) => ({
 	data: { turn, message: { content: [{ type: "tool-call", name: "bash" }] } }
 });
 
-// A handle shaped the way the REAL host shapes it (measured 2026-10-19 against a
-// live reviewer record): the session header lives on the HANDLE — `handle.header` —
-// while `handle.read()` returns body events only, with no `type: "session"` line.
-// The stub above keeps the older shape on purpose (both must resolve); this one
-// pins the actual host, which is the shape that silently broke the review channel.
 function hostShapedPersistence(sessions, opened = []) {
 	return {
 		async open(id, mode) {
@@ -68,9 +49,6 @@ function hostShapedPersistence(sessions, opened = []) {
 }
 
 test("resolve: the real host puts the header on the HANDLE, not in the events array", async () => {
-	// Regression: the reviewer channel reported every finished child as
-	// 「carries no session header」 against the live host, because the header was
-	// searched for inside `read()`'s events. It is a handle property.
 	const opened = [];
 	const sessions = {
 		"reviewer-1": [
@@ -97,7 +75,6 @@ test("resolve: a direct subagent resolves with its own last text as the conclusi
 			subagentHeader("reviewer-1", "session-parent"),
 			toolOnly(3, 1),
 			text(5, 1, "第一轮的真实产出。"),
-			// 最后一轮只有工具调用：空值不得清掉既有结论。
 			toolOnly(9, 2)
 		]
 	};

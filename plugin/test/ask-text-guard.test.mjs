@@ -1,14 +1,3 @@
-/**
- * 提请文本机械校验（Human 2026-11-14 决定）。
- *
- * 只校验「提请发出去的那段字」：只有一行动作标题（≤200 UTF-16 码元）、
- * 无 detail、无其它呈报细节；不合格 fail-closed 拒绝、不截断、不改写。
- * 与「何时提请」完全正交——本文件不读开关、不读留痕、不解析答复。
- *
- * 两个提交通道都必须覆盖：tools.guard（管辖会话所有 ask_user_question 工具调用）
- * 与 seams.ask（所有 ctx.userQuestions.ask 服务提请）。只挂一个即
- * pitfall-a5c34ca3「约束绑单入口致漏检」的同构复发。
- */
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -33,7 +22,6 @@ function validQuestion(overrides = {}) {
   };
 }
 
-// ── 判据本身 ────────────────────────────────────────────────────────────────
 
 test("纯校验器：恰好 200 字符通过（边界包含）", () => {
   const q = "字".repeat(ASK_TEXT_MAX_CHARS);
@@ -49,7 +37,6 @@ test("纯校验器：201 字符被拒，且不截断不改写", () => {
 });
 
 test("纯校验器：UTF-16 码元计量，全 emoji 标题按 .length 超限必拒", () => {
-  // 200 个 emoji 按码点看是 200，按 .length 是 400；用码点计会静默失效。
   const q = "\u{1F600}".repeat(200);
   assert.equal(q.length, 400);
   assert.equal(validateAskText(validQuestion({ question: q })).ok, false);
@@ -110,7 +97,6 @@ test("askTextDenial：合格返回 undefined（放行），不合格返回拒绝
   assert.match(denial, /fail-closed/);
 });
 
-// ── 挂载点 ①：tools.guard（管辖会话里所有 ask_user_question 工具调用）──────
 
 function guardOf(seams, ctx = {}) {
   let guardFn = null;
@@ -143,7 +129,6 @@ test("tools.guard：格式良好的短提问放行（不误伤）", () => {
 });
 
 test("tools.guard：判定未就绪（cwd 无 judgement）仍过校验，不是 fail-open", () => {
-  // 首回合 resolve 尚未写入 LATEST_JUDGEMENT 的同款时序缺口。
   const guard = guardOf(createHostSeams());
   const denial = guard(execAt("/never-recorded", validQuestion({ detail: "x" })));
   assert.equal(typeof denial, "string", "未就绪不得放行畸形提请");
@@ -152,7 +137,6 @@ test("tools.guard：判定未就绪（cwd 无 judgement）仍过校验，不是 
 test("tools.guard：明确不受辖会话放行（不约束非管辖会话）", () => {
   const seams = createHostSeams();
   const guard = guardOf(seams);
-  // 直接复用 host-seams 的 judgement 记录器（生产里由 lifecycle 调用）。
   return import("../lib/host-seams.js").then(({ recordJudgementForGuard }) => {
     recordJudgementForGuard("/not-gov", "not_governed");
     assert.equal(guard(execAt("/not-gov", validQuestion({ detail: "x" }))), undefined);
@@ -164,7 +148,6 @@ test("tools.guard：非 ask_user_question 工具不受本校验影响", () => {
   assert.equal(guard({ name: "bash", arguments: {}, agent: { session: { header: { cwd: "/p" } } } }), undefined);
 });
 
-// ── 挂载点 ②：seams.ask（所有 ctx.userQuestions.ask 服务提请）─────────────
 
 function serviceSeam(askImpl) {
   const seams = createHostSeams();
@@ -177,8 +160,6 @@ function serviceSeam(askImpl) {
 test("seams.ask：畸形服务提请被拒绝，宿主 ask 根本没被调用", () => {
   let called = 0;
   const seams = serviceSeam(async () => { called += 1; return { answers: [] }; });
-  // 同步抛错＝fail-closed 的本意：宿主服务连一次都没被调用。所有消费者都在
-  // try/catch 里 `await ask(...)`，同步 throw 会被同一 catch 接住。
   assert.throws(
     () => seams.ask(validQuestion({ detail: "x" })),
     /ask-text guard \(service seam\) refused/,
@@ -214,7 +195,6 @@ test("seams.ask：带 agent 的调用（三处 Human Gate 走此路径）同样�
   assert.equal(called, 0);
 });
 
-// ── 两个通道用同一判据（防漂移）────────────────────────────────────────────
 
 test("两个挂载点对同一份畸形提请给出同因拒绝", async () => {
   const bad = validQuestion({ detail: "x" });

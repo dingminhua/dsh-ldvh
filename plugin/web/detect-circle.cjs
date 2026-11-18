@@ -5,14 +5,11 @@ const { chromium } = require('playwright');
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.emulateMedia({ colorScheme: 'dark' });
 
-  // Go to intent list
   await page.goto('http://localhost:5173/objects/intent');
   await page.waitForTimeout(2000);
 
-  // Click and immediately capture computed styles of key elements during animation
   await page.click('button:has-text("intent-0001")');
 
-  // Capture styles at 100ms intervals for 1 second
   for (let i = 0; i < 10; i++) {
     const styles = await page.evaluate(() => {
       const main = document.querySelector('main');

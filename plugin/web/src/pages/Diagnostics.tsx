@@ -1,16 +1,3 @@
-/**
- * 运行时诊断页（`/diagnostics`）。
- *
- * 这不是事实源页面，也不参与 LDVH 的业务裁决。它只回答一类问题：**机制本身在
- * 实际使用中哪里在失效、失效成什么形态**——这类信息此前不在任何载体里，因此
- * 「哪条规则最常拦人」「哪个工具一直在坏」从来没被回答过。
- *
- * 两页数据来源不同，页面必须把它们分开呈现，不能混成一个「健康度」：
- * - 写入关卡：宿主会话日志里的 LDVH 工具调用实况（跨出 LDVH 载体的读取）；
- * - 待处置队列：`~/.dsh/ldvh/` 下插件自己落的队列与检查点运行记录（11 §12）。
- *
- * 只读：本页不发任何写请求，也不提供操作按钮。
- */
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronRight } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
@@ -29,15 +16,10 @@ import {
 import { LDVH_ERROR_TEXT_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 import type { LocaleKey } from '@/i18n/locales';
 
-// **2026-11-16**：`experience` 页签已删除（经验留观缓冲随审核层取消）。
-// 2026-11-17：`idle`（闲时辅助）页签改名 `queue`（待处置队列）——闲时触发
-// 机制已删除，但队列与运行记录仍是活载体，删名不删数据。
 type Tab = 'gate' | 'queue' | 'observations' | 'cleanup';
 
-/** 与 i18n context 的 `t` 同签名（可带插值参数）。 */
 type Translation = (key: LocaleKey, params?: Record<string, string>) => string;
 
-/** 失败类别的显示名走 i18n；未知类别如实回落为原值，不假装认识它。 */
 const CATEGORY_LABEL_KEYS = {
   missing_arguments: 'diagnostics.category.missingArguments',
   audit_summary_shape: 'diagnostics.category.auditSummaryShape',
@@ -45,8 +27,6 @@ const CATEGORY_LABEL_KEYS = {
   object_not_found: 'diagnostics.category.objectNotFound',
   shape_and_concurrency: 'diagnostics.category.shapeAndConcurrency',
   other: 'diagnostics.category.other',
-  // 2026-11-16 补类：与 runtimeDiagnostics.FAILURE_CATEGORIES 一一对应，
-  // 缺一条就会在界面上回落成英文原值（此前 partial/unavailable 正是如此）。
   spec_lookup_miss: 'diagnostics.category.specLookupMiss',
   host_param_validation: 'diagnostics.category.hostParamValidation',
   human_gate_pending: 'diagnostics.category.humanGatePending',
@@ -90,7 +70,6 @@ function formatTime(value: string | null | undefined): string {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** 占比条：只表达分布，不做「健康/不健康」判断——阈值不在这页定义。 */
 function ShareBar({ value, total }: { value: number; total: number }) {
   const percent = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
@@ -100,11 +79,6 @@ function ShareBar({ value, total }: { value: number; total: number }) {
   );
 }
 
-/**
- * 指标卡。`wrap` 让长值（如 `ldvh_read_specification_content`）断行显示而不是
- * 被 truncate 成 `ldvh_read_specification_c…`；`title` 始终给出完整值，便于悬停核对。
- * 默认行为与其它面板一致，只有显式传 wrap 的最差工具卡改变排版。
- */
 function MetricCard({ label, value, hint, tone, wrap }: { label: string; value: string; hint?: string; tone?: 'error' | 'warning'; wrap?: boolean }) {
   const toneClass = tone === 'error' ? LDVH_ERROR_TEXT_CLASS : tone === 'warning' ? LDVH_WARN_TITLE_CLASS : 'text-ldvh-text-primary';
   return (
@@ -121,13 +95,6 @@ function MetricCard({ label, value, hint, tone, wrap }: { label: string; value: 
   );
 }
 
-/**
- * 数据边界声明：页面存在的意义就是区分「没看到」与「没有」，所以这段必须常驻。
- *
- * `generatedAt` / `cachedAt` 是 /gate 专属的新鲜度披露（2026-11-16 补）：TTL 延长到
- * 30 分钟后，不写明「这是缓存生成于何时的数字」就会把旧数据呈现成此刻的实况。
- * 其余面板不传这两个参数，行为逐字不变。
- */
 function ScopeNotice({ limits, generatedAt, cachedAt, t }: { limits: string[]; generatedAt?: string; cachedAt?: string; t?: Translation }) {
   if (limits.length === 0 && !generatedAt) return null;
   return (
@@ -184,11 +151,7 @@ function GatePanel({ report, t }: { report: GateReport; t: Translation }) {
         t={t}
       />
 
-      {/*
-        未完成结局分布：把顶部那个「未完成调用」数字拆回它实际包含的多种结局。
-        没有这一块时，读者只能看到「被拒 99」，把部分结果/宿主拦下也当成拒绝——
-        正是 2026-11-16 复核指出的口径缺陷。分布含 completed，便于对照总调用数。
-      */}
+      { }
       <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
         <h2 className="ldvh-card-title">{t('diagnostics.gate.byStatus')}</h2>
         <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.gate.byStatusHint')}</p>
@@ -269,8 +232,6 @@ function GatePanel({ report, t }: { report: GateReport; t: Translation }) {
 }
 
 function QueuePanel({ report, t }: { report: QueueReport; t: Translation }) {
-  // 2026-11-17：待处置队列已删除（Human 决定，11 §12）。本面板只呈现运行痕迹——
-  // 失败留痕的持久承载。原队列四块（未处置/结案/分类/最近登记）随载体一并移除。
   const stopped = report.runs.byStage.find((row) => row.stage === 'stopped');
   return (
     <div className="flex flex-col gap-4">
@@ -311,20 +272,6 @@ function QueuePanel({ report, t }: { report: QueueReport; t: Translation }) {
   );
 }
 
-/**
- * 摩擦观察缓冲面板（11 §12bis.1）。
- *
- * ## 这里为什么没有「点进去看详情」
- *
- * 缓冲条目**不是事实对象**——没有对象身份、不在事实源里。故本面板刻意不提供
- * 任何进入详情页的入口：给了入口就等于暗示「它是一个对象」。这与「诊断页只读」
- * 是同一条纪律的两个面。
- *
- * ## 为什么只显示四项
- *
- * 11 §12bis.1 第 2 条（Human 决定 2026-10）明写只可呈现现象/时间/来源/状态，
- * 不得呈现 `evidence` 全文。本面板严格遵守——不是信息缺失，是规范边界。
- */
 function ObservationPanel({ report, t }: { report: FrictionObservationReport; t: Translation }) {
   const ready = report.groups.filter((group) => group.promotionReady).length;
   return (
@@ -353,8 +300,7 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
 
       <ScopeNotice limits={report.scope.limits ?? []} />
 
-      {/* 目录不存在是**正常初态**（还没有任何观察落地），须说清楚，否则读者会
-          以为功能坏了。这与「读失败」必须区分开。 */}
+      { }
       {!report.scope.bufferDirExists ? (
         <div className="rounded-lg border border-dashed border-ldvh-border bg-ldvh-panel px-4 py-6 text-center">
           <p className="ldvh-body-muted">{t('diagnostics.observations.noBufferDir')}</p>
@@ -434,30 +380,6 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
   );
 }
 
-/**
-// **2026-11-16**：经验观察面板已删除——经验留观缓冲（11 §12bis）随审核层整层取消，
-// 该面板对应的载体已不存在。摩擦观察面板（`ObservationPanel`）不受影响。
-
-/**
- * 运行账清理面板。
- *
- * ## 为什么每个目标都要单独勾选，而不是一个「全部清理」按钮
- *
- * 这几类东西性质不同（见后端 logsCleanup.ts 文件头）：流水可以丢，**观察材料
- * 丢了就是丢证据**。一个「全部清理」的按钮会让后者被顺手带走。故默认只勾最安全
- * 的一类，观察材料须显式勾。
- *
- * ## 为什么先预览再删
- *
- * 删除不可逆（除自动备份）。预览与真删走后端**同一条**计算路径，故「将删除 N 条」
- * 就是真删的条数——这条由测试钉住。用户看过数字再决定。
- *
- * ## 历史水位文件为什么不在列表里
- *
- * 水位机制已随闲时触发删除（2026-11-17），存量文件无机制再读；后端
- * `LOGGABLE_TARGETS` 仍不含它——清历史文件须是显式决定，不混进运行流水清理。
- * 本面板在页面底部把这条写明，免得用户以为「没列出来 = 忘了做」。
- */
 function CleanupPanel({
   report,
   setReport,
@@ -469,9 +391,7 @@ function CleanupPanel({
 }) {
   const [days, setDays] = useState<number>(3);
   const [selected, setSelected] = useState<Record<string, boolean>>({
-    // 默认只勾「流水」类——观察材料须显式勾选（丢了就是丢证据）。
     'checkpoint-runs': true,
-    // **2026-11-16**：经验缓冲清理项已删除（载体不存在）。
     'friction-observations': false,
   });
   const [busy, setBusy] = useState(false);
@@ -492,7 +412,6 @@ function CleanupPanel({
   };
 
   const clean = async () => {
-    // 破坏性操作：让用户再看一眼要删多少条（预览已给过数字时不重复弹窗）。
     setBusy(true); setError(null); setDone(null);
     try {
       const result = await runCleanup(days, chosen);
@@ -533,7 +452,6 @@ function CleanupPanel({
         <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.cleanup.targetsHint')}</p>
         <div className="mt-3 flex flex-col gap-2">
           {(report?.targets ?? []).length === 0 && !report ? (
-            // 尚未预览：给出静态的目标清单（让用户先知道能清什么再点预览）。
             <div className="flex flex-col gap-2">
               {[
                 { id: 'checkpoint-runs', label: t('diagnostics.cleanup.t.checkpointRuns'), note: t('diagnostics.cleanup.n.checkpointRuns') },
@@ -625,24 +543,19 @@ function CleanupPanel({
 export default function Diagnostics() {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('gate');
-  // **2026-11-16**：经验留观区状态已删除（载体随审核层取消）。
   const [gate, setGate] = useState<GateReport | null>(null);
   const [queue, setQueue] = useState<QueueReport | null>(null);
   const [observations, setObservations] = useState<FrictionObservationReport | null>(null);
   const [cleanup, setCleanup] = useState<CleanupPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 采集时机就是进入本页与切换标签：离开页面即卸载，再进来一定重采。
-  // 因此不设单独的「重新采集」按钮——它没有独立的刷新语义（2026-10-18 实测确认）。
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    // 清理页不自动预览：预览要传保留天数，由用户选。
     if (tab === 'cleanup') {
       setCleanup(null);
       return () => { cancelled = true; };
     }
-    // **2026-11-16**：经验观察页签已删除，此处只剩摩擦观察一个载体。
     if (tab === 'observations') {
       fetchFrictionObservationReport()
         .then((value) => setObservations(value))

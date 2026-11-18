@@ -23,16 +23,12 @@ router.post('/governed-projects/verify', (_req: Request, res: Response): void =>
   res.status(501).json({ ok: false, error: '管辖验证已归 DSH 插件设置卡（LDVH → 管辖项目配置 → 检查）。' })
 })
 
-// 管辖登记的写路径归 DSH 插件设置卡（07 规范登记面）——Web 侧只读呈现；
-// v4 时代的轻写入（改名/增删项目/改默认）已下线，保留读端点供呈现。
 router.put('/governed-projects', (_req: Request, res: Response): void => {
   res.status(501).json({ ok: false, error: '管辖项目配置为只读：请使用 DSH 插件设置卡（LDVH → 管辖项目配置）修改登记；项目颜色也已在插件设置卡设置。' })
 })
 
 export default router
 
-// 颜色偏好读写：颜色是呈现偏好（独立载体），插件设置卡经此端点设置，
-// Web 侧的 Settings 页调色板交互同样落这里。
 router.put('/governed-projects/color', async (req: Request, res: Response): Promise<void> => {
   const body = req.body as { projectId?: unknown; color?: unknown }
   if (typeof body.projectId !== 'string' || !body.projectId) {

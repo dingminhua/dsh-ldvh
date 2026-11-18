@@ -1,12 +1,3 @@
-// Tests for plugin/lib/pitfall-writer.js — the Pitfall mechanical writer slice.
-//
-// Every case is derived from specs/23 (the single authority):
-//   §6 对象边界与查重, §8 字段契约与正文七段+条件证据段,
-//   §9 状态生命周期（含 §9.3 勘误与补充级更新边界）, §12 召回（默认 active）,
-//   §13 受控操作, §14.1 类型特有验证, §17 必停情形.
-// Tests assert spec behaviour; where the implementation diverges from the
-// spec the failure is reported in the task report, never "fixed" by bending
-// the assertion. lib/ is NOT modified here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir, writeFile } from "node:fs/promises";
@@ -14,8 +5,6 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { testSignature, withTemp } from "./helpers.mjs";
 
-// 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
-// tests supply a branded test carrier; the signature gate has its own cases.
 const TEST_SIGNATURE = testSignature();
 import {
   createPitfallObject,
@@ -31,13 +20,7 @@ import { authoritativeSignature } from "../lib/signature-channel.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
-// 注意：`status` 在契约里是**必填**（2026-10-20 起省略即 `pitfall/status_required`）。
-// 本 helper 取 `active` 作为缺省，与旧行为等价（旧实现省略时默认落 active）——
-// 使各既有用例不必逐个改；专门断言「省略被拒」的用例显式把它删掉再传。
 function validFrontmatterDraft(overrides = {}) {
   return {
     title: "SG-4 落地后重复采坑",
@@ -49,9 +32,6 @@ function validFrontmatterDraft(overrides = {}) {
   };
 }
 
-// 23 §8 正文固定结构：症状 / 触发条件 / 根因 / 解决 / 规避 / 验证 /
-// 影响与适用范围（必填七段）+ 证据（urls 非空时必填）。影响与适用范围段
-// 逐字包含 frontmatter scope（载体内聚，23 §8/§14.1）。
 function validBodyMarkdown(draft = validFrontmatterDraft()) {
   const sections = [
     `## 症状\n升级后出现重复的解析失败，报错指向同一异常签名。`,
@@ -87,9 +67,6 @@ async function createAndRead(root, overrides = {}) {
   return { draft, created, read };
 }
 
-// ---------------------------------------------------------------------------
-// create 正向 (23 §13)
-// ---------------------------------------------------------------------------
 
 test("create: a valid Pitfall object lands at pitfalls/pitfall-<uid>.md with Code identity and precise read-back", async () => {
   await withTemp("pitfall-writer.", async (root) => {
@@ -97,13 +74,11 @@ test("create: a valid Pitfall object lands at pitfalls/pitfall-<uid>.md with Cod
     const uid = created.value.object_uid;
     assert.match(uid, UUID_PATTERN);
 
-    // fileName & directory (23 §7: ldvh-base/pitfalls/pitfall-<uid>.md)
     const filePath = join(root, PITFALL_DIRECTORY, pitfallFileName(uid));
     assert.equal(created.value.file, filePath);
     const raw = await readFile(filePath, "utf8");
     assert.ok(raw.startsWith("---\n"));
 
-    // Code identity: uid / created_at / change_log first entry (23 §7/§8)
     const fm = parseFrontmatter(raw);
     assert.equal(fm.object_uid, uid);
     assert.equal(fm.fact_type_key, "pitfall");
@@ -115,13 +90,10 @@ test("create: a valid Pitfall object lands at pitfalls/pitfall-<uid>.md with Cod
     assert.ok(fm.change_log[0].at);
     assert.equal(fm.change_summary, undefined, "change_summary is a call argument, not object metadata");
 
-    // Code-assigned facts are never overridable by the draft (23 §8 Code fields)
     assert.equal(fm.object_uid, uid);
 
-    // H1 generated from title (23 §8)
     assert.ok(raw.includes(`# ${draft.title}`));
 
-    // precise read-back round-trip (23 §13 创建后精确回读)
     assert.equal(read.value.frontmatter.scope, draft.scope);
     assert.equal(read.value.frontmatter.trigger_signal, draft.trigger_signal);
     assert.equal(read.value.body_valid, true);
@@ -130,7 +102,7 @@ test("create: a valid Pitfall object lands at pitfalls/pitfall-<uid>.md with Cod
   });
 });
 
-test("create: urls non-empty with 证据 body section present succeeds (23 §8 条件出现)", async () => {
+test("create: urls non-empty with 证据 body section present succeeds (25 §8 条件出现)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft({
       urls: [{ ref: "https://example.com/evidence", title: "证据来源" }],
@@ -150,15 +122,10 @@ test("create: urls non-empty with 证据 body section present succeeds (23 §8 �
   });
 });
 
-// ---------------------------------------------------------------------------
-// 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
-// ---------------------------------------------------------------------------
 
 test("create: a forged plain sessionSignature is REFUSED — no unsigned change_log entry (specs/09)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    // Human 2026-09-12: changelog must be mechanically signed; a write that
-    // cannot be signed is refused rather than recorded unsigned.
     const created = await createPitfallObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
@@ -171,11 +138,8 @@ test("create: a forged plain sessionSignature is REFUSED — no unsigned change_
   });
 });
 
-// ---------------------------------------------------------------------------
-// create 反向 (23 §8/§9/§13/§17)
-// ---------------------------------------------------------------------------
 
-test("create: non-active initial status is rejected (23 §9 初态必须 active)", async () => {
+test("create: non-active initial status is rejected (25 §9 初态必须 active)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     for (const status of ["discarded", "archived"]) {
       const result = await createPitfallObject({
@@ -190,7 +154,7 @@ test("create: non-active initial status is rejected (23 §9 初态必须 active)
   });
 });
 
-test("create: disposition at creation is rejected (23 §8: disposition ⇔ discarded)", async () => {
+test("create: disposition at creation is rejected (25 §8: disposition ⇔ discarded)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const result = await createPitfallObject({
       factSourceRoot: root,
@@ -203,7 +167,7 @@ test("create: disposition at creation is rejected (23 §8: disposition ⇔ disca
   });
 });
 
-test("create: unknown frontmatter field rejected (23 §8 closed set)", async () => {
+test("create: unknown frontmatter field rejected (25 §8 closed set)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const result = await createPitfallObject({
       factSourceRoot: root,
@@ -216,7 +180,7 @@ test("create: unknown frontmatter field rejected (23 §8 closed set)", async () 
   });
 });
 
-test("create: title longer than 30 chars rejected (23 §8 title ≤ 30 字)", async () => {
+test("create: title longer than 30 chars rejected (25 §8 title ≤ 30 字)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const result = await createPitfallObject({
       factSourceRoot: root,
@@ -229,7 +193,7 @@ test("create: title longer than 30 chars rejected (23 §8 title ≤ 30 字)", as
   });
 });
 
-test("create: missing or empty scope rejected (23 §8 required)", async () => {
+test("create: missing or empty scope rejected (25 §8 required)", async () => {
   for (const variant of ["missing", "empty"]) {
     await withTemp("pitfall-writer.", async (root) => {
       const draft = validFrontmatterDraft();
@@ -261,7 +225,7 @@ test("create: trigger_signal empty string rejected (03 §6.1 conditional field f
   });
 });
 
-test("create: urls empty array rejected as fabricated conditional field (23 §8 urls 条件出现)", async () => {
+test("create: urls empty array rejected as fabricated conditional field (25 §8 urls 条件出现)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const result = await createPitfallObject({
       factSourceRoot: root,
@@ -274,7 +238,7 @@ test("create: urls empty array rejected as fabricated conditional field (23 §8 
   });
 });
 
-test("create: body with wrong H2 order rejected (23 §8 fixed order)", async () => {
+test("create: body with wrong H2 order rejected (25 §8 fixed order)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const wrongOrder = [
@@ -292,7 +256,7 @@ test("create: body with wrong H2 order rejected (23 §8 fixed order)", async () 
   });
 });
 
-test("create: body missing a required H2 section rejected (23 §8 必填七段)", async () => {
+test("create: body missing a required H2 section rejected (25 §8 必填七段)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const missing = [
@@ -309,7 +273,7 @@ test("create: body missing a required H2 section rejected (23 §8 必填七段)"
   });
 });
 
-test("create: empty H2 section rejected (23 §8 body must carry content)", async () => {
+test("create: empty H2 section rejected (25 §8 body must carry content)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const emptySection = [
@@ -327,12 +291,11 @@ test("create: empty H2 section rejected (23 §8 body must carry content)", async
   });
 });
 
-test("create: urls non-empty but body lacks 证据 section rejected (23 §8 条件出现)", async () => {
+test("create: urls non-empty but body lacks 证据 section rejected (25 §8 条件出现)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft({
       urls: [{ ref: "https://example.com/evidence", title: "证据来源" }],
     });
-    // validBodyMarkdown builds 证据 iff urls non-empty — strip it to force the violation
     const bodyWithoutEvidence = validBodyMarkdown(draft).split("\n\n## 证据")[0];
     const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithoutEvidence , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
@@ -340,24 +303,18 @@ test("create: urls non-empty but body lacks 证据 section rejected (23 §8 条�
   });
 });
 
-test("create: carrier coherence — drifted scope not verbatim now accepted (warning only, Human 2026-11-10) (23 §8/§14.1, 23 §17.3)", async () => {
+test("create: carrier coherence — drifted scope not verbatim now accepted (warning only, Human 2026-11-10) (25 §8/§14.1, 25 §17.3)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const drifted = draft.scope.replace("适用于", "针对");
     const body = validBodyMarkdown().replace(draft.scope, drifted);
     const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
-    // 载体内聚已降为警告层（Human 2026-11-10）：不一致不再拒绝写入。
     assert.ok(result.ok, JSON.stringify(result.error));
   });
 });
 
-// ---------------------------------------------------------------------------
-// update 补充边界 (23 §9.3 —— 同态更新是勘误与补充级: scope 必须与
-// CAS 基线逐字段一致; 变了就走新对象路径。active→active 与 discarded→discarded、
-// 终态勘误同受此约束，后两者见下方 2026-11-03 补的用例)
-// ---------------------------------------------------------------------------
 
-test("update: active→active with scope change rejected as supplement-boundary violation (23 §9.3)", async () => {
+test("update: active→active with scope change rejected as supplement-boundary violation (25 §9.3)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);
     const result = await updatePitfallObject({
@@ -379,8 +336,6 @@ test("update: active→active body-only errata succeeds, appends exactly one cha
     const { draft, created, read } = await createAndRead(root);
     const created_at = read.value.frontmatter.created_at;
 
-    // 正文勘误：仅改症状/验证段措辞（补充新表现样例, 23 §9.3 允许项），
-    // scope 逐字不变（23 §9.3 机械边界）
     const body2 = [
       `## 症状\n升级后出现重复的解析失败，报错指向同一异常签名；补充观察：在并发批处出现偶发重试。`,
       `## 触发条件\n升级 SG-4 到新大版本后首次运行归档读取流程时触发。`,
@@ -415,11 +370,8 @@ test("update: active→active body-only errata succeeds, appends exactly one cha
   });
 });
 
-// ---------------------------------------------------------------------------
-// update 终态流转 (23 §9.2 —— 正常转换只有 active → discarded; 终态不重开)
-// ---------------------------------------------------------------------------
 
-test("update: active→discarded with disposition succeeds and lands disposition (23 §13 终态流转)", async () => {
+test("update: active→discarded with disposition succeeds and lands disposition (25 §13 终态流转)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);
     const updated = await updatePitfallObject({
@@ -442,11 +394,10 @@ test("update: active→discarded with disposition succeeds and lands disposition
   });
 });
 
-test("update: disposition longer than 200 characters is rejected (23 §9.1)", async () => {
+test("update: disposition longer than 200 characters is rejected (25 §9.1)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);
 
-    // 201 -> rejected; the reason must NOT be silently truncated.
     const overCap = await updatePitfallObject({
       factSourceRoot: root,
       objectUid: read.value.object_uid,
@@ -463,7 +414,6 @@ test("update: disposition longer than 200 characters is rejected (23 §9.1)", as
       JSON.stringify(overCap.error.details.issues)
     );
 
-    // Rejected write left no trace. 200 -> accepted (boundary is inclusive).
     const read2 = await readPitfallObject({ factSourceRoot: root, objectUid: read.value.object_uid });
     assert.equal(read2.value.fingerprint, read.value.fingerprint);
 
@@ -483,7 +433,7 @@ test("update: disposition longer than 200 characters is rejected (23 §9.1)", as
   });
 });
 
-test("update: active object with disposition rejected (23 §8: disposition ⇔ discarded)", async () => {
+test("update: active object with disposition rejected (25 §8: disposition ⇔ discarded)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);
     const result = await updatePitfallObject({
@@ -501,7 +451,7 @@ test("update: active object with disposition rejected (23 §8: disposition ⇔ d
   });
 });
 
-test("update: discarded object allows content correction but not reopening (23 §9.2)", async () => {
+test("update: discarded object allows content correction but not reopening (25 §9.2)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);
     const r1 = await updatePitfallObject({
@@ -515,7 +465,6 @@ test("update: discarded object allows content correction but not reopening (23 �
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
-    // Content correction on the terminal object is allowed (23 §9.3).
     const read2 = await readPitfallObject({ factSourceRoot: root, objectUid: read.value.object_uid });
     assert.equal(read2.value.frontmatter.status, "discarded");
     const r2 = await updatePitfallObject({
@@ -534,7 +483,6 @@ test("update: discarded object allows content correction but not reopening (23 �
     assert.equal(read3.value.frontmatter.status, "discarded", "correction must not change status");
     assert.equal(read3.value.frontmatter.change_log.length, 3, "every update appends exactly one change_log entry");
 
-    // Reopen stays forbidden.
     const reopen = await updatePitfallObject({
       factSourceRoot: root,
       objectUid: read.value.object_uid,
@@ -549,19 +497,8 @@ test("update: discarded object allows content correction but not reopening (23 �
   });
 });
 
-// ---------------------------------------------------------------------------
-// 补充边界覆盖全部同态更新（23 §9.3 / §15「更新时」）
-//
-// 2026-11-03 修正前，闸门条件被写成 `nextStatus === prevStatus && nextStatus
-// === "active"`，于是 draft→draft 这一条同属补充更新的路径整条漏检：候选在
-// 等待入档期间把 scope 的适用条件换掉，机械层零信号。终态勘误同理。
-//
-// 2026-11-03 取消 `draft` 待确认态后，同态补充只剩 active→active 与
-// discarded→discarded 两条；下列用例随之落到 active→active 上——它守的是
-// 「同态更新受补充边界约束」这一判据本身，与状态值无关。
-// ---------------------------------------------------------------------------
 
-test("update: active→active with scope change rejected as supplement-boundary violation (23 §9.3)", async () => {
+test("update: active→active with scope change rejected as supplement-boundary violation (25 §9.3)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft({ status: "active" });
     const created = await createPitfallObject({
@@ -585,7 +522,6 @@ test("update: active→active with scope change rejected as supplement-boundary 
     });
     assert.ok(!result.ok, "active→active scope change must be refused");
     assert.equal(result.error.code, "pitfall/supplement_boundary");
-    // 拒绝必须是零写入
     const after = await readPitfallObject({ factSourceRoot: root, objectUid: created.value.object_uid });
     assert.equal(after.value.fingerprint, current.value.fingerprint);
     assert.equal(after.value.frontmatter.scope, draft.scope);
@@ -609,7 +545,7 @@ test("update: active→active body-only supplement succeeds (scope identical) �
       expectedFingerprint: current.value.fingerprint,
       frontmatterAfter: { status: "active" },
       bodyMarkdownAfter: body2,
-      changeSummary: "补充新触发样例（补充级，23 §9.3）",
+      changeSummary: "补充新触发样例（补充级，25 §9.3）",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(result.ok, JSON.stringify(result.error));
@@ -620,7 +556,7 @@ test("update: active→active body-only supplement succeeds (scope identical) �
   });
 });
 
-test("update: discarded→discarded errata with scope change rejected (23 §9.3 终态内容更正同受补充边界)", async () => {
+test("update: discarded→discarded errata with scope change rejected (25 §9.3 终态内容更正同受补充边界)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);
     const toDiscarded = await updatePitfallObject({
@@ -650,11 +586,8 @@ test("update: discarded→discarded errata with scope change rejected (23 §9.3 
   });
 });
 
-// ---------------------------------------------------------------------------
-// list (23 §12 召回 —— 默认只列 active; discarded 不进入普通候选)
-// ---------------------------------------------------------------------------
 
-test("list: empty pitfalls directory is a valid empty state (23 §12)", async () => {
+test("list: empty pitfalls directory is a valid empty state (25 §12)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const listed = await listPitfallObjects({ factSourceRoot: root });
     assert.ok(listed.ok, JSON.stringify(listed.error));
@@ -668,7 +601,7 @@ test("list: empty pitfalls directory is a valid empty state (23 §12)", async ()
 test("list: 2 active + 1 discarded — default lists only 2, includeTerminal lists 3; projection carries uid/title/status/scope/trigger_signal", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draftA = { ...validFrontmatterDraft(), title: "甲坑位" };
-    delete draftA.trigger_signal; // signal-free object: projection must omit the key
+    delete draftA.trigger_signal;
     const a = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) , sessionSignature: TEST_SIGNATURE});
     assert.ok(a.ok, JSON.stringify(a.error));
 
@@ -676,7 +609,6 @@ test("list: 2 active + 1 discarded — default lists only 2, includeTerminal lis
     const b = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) , sessionSignature: TEST_SIGNATURE});
     assert.ok(b.ok, JSON.stringify(b.error));
 
-    // discard the third one via a terminal transition
     const draftC = { ...validFrontmatterDraft(), title: "丙坑位" };
     const c = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftC, bodyMarkdown: validBodyMarkdown(draftC) , sessionSignature: TEST_SIGNATURE});
     assert.ok(c.ok, JSON.stringify(c.error));
@@ -692,12 +624,11 @@ test("list: 2 active + 1 discarded — default lists only 2, includeTerminal lis
     });
     assert.ok(discarded.ok, JSON.stringify(discarded.error));
 
-    // default: active only
     const listed = await listPitfallObjects({ factSourceRoot: root });
     assert.ok(listed.ok, JSON.stringify(listed.error));
     assert.equal(listed.value.total, 2);
     assert.equal(listed.value.complete, true);
-    assert.ok(listed.value.items.every((i) => i.status === "active"), "default list must contain active Pitfalls only (23 §12)");
+    assert.ok(listed.value.items.every((i) => i.status === "active"), "default list must contain active Pitfalls only (25 §12)");
     const uids = listed.value.items.map((i) => i.object_uid).sort();
     assert.deepEqual(uids, [a.value.object_uid, b.value.object_uid].sort());
 
@@ -713,7 +644,6 @@ test("list: 2 active + 1 discarded — default lists only 2, includeTerminal lis
     const withoutSignal = listed.value.items.find((i) => i.object_uid === a.value.object_uid);
     assert.equal(withoutSignal.trigger_signal, undefined);
 
-    // includeTerminal: all three
     const all = await listPitfallObjects({ factSourceRoot: root, includeTerminal: true });
     assert.ok(all.ok);
     assert.equal(all.value.total, 3);
@@ -757,11 +687,8 @@ test("list: bad carrier (valid uid filename without frontmatter) lands in invali
     assert.ok(listed.value.invalid[0].reason.includes("no YAML frontmatter block"), JSON.stringify(listed.value.invalid));
   });
 });
-// ---------------------------------------------------------------------------
-// Body H1 uniqueness (23 §8 正文固定结构: H1 comes from title, body starts H2)
-// ---------------------------------------------------------------------------
 
-test("body structure: exactly one H1 — an extra title heading is rejected (23 §8)", () => {
+test("body structure: exactly one H1 — an extra title heading is rejected (25 §8)", () => {
   const secs = "## 症状\n\nA\n\n## 触发条件\n\nB\n\n## 根因\n\nC\n\n## 解决\n\nD\n\n## 规避\n\nE\n\n## 验证\n\nF\n\n## 影响与适用范围\n\nG";
 
   assert.ok(validatePitfallBodyStructure(`# T\n\n${secs}`, "T", 0).ok);
@@ -774,7 +701,7 @@ test("body structure: exactly one H1 — an extra title heading is rejected (23 
   assert.ok(!validatePitfallBodyStructure(`# X\n\n${secs}`, "T", 0).ok, "wrong title caught by first-line check");
 });
 
-test("body structure: H1 scan follows CommonMark ATX semantics (23 §8)", () => {
+test("body structure: H1 scan follows CommonMark ATX semantics (25 §8)", () => {
   const secs = "## 症状\n\nA\n\n## 触发条件\n\nB\n\n## 根因\n\nC\n\n## 解决\n\nD\n\n## 规避\n\nE\n\n## 验证\n\nF\n\n## 影响与适用范围\n\nG";
 
   assert.ok(!validatePitfallBodyStructure(`# T\n\n   # T\n\n${secs}`, "T", 0).ok, "indented duplicate H1 must be counted");
@@ -785,13 +712,8 @@ test("body structure: H1 scan follows CommonMark ATX semantics (23 §8)", () => 
   assert.ok(validatePitfallBodyStructure(`# T\r\n\r\n${secs.replace(/\n/g, "\r\n")}`, "T", 0).ok, "CRLF body is a legal carrier");
 });
 
-// ---------------------------------------------------------------------------
-// 23 §9 两值状态闭集与 §13 双通道创建 / §9.2 单向转换
-//   2026-11-03 Human 决定取消 `draft` 待确认态：两条通道的初态都是 active，
-//   唯一合法转换是 active → discarded（23 §16 Human Gate）。
-// ---------------------------------------------------------------------------
 
-test("create: status=draft is refused — active is the only initial state (23 §9/§13)", async () => {
+test("create: status=draft is refused — active is the only initial state (25 §9/§13)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft({ status: "draft" });
     const created = await createPitfallObject({
@@ -806,11 +728,8 @@ test("create: status=draft is refused — active is the only initial state (23 �
   });
 });
 
-test("create: status omitted is rejected — there is no default (23 §8/§13/§16)", async () => {
+test("create: status omitted is rejected — there is no default (25 §8/§13/§16)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
-    // 省略 status 曾经默认落 `active`——那等于让任何调用方在无 Human 决定的情况下
-    // 落一个已入档对象（active 是入档后状态，入档属 23 §16 Human Gate）。
-    // 通道差异是**语义差异而不是默认值差异**，故现在省略一律拒绝。
     const draft = validFrontmatterDraft();
     delete draft.status;
     const created = await createPitfallObject({
@@ -821,7 +740,6 @@ test("create: status omitted is rejected — there is no default (23 §8/§13/§
     });
     assert.equal(created.ok, false, "omitting status must be refused, never defaulted");
     assert.equal(created.error.code, "pitfall/status_required");
-    // 零写入：拒绝后载体目录内不得出现任何对象
     await assert.rejects(readdir(join(root, "pitfalls")), { code: "ENOENT" });
   });
 });
@@ -854,7 +772,7 @@ test("create: status=active explicit still lands active (Human 入口创建即�
   });
 });
 
-test("create: status=discarded is rejected — create never enters a terminal state (23 §9)", async () => {
+test("create: status=discarded is rejected — create never enters a terminal state (25 §9)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft({ status: "discarded", disposition: "x" });
     const created = await createPitfallObject({
@@ -868,7 +786,7 @@ test("create: status=discarded is rejected — create never enters a terminal st
   });
 });
 
-test("create: active must not carry disposition (23 §8 disposition ⇔ discarded)", async () => {
+test("create: active must not carry disposition (25 §8 disposition ⇔ discarded)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft({ status: "active", disposition: "不该出现" });
     const created = await createPitfallObject({
@@ -882,7 +800,7 @@ test("create: active must not carry disposition (23 §8 disposition ⇔ discarde
   });
 });
 
-test("update: active→draft is rejected — no reverse transition (23 §9.2)", async () => {
+test("update: active→draft is rejected — no reverse transition (25 §9.2)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const created = await createPitfallObject({
@@ -906,7 +824,7 @@ test("update: active→draft is rejected — no reverse transition (23 §9.2)", 
   });
 });
 
-test("update: active→discarded records the rejection reason (23 §9.2)", async () => {
+test("update: active→discarded records the rejection reason (25 §9.2)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft({ status: "active" });
     const created = await createPitfallObject({
@@ -932,11 +850,10 @@ test("update: active→discarded records the rejection reason (23 §9.2)", async
   });
 });
 
-test("list: discarded stays out of the default candidates (23 §12)", async () => {
+test("list: discarded stays out of the default candidates (25 §12)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const active = validFrontmatterDraft();
     await createPitfallObject({ factSourceRoot: root, frontmatterDraft: active, bodyMarkdown: validBodyMarkdown(active), sessionSignature: TEST_SIGNATURE });
-    // 初态只能是 active（23 §9/§13），终态须经唯一合法转换 active → discarded。
     const seed = validFrontmatterDraft({ title: "已废弃经验" });
     const createdSeed = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: seed, bodyMarkdown: validBodyMarkdown(seed), sessionSignature: TEST_SIGNATURE });
     assert.ok(createdSeed.ok, JSON.stringify(createdSeed.error));
@@ -957,12 +874,12 @@ test("list: discarded stays out of the default candidates (23 §12)", async () =
     assert.equal(def.value.items[0].status, "active");
 
     const archive = await listPitfallObjects({ factSourceRoot: root, statusFilter: ["discarded"] });
-    assert.equal(archive.value.items.length, 1, "the archive view must enumerate discarded (23 §12)");
+    assert.equal(archive.value.items.length, 1, "the archive view must enumerate discarded (25 §12)");
     assert.equal(archive.value.items[0].status, "discarded");
   });
 });
 
-test("list: statusFilter rejects values outside the closed set (23 §9)", async () => {
+test("list: statusFilter rejects values outside the closed set (25 §9)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const bad = await listPitfallObjects({ factSourceRoot: root, statusFilter: ["closed"] });
     assert.equal(bad.ok, false);
@@ -970,35 +887,21 @@ test("list: statusFilter rejects values outside the closed set (23 §9)", async 
   });
 });
 
-// ---------------------------------------------------------------------------
-// Carrier coherence 的**报错可据以修正**（23 §8）
-// ---------------------------------------------------------------------------
-// 判据不变（仍要求 scope 逐字出现在段落内）；但报错若只给截断的 scope 前缀，
-// 调用方无从判断差在哪。实测 2026-10-17 两次落账失败即为此形态：
-//   ① scope 以 `。` 收尾，正文用 `；` 续写了半句；
-//   ② 正文段开头多写 `适用范围：`、并给术语补了反引号。
-// 两者都与 scope 高度相似，前缀比对看不出区别。故此处断言报错**并出两侧全文**。
-test("carrier coherence: the rejection names BOTH the scope and the section text, so the divergence is visible (23 §8)", () => {
-  // 真实失败样本①：整段只差结尾标点与续写的半句。
+test("carrier coherence: the rejection names BOTH the scope and the section text, so the divergence is visible (25 §8)", () => {
   const scope = "LDVH 辅助任务登记链路中所有对 appendPendingEntry 的调用点及 pending-queue.js 契约适用场景。";
   const section = "LDVH 辅助任务登记链路中所有对 appendPendingEntry 的调用点及 pending-queue.js 契约适用场景；影响所有依赖辅助任务登记队列的空闲辅助执行流程。";
   const result = validateCarrierCoherence({ scope }, ["## 症状", "x", "## 影响与适用范围", section].join("\n"));
-  // Human 2026-11-10：逐字义务取消，差异**只报告不阻断**（02 §7.1）。判据从
-  // `issues` 移入 `warnings`，报告的**可读性要求一字不变**——本用例继续钉住
-  // 「两侧全文都须出现、短文本不得截断」，这才是它原本要守护的东西。
   assert.equal(result.ok, true, "差异不再阻断写入");
   const issue = result.warnings[0];
-  // 两侧全文都须出现，否则差异不可见（这是本用例要钉住的那条）。
   assert.ok(issue.includes(scope), `the scope text must be quoted in full; got: ${issue}`);
   assert.ok(issue.includes(section), `the section text must be quoted in full; got: ${issue}`);
   assert.ok(!issue.includes("…"), "a short scope/section must not be clipped");
 });
 
-test("carrier coherence: a section longer than the print budget is clipped WITH its true length (23 §8)", () => {
+test("carrier coherence: a section longer than the print budget is clipped WITH its true length (25 §8)", () => {
   const scope = "适用于 X 场景。";
-  const filler = "这是一段用于撑长正文的填充文字。".repeat(60); // > 400 字
+  const filler = "这是一段用于撑长正文的填充文字。".repeat(60);
   const result = validateCarrierCoherence({ scope }, ["## 影响与适用范围", `${filler}${scope}`].join("\n"));
-  // 段落里**确实包含** scope 时不该报错——先确认判据仍按「包含」而非「相等」。
   assert.equal(result.ok, true, "containment (not equality) is the judgement; a long section that contains the scope passes");
   const drifted = validateCarrierCoherence({ scope: "适用于 Y 场景。" }, ["## 影响与适用范围", `${filler}适用于 Z 场景。`].join("\n"));
   assert.equal(drifted.ok, true, "差异不再阻断写入");

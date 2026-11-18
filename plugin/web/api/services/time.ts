@@ -1,13 +1,8 @@
-/**
- * 相对时间计算工具
- */
 
 import { compareRfc3339Timestamps, parseRfc3339Timestamp } from '../../shared/timestamp.ts'
 
-/** 纯日期格式 YYYY-MM-DD */
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
-/** Compare RFC 3339 instants without losing sub-millisecond precision. */
 export function compareTimestamps(left?: string | null, right?: string | null): number {
   return compareRfc3339Timestamps(left, right)
 }
@@ -20,16 +15,12 @@ export function parseTimestamp(value: string): number {
 }
 
 export function getRelativeTime(dateStr: string, locale: string = 'zh'): string {
-  // 纯日期字符串（如 "2026-06-05"）追加 T00:00:00 强制按本地时区解析，
-  // 避免 ECMAScript 规范将纯日期解析为 UTC 午夜导致跨时区偏差
   const normalized = DATE_ONLY_RE.test(dateStr) ? `${dateStr}T00:00:00` : dateStr
   const date = new Date(normalized)
   if (Number.isNaN(date.getTime())) return locale === 'en' ? 'unknown time' : '未知时间'
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
 
-  // Never disguise future source data as a recent past event.  Keep the
-  // instant intact and make the clock/data anomaly visible to the reader.
   if (diffMs < 0) {
     const futureSec = Math.ceil(-diffMs / 1000)
     const futureMin = Math.ceil(futureSec / 60)
@@ -70,7 +61,6 @@ export function getRelativeTime(dateStr: string, locale: string = 'zh'): string 
   if (diffHour > 0) {
     return isEn ? `${diffHour}h ago` : `${diffHour}小时前`
   }
-  // 小于1小时也显示为分钟，最小1分钟前
   const min = Math.max(1, diffMin)
   return isEn ? `${min}m ago` : `${min}分钟前`
 }

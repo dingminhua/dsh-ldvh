@@ -15,17 +15,9 @@ const STATUS_FILTER_ORDER = [
   'accepted',
   'open',
   'implemented',
-  // 28 §9：子目标的达成态。排在 implemented 之后、resolved 之前——它同样是
-  // 「达成/落实」族，但与对象自身的 implemented 不是同一件事（达成由判据判定，
-  // 不由名下工作全部关闭推出，28 §18 红线 3）。
   'achieved',
   'resolved',
-  // 26 §9：Friction 已废弃（记错了的账目）——排在 resolved 后，属终态族。
   'voided',
-  // 29 号 DevLog 的三个终态（absorbed/superseded/dropped）已随该类型于
-  // 2026-11-14 撤除出本序。注意 `superseded` 仍是 Norm/Research 的
-  // retirement_reason 取值（那是原因不是状态，经 FIELD_VALUE_LOCALES 另表
-  // 呈现，与本序无关）；ADR 类型已随 2026-11-15 撤除。
   'discarded',
   'archived',
   'retired',
@@ -37,20 +29,11 @@ const STATUS_FILTER_ORDER = [
 const statusOrderIndex = new Map(STATUS_FILTER_ORDER.map((status, index) => [status, index]));
 
 const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
-  // 23 §9 状态闭集两值（2026-11-03 Human 决定取消 `draft` 待确认态）：
-  // active（默认候选）→ discarded（终态）。
   pitfall: ['active', 'discarded'],
-  // 20 §9 状态闭集：open（待处理）→ implemented（落实/交接）/ discarded（废弃/合并/拆分）。
   spark: ['open', 'implemented', 'discarded'],
   research: ['active', 'retired'],
-  // 26 §9 状态闭集四值（2026-10 修订，Human 决定：观察不进事实源；2026-10 新增 accepted）：
-  // open（待修）→ resolved（已销账）/ voided（已废弃）/ accepted（已接受、不可清偿）。
-  // 原第四值 `observing`（留观）已退出闭集——「已看见但尚未攒够」的观察改由
-  // 11 §12bis.1 的摩擦观察缓冲承载（非事实对象），故本过滤项不再列它。
   friction: ['open', 'resolved', 'voided', 'accepted'],
-  // 27 号 §9 状态闭集：active（生效中）→ retired（已退役，终态）。
   norm: ['active', 'retired'],
-  // 28 号 §9 状态闭集：active（推进中）→ achieved（已达成，终态）/ retired（已作废，终态）。
   subgoal: ['active', 'achieved', 'retired'],
 };
 

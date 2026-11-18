@@ -12,10 +12,8 @@ function source(relativePath: string): string {
 test('V4 fact lists keep every declared lifecycle status tab even when its count is zero', () => {
   const filter = source('src/components/ObjectStatusFilter.tsx')
 
-  // 23 §9 状态闭集两值（2026-11-03 Human 决定取消 `draft` 待确认态）。
   assert.match(filter, /pitfall: \['active', 'discarded'\]/)
   assert.match(filter, /research: \['active', 'retired'\]/)
-  // 20 §9 状态闭集：Spark 三态 tab 常驻（open/implemented/discarded）。
   assert.match(filter, /spark: \['open', 'implemented', 'discarded'\]/)
   assert.doesNotMatch(filter, /settled|unclosed/)
   assert.match(filter, /if \(!\(type in FALLBACK_STATUSES_BY_TYPE\)\) return sortedOptions;/)
@@ -28,11 +26,8 @@ test('retired has an explicit lifecycle status label', () => {
 
   assert.match(locales, /retired: \{ zh: '已废弃', en: 'Retired' \}/)
   assert.match(locales, /implemented: \{ zh: '已关闭', en: 'Implemented' \}/)
-  // 20 §9：spark implemented（落实/交接）正向达成绿（Human 定案 2026-09-13
-  // 取代中性灰——落实是正结果）。
   assert.match(colors, /implemented: \{ light: '#059669', dark: '#00d4aa' \}/)
   assert.match(colors, /closed: \{ light: '#64748b', dark: '#94a3b8' \}/)
-  // 23 §9（2026-11-03 起 Pitfall 只剩 active/discarded 两态，无「待确认」词条）。
   assert.match(locales, /pitfall: \{[\s\S]*active: \{ zh: '活跃', en: 'Active' \}/)
 })
 
@@ -40,33 +35,18 @@ test('Spark list carries three filters (priority/serves/lifecycle)', () => {
   const list = source('src/pages/ObjectList.tsx')
   const route = source('api/routes/objects.ts')
 
-  // 呈现取舍（实现层，2026-10-29）：筛选组的**可见文字标签一律不显示**——「生命周期」
-  // 「服务子目标」「优先级」这类组名对读 tab 的人是冗余噪声，tab 本身即自解释。
-  // 故列表页不再渲染该标签；i18n 词条保留，仅作各筛选组件的 `aria-label`（无障碍
-  // 语义不随视觉精简一起丢）。断言随之从「含标签」翻为「不含可见标签」。
-  //
-  // **授权状态如实登记**：该方向来自当次对话，但截至本注释写就时在规范源与事实源
-  // 中均无稳定承载（specs/ 与事实源目录均查无此项）。按 00 §3.4「仅存在于
-  // 对话中的决定不产生复用效力」，此处只主张**实现层的呈现取舍**，不主张裁定已成立。
   assert.doesNotMatch(list, /objectList\.lifecycleFilter/)
-  // 20 §8（2026-09-13 Human 裁定）：Spark 有 priority，列表提供三联过滤
-  // （priority + serves + 生命周期）。
   assert.match(list, /ObjectPriorityFilter/)
   assert.match(list, /const supportsPriorityNavigation = currentType === 'spark'/)
   assert.match(list, /activePriority/)
   assert.match(route, /function getSparkPriorityOptions/)
   assert.match(route, /priorityOptions/)
-  // priority 参数仅对 spark 生效。
   assert.match(route, /const priority = type === 'spark' && typeof req\.query\.priority === 'string'/)
-  // 2026-11-14：24 号改造后 fetchObjects 增第 5 参（报告形态 ?form=），
-  // 断言随之带上 activeForm——否则本守卫会把一次合规的参数扩展判成回归。
   assert.match(
     list,
     /fetchObjects\(currentType, activeStatus \?\? undefined, undefined, activePriority \?\? undefined, activeForm \?\? undefined\)/,
   )
   assert.doesNotMatch(list, /const fetchStatus = currentType === 'spark'/)
-  // Spark 状态闭集（open/implemented/discarded，20 §9）与通用类型同路径过滤；
-  // v4 的 settled/unclosed 展示拆桶与 spark 专属过滤函数已移除。
   assert.doesNotMatch(route, /matchesSparkListFilter|getSparkStatusOptions|getSparkImplementedPresentationStatus/)
 })
 

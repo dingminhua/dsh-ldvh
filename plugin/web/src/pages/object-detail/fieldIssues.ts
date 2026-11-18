@@ -1,9 +1,3 @@
-/**
- * Shared field-level presentation issues (08 §5.3/§7.1).
- *
- * The field-level reader emits top-level field issues; every fact reading
- * layout marks them in place inside the node that consumes the field.
- */
 export type FieldPresentationIssue = {
   path: string;
   reason: 'missing' | 'type_mismatch' | 'identity_mismatch';

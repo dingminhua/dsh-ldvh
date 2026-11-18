@@ -1,41 +1,3 @@
-/**
- * dsh-ldvh — SubGoal fact-object writer (minimal controlled writer).
- *
- * Implements the mechanical slice of specs/28 (SubGoal-子目标) §13 受控操作,
- * §14.1 类型特有验证, and the shared read-back/CAS contract from specs/02 §10:
- *
- *  - create:  flat single-file carrier
- *             (ldvh-base/subgoals/subgoal-<uid>.md) with YAML frontmatter +
- *             markdown body. Code assigns object_uid + created_at and
- *             generates the H1 from title; creation validates the type-specific
- *             mechanical checks (closed set, order shape,
- *             criterion_kind closed set, parent_goal resolution, carrier
- *             coherence).
- *  - read:    returns frontmatter + body + file-level content fingerprint
- *             (SHA-256).
- *  - update:  CAS — two guarded lanes (28 §9.2):
- *               * active→active = 补充级更新 (28 §9.3): `anchor` is
- *                 field-identical to the CAS baseline (机械比对；锚点冻结是
- *                 28 §9.2 的不变量，不是可协商的更新内容).
- *               * active→achieved / active→retired = terminal transitions
- *                 (28 §9.2). Both are Human Gate outcomes; this module only
- *                 executes them and requires the caller to present the
- *                 corresponding basis (evidence list / disposition).
- *             achieved/retired objects are read-only (28 §9.2 终态不可重开).
- *
- * Anchor uniqueness (28 §6.2 layer 1): before a create or an update that would
- * take an anchor, every existing SubGoal carrier is scanned and its frontmatter
- * parsed; if ANY object (active/achieved/retired) already carries the same
- * `anchor` the write is REFUSED. Retired anchors are never recycled — that is
- * the whole point of a frozen anchor (28 §9.2).
- *
- * `parent_goal` resolution (28 §14.1): the anchor is dangling unless the
- * target carrier's `goal_key` matches. A dangling anchor is REPORTED, never
- * silently downgraded — the same discipline as 25 §11 Enforcement.
- *
- * Red lines honoured (28 §18): no relations field, no refs, no stored copy of
- * downstream work state or progress, no third sub-goal level.
- */
 
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
@@ -49,68 +11,34 @@ import { readGoalObject } from "./goal-writer.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
 
-// ---------------------------------------------------------------------------
-// Constants (specs/28 §7, §8, §9, §10, §13)
-// ---------------------------------------------------------------------------
 
 const SUBGOAL_TYPE_KEY = "subgoal";
 
-/** Directory under the fact-source root that carries SubGoal objects (28 §7). */
 export const SUBGOAL_DIRECTORY = "subgoals";
 
-/**
- * A syntactically valid UUID that never represents a real object: it exists only
- * so the closed-set validator (which requires a canonical `object_uid`) can run
- * on a precheck candidate without minting an identity (28 §13 不生成对象标识).
- * Never returned to a caller, never written.
- */
 const PRECHECK_PLACEHOLDER_UID = "00000000-0000-4000-8000-000000000000";
 
-/** Fixed body H2 sections (28 §8) — both required and non-empty. */
 const BODY_H2_REQUIRED = ["达成条件", "对齐说明"];
 
-/** Status closed set (28 §9): active → achieved | retired, both terminal. */
 const STATUSES = new Set(["active", "achieved", "retired"]);
 
-/** Criterion-kind closed set (28 §10.2). */
 export const CRITERION_KINDS = new Set(["metric", "closure-records", "executable-check"]);
 
-/** Title cap (28 §8: ≤ 40 字; same UTF-16 code-unit counting as 20 §9.1). */
 const MAX_TITLE_LENGTH = 40;
 
-/** `order` lower bound (28 §8: 可选正整数；不要求唯一、不要求连续). */
 const MIN_ORDER = 1;
 
-/** `parent_goal` fixed value (28 §8: must match the goal carrier's goal_key). */
 const PARENT_GOAL_KEY = "project-goal";
 
-/** UUID format check (02 §7.1 canonical UUIDv4, version nibble 4). */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Closed set of frontmatter keys (28 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "order", "parent_goal",
   "status", "criterion", "criterion_kind", "alignment", "disposition", "created_at", "change_log",
 ]);
 
-/**
- * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐）。
- *
- * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
- * `disposition` 是终态伴随即 retired 专属，在 update 路径不可达（终态只读），
- * 故不列。
- *
- * `anchor` 单列（2026-11-01 迁移通道）：它是**唯一**允许显式删除的字段，且删除
- * 是单向的——废止的业务编号不再写回。之所以必须给删除通道，是因为旧载体的
- * frontmatter 里还留着它，而它已不在 `VALID_FM_KEYS` 内：没有删除通道，
- * 这些对象就永远无法通过受控更新（02 §10.5 的「省略即保留」会让它每次都被继承）。
- * 新对象不得带 `anchor`（闭集已排除），故本通道只服务于存量迁移。
- */
 export const SUBGOAL_REMOVABLE_FIELDS = new Set(["anchor"]);
 
-// ---------------------------------------------------------------------------
-// Result helpers
-// ---------------------------------------------------------------------------
 
 function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
@@ -120,25 +48,10 @@ function success(value) {
   return { ok: true, value };
 }
 
-// ---------------------------------------------------------------------------
-// Validation (the mechanical slice of specs/28 §8, §9, §13, §14.1)
-// ---------------------------------------------------------------------------
 
-/**
- * Frontmatter mechanical checks.
- *
- * The mechanical layer decides exactly what 28 §10.4 registers as decidable:
- * closed set, anchor shape, criterion non-empty, criterion_kind closed set,
- * parent_goal value, status/disposition mutual exclusion, title cap.
- *
- * It does NOT decide whether `criterion` is actually decidable, whether
- * `alignment` actually tracks the goal statement, or whether dedup holds —
- * those are 28 §15's semantic rows, judged by AI self-check + Human.
- */
 export function validateSubGoalFrontmatter(frontmatter) {
   const issues = [];
 
-  // Closed-set check (28 §8): unknown fields reject the object.
   for (const k of Object.keys(frontmatter)) {
     if (!VALID_FM_KEYS.has(k)) {
       issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 28 §8)`);
@@ -158,9 +71,6 @@ export function validateSubGoalFrontmatter(frontmatter) {
     issues.push(`title: must be ≤ ${MAX_TITLE_LENGTH} characters (28 §8, same counting as 20 §9.1)`);
   }
 
-  // order (28 §8, 2026-11-01): optional, positive integer, no uniqueness and no
-  // contiguity requirement — it carries DISPLAY ORDER ONLY and never a
-  // reference. A missing order is legal: it sorts after the ordered objects.
   if (frontmatter.order !== undefined) {
     if (typeof frontmatter.order !== "number" || !Number.isInteger(frontmatter.order) || frontmatter.order < MIN_ORDER) {
       issues.push(`order: must be a positive integer when present (28 §8 — 显示次序不承担引用职责，可缺失), got ${JSON.stringify(frontmatter.order)}`);
@@ -187,7 +97,6 @@ export function validateSubGoalFrontmatter(frontmatter) {
     issues.push("alignment: required and non-empty (28 §8 — 说明该子目标为何服务于目标陈述)");
   }
 
-  // 28 §8 字段间不变量 3: disposition appears ⇔ status = retired.
   if (frontmatter.status === "retired") {
     if (typeof frontmatter.disposition !== "string" || frontmatter.disposition.trim().length === 0) {
       issues.push("disposition: required when status=retired (28 §8: 原位作废的去向与理由)");
@@ -202,7 +111,6 @@ export function validateSubGoalFrontmatter(frontmatter) {
   if (!Array.isArray(frontmatter.change_log) || frontmatter.change_log.length === 0) {
     issues.push("change_log: exactly one entry is appended per actual modification; at least one required");
   } else {
-    // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
     for (const [i, entry] of frontmatter.change_log.entries()) {
       if (typeof entry !== "object" || entry === null) continue;
       if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
@@ -214,7 +122,6 @@ export function validateSubGoalFrontmatter(frontmatter) {
   return { ok: issues.length === 0, issues };
 }
 
-/** Body structure: H1 (generated from title) + the two fixed H2 sections. */
 export function validateSubGoalBodyStructure(body, title) {
   const issues = [];
   const text = typeof body === "string" ? body : "";
@@ -243,17 +150,7 @@ export function validateSubGoalBodyStructure(body, title) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * Carrier coherence (28 §8 字段间不变量 1): `criterion` and `alignment` must
- * appear verbatim in their body sections. frontmatter is the single
- * authoritative text; the body only expands it.
- *
- * Exact string comparison, no normalization (28 §15 载体内聚 row).
- */
 export function validateCarrierCoherence(frontmatter, body) {
-  // Human 2026-11-10（`spark-f0ba9997`）：字段是索引与摘要、正文是展开，二者
-  // **不需逐字一致**——故差异一律进 `warnings`，不进 `issues`，更不阻断写入。
-  // 保留本函数是为了差异仍可被如实报告（不是静默当作一致），与 Spark 同形。
   const warnings = [];
   const pairs = [
     ["criterion", "达成条件"],
@@ -287,7 +184,6 @@ function buildFileContent(frontmatter, body) {
   return `---\n${stringifyYaml(orderFrontmatterFields(frontmatter), { lineWidth: 0 })}---\n\n${body.trim()}\n`;
 }
 
-/** Deterministic display order (semantic block first, change_log last). */
 const FRONTMATTER_FIELD_ORDER = [
   "title", "status", "anchor", "parent_goal",
   "criterion", "criterion_kind", "alignment", "disposition",
@@ -317,17 +213,14 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-/** Validate objectUid format (path-injection guard). */
 function assertValidUid(objectUid) {
   return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
 }
 
-/** Assemble the file body: generated H1 + caller-provided markdown. */
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
 
-/** Split a carrier into { frontmatter, body }; tolerant of a missing body. */
 function splitFrontmatter(raw) {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   if (!match) return { ok: false, reason: "missing YAML frontmatter fence" };
@@ -342,21 +235,7 @@ function splitFrontmatter(raw) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Anchor uniqueness (28 §6.2 layer 1, §14.1)
-// ---------------------------------------------------------------------------
 
-/**
- * Scan ldvh-base/subgoals/ and return every object's index entry
- * {uid, order, status, title}.
- *
- * ALL statuses are scanned, not just active: a `retired` object still holds its
- * `object_uid`, and `serves` history points at it.
- *
- * Unparseable carriers are reported (not silently skipped): a carrier whose
- * frontmatter cannot be read cannot be proven absent, so an index built from
- * this scan is incomplete and callers must fail closed rather than guess.
- */
 export async function listSubGoalIndex(factSourceRoot) {
   const dir = join(factSourceRoot, SUBGOAL_DIRECTORY);
   let entries;
@@ -387,21 +266,12 @@ export async function listSubGoalIndex(factSourceRoot) {
   return { ok: true, items, unreadable };
 }
 
-/**
- * Refuse when another carrier already claims the same `object_uid` (28 §17 第 5
- * 项: 同一身份出现在两条载体上即两处权威).
- *
- * There is no business-key collision to check any more: 2026-11-01 废止了 `SG-n`,
- * `order` is display-only and explicitly non-unique (28 §8), so the ONLY identity
- * invariant left is that an `object_uid` maps to exactly one carrier.
- */
 async function checkUidExclusive(factSourceRoot, objectUid) {
   const listed = await listSubGoalIndex(factSourceRoot);
   if (!listed.ok) {
     return failure("subgoal/scan_failed", `cannot scan ${SUBGOAL_DIRECTORY}/ for the identity uniqueness pre-check: ${listed.reason}`);
   }
   if (listed.unreadable.length > 0) {
-    // Fail closed: an unreadable carrier might be the one holding this uid.
     return failure("subgoal/identity_unverifiable", `cannot prove object_uid "${objectUid}" is unique: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (28 §17 第 5 项)`, { unreadable: listed.unreadable });
   }
   const conflicts = listed.items.filter((entry) => entry.object_uid === objectUid);
@@ -411,14 +281,6 @@ async function checkUidExclusive(factSourceRoot, objectUid) {
   return success({ items: listed.items });
 }
 
-/**
- * Resolve `parent_goal` against the goal carrier (28 §14.1).
- *
- * A dangling anchor is a REPORTED condition, not a silent downgrade: if the
- * goal carrier is missing or its goal_key differs, the sub-goal's upstream is
- * unprovable and the write must fail closed (same discipline as 25 §11
- * Enforcement: no goal.md ⇒ authorisation cannot accept, architecturally).
- */
 export async function resolveParentGoal(factSourceRoot) {
   const goal = await readGoalObject({ factSourceRoot });
   if (!goal.ok) {
@@ -431,9 +293,6 @@ export async function resolveParentGoal(factSourceRoot) {
   return success({ goal_key: goalKey, file: goal.value?.file ?? null });
 }
 
-// ---------------------------------------------------------------------------
-// Create (specs/02 §10 + specs/28 §13)
-// ---------------------------------------------------------------------------
 
 function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -444,34 +303,6 @@ function stableStringify(value) {
   return JSON.stringify(value) ?? "null";
 }
 
-/**
- * Fingerprint of the CREATE candidate content (28 §13 双入口一致性).
- *
- * Covers exactly what the caller supplies and what ends up in the object: the
- * draft (minus Code-stamped fields) and the body. It deliberately excludes
- * `object_uid`/`created_at`/`change_log` — those are Code-generated and never a
- * caller decision, so including them would make two identical candidates
- * fingerprint differently and the comparison would be worthless.
- *
- * What the comparison proves: the two calls submitted the same candidate. What
- * it does NOT prove: the object was not later modified, nor that the content is
- * appropriate (28 §15 — that stays with Human judgement).
- */
-/**
- * 本类型的**指纹覆盖范围**（28 §13 逐字登记）：
- *
- * - 覆盖 `frontmatter_draft` 与 `body_markdown` 两个入参；
- * - **剥离 `status`**——create 通道由 Code 钉死为 `active`，显式值只允许
- *   `active`，故「省略 status」与「显式 status=active」产出同一个对象；
- * - **不剥离变更摘要**——它经 Code 写入 `change_log[0].summary`、随对象落盘，
- *   显式值与省略时的默认值一般不是同一对象。
- *
- * 实测缺陷（2026-11-14 修正）：此前实现恰好**把两条读反了**——剥了
- * `change_summary`、没剥 `status`。后果有两个方向：① 改摘要不改变指纹，
- * 于是「换了摘要的候选」能沿用旧预检结论（同一性被悄悄放宽）；② 省略/显式
- * status 产出两个指纹，写入被误拒。前者更危险，因为它让预检结论覆盖了它没
- * 跑过的内容。
- */
 export function computeSubGoalCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
   const { status: _statusStripped, ...draftFields } = frontmatterDraft ?? {};
   const candidate = {
@@ -481,20 +312,6 @@ export function computeSubGoalCreateCandidateFingerprint(frontmatterDraft, bodyM
   return createHash("sha256").update(stableStringify(candidate), "utf8").digest("hex");
 }
 
-/**
- * One evaluation of a CREATE candidate: normalised assembly + every mechanical
- * check, returning the exact `frontmatter`/`body` that would be written, or the
- * SAME failures the write path produces.
- *
- * Both entries (28 §13 双入口一致性) call this:
- *   - `precheckSubGoalCreate` passes `signature: null` and generates no uid;
- *   - `createSubGoalObject` passes the authoritative signature and a uid.
- *
- * Only the Code-stamped trio differs, and none of it is caller content — so a
- * candidate cannot get two different verdicts from the two entries. Two separate
- * rule sets would let a candidate pass one and fail the other while both claim
- * compliance, which is precisely what §13 forbids.
- */
 async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyMarkdown, signature = null, objectUid = null }) {
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
@@ -509,25 +326,14 @@ async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyM
   const now = new Date().toISOString();
   const { change_summary: _stripped, ...draftFields } = frontmatterDraft;
   const frontmatter = { ...draftFields };
-  // `object_uid` is a REQUIRED field of this closed set (02 §7.1), so the
-  // evaluator cannot run without one. On the write path it is the real minted
-  // identity. On the precheck path nothing is written and no identity may be
-  // handed back (28 §13: 不生成对象标识), so a fixed placeholder is supplied to
-  // satisfy the check and is DISCARED — a fresh UUID would also work but would
-  // make the precheck mint an identifier, which §13 explicitly forbids.
-  //
-  // The placeholder cannot create a false pass: it never reaches disk, and it is
-  // excluded from the candidate fingerprint (Code-stamped field).
   frontmatter.object_uid = objectUid ?? PRECHECK_PLACEHOLDER_UID;
   frontmatter.fact_type_key = SUBGOAL_TYPE_KEY;
   frontmatter.created_at = now;
 
-  // 28 §9.2: the only legal initial state is active — never achieved/retired at birth.
   if (frontmatter.status !== undefined && frontmatter.status !== "active") {
     return failure("subgoal/initial_state_violation", `create must initialise as status=active; got ${JSON.stringify(frontmatter.status)} (28 §9.2 — 合法初态唯一)`);
   }
   frontmatter.status = "active";
-  // `disposition` accompanies retirement only (28 §8 字段间不变量 3).
   if (frontmatter.disposition !== undefined) {
     return failure("subgoal/frontmatter_invalid", "create must not carry disposition (28 §8: it accompanies status=retired only)");
   }
@@ -542,11 +348,9 @@ async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyM
     return failure("subgoal/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
 
-  // 28 §14.1: the upstream must be resolvable before the object exists.
   const parent = await resolveParentGoal(factSourceRoot);
   if (!parent.ok) return parent;
 
-  // 28 §6.2 layer 1 — before any write.
   const exclusivity = await checkUidExclusive(factSourceRoot, objectUid);
   if (!exclusivity.ok) return exclusivity;
 
@@ -555,20 +359,10 @@ async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyM
   if (!bodyCheck.ok) {
     return failure("subgoal/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
-  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   return success({ frontmatter, body });
 }
 
-/**
- * Read-only mechanical precheck of a CREATE candidate (28 §13 提请前机械预检).
- *
- * Runs the SAME evaluator the write path runs, so the verdict cannot disagree
- * with the write. Writes nothing, mints no `object_uid`, adds no `change_log`
- * entry. Returns the candidate fingerprint the caller passes back to
- * `ldvh_subgoal_write` as `expected_candidate_fingerprint` — that is what makes
- * "the Human approved THIS content" mechanically checkable rather than assumed.
- */
 export async function precheckSubGoalCreate({ factSourceRoot, frontmatterDraft, bodyMarkdown }) {
   if (typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
     return success({
@@ -583,9 +377,6 @@ export async function precheckSubGoalCreate({ factSourceRoot, frontmatterDraft, 
   if (!evaluated.ok) {
     const code = evaluated.error.code;
     const issues = evaluated.error.details?.issues;
-    // `invalid_request` is "the check could not be completed", not "the candidate
-    // has a fixable defect" — kept as its own outcome so a blocked environment
-    // cannot be misread as a formatting hint.
     return success({
       mechanical_outcome: code === "invalid_request" ? "unverifiable" : "failed",
       candidate_fingerprint: candidateFingerprint,
@@ -604,12 +395,6 @@ export async function precheckSubGoalCreate({ factSourceRoot, frontmatterDraft, 
   });
 }
 
-/**
- * @param {object} args
- * @param {string|null} [args.expectedCandidateFingerprint] the fingerprint the
- *   precheck returned for THIS content. When supplied, the write refuses if the
- *   content changed in between (28 §13: 提请与写入之间候选内容发生变化时写入一律拒绝).
- */
 export async function createSubGoalObject(args) {
   const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, expectedCandidateFingerprint = null } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
@@ -623,17 +408,6 @@ export async function createSubGoalObject(args) {
 
   const uid = randomUUID();
 
-  // 28 §13：预检结论只属于它跑过的那份内容。**未携带指纹即零写入**——
-  // 28 §13 逐字登记：「`expected_candidate_fingerprint` 是本类型 create 的必填项
-  // ……写入请求未携带该指纹的，按「同一性未确认」零写入」。
-  //
-  // **本校验前置于内容求值**：同一性未确认是入口必填面的缺口，与候选内容本身
-  // 是否合法无关。若排在内容校验之后，一个内容也不合法的候选会先报内容错，
-  // 调用方照改后仍会在下一轮撞上同一性缺口——两次往返才暴露一个入口缺口。
-  //
-  // 实测漂移（2026-11-14 修正）：此前实现是 fail-open——未携带指纹时照常写入，
-  // 只在交还里登记「未预检」（da5a38cb，2026-11-01 的决定，早于 28 §13 的登记）。
-  // 该口径使预检成为可绕过的环节：不跑预检反而更省事。
   if (typeof expectedCandidateFingerprint !== "string" || expectedCandidateFingerprint.length === 0) {
     return failure(
       "subgoal/candidate_fingerprint_required",
@@ -671,24 +445,13 @@ export async function createSubGoalObject(args) {
   return success({ object_uid: uid, file: filePath, fingerprint: fileFingerprint(content) });
 }
 
-// ---------------------------------------------------------------------------
-// Read (specs/02 §9.2 precise read-back)
-// ---------------------------------------------------------------------------
 
-/**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
- *
- * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `subgoal/invalid_uid`
- * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
- * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
- */
 async function resolveSubGoalObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("subgoal/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
   }
   const { objectUid, shortId, declaredType, projectId } = parsed.value;
-  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
   if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
     return { ok: false, error: failure("subgoal/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
   }
@@ -740,9 +503,6 @@ export async function readSubGoalObject(args) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Update (specs/02 §10.5 — CAS + 完整目标 after；+ specs/28 §9, §13)
-// ---------------------------------------------------------------------------
 
 export async function updateSubGoalObject(args) {
   const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null } = args;
@@ -768,7 +528,6 @@ export async function updateSubGoalObject(args) {
     return failure("subgoal/read_failed", String(error?.message || error));
   }
 
-  // CAS baseline: the caller must present the fingerprint from its own precise read.
   const baselineFingerprint = fileFingerprint(raw);
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return failure("subgoal/fingerprint_required", "expectedFingerprint is required (02 §10.5 CAS baseline)");
@@ -781,7 +540,6 @@ export async function updateSubGoalObject(args) {
   if (!parsed.ok) return failure("subgoal/carrier_invalid", `${filePath}: ${parsed.reason}`);
   const before = parsed.frontmatter;
 
-  // Terminal objects are read-only (28 §9.2 终态不可重开).
   if (before.status === "achieved" || before.status === "retired") {
     return failure("subgoal/terminal_readonly", `object is status=${before.status}; 28 §9.2 forbids any transition out of a terminal state`);
   }
@@ -794,9 +552,6 @@ export async function updateSubGoalObject(args) {
   }
 
   const now = new Date().toISOString();
-  // 「磁盘基线 + 显式声明变更 + 显式删除通道」（02 §10.5）：漏传的字段继承磁盘基线。
-  // subgoal 的唯一条件字段 disposition 是终态伴随，在 update 路径不可达，
-  // 故 SUBGOAL_REMOVABLE_FIELDS 为空：不接受任何删除声明。
   const built = buildUpdateFrontmatter({
     currentFrontmatter: before,
     frontmatterAfter,
@@ -807,13 +562,9 @@ export async function updateSubGoalObject(args) {
   });
   if (!built.ok) return failure(built.error.code, built.error.message);
   const next = built.value;
-  // Identity fields are Code-owned and immutable across updates.
   next.object_uid = before.object_uid;
   next.fact_type_key = SUBGOAL_TYPE_KEY;
   next.created_at = before.created_at;
-  // 28 §8 (2026-11-01): `order` is display-only and freely adjustable — it is
-  // NOT an identity, so it may change in place. `object_uid` (already forced
-  // above) is the only immutable identity.
 
   const targetStatus = next.status ?? before.status;
   if (!STATUSES.has(targetStatus)) {
@@ -826,10 +577,6 @@ export async function updateSubGoalObject(args) {
     transition = "supplement";
   } else if (before.status === "active" && targetStatus === "achieved") {
     transition = "achieve";
-    // 28 §9.2: achieved is a Human Gate outcome backed by an evidence list.
-    // The mechanical layer cannot judge whether the evidence really satisfies
-    // `criterion` (28 §10.3) — it only refuses a transition with NO basis at
-    // all, which would be an unsupported claim rather than a judgement call.
     if (typeof changeSummary !== "string" || changeSummary.trim().length === 0) {
       return failure("subgoal/evidence_basis_required", "achieved requires the change summary to state the evidence basis (28 §9.2/§10.3)");
     }
@@ -853,19 +600,14 @@ export async function updateSubGoalObject(args) {
     return failure("subgoal/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
 
-  // Anchor uniqueness still holds on update: nothing else may have taken it,
-  // and we must not have granted a second object the same number.
   const exclusivity = await checkUidExclusive(factSourceRoot, objectUid);
   if (!exclusivity.ok) return exclusivity;
 
-  // `bodyMarkdownAfter` is the COMPLETE target body as returned by a precise
-  // read — it already carries the H1 (same contract as norm writers).
   const body = bodyMarkdownAfter.trim();
   const bodyCheck = validateSubGoalBodyStructure(body, next.title);
   if (!bodyCheck.ok) {
     return failure("subgoal/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   const content = buildFileContent(next, body);
   await atomicWriteFile(filePath, content);
@@ -873,27 +615,7 @@ export async function updateSubGoalObject(args) {
   return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition });
 }
 
-// ---------------------------------------------------------------------------
-// serves resolution (28 §12.3) — the single authority for downstream writers
-// ---------------------------------------------------------------------------
 
-/**
- * Resolve an `object_uid` to a valid SubGoal object (28 §12.3, 2026-11-01).
- *
- * Contract:
- *   - `active` and `achieved` are valid targets (`achieved` still resolves:
- *     "this work served that goal" is a historical fact).
- *   - `retired` is NOT a valid target for a NEW `serves` declaration; existing
- *     declarations keep their value and go through the local re-batch path.
- *   - An unresolvable uid fails closed (authorisation cannot accept
- *     without a target).
- *
- * Historical note: this function used to take an `SG-n` business anchor. That
- * form is gone (28 §7): `serves` is now an ordinary object reference, the same
- * shape `refs` uses, so there is one reference rule in the model instead of two.
- *
- * Returns { ok:true, object_uid, status, title } or { ok:false, ... }.
- */
 export async function resolveSubGoal(factSourceRoot, objectUid) {
   if (typeof objectUid !== "string" || !UUID_PATTERN.test(objectUid)) {
     return failure("subgoal/serves_shape_invalid", `serves must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(objectUid)}`);
@@ -919,12 +641,6 @@ export async function resolveSubGoal(factSourceRoot, objectUid) {
   return success({ object_uid: target.object_uid, status: target.status, title: target.title, order: target.order, file: target.file });
 }
 
-/**
- * Sort key for display order (28 §8): `order` ascending when present, then
- * `created_at` — never the identifier, and never directory order.
- *
- * Missing `order` sorts after every ordered object (legal state, not an error).
- */
 export function compareByDisplayOrder(a, b) {
   const ao = typeof a.order === "number" ? a.order : Number.POSITIVE_INFINITY;
   const bo = typeof b.order === "number" ? b.order : Number.POSITIVE_INFINITY;
@@ -935,11 +651,6 @@ export function compareByDisplayOrder(a, b) {
   return String(a.object_uid ?? "").localeCompare(String(b.object_uid ?? ""));
 }
 
-/**
- * Enumerate the SubGoals that are valid `serves` targets
- * (`active` ∪ `achieved`), in display order, for callers that render
- * "which sub-goal does this serve?" choices.
- */
 export async function listResolvableSubGoals(factSourceRoot) {
   const listed = await listSubGoalIndex(factSourceRoot);
   if (!listed.ok) return failure("subgoal/scan_failed", listed.reason);
@@ -950,15 +661,7 @@ export async function listResolvableSubGoals(factSourceRoot) {
   return success({ items, unreadable: listed.unreadable });
 }
 
-// ---------------------------------------------------------------------------
-// List (F0/F1 discovery, specs/02 §9.1 + specs/28 §12)
-// ---------------------------------------------------------------------------
 
-/**
- * Enumerate SubGoal carriers. Default is active-only: 28 §12.4 registers
- * `active` as the default candidate status; achieved/retired surface only on
- * precise reference, historical tracing or evidence roll-up.
- */
 export async function listSubGoalObjects(args) {
   const { factSourceRoot, status = "active", limit = 200 } = args;
   const dir = join(factSourceRoot, SUBGOAL_DIRECTORY);
@@ -994,24 +697,11 @@ export async function listSubGoalObjects(args) {
       criterion_kind: fm.criterion_kind,
       alignment: fm.alignment,
       disposition: fm.disposition,
-      // `compareByDisplayOrder` 的第二排序键（28 §8：`order` 相等或缺省时按创建
-      // 时间先后）。此前未投影该字段，比较器只能落到 uid 兜底——次序仍稳定，但
-      // 丢了「先建的排前面」这层语义。
       created_at: fm.created_at,
       file: entry.name,
     });
   }
 
-  // Display order (28 §8): `order` ascending when present, then `created_at`,
-  // then uid — **never** a business number (28 §7 已废止 `SG-n`).
-  //
-  // 此前这里按 `anchor` 的数字段排序，而 2026-11-01 的 `a59496c` 已把 `anchor`
-  // 从载体和本函数的投影里一并删除——排序键恒为 `undefined`，于是整张列表退化成
-  // 「`undefined` 互相比较 → 稳定排序保持 readdir 的目录次序」。实测本项目读出的
-  // order 序列为 `2,4,1,3`（应为 `1,2,3,4`）：**列表次序从此是文件系统次序伪装成
-  // 的次序**，且因 `limit` 在排序之后切片，截断时被丢掉的也是随机的条目。
-  // 同一排序在 `listResolvableSubGoals`（经 `compareByDisplayOrder`）里是正确的，
-  // 这里改为复用同一比较器，使两处不再分叉。
   items.sort(compareByDisplayOrder);
 
   const total = items.length;

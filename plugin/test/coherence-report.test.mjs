@@ -1,23 +1,12 @@
-// 载体内聚拒绝的取证契约（计划步骤 5）。
-//
-// 钉住三件事：
-//   1. **每一类**有逐字内聚判据的 writer，其报错必须同时含 frontmatter 值与正文段
-//      内容——只给一侧等于没给（这是本单的由来：八类里只有 pitfall 给了两侧）。
-//   2. 单侧超 400 字时截断并注明真实总长；400 字以内原样给出。
-//   3. 判据本身未变：仍要求逐字**包含**；条款号按各类型实际依据给出。
-//
-// 变异钉法：把任一 writer 的取证改回「只给前 40 字」或「不给字段值」，本文件即转红。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { COHERENCE_CLIP, clipped, carrierCoherenceMessage } from "../lib/coherence-report.js";
 
-// 长到必然超限的字段值，用于同时验证「两侧都给」与「截断注明总长」。
 const LONG = "这是一段足够长的字段值用来触发截断并检查是否注明了真实总长".repeat(20);
 const BODY_MARK = "正文里写着完全不同的内容";
 
-/** 断言一条报错同时含两侧、且能定位到条款。 */
 function assertTwoSided(message, { declared, actual, clause }) {
   assert.ok(
     message.includes(declared.slice(0, 20)),
@@ -35,9 +24,6 @@ function assertTwoSided(message, { declared, actual, clause }) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 1. 辅助函数本身
-// ---------------------------------------------------------------------------
 
 test("clipped：未超限原样返回，超限截断并注明真实总长", () => {
   const short = "短文本";
@@ -68,9 +54,6 @@ test("carrierCoherenceMessage：不给条款号时不伪造一个", () => {
   assert.ok(!msg.includes("§"), "没有依据就不应出现章节号——编造条款比缺条款更糟");
 });
 
-// ---------------------------------------------------------------------------
-// 2. 五类 writer 的报错都必须两向可读
-// ---------------------------------------------------------------------------
 
 const CASES = [
   {
@@ -87,8 +70,7 @@ const CASES = [
     fn: "validateCarrierCoherence",
     frontmatter: { scope: LONG },
     body: `# T\n\n## 影响与适用范围\n\n${BODY_MARK}\n`,
-    // 2026-11-04：pitfall 原不带章节号，与其余八类措辞不一致；复核指出后已统一。
-    clause: "23 §8",
+    clause: "25 §8",
   },
   {
     type: "spark",
@@ -114,21 +96,14 @@ for (const c of CASES) {
     const fn = mod[c.fn];
     assert.equal(typeof fn, "function", `${c.file} 应导出 ${c.fn}`);
     const result = fn(c.frontmatter, c.body);
-    // Human 2026-11-10：summary/scope 类不一致降为 warnings（不再阻断写入），
-    // 但**两侧取证契约不变**——报错文本仍须同时给出字段值与正文段，以便调用方
-    // 自行判断差异是否有意。故这里同时接受 issues 与 warnings。
     const all = [...(result.issues ?? []), ...(result.warnings ?? [])];
     assert.ok(all.length > 0, `${c.type} 的该输入应被判不符（issues 或 warnings 非空）`);
     const message = all.join("\n");
     assertTwoSided(message, { declared: LONG, actual: BODY_MARK, clause: c.clause });
-    // 不得打印整篇正文以外的噪声：报错长度应有界（截断生效）
     assert.ok(message.length < 1200, `${c.type} 报错过长（${message.length}），截断可能失效`);
   });
 }
 
-// ---------------------------------------------------------------------------
-// 3. research 的等价内聚路径（无 validateCarrierCoherence 这个名字）
-// ---------------------------------------------------------------------------
 
 test("research：question-coherence 同样给出两侧（24 §8 invariant 10）", async () => {
   const mod = await import(new URL("../lib/report-writer.js", import.meta.url).href);
@@ -148,18 +123,14 @@ test("research：question-coherence 同样给出两侧（24 §8 invariant 10）"
   assertTwoSided(result.issues.join("\n"), { declared: question, actual: BODY_MARK, clause: "24 §8" });
 });
 
-// ---------------------------------------------------------------------------
-// 4. norm 属另一档：条款号须是 27 §7，且不要求正文逐字复现
-// ---------------------------------------------------------------------------
 
-test("norm：direction_key 一致性拒绝引用 27 §7（不是 §8）", async () => {
+test("norm：direction_key 一致性拒绝引用 23 §7（不是 §8）", async () => {
   const mod = await import(new URL("../lib/norm-writer.js", import.meta.url).href);
   const result = mod.validateCarrierCoherence({ direction_key: "aa-bb" }, "# T\n\n## 核心规则体系\n\ndirection_key: zz-yy\n");
   assert.equal(result.ok, false);
   const message = result.issues.join("\n");
-  assert.ok(message.includes("27 §7"), `应引 27 §7（载体内聚所在），实际：${message}`);
-  assert.ok(!message.includes("27 §8"), `27 §8 是字段契约，不是内聚条款；实际：${message}`);
-  // 两侧都是短键，本就无截断问题——不得把它改造成「散文逐字」要求
+  assert.ok(message.includes("23 §7"), `应引 23 §7（载体内聚所在），实际：${message}`);
+  assert.ok(!message.includes("23 §8"), `23 §8 是字段契约，不是内聚条款；实际：${message}`);
   assert.ok(message.includes("aa-bb") && message.includes("zz-yy"), "两侧短键都应在场");
 });
 
@@ -169,13 +140,10 @@ test("norm：正文不声明 direction_key 时不报内聚错（本类型不要�
     { direction_key: "aa-bb" },
     "# T\n\n## 核心规则体系\n\n这里是纯规则散文，不提任何方向键。\n",
   );
-  assert.equal(result.ok, true, "27 §7 明确本类型不要求正文复现 frontmatter 标量");
+  assert.equal(result.ok, true, "23 §7 明确本类型不要求正文复现 frontmatter 标量");
 });
 
 
-// ---------------------------------------------------------------------------
-// 5. schema 侧：逐字声明须在参数描述里写明（不是只在正文校验里）
-// ---------------------------------------------------------------------------
 
 test("research 的 research_question 参数描述含逐字要求（24 §8 invariant 10）", async () => {
   const { readFileSync } = await import("node:fs");
@@ -200,6 +168,6 @@ test("subgoal 的 criterion 与 norm 的 direction_key 均带内聚说明", asyn
   const norm = readFileSync(new URL("../lib/norm-tools.js", import.meta.url), "utf8");
   const dirKey = norm.split("\n").find((l) => l.includes('direction_key: { type: "string"'));
   assert.ok(dirKey !== undefined, "norm direction_key 应存在");
-  assert.ok(/27 §7/.test(dirKey), "norm 须带 27 §7 依据");
+  assert.ok(/23 §7/.test(dirKey), "norm 须带 23 §7 依据");
   assert.ok(/NOT required to reproduce/i.test(dirKey), "须写明本类型不要求逐字复现，否则会误导调用方");
 });

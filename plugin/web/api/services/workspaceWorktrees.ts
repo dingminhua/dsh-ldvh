@@ -102,10 +102,6 @@ async function inspectWorktree(
   }
 }
 
-/**
- * Lists only Git worktrees reachable from the current workspace's immediate project directories.
- * This is a read-only discovery surface: it does not infer governance or change its configuration.
- */
 export async function scanWorkspaceWorktrees(projects: RegisteredProject[]): Promise<WorkspaceWorktree[]> {
   const workspaceRoot = await canonicalPath(LDVH_WORKSPACE_ROOT)
   const entries = await readdir(workspaceRoot, { withFileTypes: true })
@@ -141,7 +137,6 @@ export async function scanWorkspaceWorktrees(projects: RegisteredProject[]): Pro
   return inspected.sort((left, right) => left.path.localeCompare(right.path))
 }
 
-/** Lists the actual linked worktrees of each governed project, including paths outside the workspace root. */
 export async function scanGovernedProjectWorktrees(projects: RegisteredProject[]): Promise<WorkspaceWorktree[]> {
   const registeredByPath = new Map<string, string>()
   const governedByCommonDir = new Map<string, string>()
@@ -167,7 +162,6 @@ export async function scanGovernedProjectWorktrees(projects: RegisteredProject[]
   return inspected.sort((left, right) => left.path.localeCompare(right.path))
 }
 
-/** Resolves only an exact path reported by Git for the selected governed project. */
 export async function resolveGovernedProjectWorktree(
   project: RegisteredProject,
   requestedPath: string,

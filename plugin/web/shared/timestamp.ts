@@ -6,19 +6,6 @@ export interface Rfc3339Timestamp {
   fraction: string
 }
 
-/**
- * 把一个时间字段的来源值归一为 RFC 3339 文本（无法归一时返回 undefined）。
- *
- * 为什么需要它：js-yaml 会把**未加引号**的 ISO 8601 时间戳解析为 `Date` 实例，
- * 而事实契约（03 §6.1 与各类型规范）要求这些字段是 RFC 3339 文本。读取层的
- * `localFactReader` 只对其 `TIMESTAMP_FIELDS` 白名单（顶层 created_at 等）做该
- * 归一；嵌在嵌套对象内的字段不经过那一步，因此在读取层之后
- * 仍是 `Date`。任何「按 string 判定」的投影守卫都会把这些字段静默丢弃——
- * 这是呈现保真缺陷的根因。
- *
- * 这里是该归一化的**唯一实现**：`shared/factChangeLog.ts` 的 `toChangeLogAtText`
- * 复用它，投影层亦复用它，不得各自重写一份。
- */
 export function toRfc3339Text(value: unknown): string | undefined {
   if (value instanceof Date) {
     return Number.isFinite(value.getTime()) ? value.toISOString() : undefined
@@ -29,14 +16,12 @@ export function toRfc3339Text(value: unknown): string | undefined {
   return parseRfc3339Timestamp(trimmed) !== null ? trimmed : undefined
 }
 
-/** Convert Git's offset-bearing display form to an RFC 3339 input. */
 export function normalizeGitTimestampInput(value: string): string {
   const match = GIT_OFFSET_TIMESTAMP_RE.exec(value.trim())
   if (!match) return value
   return `${match[1]}T${match[2]}${match[3]}:${match[4]}`
 }
 
-/** Parse LDVH's complete RFC 3339 instant form without truncating fractions. */
 export function parseRfc3339Timestamp(value: string): Rfc3339Timestamp | null {
   const match = RFC3339_RE.exec(value)
   if (!match?.groups || match.groups.offset === '-00:00') return null
@@ -65,7 +50,6 @@ export function parseRfc3339Timestamp(value: string): Rfc3339Timestamp | null {
   }
 }
 
-/** Render a complete RFC 3339 instant in canonical UTC form without dropping fractions. */
 export function canonicalizeRfc3339Timestamp(value: string): string | null {
   const parsed = parseRfc3339Timestamp(value)
   if (!parsed) return null
@@ -83,7 +67,6 @@ export function canonicalizeRfc3339Timestamp(value: string): string | null {
   return `${rendered}T${time}${parsed.fraction ? `.${parsed.fraction}` : ''}Z`
 }
 
-/** Compare complete RFC 3339 instants without losing sub-millisecond precision. */
 export function compareRfc3339Timestamps(left?: string | null, right?: string | null): number {
   const a = typeof left === 'string' ? parseRfc3339Timestamp(left) : null
   const b = typeof right === 'string' ? parseRfc3339Timestamp(right) : null

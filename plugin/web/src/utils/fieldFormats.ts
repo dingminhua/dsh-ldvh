@@ -1,4 +1,3 @@
-/** Fields whose string content is Markdown-capable Narrative / Decision / Log. */
 export const SUMMARY_TEXT_FIELDS = [
   'description', 'source', 'context', 'consequences', 'success_criteria', 'constraints',
   'rationale', 'observation', 'analysis', 'mitigation', 'resolution', 'decision',
@@ -10,24 +9,19 @@ export const SUMMARY_TEXT_FIELDS = [
   'lessons', 'background', 'motivation',
 ];
 
-/** Markdown fields that should switch to ChecklistCard when the value is a GFM task list. */
 export const CHECKLIST_COMPAT_FIELDS = [
   'success_criteria', 'constraints', 'verification',
   'trigger_conditions', 'avoidance', 'next_steps',
 ];
 
-/** Evidence fields use the EvidenceBlock renderer. */
 export const EVIDENCE_FIELDS = ['verification', 'evidence'];
 
-/** Object ID reference fields render through ReferenceCard when values look like LDVH object IDs. */
 export const REFERENCE_FIELDS: string[] = [];
 
-/** Path / URL reference fields render through DocPreviewLink when values are previewable paths. */
 export const DOC_LINK_FIELDS = ['urls'];
 
 export const PATH_TEXT_FIELDS = ['project_path', 'ldvh_base_path', 'docs_path', 'rules_path', 'skills_path'];
 
-/** Fields that can be folded in detail view. */
 export const COLLAPSIBLE_FIELDS = ['urls'];
 
 export function getPreviewableDocPath(value: string) {
@@ -58,6 +52,5 @@ export function hasChecklist(value: string) {
 export function isObjectRef(refId: string) {
   const match = refId.match(/^([a-z]+)-\d+$/);
   if (!match) return false;
-  // 29 号 DevLog 已于 2026-11-14 撤除，不再认 devlog-N 形式。
   return ['pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'].includes(match[1]);
 }

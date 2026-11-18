@@ -1,16 +1,3 @@
-/**
- * Cognition API 路由：聚合项目认知中心的待决定事项、推进中事项与近期动态。
- *
- * 已交付模块一（待决定事项）、模块二（近期动态）与模块三（Spark 池健康）
- * + §5 全局信任标记所需的派生字段：
- * generatedAt（观察时间）、scope、inbox（Friction 待修的派生收录与排序）、
- * recentActivity（指定窗口内事实对象 change_log 的创建 / 更新事件）与 issues（模块级降级）。
- * 数据经 Web 字段级直读（localFactReader / facts.ts 的 listObjects），不复用 /api/dashboard 聚合逻辑。
- *
- * 命名纪律（02 §7 第 3 条）：
- * 待决类型 inboxKind 表示 Human 的行动前批准或关闭确认。
- * group 决定两个既有行动模块（待办收件 / 推进中事项）的唯一归属。
- */
 
 import { Router, type Request, type Response } from 'express'
 import { listObjects, deriveServingWorkIndexForScope, type ObjectType } from '../services/facts.js'
@@ -33,13 +20,6 @@ import yaml from 'js-yaml'
 
 const router = Router()
 
-// 收件类型闭集（v5）：
-// 加 Friction `open` 待修（Human 2026-10-19 决定，见 cognition-inbox-contract 的
-// 「待修的摩擦」用例）。
-// 曾经的 `blocked_resolution`（v4「阻塞待处置」）已移除——v5 状态闭集无 `blocked`，
-// `deriveInboxKind` 无法产出该值，保留它等于在类型上承认一个不可达分支。
-// **`pitfall_confirmation` 已移除**（2026-11-03）：Pitfall 取消 `draft` 待确认态后
-// 不再有「待确认的经验」这一收件档（23 §9），机械通道产出即 `active`。
 type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'friction_repair'
 type InboxObjectType = 'friction'
 type RecentActivityKind = 'created' | 'updated'
@@ -50,22 +30,11 @@ const RECENT_ACTIVITY_WINDOWS: Record<RecentActivityWindow, number> = {
   '3d': 3,
   '7d': 7,
 }
-// 2026-09-27 移除：`SPARK_SILENT_THRESHOLD_DAYS = 5` 曾把「距最近一次 change_log
-// 流水 ≥5 天」的 open Spark 判定为「沉默」并单列成组。该**阈值判据无规范来源**
-// （specs/ 全库零授权；20 §12 登记该消费点时已注明「其阈值与判据不由本文定义」），
-// 属 00 §3.2 应由 Human 决定的事项与 00 §4.6「声称有机械保障而来源不存在」的形态。
-// Human 决定（2026-09-27）移除该判定。
-//
-// 保留的是**派生量与按时间筛选**：`silentDays()` 由 change_log 末条流水算出「多久
-// 未更新」这一中性事实，`sparkHealthAgeFilter`（3d/7d/all）按它筛选——后者由
-// 10 §5.2「支持按类型、状态、维度、时间等条件筛选与排序」授权。故移除的是
-// 「什么算沉默」这条判据，不是时间呈现本身。
 const SPARK_TERMINAL_STATUSES = new Set(['implemented', 'discarded'])
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
 
 type CognitionIssue = { section: string; code: string; message: string; object_ref?: string }
 
-/** 决定依据投影中属于对象身份的字段，不重复收入 card。 */
 const IDENTITY_PROJECTION_KEYS = new Set([
   'object_uid',
   'object_id',
@@ -97,7 +66,6 @@ interface InboxBuildItem {
   title_zh?: string
   priority?: string
   updated_at?: string
-  /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现 */
   refs?: Array<{ object_uid: string; title?: string; type?: string }>
   read_status: string
   projection: Record<string, unknown>
@@ -107,8 +75,6 @@ interface InboxBuildItem {
 }
 
 interface RecentActivityBuildItem {
-  /** 25 号 Goal 是单例冻结锚（非 ACTIVE_OBJECT_TYPES 多例）——change_log 流水
-   * 同样进近期动态，type='goal' 走消费点直读而非对象列表。 */
   type: ObjectType | 'goal'
   object_id: string
   object_uid?: string
@@ -117,27 +83,11 @@ interface RecentActivityBuildItem {
   title_zh?: string
   activity: RecentActivityKind
   occurred_at: string
-  /** 只读取对应事实流水的完整署名；兼容时间标记不伪造署名。 */
   signature?: FactChangeSignature
   status?: string
   priority?: string
-  /** Spark 的 serves（子目标 `object_uid`，20 §6 + 28 §12.3），条件出现。 */
   serves?: string
-  /** 26 §8 `occurrence`（重复观察次数 = **频次的机械权威源**），条件出现。
-   *
-   * 摩擦的近期动态行显示它（类型 → 优先级 → SG → 重复观察 → 修改次数）。此前本
-   * 路由只投影原 `impact` 而未投影 `occurrence`，致该字段虽在事实源与列表投影里
-   * 都有、却不进聚焦页——与「词条在、数据在、唯独没有消费方」是同一类缺口
-   * （Human 2026-11 发现）。impact 分级已于 2026-11-02 随 26 §8 撤销。
-   *
-   * 条件出现而非必填：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2），
-   * 届时合法缺席——呈现层据此不渲染，不补零。
-   *
-   * 形状依 26 §8（2026-10 修订）：`{ count, first_at, last_at }`。原第四个键
-   * `human_return_at` 随「放回留观」流转一并删除（该流转已随观察态退出闭集
-   * 而作废，26 §9.2），故此处不再声明它。 */
   occurrence?: { count?: number; first_at?: string; last_at?: string }
-  /** 关联的事实对象引用（03 §7.2 / 20 §8 refs），条件出现。 */
   refs?: Array<{ object_uid: string; title?: string; type?: string }>
   read_status: string
   field_issues: Array<Record<string, unknown>>
@@ -145,7 +95,6 @@ interface RecentActivityBuildItem {
 }
 
 interface RecentActivityObjectItem extends RecentActivityBuildItem {
-  /** 当前窗口内该稳定事实对象的可读流水数。 */
   activity_count: number
 }
 
@@ -161,14 +110,10 @@ interface SparkHealthBuildItem {
   title_en?: string
   title_zh?: string
   priority?: string
-  /** 20 §6 serves（子目标 `object_uid`，28 §12.3），健康度行与卡头同标签序。 */
   serves?: string
-  /** 20 §8 refs（关联事实对象引用），与卡头同标签序。 */
   refs?: Array<{ object_uid: string; title?: string; type?: string }>
   updated_at: string
-  /** 取最近一条具备完整署名的事实流水，与对象卡片落款规则一致。 */
   signature?: FactChangeSignature
-  /** 当前对象可读 change_log 中的受控修改流水数。 */
   activity_count: number
   silent_days: number
   read_status: string
@@ -176,10 +121,8 @@ interface SparkHealthBuildItem {
   unparsed_structures: Array<Record<string, unknown>>
 }
 
-/** 面向 Web 的当前两字段事实流水署名；历史字段只读兼容但不投影。单一实现在 shared/factChangeLog。 */
 type FactChangeSignature = ChangeLogSignature
 
-/** P0=0 … P3=3；缺失或非法落 4（排最后，并省略优先级信号）。 */
 function priorityRank(priority: unknown): number {
   if (typeof priority !== 'string') return 4
   const match = /^P([0-3])$/.exec(priority)
@@ -187,12 +130,7 @@ function priorityRank(priority: unknown): number {
   return Number(match[1])
 }
 
-/** 与 localFactReader.metadataFor 一致：按事实类型返回当前 canonical path。 */
 function canonicalPath(type: InboxObjectType, objectId: string): string {
-  // 载体都是平铺单文件且文件名就是 `<对象 id>.md`（02 §7.2 / 26 §7），故只有
-  // 目录名随类型变化。此前写作三元式的
-  // 新增类型时会静默落到 fallback 分支给出**错误的目录**——错误路径不会报错，
-  // 只会让「复制对象路径」复制出不存在的位置。故改为显式查表，缺项即失败。
   const directories: Record<InboxObjectType, string> = {
     friction: 'frictions',
   }
@@ -207,24 +145,6 @@ function factKey(type: string, objectId: string, objectUid?: string): string {
     : `legacy:${type}:${objectId}`
 }
 
-/**
- * 21 号三态直读收件判定（与列表筛选器共用同一派生函数，防口径漂移）：
- *   - 行动前待批 ⇒ 'plan_confirmation'（待批收件）
- *   - 收口待关 ⇒ 'closure_confirmation'（待关收件）
- *   - executing / closed ⇒ 不进待办收件（返回 null）
- */
-/**
- * 26 §8 Friction `occurrence`（重复观察证据）在收件项上的平铺投影。
- *
- * **为什么必须平铺**：卡头徽标（`FrictionOccurrenceBadge`）在 `ObjectCardFrame` 里读的是
- * **对象根**上的 `obj.occurrence`。列表卡传入的是完整 `ObjectItem`，而收件项走
- * `toObjectCard` 平铺——`occurrence` 只落在 `card` 里时，徽标在聚焦页静默消失（近期动态
- * 投影当初正是踩了这条：`recentItems` 逐字段重建时丢掉当时唯一的摩擦 chip，界面上就是
- * 「聚焦里没有那个标签」）。故此处同法：在 build →
- * entry 这一层显式平铺，不依赖客户端翻 `card`。
- *
- * （原同处的 `projectFrictionImpact` 已随 26 §8 撤销 impact 分级于 2026-11-02 删除。）
- */
 function projectFrictionOccurrence(raw: Record<string, unknown>): { occurrence?: Record<string, unknown> } {
   return typeof raw.occurrence === 'object' && raw.occurrence !== null
     ? { occurrence: raw.occurrence as Record<string, unknown> }
@@ -240,7 +160,6 @@ function compareCardBuild(
   if (ra !== rb) return ra - rb
   const ua = a.updated_at
   const ub = b.updated_at
-  // updated_at 正序（等待最久在前）；相同按 object_id 升序 tiebreak；缺失排最后。
   if (ua && ub) {
     const timeDelta = compareTimestamps(ua, ub)
     if (timeDelta !== 0) return timeDelta
@@ -273,29 +192,6 @@ function timestampInWindow(value: unknown, start: number, end: number): value is
   return Number.isFinite(timestamp) && timestamp >= start && timestamp <= end
 }
 
-/**
- * 21 号三态直读：读取 item 上**已由权威派生点写入**的 v5 视图。
- *
- * 权威派生点——它拿完整 fact（含
- * `report_body`）算出 view，写入 `group`/`outcome`/`has_result_draft` 与
- * `current_snapshot_projection`。
- *
- * **不得在此重算**：本函数的两处调用（`buildRecentActivityItem` 与收件箱主循环）
- * 拿到的都是 `listObjects` 的列表项，而列表投影按载荷纪律剥离了 `report_body`
- * （`factFieldContract.ts` 的 `FACT_LIST_FIELD_NAMES` 排除个别类型）。
- * 从被剥离的输入重算只会得到 `executing`——这正是认知中心对「open ∧ 含结果节」
- * 的对象不产生**收口待办**（`inboxKind` 落空）的成因，与列表/筛选侧的
- * 同类缺陷同源。
- *
- * 读法：优先取 `current_snapshot_projection`（完整 view）；若缺失，则用已派生的
- * `group` 等字段重建一个等价 view，保持返回形状不变。
- */
-/**
- * 将事实对象自身的流水转为近期动态。流水只约定 `at`，没有独立动作字段；
- * 因此第一条有效记录表示受控创建，之后的记录表示受控更新。没有可读流水的
- * 旧事实才使用 created_at 作为兼容回退（不读 updated_at——03 第 6.1 节不保留
- * 该公共字段），绝不从 Git 提交反推事件。
- */
 export function buildFactActivityItems(
   raw: Record<string, unknown>,
   type: ObjectType | 'goal',
@@ -307,8 +203,6 @@ export function buildFactActivityItems(
   for (let index = 0; index < changeLog.length; index += 1) {
     const entry = changeLog[index]
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
-    // YAML 未加引号的时间戳在进程内是 Date 实例——先归一为文本再判窗口；
-    // 署名读取 v5 扁平 provider/model 与 v4 嵌套 signature 两种形态。
     const at = toChangeLogAtText((entry as Record<string, unknown>).at)
     if (at !== undefined && timestampInWindow(at, start, end)) {
       logged.push({ occurredAt: at, index, signature: readChangeLogEntrySignature(entry) })
@@ -325,7 +219,6 @@ export function buildFactActivityItems(
   }
 
   const createdAt = raw.created_at
-  // 03 §6.1：最近更新时间取 change_log 末条流水的 at，不读 updated_at。
   const updatedAt = getLatestChangeLogAt(raw.change_log)
   const fallback: RecentActivityBuildItem[] = []
   if (timestampInWindow(createdAt, start, end)) {
@@ -367,8 +260,6 @@ function buildRecentActivityItem(
     status,
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
     ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
-    // 26 §8 occurrence：与列表卡卡头、详情头同形（重复观察紧随优先级）。只透传事实源里
-    // 已有的形状，**不构造、不补零**——`voided` 的 §14.2 豁免形态据此原样缺席。
     ...(type === 'friction' && typeof raw.occurrence === 'object' && raw.occurrence !== null
       ? { occurrence: raw.occurrence as { count?: number; first_at?: string; last_at?: string } }
       : {}),
@@ -378,10 +269,6 @@ function buildRecentActivityItem(
   }
 }
 
-/**
- * 近期动态按稳定事实对象合并：相同对象只保留最近一条作为阅读锚点，
- * 并如实保留窗口内流水数。署名用量仍按每一条事实流水计数，不从对象头推断。
- */
 export function buildRecentActivityView(builds: RecentActivityBuildItem[]): {
   items: RecentActivityObjectItem[]
   modelUsage: RecentActivityAttributionUsage[]
@@ -415,8 +302,6 @@ export function buildRecentActivityView(builds: RecentActivityBuildItem[]): {
       }
     }
     if (build.signature) {
-      // 单次归一取两个维度：v5 provider 逐字（供应商 id 不美化），
-      // v4 product_name 走既有归一（'cindy'→'Cindy' 等契约行为保持）。
       const { modelName: model, productName: environment } = normalizeSignature(build.signature)
       if (model) models.set(model, (models.get(model) ?? 0) + 1)
       if (environment) environments.set(environment, (environments.get(environment) ?? 0) + 1)
@@ -444,13 +329,11 @@ function compareSilentSpark(a: SparkHealthBuildItem, b: SparkHealthBuildItem): n
   if (a.silent_days !== b.silent_days) return b.silent_days - a.silent_days
   const priorityDifference = priorityRank(a.priority) - priorityRank(b.priority)
   if (priorityDifference !== 0) return priorityDifference
-  // updated_at 为内部结构字段，已由 change_log 末条 at 填充。
   const timeDelta = compareTimestamps(b.updated_at, a.updated_at)
   if (timeDelta !== 0) return timeDelta
   return a.object_id.localeCompare(b.object_id)
 }
 
-/** Spark 健康度只聚合当前状态与更新时间；不从更新时间推断实际分流发生时刻。 */
 export function buildSparkHealth(
   rawItems: Array<Record<string, unknown>>,
   observedAt: number,
@@ -473,7 +356,6 @@ export function buildSparkHealth(
     openTotal += 1
     const priority = priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? raw.priority : undefined
     if (priority) openByPriority[priority] = (openByPriority[priority] ?? 0) + 1
-    // 03 §6.1：最近更新时间取 change_log 末条流水的 at，不读 updated_at。
     const updatedAt = getLatestChangeLogAt(raw.change_log) ?? ''
     const days = silentDays(updatedAt, observedAt)
     if (days === null) continue
@@ -485,8 +367,6 @@ export function buildSparkHealth(
       ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
       ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
       ...(priority ? { priority } : {}),
-      // 20 §6 serves（子目标 object_uid）：健康度行与卡头同标签序（Human 定案
-      // 2026-09-13：类型 → 优先级 → 子目标 → 修改次数）。
       ...(typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
       updated_at: updatedAt,
       ...(signature ? { signature } : {}),
@@ -527,13 +407,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       listObjects('pitfall', undefined, undefined, factScope),
       listObjects('spark', undefined, undefined, factScope),
       listObjects('report', undefined, undefined, factScope),
-      // 26 号 Friction 与 27 号 Norm 是后加入 OBJECT_TYPES 的活跃类型，同样有
-      // change_log 流水——此前遗漏在近期动态之外（Human 2026-11：「聚焦里的近期
-      // 动态怎么没有摩擦的改动」）。二者与上面五类在动态里是同一等比对象。
       listObjects('friction', undefined, undefined, factScope),
       listObjects('norm', undefined, undefined, factScope),
-      // 28 号 SubGoal 同样是活跃事实类型，有 change_log 流水，进近期动态。
-      // （29 号 DevLog 已于 2026-11-14 撤除，退出近期动态的取数范围。）
       listObjects('subgoal', undefined, undefined, factScope),
     ])
     const issues: CognitionIssue[] = []
@@ -550,15 +425,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
     const builds: InboxBuildItem[] = []
     let acceptedFrictionCount = 0
-    // 26 §12：摩擦 open 账目进「待决定事项」。收录判定保持字面 `raw.status !== 'open'`
-    // （下方契约测试钉住该形态，防止「顺手多带一个状态」的口径漂移）。
     if (!frictionResult.ok || !('data' in frictionResult)) {
       const message = frictionResult.ok ? 'Friction 列表读取失败' : (frictionResult as { error: string }).error
       issues.push({ section: 'inbox', code: 'friction_list_unavailable', message })
     } else {
       const data = frictionResult.data as { items: Array<Record<string, unknown>>; collection_issues?: Array<Record<string, unknown>> }
       for (const issue of Array.isArray(data.collection_issues) ? data.collection_issues : []) issues.push(toIssue(issue))
-      // 26 §12：accepted 单列计数（已接受成本），不进待决定事项、不进解决率分母。
       for (const raw of data.items) {
         if (raw.status === 'accepted') acceptedFrictionCount += 1
       }
@@ -570,8 +442,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
           ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
           ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
           ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
-          // Friction 无 priority 字段（26 §8 闭集无它）——不传，排序自然落到
-          // `priorityRank(undefined)=4` 的「缺失排最后」分支，与 Pitfall 同法。
           updated_at: getLatestChangeLogAt(raw.change_log),
           read_status: String(raw.read_status ?? 'unknown'), projection: raw,
           field_issues: Array.isArray(raw.field_issues) ? (raw.field_issues as Array<Record<string, unknown>>) : [],
@@ -584,10 +454,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
     const recentStart = new Date(generatedAt).getTime() - RECENT_ACTIVITY_WINDOWS[recentWindow] * 24 * 60 * 60 * 1000
     const recentBuilds: RecentActivityBuildItem[] = []
-    // 近期动态的取数范围 = OBJECT_TYPES 全集（活跃事实类型皆有 change_log 流水）。
-    // 此前本表停在早期的五类上，friction/norm 加入 OBJECT_TYPES 时未随行——遗漏
-    // 会让 Human 在认知中心看不到这两类的任何改动（26 §12 的 F1 召回与本节无关：
-    // 这里只读 change_log 流水，不做状态筛选）。
     const recentSources: Array<[ObjectType, typeof pitfallResult]> = [
       ['pitfall', pitfallResult],
       ['spark', sparkResult],
@@ -610,18 +476,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         recentBuilds.push(...buildFactActivityItems(raw, type, recentStart, parseTimestamp(generatedAt)))
       }
     }
-    // 25 号 Goal：单例冻结锚的 change_log 修订史也进近期动态（§6 修订史是 HV5
-    // 演进链第一环）。goal.md 尚未创建是合法状态（项目初始化前），静默跳过；
-    // 存在但不可读时如实披露。单例路径即身份，object_id 以 'goal' 稳定填充。
     const goalRecord = await readGoalRecord(project)
     if (goalRecord.status === 'readable') {
       recentBuilds.push(...buildFactActivityItems(
         {
           ...goalRecord.raw,
           object_id: 'goal',
-          // 读取层判定结果随条目携带：readable 已由 readGoalRecord 成立（否则
-          // 走 unreadable 分支），不注入会让展示层回退 'unknown' 误报红字；
-          // 轻校验的 field_issues 如实带入（goal.md 字段问题可见）。
           read_status: 'readable',
           field_issues: goalRecord.fieldIssues,
           unparsed_structures: [],
@@ -653,21 +513,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         card,
       }
       {
-        // Friction（26 §8）：`status` 是来源状态的直读值（本分支只收 `open`）——
-        // 平铺到 entry 否则 entry 上没有 status，客户端 `toObjectCard` 会把
-        // `undefined` 当状态传给状态徽标。
-        // `occurrence` 见 projectFrictionOccurrence 的注释：卡头徽标读对象根。
         entry.status = String(build.projection.status ?? '')
         Object.assign(entry, projectFrictionOccurrence(build.projection))
       }
-      // refs（03 §7.2 / 20 §8）：关联对象 chip，与卡头标签序一致
-      // （类型 → 优先级 → SG → refs → 修改次数）。
       if (build.refs !== undefined) entry.refs = build.refs
-      // priority 缺失/非法落 P3 之后并省略优先级信号（Q8）。
       if (priorityRank(build.priority) < 4 && typeof build.priority === 'string') entry.priority = build.priority
-      // updated_at 缺失排最后并省略时间显示（Q8）。
       if (build.updated_at) entry.updatedAt = build.updated_at
-      // 字段级直读 readable 时携带 canonical_path，供条件显示"复制对象路径"（Q4）。
       if (build.read_status === 'readable') entry.canonical_path = canonicalPath(build.type, build.object_id)
       if (build.field_issues.length > 0) entry.field_issues = build.field_issues
       if (build.unparsed_structures.length > 0) entry.unparsed_structures = build.unparsed_structures
@@ -691,9 +542,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       typeColor: getTypeColor(build.type),
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
       ...(build.serves !== undefined ? { serves: build.serves } : {}),
-      // 26 §8 occurrence：第二层映射（build → recentItems）此前遗漏它——
-      // 上层 buildRecentActivityItem 已投影，此处逐字段重建时丢掉，故客户端
-      // 收不到。与卡头同序（重复观察紧随优先级）。
       ...(build.occurrence !== undefined ? { occurrence: build.occurrence } : {}),
       ...(build.refs !== undefined ? { refs: build.refs } : {}),
       ...(build.status !== undefined ? { status: build.status } : {}),
@@ -706,12 +554,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       generatedAt,
       scope: { governedProjectId: project.id },
       inbox: { items, total: items.length },
-      // 26 §12 dogfood 度量消费点：已接受成本单列计数。
-      // 它**不进** inbox（accepted 不是待决定事项），也**不进**解决率分母。
       frictionLedger: { acceptedCount: acceptedFrictionCount },
-      // 26 §12 dogfood 度量消费点（2026-10 新增 accepted）：已接受成本单列计数。
-      // 它**不进** inbox（accepted 不是待决定事项），也**不进**解决率分母
-      // （26 §12：accepted 不进解决率分母、不计入 open 待修数）。
       recentActivity: {
         window: recentWindow,
         windowStart: new Date(recentStart).toISOString(),
@@ -761,59 +604,15 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-/**
- * GET /api/cognition/goal — Web「当前目标」投影的机械来源读取（specs/25 直读消费点）。
- *
- * 读取被管辖项目 worktree 下的单例 goal.md，投影字段覆盖两档消费：窄字段
- * （目标陈述 + 子目标清单——后者由 `subgoals/*.md` 反查派生，不在本载体存储，
- * 28 §8.1）与详情阅读面（created_at + change_log 修订史 +
- * 读取层元数据——canonical_path/carrier/read_status 供前端 getFactReadMeta 消费）。
- * 此处不做任何 AI 判断或派生——只把 goal.md 原文里的结构化字段搬给前端；服务端
- * 不缓存、不回写、不建索引（25 §10 消费点直读）。该路由不承载 Goal 类型的
- * 创建/更新/翻转等受控操作（那些走 AI 受控写入路径）。
- */
 type GoalSubGoal = {
   id: string
   text: string
-  /** SubGoal `status` (28 §9: active/achieved/retired). Absent on legacy-only rows. */
   status?: string
-  /** SubGoal `criterion_kind` (28 §10.2). Absent on legacy-only rows. */
   criterion_kind?: string
-  /**
-   * SubGoal `criterion` (28 §8): 「出现哪类材料即说明达成」。
-   *
-   * 这是子目标**唯一回答「怎么才算达成」**的字段（`title` 只是短标签，不承载
-   * 完整判据）。聚焦页目标区此前拿不到它——投影只传 `text`（短标题），判据被整段
-   * 丢掉，于是该区只答得出「有几条子目标、走没走」，答不出「这条要怎么才算达成」。
-   * 子目标卡（`SubGoalCardContent`）的判据框正是直接读这一字段，故两处现读同一
-   * 权威文本。
-   *
-   * **本投影不传 `alignment`**（28 §8 的对齐理由）：聚焦页目标区不呈现它
-   * （Human 2026-11-03 圈出「对齐说明」整段去掉），详情页读的是子目标对象本身
-   * （`FactReadingLayouts`）。留一个无人读的字段，等于让读模型替读者做了个没人
-   * 兑现的承诺。
-   */
   criterion?: string
-  /** SubGoal `object_uid` — the stable identity for serving-work derivation and
-   *  the detail routes (list/federation cards still navigate to `/objects/subgoal/:id`).
-   *  The focus-page goal section NO LONGER drills into detail from the title
-   *  (2026-11-15: title toggles expand/collapse), but it still needs the uid to
-   *  decide whether progress bars and the serving-work zone can be derived.
-   *  Since 2026-11-01 this is ALSO what `id` carries on object rows (28 §7): the
-   *  human-readable `SG-n` label is gone, so `id` is no longer a display string. */
   object_uid?: string
-  /** SubGoal `order` (28 §8): optional display order. Absent = sorts last. */
   order?: number
-  /** SubGoal `created_at`: the tiebreak when `order` is absent or equal. */
   created_at?: string
-  /**
-   * 名下工作行（`serves` 反查，28 §8.1 的派生，不落盘）。
-   *
-   * 聚焦页目标区的每条子目标都要挂火花落实比值，分子分母就是这些行——与子目标
-   * 列表卡、详情面**同一次反查、同一套口径**。此前该投影不带它，聚焦页因此
-   * 拿不到比值，只能不下条；补在这里而不是让前端另打一次子目标列表，是因为
-   * 两处各读一次会在两次读取之间出现不一致（见 `deriveServingWorkIndexForScope`）。
-   */
   serving_work?: Array<{
     object_uid?: string
     type: string
@@ -824,24 +623,10 @@ type GoalSubGoal = {
     group?: string
     href: string
   }>
-  /** 反查时读不到的类型与原因；「读不到」不得并入空集（00 §4.6）。 */
   serving_unreadable?: string[]
-  /**
-   * True when this row was recovered from the migrated-away `## 子目标` section
-   * instead of a SubGoal carrier. 25 §7 makes that shape a one-way migration
-   * state, so surfacing it is how the gap stays visible rather than silent.
-   */
   legacy?: boolean
 }
 
-/**
- * Anchors still carried by the migrated-away `## 子目标` section, in file order.
- *
- * Read-only compatibility: a carrier mid-migration must not lose its displayed
- * sub-goals, but these entries are NOT the authority any more (28 §14.2 makes
- * the SubGoal object the authority). The caller marks them `legacy: true` so the
- * UI can show "not yet migrated" instead of presenting two equal sources.
- */
 function legacySubGoalAnchors(body: string): Array<{ anchor: string; text: string }> {
   const sectionMatch = /^##\s*子目标\s*$/m.exec(body)
   if (!sectionMatch) return []
@@ -857,20 +642,6 @@ function legacySubGoalAnchors(body: string): Array<{ anchor: string; text: strin
   return out
 }
 
-/**
- * Derive the sub-goal projection by reverse lookup over `subgoals/` (28 §8.1).
- *
- * This is a READ-TIME DERIVATION, not stored state: 28 §8.1 forbids keeping a
- * copy of the sub-goal list on the goal carrier, because a copy can diverge from
- * the objects it claims to summarise.
- *
- * 2026-11-01: `id` is now the `object_uid`, not an `SG-n` anchor (28 §7 废止业务
- * 编号). Ordering comes from the optional `order` field with `created_at` as the
- * tiebreak — never from the identifier, which carries no order meaning at all.
- * Legacy inline entries (still `SG-n` text on the carrier) keep their literal
- * label as `id` and are appended AFTER the objects, flagged `legacy: true`: they
- * are unmigrated text, not objects, so they have no uid to be identified by.
- */
 async function readSubGoalProjection(
   project: { path: string },
   legacy: Array<{ anchor: string; text: string }>,
@@ -895,40 +666,27 @@ async function readSubGoalProjection(
         id: objectUid,
         order: typeof parsed.order === 'number' ? parsed.order : undefined,
         created_at: typeof parsed.created_at === 'string' ? parsed.created_at : undefined,
-        // The short title is what a scanning reader needs; the full criterion is
-        // carried by the same row's expandable surface / the detail layout, so
-        // the list stays scannable.
         text: typeof parsed.title === 'string' && parsed.title.trim() !== ''
           ? parsed.title.trim()
           : (typeof parsed.criterion === 'string' ? parsed.criterion.trim() : ''),
         status: typeof parsed.status === 'string' ? parsed.status : undefined,
         criterion_kind: typeof parsed.criterion_kind === 'string' ? parsed.criterion_kind : undefined,
-        // 判据原样传出（28 §8 的必填字段），供聚焦页在收起态之外承载。
-        // 缺失时不以空串占位——空串会让前端以为「有值但读出来是空的」，与
-        // 「字段根本不在」这两件事在机械层不同（02 §7.1 未知字段不得以占位代替判断）。
         criterion: typeof parsed.criterion === 'string' && parsed.criterion.trim() !== ''
           ? parsed.criterion.trim()
           : undefined,
         object_uid: objectUid,
       })
     } catch {
-      // An unreadable carrier is reported by the CLI read path; the Web
-      // projection must not fabricate a row for it.
       continue
     }
   }
-  // Display order (28 §8): `order` ascending when present, then `created_at`.
-  // A sub-goal without `order` sorts after every ordered one — it is a legal
-  // state, not an error, and it must never be given an implicit number.
   rows.sort(compareSubGoalDisplayOrder)
-  // Legacy entries follow the objects, keeping their literal carrier order.
   for (const entry of legacy) {
     rows.push({ id: entry.anchor, text: entry.text, legacy: true })
   }
   return rows
 }
 
-/** 28 §8 display order: `order` asc, then `created_at`, then uid — never the id. */
 function compareSubGoalDisplayOrder(a: GoalSubGoal, b: GoalSubGoal): number {
   const ao = typeof a.order === 'number' ? a.order : Number.POSITIVE_INFINITY
   const bo = typeof b.order === 'number' ? b.order : Number.POSITIVE_INFINITY
@@ -939,8 +697,6 @@ function compareSubGoalDisplayOrder(a: GoalSubGoal, b: GoalSubGoal): number {
   return a.id.localeCompare(b.id)
 }
 
-/** 25 号 Goal 的必填字段闭集（§6 frontmatter 全必填）——呈现层轻校验，
- * 只报告 missing，不做类型系统级契约（Goal 不走 FACT_FIELD_CONTRACT 单例豁免）。 */
 const GOAL_REQUIRED_FIELDS = ['goal_key', 'title', 'status', 'created_at'] as const
 
 type GoalRecord =
@@ -956,7 +712,6 @@ type GoalRecord =
       issues: Array<{ code: string; message: string; path?: string }>
     }
 
-/** 单例 goal.md 读取与解析（/goal 直读路由与近期动态共用；25 §5 路径即身份）。 */
 async function readGoalRecord(project: { path: string }): Promise<GoalRecord> {
   const goalPath = path.join(project.path, 'ldvh-base', 'goal.md')
   let raw: string
@@ -985,7 +740,6 @@ async function readGoalRecord(project: { path: string }): Promise<GoalRecord> {
     return { status: 'unreadable', issues: [{ code: 'frontmatter_parse_failed', message: 'goal.md frontmatter 顶层不是键值映射', path: 'ldvh-base/goal.md' }] }
   }
 
-  // 目标陈述解析：「## 目标陈述」H2 下的段落（到下一个 H2 为止，去首尾空白）。
   let statement = ''
   const stmtMatch = /^##\s*目标陈述\s*$/m.exec(body)
   if (stmtMatch) {
@@ -994,15 +748,8 @@ async function readGoalRecord(project: { path: string }): Promise<GoalRecord> {
     statement = (nextH2 ? stmtSection.slice(0, nextH2.index) : stmtSection).trim()
   }
 
-  // 子目标解析（25 §7 2026-11 修订）：子目标已移出 goal.md，改由 SubGoal 事实
-  // 对象承载（28 号）。此处的派生视图按 `parent_goal` 反查 subgoals/ 目录。
-  //
-  // 存量兼容：迁移前的 goal.md 可能仍带 `## 子目标` 段。它只作为**待迁移**来源
-  // 被读出并标记（legacy_subgoal_section），不参与 sub_goals 的权威集合——
-  // 否则同一批锚点会有两处来源，而两处可分叉。
   const subGoals: GoalSubGoal[] = await readSubGoalProjection(project, legacySubGoalAnchors(body))
 
-  // 呈现层轻校验：必填闭集 missing + goal_key 固定值 identity（25 §6/§10）。
   const fieldIssues: Array<{ path: string; reason: 'missing' | 'identity_mismatch'; expected: string; raw_value?: unknown }> = []
   for (const fieldKey of GOAL_REQUIRED_FIELDS) {
     const value = (meta as Record<string, unknown>)[fieldKey]
@@ -1025,7 +772,6 @@ async function readGoalRecord(project: { path: string }): Promise<GoalRecord> {
   }
 }
 
-/** Parse a carrier's YAML frontmatter; null when absent or unparseable. */
 function parseCarrierFrontmatter(raw: string): Record<string, unknown> | null {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw)
   if (match === null) return null
@@ -1054,13 +800,8 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
     }
     const meta = record.raw
     const factScope = { worktreeLocator: project.path, governedProjectId: project.id }
-    // 28 §8.1 的派生在聚焦页目标区同样成立：每条子目标的火花落实比值取自
-    // `serves` 反查，与子目标列表卡、详情面**同一次反查、同一套口径**
-    //（`deriveServingWorkIndexForScope` 是单点实现）。反查失败的类型单列进
-    // `serving_unreadable`，绝不并进空集——「读不到」不是「没有」（00 §4.6）。
     const servingIndex = await deriveServingWorkIndexForScope(factScope)
     const subGoalsWithServing = record.subGoals.map((sg) => {
-      // legacy 行没有 object_uid，也就没有可反查的身份：不给它编一个空集。
       if (typeof sg.object_uid !== 'string' || sg.object_uid === '') return sg
       const derived = servingIndex.bySubGoal.get(sg.object_uid) ?? []
       return {
@@ -1077,17 +818,9 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
         status: typeof meta.status === 'string' ? meta.status : 'active',
         statement: record.statement,
         sub_goals: subGoalsWithServing,
-        // 详情阅读面投影（25 §6 修订史是 HV5 演进链第一环）：
         created_at: typeof meta.created_at === 'string' ? meta.created_at : undefined,
         change_log: Array.isArray(meta.change_log) ? meta.change_log : [],
-        // 读取层元数据：与多例类型的 exact-read 投影同形态，供前端 getFactReadMeta
-        // 消费（25 §5 单例路径即身份——canonical_path 固定）。
         canonical_path: 'ldvh-base/goal.md',
-        // frontmatter 逐字原文（与多例类型的 yaml_source 同形）：读取层已在该单例
-        // 读取实现里解析出原文（readGoalRecord 的 frontmatterSource，:1145），此处
-        // 逐字透传即可。此前缺该投影，前端 YamlDataNode 的「原文优先、重建兜底」
-        // 对 goal 恒走重建分支——Human 读到的是重整过的 YAML 而非 goal.md 原文
-        //（已按现行登记补齐）。
         yaml_source: record.frontmatterSource,
         carrier: 'markdown',
         read_status: 'readable',

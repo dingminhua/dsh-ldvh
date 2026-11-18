@@ -1,8 +1,3 @@
-// 契约测试：按改动影响面选跑测试（plugin/scripts/affected-tests.mjs）。
-//
-// 这套规则的失效方向决定它在测什么：**漏判会给出假通过**，而假通过比「多跑了
-// 几个文件」贵得多。所以本文件的重头是「保守侧」——认不出、够不着、被注释干扰
-// 的场合都必须朝「跑得更多」或「明确失败」倒，绝不能安静地返回一个小子集。
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -10,12 +5,6 @@ import { join } from "node:path";
 import { computeAffectedTests } from "../scripts/affected-tests.mjs";
 import { withTemp } from "./helpers.mjs";
 
-/**
- * 在临时目录里造一个最小的 plugin 形状（lib/、test/、scripts/），
- * 并在该目录内执行 fn —— 不能把 dir 返回出去：withTemp 在回调返回后立刻删除它。
- * @param {Record<string, string>} files 相对路径 → 内容
- * @param {(dir: string) => Promise<void>} fn
- */
 async function withTree(files, fn) {
   return withTemp("affected", async (dir) => {
     for (const [rel, content] of Object.entries(files)) {
@@ -44,7 +33,6 @@ test("a static import chain selects the test that reaches it", async () => {
 });
 
 test("a comment that merely mentions a module is NOT a dependency edge", async () => {
-  // 实测本仓这类注释有 126 处，它们曾把所有模块连成一片。
   await withTree(
     {
       "lib/a.js": "export const a = 1;\n",
@@ -89,7 +77,6 @@ test("a dynamic import with a literal specifier is an edge", async () => {
 });
 
 test("a change with no reachable test is UNCOVERED, never an empty pass", async () => {
-  // 空集不等于通过：这是本脚本最容易被误用成「绿」的地方。
   await withTree(
     {
       "lib/orphan.js": "export const orphan = 1;\n",
@@ -105,7 +92,6 @@ test("a change with no reachable test is UNCOVERED, never an empty pass", async 
 });
 
 test("one orphan among several covered changes is still reported", async () => {
-  // 混跑一次反向 BFS 会把「这个没人测」和「那个有人测」搅在一起。
   await withTree(
     {
       "lib/covered.js": "export const c = 1;\n",
@@ -141,7 +127,6 @@ test("each full-suite trigger explains itself and returns mode full", async () =
 });
 
 test("a non-literal dynamic import is reported as an undetermined dependency", async () => {
-  // 这类依赖无法静态确定；必须出现在 warnings 里，不能安静地当作没有依赖。
   await withTree(
     {
       "lib/a.js": "export const a = 1;\n",

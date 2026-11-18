@@ -5,11 +5,9 @@ const { chromium } = require('playwright');
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.emulateMedia({ colorScheme: 'dark' });
 
-  // Go to page and wait for the circle to appear
   await page.goto('http://localhost:5173/objects/intent/intent-0001');
-  await page.waitForTimeout(150); // Capture at ~150ms when circle should be visible
+  await page.waitForTimeout(150);
 
-  // Dump ALL stylesheet rules that could produce a circle
   const allRules = await page.evaluate(() => {
     const results = [];
     try {
@@ -22,7 +20,7 @@ const { chromium } = require('playwright');
               results.push(css.substring(0, 300));
             }
           }
-        } catch(e) { /* cross-origin */ }
+        } catch(e) {   }
       }
     } catch(e) {}
     return results;
@@ -31,7 +29,6 @@ const { chromium } = require('playwright');
   console.log('Suspicious CSS rules:');
   console.log(JSON.stringify(allRules, null, 2));
 
-  // Also check every single element for ANY non-zero border-radius > 10px
   const bigRadius = await page.evaluate(() => {
     const results = [];
     document.querySelectorAll('*').forEach(el => {

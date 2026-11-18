@@ -12,8 +12,6 @@ const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-commit-dto-wor
 const projectRoot = path.join(workspaceRoot, 'demo')
 fs.mkdirSync(projectRoot, { recursive: true })
 fs.mkdirSync(path.join(projectRoot, 'ldvh-base', 'sparks'), { recursive: true })
-// v5 Spark 载体（20 §7）：.md + frontmatter + 正文；无 priority（§14.2 不迁入）、
-// 无 urls（§10）——更新时间由 change_log[].at 承担（03 §6.1 无公共 updated_at）。
 fs.writeFileSync(
   path.join(projectRoot, 'ldvh-base', 'sparks', 'spark-0001.md'),
   [
@@ -104,8 +102,6 @@ fs.writeFileSync(
 )
 process.env.LDVH_ROOT = projectRoot
 process.env.LDVH_WORKSPACE_ROOT = workspaceRoot
-// v5 现状：治理范围经 Node git 解析，不依赖 v4 Python Helper。登记载体指向本测试
-// 自建的工作区治理 YAML，触发 governanceScope 的 Node git 分支。CI 可用覆盖。
 process.env.LDVH_GOVERNED_PROJECTS_CONFIG = path.resolve(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.yaml')
 process.env.LDVH_WEB_WORKTREE_LOCATOR = projectRoot
 process.env.LDVH_WEB_WORKSPACE_ROOT = workspaceRoot
@@ -186,8 +182,6 @@ test('commit signature display reads only current LDVH trailers', () => {
 })
 
 test('commit signature display reads the v5 LDVH-Provider/LDVH-Model trailers (specs/06 §6.1)', () => {
-  // v5 受控提交的权威 trailer 词汇：以区分键逐字返回（供应商 id 不美化——
-  // 签名值零清理原则），显示层经 normalizeSignature 合并呈现。
   assert.deepEqual(parseCommitSignature([
     'LDVH-Provider: modlens-zzztoken-glm',
     'LDVH-Model: glm-5.3',
@@ -195,11 +189,9 @@ test('commit signature display reads the v5 LDVH-Provider/LDVH-Model trailers (s
     provider: 'modlens-zzztoken-glm',
     model: 'glm-5.3',
   })
-  // 只有 provider 也可读（模型缺省不补造）。
   assert.deepEqual(parseCommitSignature([
     'LDVH-Provider: zzztoken-glm',
   ].join('\n')), { provider: 'zzztoken-glm' })
-  // v4 词汇与 v5 词汇同时出现时 v4 优先（真实提交只带一种词汇，防御性约定）。
   assert.deepEqual(parseCommitSignature([
     'LDVH-Product-Name: Cindy',
     'LDVH-Model-Name: gpt-5.6-luna',
@@ -209,7 +201,6 @@ test('commit signature display reads the v5 LDVH-Provider/LDVH-Model trailers (s
     productName: 'Cindy',
     modelName: 'gpt-5.6-luna',
   })
-  // LDVH-Model 不会误匹配 LDVH-Model-Name（键名精确匹配）。
   assert.deepEqual(parseCommitSignature([
     'LDVH-Model-Name: gpt-5.6-luna',
   ].join('\n')), { modelName: 'gpt-5.6-luna' })

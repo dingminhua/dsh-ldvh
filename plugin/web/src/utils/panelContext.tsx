@@ -9,7 +9,6 @@ export interface PanelContent {
   objectType?: string;
   objectId?: string;
   docPath?: string;
-  /** Optional, source-declared presentation for a document reading surface. */
   docVariant?: 'research-report';
   carrier?: FactCarrier;
   url?: string;

@@ -7,15 +7,8 @@ test('compact viewport keeps the primary navigation as an icon rail', () => {
   const layout = fs.readFileSync(path.resolve('src/components/Layout.tsx'), 'utf8');
   const sidebar = fs.readFileSync(path.resolve('src/components/Sidebar.tsx'), 'utf8');
 
-  // Compact 断点（Human 2026-10-16：640 → 1024）。侧栏走 Tailwind 断点前缀。
-  //
-  // **本项钉住的是「形态」，不是断点取值**（独立复核 2026-10-16：原实现把 `lg:` 写进
-  // 正则，与同批「复算不钉字面数字」的目标矛盾——下次调值会在此产生无意义失败）。
-  // 前缀取 `\w+` 通配，取值正确性由 `web-design-consistency-contract.test.ts` 的
-  // 复算断言负责：那边从两侧源码读出实际值再比对，是唯一的取值权威。
   assert.match(layout, /className="flex flex-shrink-0 [a-z]+:hidden"\s*>\s*<Sidebar collapsed compact \/>/);
   assert.match(layout, /className="hidden flex-shrink-0 [a-z]+:block"\s*>\s*<Sidebar collapsed=\{sidebarCollapsed\}/);
-  // 两处前缀须一致（否则图标栏与展开态在某个区间同时显示或同时消失）。
   const railPrefix = /className="flex flex-shrink-0 ([a-z]+):hidden"/.exec(layout);
   const fullPrefix = /className="hidden flex-shrink-0 ([a-z]+):block"/.exec(layout);
   assert.ok(railPrefix && fullPrefix, 'Layout 的两处侧栏分支须各带 Tailwind 断点前缀');
@@ -62,8 +55,6 @@ test('studies are followed by the ordered directory, workspace changes, and comm
 });
 
 test('settings has no web surface — registration and colors live in the DSH plugin settings card', () => {
-  // Human 2026-09-08 决策：Web 内的设置页移除。管辖登记与项目颜色的唯一管理面
-  // 是 DSH 插件设置卡（07 规范登记面）；Web 是纯呈现层。
   const app = fs.readFileSync(path.resolve('src/App.tsx'), 'utf8');
   const sidebar = fs.readFileSync(path.resolve('src/components/Sidebar.tsx'), 'utf8');
   assert.doesNotMatch(app, /<Route path="\/settings"/);
@@ -76,10 +67,7 @@ test('the governed project switcher lives beside the brand in global navigation'
   const app = fs.readFileSync(path.resolve('src/App.tsx'), 'utf8');
   const sidebar = fs.readFileSync(path.resolve('src/components/Sidebar.tsx'), 'utf8');
 
-  // Provider 仍包住整棵路由树（切换器是全局导航的一部分，不是某页私产）。
   assert.match(app, /<ProjectScopeProvider>[\s\S]*<AppRoutes \/>[\s\S]*<\/ProjectScopeProvider>/);
-  // 位置记忆上报必须落在 Provider **之内**：它要把当选项目作为路径归属一起报上去，
-  // 挂在外面读不到 useProjectScope，宿主只能盲沿用旧项目的深链接。
   assert.match(app, /<ProjectScopeProvider>[\s\S]*<RouteMemoryReporter \/>[\s\S]*<AppRoutes \/>/);
   assert.match(sidebar, /<BrandMark \/>[\s\S]*<ProjectSwitcher collapsed=\{isCollapsed\} \/>/);
 });
@@ -88,13 +76,10 @@ test('global project selection uses the configured default when no valid Human s
   const context = fs.readFileSync(path.resolve('src/utils/projectContext.tsx'), 'utf8');
   const scope = fs.readFileSync(path.resolve('src/utils/projectSessionScope.ts'), 'utf8');
 
-  // 回退链的语义由 projectSessionScope 承载（无 DOM 的纯函数），Provider 负责把
-  // 登记载体的默认项目喂进去——两处都在才算接上，缺一处即链路断开。
   assert.match(context, /result\.defaultProjectId/);
   assert.match(context, /resolveInitialProjectId\(/);
   assert.match(scope, /input\.currentProjectId !== '' && registered\.has\(input\.currentProjectId\)/);
   assert.match(scope, /input\.defaultProjectId && registered\.has\(input\.defaultProjectId\)/);
-  // 逐态判定（命中/未命中/无参数）的行为覆盖见 project-session-scope.test.ts。
 });
 
 test('project switcher changes worktree scope and only refreshes its worktree list on demand', () => {
@@ -141,8 +126,6 @@ test('files and changes share a compact divided page toolbar without application
   for (const page of [filesPage, changesPage]) {
     assert.match(page, /ldvh-page-toolbar mb-4/);
     assert.match(page, /<PageHeader[^>]* compact \/>/);
-    // Human 2026-09-11 UI 收敛：四页（聚焦/项目文件/变更/帮助）头部只保留
-    // 标题与分割线——toolbar badge（只读标识）与副标题均移除。
     assert.doesNotMatch(page, /ldvh-page-toolbar-badge/);
     assert.doesNotMatch(page, /subtitle=/);
     assert.doesNotMatch(page, /ldvh-page-toolbar-action|RefreshCcw|changes\.reload|projectFiles\.reload/);
@@ -157,8 +140,6 @@ test('the sidebar footer stacks the language on its own row above the icon row, 
   const refresh = fs.readFileSync(path.resolve('src/hooks/useReadingRefresh.tsx'), 'utf8');
   const layout = fs.readFileSync(path.resolve('src/components/Layout.tsx'), 'utf8');
 
-  // Human 2026-09-18 指令：语言独占一行，三个图标（主题 / 收起 / 刷新）独占一行；
-  // 收起态把刷新放在该区域最后一个。
   assert.match(sidebar, /RefreshCw/);
   assert.match(sidebar, /'nav\.refreshReading'/);
   assert.match(sidebar, /refreshLabel = t\('nav\.refreshReading'\)/);
@@ -166,9 +147,6 @@ test('the sidebar footer stacks the language on its own row above the icon row, 
   assert.ok(footer.indexOf("showTooltip('language'") < footer.indexOf("showTooltip('theme'"), '语言行必须在图标行之前');
   assert.ok(footer.indexOf("showTooltip('theme'") < footer.indexOf("showTooltip('sidebar-toggle'"), '图标行内主题在收起之前');
   assert.ok(footer.indexOf("showTooltip('sidebar-toggle'") < footer.indexOf("showTooltip('refresh'"), '刷新必须是该区域最后一个图标');
-  // 收起态（compact）在移动端与桌面折叠态共用同一图标区：语言行与图标行都必须能
-  // 退化为居中 rail（语言行整行居中 + 图标行竖排居中，刷新仍是竖排里最后一个）；
-  // 展开态两行都靠左对齐（Human 2026-09-19 指令），不得改为右收口。
   assert.match(sidebar, /isCollapsed \? 'flex flex-col items-center gap-1' : 'flex flex-col gap-1\.5'/);
   assert.match(sidebar, /isCollapsed \? 'justify-center' : 'w-full'/);
   assert.match(sidebar, /isCollapsed \? 'flex-col' : 'justify-start'/);
@@ -176,7 +154,6 @@ test('the sidebar footer stacks the language on its own row above the icon row, 
   assert.match(locales, /'nav\.refreshReading': '刷新页面数据'/);
   assert.match(locales, /'nav\.refreshReading': 'Refresh page data'/);
 
-  // 刷新是「重新读取当前页」，不是整页 reload：档位由 Context 承载并驱动重取。
   assert.match(refresh, /createContext<ReadingRefreshValue \| null>\(null\)/);
   assert.match(refresh, /requestRefresh: \(\) => setRefreshKey\(\(current\) => current \+ 1\)/);
   assert.doesNotMatch(sidebar, /window\.location\.reload/);

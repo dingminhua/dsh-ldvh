@@ -1,32 +1,3 @@
-// LDVH subgoal mechanical layer — runtime wiring.
-//
-// This module connects the SubGoal writer (subgoal-writer.js, specs/28 §13 +
-// specs/02 §10) to the governed tool surface so the main controller can drive
-// it from a live session:
-//
-//   - subgoal-read-object  (effect: read)             — precise F3 read by
-//     object_uid: frontmatter, body, mechanical issues and fingerprint.
-//   - subgoal-list-objects (effect: read)             — F0/F1 discovery:
-//     order/title/status/criterion projection, active-only by default
-//     (28 §12.4: achieved/retired stay out of ordinary candidates).
-//   - subgoal-write-object (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal) and CAS update with
-//     change_log: active→active is 补充级更新 with `object_uid` held fixed
-//     (28 §9.2 锚点冻结), active→achieved and active→retired are the two
-//     terminal transitions. Carries identity uniqueness (28 §17 第 5 项) and
-//     `parent_goal` resolution (28 §14.1) before any write.
-//
-// Authorities: specs/05 §6 (operation declaration + common envelope), §9.3
-// (may_change_state), specs/02 §10 (controlled read/create/update, write-back
-// read-back), specs/28 §13/§14.1 (type-specific mechanical checks), specs/28
-// §16 (Human Gate: creation, substantive revision and BOTH terminal
-// transitions are Human decisions — this tool is the mechanical carrier, not
-// the decision).
-//
-// WHAT THIS LAYER DOES NOT DO (28 §18 red line 9, specs/00 §4.6): it does not
-// judge whether a sub-goal actually serves the goal statement. That is a
-// semantic judgement. The tool guarantees only that the `alignment` statement
-// EXISTS and that the reference resolves — never that it is true.
 
 import {
   createSubGoalObject,
@@ -71,9 +42,6 @@ const OPERATIONS = {
 
 const FACT_SOURCE_ROOT_DIR = "ldvh-base";
 
-// ---------------------------------------------------------------------------
-// Envelope helpers (05 §8 common response semantics)
-// ---------------------------------------------------------------------------
 
 function envelope(operationKey, outcome, fields) {
   return { operation_key: operationKey, outcome, ...fields };
@@ -99,16 +67,12 @@ async function governedProject(dshHomePath, exec) {
   return { ok: true, scope, project: scope.project };
 }
 
-/** The change_log signature fields, from the authoritative session record. */
 async function signatureFor(deps, exec) {
   const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
   if (!route.ok) return { ok: false, reason: route.reason };
   return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
 }
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
 
 async function executeReadObject(args, exec, deps) {
   const governed = await governedProject(deps.dshHomePath, exec);
@@ -143,9 +107,6 @@ async function executeReadObject(args, exec, deps) {
   const value = read.value;
   const fm = value.frontmatter;
 
-  // 28 §8.1: 拆解与落实情况一律由 `serves` 反查派生，不在本对象上存储副本。
-  // 空集既可能是「还没拆解」也可能是「拆了但下游没声明」——机械层不可区分，
-  // 故如实标注，不以 0% 之类的类推定替代。
   const servesLookup = await deriveServingObjects(factSourceRoot, value.object_uid);
 
   return envelope("subgoal-read-object", "completed", {
@@ -189,27 +150,9 @@ async function executeReadObject(args, exec, deps) {
   });
 }
 
-/**
- * Reverse lookup for 28 §8.1: which objects declare `serves: <object_uid>`.
- *
- * This is a DERIVATION, not stored state. A failure to scan is reported as a
- * gap rather than presented as "no work serves this sub-goal" — the two are
- * different claims and conflating them would turn an unread fact source into
- * a false statement of fact.
- */
 async function deriveServingObjects(factSourceRoot, objectUid) {
   if (typeof objectUid !== "string" || objectUid.length === 0) return { items: [], gaps: [] };
   try {
-    // Use each type's OWN list projection (their fields and status filters are
-    // type authority, 20 §13 / 21 §13) rather than a bespoke directory scan:
-    // a second reader here would drift from those writers.
-    // **该分支已随其类型撤除**（Human 2026-11-13 决定；该项决定的原件与归档
-    // 副本已按 2026-11-16 决定删除，逐字内容仅 git 历史可回取）。
-    // 此前这里有一处动态 import 取它——该文件随类型一并删除后，这个动态 import 抛
-    // ERR_MODULE_NOT_FOUND，被下面 catch 吞成一条 gap，于是本列表的 serves
-    // 派生**静默失效**（结果为空、看上去只是「没有对象服务于它」，而那与
-    // 「查不了」是两回事）。测试没抓到是因为测试不走这条派生路径。
-    // 现在只保留 Spark（`serves` 是该类型的现行字段，20 §12.3）。
     const { listSparkObjects } = await import("./spark-writer.js");
     const items = [];
     const gaps = [];
@@ -313,9 +256,6 @@ async function executePrecheckCreate(args, exec, deps) {
   const value = evaluated.value;
   return envelope(
     "subgoal-precheck-create",
-    // 05 §8: a mechanically FAILED candidate is a completed execution that
-    // reports a verdict — not a rejected request. `rejected` would tell the
-    // caller the tool refused to run it, which is a different fact.
     value.mechanical_outcome === "unverifiable" ? "partial" : "completed",
     {
       result: value,
@@ -355,8 +295,6 @@ async function executeWriteObject(args, exec, deps) {
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
   const sig = await signatureFor(deps, exec);
-  // 02 §7.1 + 09 机械签名: a change_log entry is signed BY CODE and may not be
-  // written unsigned.
   if (!sig.ok) {
     return envelope("subgoal-write-object", "unavailable", {
       result: null,
@@ -374,10 +312,6 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("subgoal-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 达成条件') are required for action=create", "create");
     }
-    // 28 §13: 未携带候选指纹即零写入。此前此处是 fail-open（执行后只披露
-    // 「未预检」），该口径与本类型规范逐字登记的要求相反——「写入请求未携带
-    // 该指纹的，按「同一性未确认」零写入」（28 §13）。披露不能替代拦下：
-    // 一个没跑过预检的写入若照常落盘，事后与预检过的写入无法区分。
     const expectedFingerprint = typeof args?.expected_candidate_fingerprint === "string"
       && args.expected_candidate_fingerprint.length > 0
       ? args.expected_candidate_fingerprint
@@ -416,8 +350,6 @@ async function executeWriteObject(args, exec, deps) {
       scope: {
         requested: "create",
         completed: ["create", "read-back"],
-        // 走到这里的 create 一定带过候选指纹：未携带的请求已在入口处按
-        // 28 §13 零写入拒绝（`subgoal/candidate_fingerprint_required`）。
         not_completed: [],
       },
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
@@ -442,10 +374,6 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("subgoal-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
-  // 缺什么报什么：`frontmatter_after` 与正文是两个独立通道（02 §10.5），合成一句
-  // 「两者都必填」会让调用方看不出究竟缺哪一项——实测本窗口有 5 次失败其实是正文
-  // 已给、`frontmatter_after` 未给，却被读成「要重抄全文」。`frontmatter_after` 传
-  // 空对象 `{}` 合法（各类型入口参数面均标「须携带，可为空对象」）。
   if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
     return invalidRequest("subgoal-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
   }
@@ -477,7 +405,6 @@ async function executeWriteObject(args, exec, deps) {
       file: updated.value.file,
       fingerprint: updated.value.fingerprint,
       read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
-      // 写入侧的警告（如载体内聚差异），不阻断。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
         : {})
@@ -494,17 +421,6 @@ async function executeWriteObject(args, exec, deps) {
   });
 }
 
-/**
- * Map a writer failure onto the 05 §8 envelope.
- *
- * Identity duplication carries a STRUCTURED payload (`{conflicts}`); the
- * occupants must be RENDERED rather than dropped, otherwise the caller learns
- * only that the uid is duplicated but not where.
- *
- * 2026-11-01: this used to render "anchor already taken" conflicts. Anchors are
- * gone; the only identity invariant left is one `object_uid` ↔ one carrier, and
- * a violation means the fact source itself is inconsistent (28 §17 第 5 项).
- */
 export function renderIdentityConflictGaps(details) {
   const conflicts = Array.isArray(details?.conflicts) ? details.conflicts : [];
   if (conflicts.length === 0) return [];
@@ -554,9 +470,6 @@ export function writeRejected(operationKey, result, factSourceRoot, action) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Rendering (05 §8 human-readable envelope)
-// ---------------------------------------------------------------------------
 
 function text(body) {
   return [{ type: "text", text: body }];
@@ -571,7 +484,6 @@ function renderEnvelope(operationKey, value) {
   if (Array.isArray(env.gaps) && env.gaps.length > 0) {
     lines.push("gaps:", ...env.gaps.map((gap) => `  - ${typeof gap === "string" ? gap : JSON.stringify(gap)}`));
   }
-  // **warnings 必须进模型可见文本**（同 gaps 的理由：只留在 envelope 里等于没给）。
   const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   if (__warnings.length > 0) {
     lines.push("warnings:", ...__warnings.map((w) => `  - ${typeof w === "string" ? w : JSON.stringify(w)}`));
@@ -677,9 +589,6 @@ function parameterSchemaFor(operationKey) {
 }
 
 export function toolDescriptorFor(operationKey, operation, handler) {
-  // Register through defineTool so the DSH argument check actually runs: the
-  // bare-descriptor path only asserts output/timeoutMs shape and stores the
-  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
   return defineTool({
     name: operation.toolName,
     description: operation.summary,
@@ -709,11 +618,6 @@ export function toolDescriptorFor(operationKey, operation, handler) {
   });
 }
 
-/**
- * The handler map, exposed so tests can drive the real handlers (same shape as
- * goal-tools.js `makeExecute`): a test that re-implemented the envelope would
- * stop measuring the tool plane.
- */
 export function makeExecute(deps) {
   const handlers = {
     "subgoal-precheck-create": (args, exec) => executePrecheckCreate(args, exec, deps),
@@ -733,7 +637,7 @@ export function registerSubGoalTools(ctx, deps) {
   }
   return () => {
     for (const dispose of disposers) {
-      try { dispose(); } catch { /* already removed */ }
+      try { dispose(); } catch {   }
     }
   };
 }

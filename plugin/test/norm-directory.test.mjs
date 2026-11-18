@@ -1,14 +1,3 @@
-// 事实规范目录（引导层承载）——2026-11-15，Human 决定把目录从召回注入块搬到
-// 引导层（宿主框架层、每回合组装、不受召回预算约束）。
-//
-// 本文件承接的是**载体迁移前**挂在召回侧的那几条不变量（规范目录须 inline
-// 定位摘录、段尾承接消费指令、预算不足须留痕不得静默、定位导不出须显式标注、
-// 索引不占候选名额）。载体换了，不变量没换——它们在此重新落地，
-// 不是被丢弃（对照：`plugin/test/recall-injection.test.mjs` 里那些断言的是
-// 召回块内的段，而召回块内已不再有规范段）。
-//
-// 关键约束：**单一来源**——「哪些规范 active、什么次序、定位两句是什么」全部
-// 由 `l0EnumerationOf` 产出；本层只换承载位置，不做第二份枚举。
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -20,7 +9,6 @@ import { buildNormDirectory, NORM_DIRECTORY_SECTION_NAME } from "../lib/norm-dir
 import { buildRecallInjection } from "../lib/recall-injection.js";
 import { seedFactCorpus } from "./helpers.mjs";
 
-/** 造一份带定位两句的规范载体（契约合规）。 */
 async function writeNorm(dir, uid, { title, directionKey, governs, whenToRead, positioning = null }) {
   const body = positioning === null
     ? [
@@ -64,7 +52,6 @@ async function writeNorm(dir, uid, { title, directionKey, governs, whenToRead, p
   );
 }
 
-// ── 迁移的不变量 1：两句定位须 inline，尾注承接「时机成立即须读全文」────
 test("目录：全部 active Norm 的标题与两句定位逐条 inline，尾注承接查阅时机", async () => {
   const project = await mkdtemp(join(tmpdir(), "ldvh-normdir-"));
   try {
@@ -96,7 +83,6 @@ test("目录：全部 active Norm 的标题与两句定位逐条 inline，尾注
       assert.ok(directory.text.includes(governs), `「管什么」须 inline：${governs}`);
       assert.ok(directory.text.includes(when), `「何时查阅」须 inline：${when}`);
     }
-    // 尾注须承接「时机成立即须读全文」——这是目录搬出召回块的主要理由之一。
     assert.match(directory.text, /何时查阅.*时机成立即须读全文/, "尾注须写明查阅时机成立即须读全文");
     assert.match(directory.text, /不证明适用/, "目录仍须如实声明不证明适用");
     assert.match(directory.text, /ldvh_norm_list/, "须给出全量入口");
@@ -107,7 +93,6 @@ test("目录：全部 active Norm 的标题与两句定位逐条 inline，尾注
   }
 });
 
-// ── 迁移的不变量 2：预算不足须留痕，不得静默截断 ────────────────────────
 test("目录：预算不足时整份成对截断并披露条数与全量入口，不得静默", async () => {
   const project = await mkdtemp(join(tmpdir(), "ldvh-normdir-budget-"));
   try {
@@ -123,18 +108,15 @@ test("目录：预算不足时整份成对截断并披露条数与全量入口�
     }
     const { loadFacts } = await import("../lib/source-recall.js");
     const facts = await loadFacts(join(project, "ldvh-base"));
-    // 额度只够一两份 ⇒ 必须截断，且**必须披露**。
     const directory = buildNormDirectory(facts, { budgetChars: 400 });
     assert.equal(directory.total, 5, "总数须如实报告");
     assert.ok(directory.shown < 5, "额度不足时须截断");
     assert.equal(directory.truncated, true, "截断须被标记");
     assert.match(directory.text, /另有 \d+ 条规范未列出/, "须披露未列出的条数");
     assert.match(directory.text, /ldvh_norm_list/, "须给出全量入口");
-    // 截断**不得**静默：文本里必须出现披露行；且不得出现半截（有标题无定位）。
     const titleLines = directory.text.split("\n").filter((l) => l.startsWith("· "));
     const excerptLines = directory.text.split("\n").filter((l) => l.startsWith("  ↳ "));
     assert.equal(titleLines.length, excerptLines.length, "标题与定位须成对出现，不得留半截");
-    // 额度为零 ⇒ 不注入任何目录（而不是塞一份超预算的）。
     const none = buildNormDirectory(facts, { budgetChars: 0 });
     assert.equal(none.text, "", "额度为零时不得注入目录");
   } finally {
@@ -142,8 +124,7 @@ test("目录：预算不足时整份成对截断并披露条数与全量入口�
   }
 });
 
-// ── 迁移的不变量 3：定位导不出须显式标注，不得静默省略 ──────────────────
-test("目录：定位不合 27 §8 契约者显式标注「定位不可机械导出」，不得静默省略", async () => {
+test("目录：定位不合 23 §8 契约者显式标注「定位不可机械导出」，不得静默省略", async () => {
   const project = await mkdtemp(join(tmpdir(), "ldvh-normdir-unavail-"));
   try {
     const dir = join(project, "ldvh-base", "norms");
@@ -179,14 +160,13 @@ test("目录：定位不合 27 §8 契约者显式标注「定位不可机械导
     assert.equal(directory.unavailable, 1, "须计数");
     assert.match(directory.text, /旧形态方向规范/, "标题须在场");
     assert.match(directory.text, /定位不可机械导出/, "须显式标注定位导不出");
-    assert.match(directory.text, /27 §8/, "须点名书写契约依据");
+    assert.match(directory.text, /23 §8/, "须点名书写契约依据");
     assert.match(directory.text, /不表示该份没有定位|不证明适用/, "不得让读者读成「这份没有定位」");
   } finally {
     await rm(project, { recursive: true, force: true });
   }
 });
 
-// ── 迁移的不变量 4：目录不进召回块，也不占候选名额 ──────────────────────
 test("目录：召回注入块内不再并列规范段（单一来源），且候选名额不受目录占用", async () => {
   const project = await mkdtemp(join(tmpdir(), "ldvh-normdir-single-"));
   try {
@@ -199,8 +179,7 @@ test("目录：召回注入块内不再并列规范段（单一来源），且�
     });
     assert.doesNotMatch(r.text, /事实规范 · active Norm/, "召回块内不得再并列规范段");
     assert.doesNotMatch(r.text, /管什么：/, "召回块内不得再出现定位摘录");
-    // 经验按需一行仍在（它是召回侧的另一条通道，与目录无关）。
-    assert.match(r.text, /经验 · active Pitfall（23 §12 按需索引）/, "经验按需通道不受目录迁移影响");
+    assert.match(r.text, /经验 · active Pitfall（25 §12 按需索引）/, "经验按需通道不受目录迁移影响");
   } finally {
     await rm(project, { recursive: true, force: true });
   }

@@ -9,22 +9,8 @@ import { HOOK_BUNDLE_VERSION, inspectHook, installHook, uninstallHook as removeM
 
 const execFileAsync = promisify(execFile);
 const REGISTRATION_RELATIVE_PATH = ["ldvh", "governed-projects.yaml"];
-// v5 事实类型目录（03 §6.1 类型短名的复数形态）。各类型各自落盘：
-// sparks(20) pitfalls(23) reports(24) frictions(26) norms(27)。
-// 25 Goal 为单例，落 ldvh-base/goal.md，不占目录。
-// 22 号 ADR 已于 2026-11-15 撤除，`adrs` 随之从本清单移除（存量载体物理删除，
-// 目录不复存在）。29 号 DevLog 的 `devlogs` 于 2026-11-14 同法移除。
-// 注：frictions 与 norms 曾漏于本清单（friction-writer.js 会写 frictions/，27 号定义 norms/），
-// 已按类型短名复数惯例补齐。
 const FACT_DIRECTORIES = ["sparks", "pitfalls", "reports", "frictions", "norms"];
 
-/**
- * 07 §5.4 precondition vocabulary. The registration entries are enabled only
- * after 08 has verified cross-workspace write permission and the carrier has
- * been confirmed by a Human Gate; while any precondition is unmet the entry
- * must report `unavailable` with the precise reason from this closed set and
- * must not be presented as executable.
- */
 export const REGISTRATION_UNAVAILABLE_CODES = Object.freeze({
   USER_CONFIG_ROOT_UNAVAILABLE: "user_config_root_unavailable",
   CARRIER_UNAVAILABLE: "registration_carrier_unavailable",
@@ -33,52 +19,7 @@ export const REGISTRATION_UNAVAILABLE_CODES = Object.freeze({
   SCHEMA_INVALID: "registration_schema_invalid"
 });
 
-/**
- * 读取 Windows 目录 DACL 并判定「是否扩大到其它用户」（08 §5.6）。
- *
- * **为什么不用 node 原生 API**：Node 未暴露读取 DACL 的接口，`fs.stat().mode`
- * 在 Windows 上只合成出 `0o666/0o777` 这类占位值，据此判权限等于伪造 POSIX
- * mode——正是 08 §5.6 禁止的那件事。`icacls` 是随 Windows 提供的系统工具，
- * 输出稳定可解析，故以它为准。
- *
- * **判据只覆盖一条规范要求**：是否扩大到其它用户。返回 `widenedTo` 为空**不**
- * 等于「ACL 安全」——加密、审计、完整性级别等属性不在本函数核对范围，调用方
- * 不得据此主张更强的保证。
- *
- * @returns {Promise<{ok: true, widenedTo: string[]} | {ok: false, reason: string}>}
- */
 async function inspectWindowsAcl(target) {
-  // **为什么用 PowerShell `Get-Acl` 而不是 `icacls`**（2026-11-10 重写）。
-  //
-  // 上一版解析 `icacls` 的**文本**输出，独立审核实测出四类漏检，其中一类是
-  // fail-open（放过了本该拒绝的目录）：
-  //   ① **路径含空格**时首行是 `C:\a b\ldvh Everyone:(...)`，按空白剥离前缀会把
-  //      主体读成 `b\ldvh Everyone`，`Everyone` 越界**漏检** → 实际放行。
-  //      DSH 用户配置根在 `C:\Users\<用户名>\AppData\Roaming`，**用户名含空格即触发**；
-  //   ② UNC 首行（`\\srv\share\...`）同型；
-  //   ③ 域组 / SID 形态（`S-1-1-0`、`DOMAIN\Domain Users`）在黑名单里没有对应项；
-  //   ④ 只核目录、不核载体**文件**，而 08 §5.6 在 Unix 侧要求「目录 0700 **与** 文件 0600」。
-  //
-  // `Get-Acl` 返回**结构化**对象（IdentityReference + FileSystemRights +
-  // AccessControlType），逐条读出，不需要解析路径与主体之间的分隔——① ② 从根上消失。
-  // ③ ④ 另见下面的白名单与「文件同样核验」。
-  //
-  // **判据改为白名单**（审核建议采纳）：08 §5.6 要求「不扩大到其它用户」。黑名单
-  // 只能挡住枚举到的名字，任何未枚举的主体（域组、自建组、SID）都会漏。白名单则
-  // 反过来——只承认「本就该有权限」的主体，其余一律算扩大：
-  //   · 当前用户（含 `<MACHINE>\<user>` 与 `<DOMAIN>\<user>` 两种前缀）
-  //   · `NT AUTHORITY\SYSTEM`
-  //   · `BUILTIN\Administrators`
-  //   · `OWNER RIGHTS`
-  // `CREATOR OWNER`、`Everyone`、`BUILTIN\Users`、`Authenticated Users`、
-  // `INTERACTIVE`、`ANONYMOUS LOGON`、`NETWORK`、`Guests`、任何域组与未知 SID，
-  // 全部落入 widenedTo。
-  //
-  // **Administrators 被放行的理由**（据实，不掩饰）：它是「其它用户」，放行它
-  // 确实是一处弱化。但拒绝它会使 Windows 上**任何**管理员账户的目录都不可用
-  // （Windows 默认给 Administrators 完全控制），登记功能等于无法运行。故这是一处
-  // **明示的、有意的弱化**，写在这里而不是藏进名单：它保护的是「非管理员的其它
-  // 用户」，不保护「同机管理员之间」。该边界须在文档里如实声明。
   let raw;
   try {
     const script = [
@@ -97,8 +38,6 @@ async function inspectWindowsAcl(target) {
   }
   if (raw.trim() === "") return { ok: false, reason: "Get-Acl returned no access entries" };
 
-  // 当前用户的可接受前缀。用 `whoami` 取 `<domain>\<user>` 全名，与其匹配；
-  // 取不到时退回环境变量 `USERNAME`（只匹配末段），并把该弱化记入 notes。
   let selfNames = [];
   const notes = [];
   try {
@@ -106,11 +45,6 @@ async function inspectWindowsAcl(target) {
     const full = String(stdout ?? "").trim();
     if (full !== "") {
       selfNames.push(full.toLowerCase());
-      // whoami 在部分 Windows 配置下只返回末段（本机实测为 "Administrator"，
-      // 无 "<machine>\" 前缀）。此时全名精确匹配永远命中不了 ACL 里的
-      // "<machine>\<user>" 主体，当前用户被误判为「其它用户」而越界。
-      // 与 whoami 失败同样记 note，从而启用下方按末段匹配的回退——这正是
-      // 「取不到全名就按末段匹配」的原设计意图，不放宽对真正其它用户的判定。
       if (!full.includes("\\")) {
         notes.push("whoami returned bare name; matched current user by bare name");
       }
@@ -138,13 +72,11 @@ async function inspectWindowsAcl(target) {
     const principal = parts[0].trim();
     const rights = parts[1].trim();
     const type = parts[2].trim();
-    // 显式 Deny 不构成扩大（它是在收窄）。
     if (/^deny$/i.test(type)) continue;
     if (principal === "") return { ok: false, reason: `access entry has no principal: ${JSON.stringify(text)}` };
 
     const key = principal.toLowerCase();
     if (allowedPrincipals.has(key)) continue;
-    // 当前用户：全名精确匹配，或（whoami 失败时）按末段匹配。
     const bare = key.split("\\").pop();
     const isSelf = selfNames.some((n) => n === key || (notes.length > 0 && n === bare));
     if (isSelf) continue;
@@ -227,28 +159,16 @@ function validateDocument(value) {
   };
 }
 
-/**
- * Read-observation recorder for the registration carrier (08 §6 `fs/observed`).
- *
- * Set once at plugin install (`setCarrierObserver`). It is injected rather than
- * imported to keep governed-projects.js free of a cycle back into host-seams.js.
- * When unset (tests, CLI use), reads simply do not record — the same behaviour
- * as a composition without the seam, never a fabricated observation.
- */
 let carrierObserver = null;
 
-/** Install the observation recorder; pass null to detach. */
 export function setCarrierObserver(observer) {
   carrierObserver = typeof observer === "function" ? observer : null;
 }
 
 async function readRegistration(dshHomePath) {
   const path = registrationPath(dshHomePath);
-  // 08 §6 read half: record what LDVH actually observed, so a later write can
-  // be guarded against a version the host really reported. This runs BEFORE the
-  // read and reports absence too (an absent carrier is an observation).
   if (carrierObserver !== null) {
-    try { await carrierObserver(path); } catch { /* observation is best-effort; never block a read */ }
+    try { await carrierObserver(path); } catch {   }
   }
   let content;
   try {
@@ -287,18 +207,6 @@ export async function resolveGitRoot(candidate) {
   return { projectRoot: canonicalRoot, gitCommonDir: commonDir };
 }
 
-/**
- * Resolve the Git common-dir for an arbitrary path inside a work tree.
- * Authority: 07 §5.3 — linked worktrees are identified deterministically
- * through the common-dir (`git rev-parse --git-common-dir`), never through
- * branch, remote or a stored worktree list. A main worktree and every one of
- * its linked worktrees share exactly one common-dir, while their toplevels
- * differ; that is what makes the containment check below work for a linked
- * worktree whose toplevel is NOT the registered root.
- *
- * Throws when the path is not inside a work tree (not a repository) or Git
- * is unavailable — callers treat that as "no common-dir", not as a match.
- */
 export async function resolveGitCommonDir(candidate) {
   if (typeof candidate !== "string" || candidate.trim().length === 0 || !isAbsolute(candidate)) throw new Error("path must be a non-empty absolute path");
   const requested = await realpath(candidate);
@@ -351,28 +259,6 @@ export async function readGovernedProjects(dshHomePath) {
   }
 }
 
-/**
- * LIGHTWEIGHT registration index for the high-frequency governance-scope
- * entry point: the 07 judgement runs on every prompt assembly and every
- * tool call, and 07 §5.3 item 1 requires each judgement to read only the
- * settled registration file without cache backfill — so this path must stay
- * a single YAML read. Unlike readGovernedProjects it
- * performs NO per-project inspection — no git subprocess, no hook check, no
- * fact-source stat — only the single YAML registration read, parse and
- * fingerprint. Result projects carry plain registration fields (id, path,
- * name, description) with status left undefined when no inspection data
- * exists (the scope judge must not treat missing status as a failure).
- *
- * NO CACHING (Human gate 2026-09-03): every call reads and parses the
- * registration carrier from disk. The earlier mtime cache was removed because
- * 07 §5.3 forbids "using cache to backfill a judgement" — the authority for
- * every judgement must be the current file content, not a memo. The cost of
- * a single YAML read + parse is microseconds; the former 104 ms bottleneck
- * was a git-inspection subprocess that has already been removed, so no cache
- * is needed for speed either. Canonical project roots are still pre-resolved
- * once per call (per-carrier-change realpath), because that is part of the
- * judgement semantics, not a cache.
- */
 export async function readGovernedProjectIndex(dshHomePath) {
   const path = registrationPath(dshHomePath);
   try {
@@ -385,17 +271,13 @@ export async function readGovernedProjectIndex(dshHomePath) {
   }
   try {
     const registration = await readRegistration(dshHomePath);
-    // Pre-resolve each registered project's canonical root ONCE per call
-    // (install-time paths are already canonical; this also absorbs a
-    // hand-edited alias like /var vs /private/var on macOS). The judgement
-    // hot path then does zero fs calls per project — a pure string compare.
     const projects = [];
     for (const project of registration.document.projects) {
       let canonicalPath = null;
       try {
         canonicalPath = await realpath(project.path);
       } catch {
-        canonicalPath = null; // registered root vanished: carried as non-matchable
+        canonicalPath = null;
       }
       projects.push({ ...project, canonicalPath });
     }
@@ -429,14 +311,6 @@ export async function ensureRegistrationCarrier(dshHomePath) {
   });
 }
 
-/**
- * Unguarded registration write — the primitive used by `installProject`.
- *
- * It performs NO 07 §5.6 consent check. It exists so the installation
- * transaction can register as one step of a Human-initiated action; it is NOT
- * an entry point. Anything that registers on behalf of an AI caller must use
- * `registerProjectFromEntry` (which gates), never this.
- */
 export async function registerProject(dshHomePath, input) {
   const identity = await resolveGitRoot(input.path);
   const filename = registrationPath(dshHomePath);
@@ -457,17 +331,6 @@ export async function registerProject(dshHomePath, input) {
   });
 }
 
-/**
- * The installation transaction (08 §6): register + fact source + Git hook.
- *
- * HUMAN INTENT CARRIER: 08 §6 defines this transaction as initiated by the
- * Human clicking "安装" in the settings page ("点击『安装』后，登记项目、创建
- * 或校验…均为必需步骤"), so the click IS the 07 §5.6 explicit intent. This
- * function therefore does not ask again — it is the carrier of an intent that
- * already happened. Callers must not invoke it from an AI-initiated path: the
- * AI registration entry is `registerProjectFromEntry` below, which DOES gate
- * on a fresh consent.
- */
 export async function installProject(dshHomePath, input, runtime) {
   const candidate = await inspectCandidate(input.path);
   if (!candidate.ok) return candidate;
@@ -512,30 +375,6 @@ export async function uninstallHook(candidate) {
   return removeManagedHook(candidate);
 }
 
-/**
- * Remove a project's registration and its managed Hook.
- *
- * **Order matters: every refusal is decided BEFORE anything is destroyed.**
- *
- * The Hook removal used to run first, outside the lock. A refused call then
- * returned `ok: false` having already deleted the project's Git Gate — the
- * project stayed registered, stayed reported as governed, and silently stopped
- * passing through the gate (measured: an illegal commit that the pre-commit
- * Hook is supposed to block went straight through afterwards). The caller had
- * no way to see it: the tool layer reports a refusal with `completed: []`.
- *
- * The three refusals — stale `expectedFingerprint`, `not_registered`, and
- * `default_required` — are all decidable from the registration document alone,
- * so they need no Hook access. Reading them first makes refusal side-effect
- * free by construction rather than by a compensating rollback: a rollback would
- * have to restore a Hook whose bytes it had just deleted, and it would run on
- * the failure path where it is least likely to be tested.
- *
- * The Hook removal therefore sits between the last refusal and the write. If it
- * fails, the registration is untouched and the Hook is still there (a partial
- * `removeManagedHook` can only leave the Hook present, never half-written), so
- * the observable state still matches "refused".
- */
 export async function unregisterProject(dshHomePath, input) {
   const identity = await resolveGitRoot(input.path);
   const filename = registrationPath(dshHomePath);
@@ -553,8 +392,6 @@ export async function unregisterProject(dshHomePath, input) {
       else return failure("default_required", "removing the default project requires nextDefaultProjectId");
     }
     const next = validateDocument({ ...current.document, projects, default_project_id: defaultProjectId });
-    // Every refusal has already returned; destroying anything from here on is
-    // only reachable on the success path.
     const removedHook = await removeManagedHook(identity.projectRoot);
     if (!removedHook.ok) return removedHook;
     await writeFileAtomic(filename, stringifyYaml(next), { mode: 0o600, dirMode: 0o700 });
@@ -562,15 +399,6 @@ export async function unregisterProject(dshHomePath, input) {
   });
 }
 
-/**
- * Evaluate the 07 §5.4 preconditions for the AI registration entry.
- * Preconditions are checked in the spec's reported order; the first unmet one
- * decides the reported code. This never writes anything.
- *
- * The carrier is owned by this plugin's install transaction and is created on
- * startup (ensureRegistrationCarrier), so a missing carrier directory is a
- * real precondition failure, not something this entry silently creates.
- */
 export async function evaluateRegistrationEntry(dshHomePath) {
   if (typeof dshHomePath !== "function") {
     return unavailable(REGISTRATION_UNAVAILABLE_CODES.USER_CONFIG_ROOT_UNAVAILABLE, "DSH user configuration root is unavailable");
@@ -590,32 +418,7 @@ export async function evaluateRegistrationEntry(dshHomePath) {
   if (!rootStat.isDirectory()) {
     return unavailable(REGISTRATION_UNAVAILABLE_CODES.CARRIER_UNAVAILABLE, "registration carrier path exists but is not a directory", { path: root });
   }
-  // 07 §5.6: Unix directory/files are 0700/0600. A carrier whose mode grants
-  // group/other access is out of contract and the entry must not silently
-  // "fix" it; the caller sees the precise reason instead.
   if (process.platform === "win32") {
-    // 07 §5.6 Windows clause: inherit the DSH user-config ACL, never fake POSIX
-    // mode, never widen to other users; when the ACL cannot be verified the
-    // high-risk write must fail-closed.
-    //
-    // **2026-11-10 修订**：本分支原为无条件 fail-closed，理由是「本实现没有
-    // ACL 核验器」。该前提不成立——`icacls` 在 Windows 上随系统提供、可稳定
-    // 读取 DACL（本机实测可读出逐条 ACE），故无条件 fail-closed 不是「诚实的
-    // 不可核验」，而是**放弃了可做的核验**。其后果是 CLI 登记入口
-    // （`registerProjectFromEntry` → 本函数）在 Windows 上永久不可用，而
-    // 08 §5.6 明文预期 Windows 可写（「Windows 目标文件占用导致 replace 失败
-    // 时明确返回失败」）。
-    //
-    // 现行处置（2026-11-10 重写，含独立审核的修订）：核验 **目录与文件两处** ACL，
-    // 判据与 Unix 侧「目录 0700 **与** 文件 0600」同构——
-    //   ① 任一处 ACL 读不到 / 读不懂 → `permission_unverified`（仍 fail-closed）；
-    //   ② 任一处存在「扩大到其它用户」的 ACE → `permission_unverified`
-    //      （**与 Unix 侧同一错误码**：Unix 的「权限过宽」也报这个码，此前 Windows
-    //      报 `access_denied` 属跨平台语义互换，已统一）；
-    //   ③ 两处都只落在白名单主体（当前用户 / SYSTEM / Administrators /
-    //      OWNER RIGHTS）上 → 放行。
-    // 判据只核对**是否扩大到其它用户**这一条规范要求，不核对加密、审计、完整性
-    // 级别等 ACL 其它属性；放行**不等于**主张这些属性安全。
     const dirAcl = await inspectWindowsAcl(root);
     if (!dirAcl.ok) {
       return unavailable(
@@ -631,9 +434,6 @@ export async function evaluateRegistrationEntry(dshHomePath) {
         { path: root, platform: process.platform, widenedTo: dirAcl.widenedTo }
       );
     }
-    // **文件半边**（独立审核发现：原实现只核目录，文件 ACL 从不核验，而 08 §5.6
-    // 在 Unix 侧要求「目录 0700 **与** 文件 0600」）。载体文件存在时才核验；
-    // 不存在是正常初态（创建时按 0600/限定 ACL 写入）。
     const carrierFileForWin = registrationPath(dshHomePath);
     let fileExistsForWin = false;
     try {
@@ -672,11 +472,6 @@ export async function evaluateRegistrationEntry(dshHomePath) {
         );
       }
     }
-    // **schema 校验与平台无关**（2026-11-10 修）：原实现只把它放在 Unix 分支，
-    // win32 提前 return 后**从不核对**载体 schema。此前被「win32 恒 fail-closed」
-    // 掩盖，放行 ACL 后立即暴露：`schema_version: 99` 的载体在 Windows 上被判
-    // 合格。此处先做与平台无关的一半（schema/可解析性），Unix 专属的 mode 判据
-    // 留在下面。
     return await checkCarrierSchema(dshHomePath);
   }
   {
@@ -688,10 +483,6 @@ export async function evaluateRegistrationEntry(dshHomePath) {
     if (overShared) {
       return unavailable(REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED, "registration carrier directory permission is wider than 0700 (07 §5.6)", { path: root, mode: rootStat.mode & 0o777 });
     }
-    // 07 §5.6 requires 目录 0700 **与** 文件 0600 — the FILE half was missing
-    // (found 2026-09-12): a hand-chmod'ed or legacy world-readable carrier
-    // passed the preconditions. Check the file too when it exists; a missing
-    // file is fine because creation writes 0600.
     const carrierFile = registrationPath(dshHomePath);
     let fileStat = null;
     try {
@@ -717,13 +508,6 @@ export async function evaluateRegistrationEntry(dshHomePath) {
   return await checkCarrierSchema(dshHomePath);
 }
 
-/**
- * 与平台无关的载体校验：能否解析、是否满足 v5 schema（07 §5.2）。
- *
- * 抽取（2026-11-10）的原因：这段原先只存在于 Unix 分支尾部，win32 分支提前
- * return 后从不执行——于是 Windows 上 `schema_version: 99` 的载体被判合格。
- * schema 是文件内容属性，与目录权限模型无关，两个平台都必须核对。
- */
 async function checkCarrierSchema(dshHomePath) {
   try {
     const current = await readRegistration(dshHomePath);
@@ -736,19 +520,6 @@ async function checkCarrierSchema(dshHomePath) {
   }
 }
 
-/**
- * 07 §5.4 AI entry: register the current project as LDVH-governed.
- *
- * Contract (this is the "AI 入口" clause, not the install flow):
- *  1. the current project must not already be in the list — the entry first
- *     reads the carrier and refuses to write a duplicate (no repeat write);
- *  2. the entry only proceeds when every 07 §5.4 precondition holds;
- *  3. the write is atomic and conflict-rejecting (07 §5.6), then read back.
- *
- * Unlike installProject this entry deliberately does NOT initialize a fact
- * source or install a Git hook: 07 §5.4 governs registration only, and the
- * hook/fact-source lifecycle belongs to the install transaction.
- */
 export async function registerProjectFromEntry(dshHomePath, input) {
   const preconditions = await evaluateRegistrationEntry(dshHomePath);
   if (!preconditions.ok) return preconditions;
@@ -765,7 +536,6 @@ export async function registerProjectFromEntry(dshHomePath, input) {
     if (input.expectedFingerprint !== void 0 && input.expectedFingerprint !== current.fingerprint) {
       return failure("conflict", "governed projects changed; refresh before retrying");
     }
-    // 07 §5.4 step 1: confirm the current project is not already listed.
     if (current.document.projects.some((entry) => entry.path === identity.projectRoot)) {
       return success({ changed: false, reason: "already_registered", registration: { path: filename, fingerprint: current.fingerprint } });
     }
@@ -778,7 +548,6 @@ export async function registerProjectFromEntry(dshHomePath, input) {
       default_project_id: current.document.projects.length === 0 ? input.id : current.document.default_project_id
     });
     await writeFileAtomic(filename, stringifyYaml(next), { mode: 0o600, dirMode: 0o700 });
-    // 07 §5.6: re-read and re-parse after the atomic replace.
     const readBack = await readRegistration(dshHomePath);
     return success({
       changed: true,

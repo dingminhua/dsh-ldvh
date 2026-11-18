@@ -1,8 +1,3 @@
-/**
- * build:dsh 后处理：为 dist 静态资产生成 .gz 预压缩副本（零依赖，node:zlib）。
- * spaHandler 在 Accept-Encoding: gzip 时优先返回 .gz（Content-Encoding: gzip）。
- * 动态 API 压缩由 Express compression 中间件负责（api/app.ts）。
- */
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';

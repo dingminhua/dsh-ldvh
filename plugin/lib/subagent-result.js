@@ -1,30 +1,3 @@
-// LDVH subagent result collection tool (root-session only).
-//
-// This tool allows the root session to query the lifecycle records of its
-// child subagents (installed via child.js) to collect their final status
-// and activity history. It does NOT register in subagent sessions, aligning
-// with the 'no tools' strategy for children.
-//
-// Data sources (2026-09-04 — all three now real; 2026-10-18 third source added):
-// - lifecycle.js children Map: { dispose, record } per child, where record is
-//   a DelegatedChildRecord (agent-lifecycle.js) owning scopeState, an
-//   ActivityLog, a captured conclusion and parent-propagation bookkeeping.
-// - record.scopeState: the delegated/propagated governance state.
-// - record.conclusion: the child's final assistant text, captured when the
-//   session-scoped `session/event` signals turn/end (there is no
-//   agent/turn-end in DSH; see child.js). null means "no turn has ended yet" —
-//   a real state, not a missing feature.
-// - 2026-10-18: a child that finished BEFORE a plugin rebuild is invisible to the
-//   in-memory maps, so such a record is hydrated from the child's own session
-//   record when the review channel asks for it (lifecycle.js resolveChild →
-//   child-session-record.js). Those records carry recordSource
-//   "session-record"; the enumeration above sees them because hydration lands in
-//   the same retired window (child.js retireChildRecord).
-//
-// Earlier this tool reported conclusion/activity as "not_available" because
-// the child record was a bare `{ scopeState }`. With DelegatedChildRecord the
-// data exists, so the gaps list below only names what is genuinely still out
-// of scope (per-child tool-level provenance), not these two.
 
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { toParameterSpec } from "./parameter-spec-adapter.js";
@@ -58,13 +31,6 @@ function renderEnvelope(operationKey, value) {
     for (const child of env.result.children) {
       lines.push(`- ${child.agentId}: scope=${child.scopeState}, installed=${child.installedAt}`
         + (child.recordSource === "session-record" ? ", record=session-record" : ""));
-      // The review/audit channel requires a VERBATIM excerpt of the child's own
-      // conclusion, so the text the parent has to
-      // quote must be readable here: the delegation notification is the only
-      // other copy, and a compaction can take it away. A targeted query (the same
-      // one that inlines the activity trail) prints it in full — truncating would
-      // make verbatim quoting impossible; the list-all case prints a preview so
-      // the parent knows which child to ask about.
       const conclusion = typeof child.conclusion === "string" ? child.conclusion.trim() : "";
       if (conclusion.length === 0) {
         lines.push("  conclusion: (none captured yet — the child's first turn has not ended)");
@@ -99,16 +65,10 @@ function parameterSchemaFor(operationKey) {
 }
 
 export function registerSubagentResultTool(ctx, deps) {
-  // `listChildren` is the host-provided enumeration over BOTH live and retired
-  // children (lifecycle.js childRecords). `children` (live-only) remains as a
-  // fallback so a caller that has not adopted the seam still gets live results.
   const { dshHomePath, children, listChildren, resolveChild } = deps;
   const operationKey = "collect-subagent-results";
   const operation = OPERATIONS[operationKey];
 
-  // Register through defineTool so the DSH argument check actually runs: the
-  // bare-descriptor path only asserts output/timeoutMs shape and stores the
-  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
   return ctx.tools.register(defineTool({
     name: operation.toolName,
     description: operation.summary,
@@ -133,19 +93,6 @@ export function registerSubagentResultTool(ctx, deps) {
         }
 
         const requestedId = typeof args?.agentId === "string" ? args.agentId : null;
-        // 活体 + **已结束**子代理都要枚举。
-        //
-        // 2026-09-26 修复（两处独立缺陷）：
-        //  ① 原实现只读活体 `children`，而子代理结束时其记录被移入
-        //     `retiredChildren`（child.js 为内存安全这么做，并明文说明
-        //     「you collect a result AFTER it ends」）。于是本工具**只在子代理
-        //     运行中查得到**——恰好是没人需要的时刻；结束后一律 `Found 0`。
-        //     现优先使用宿主提供的 `listChildren`（活体+已结束，lifecycle.js
-        //     的 childRecords），无该 seam 时回落到活体 Map 并如实标注。
-        //  ② `activity: undefined` 会破坏宿主的 lossless-JSON 校验，使**不指定
-        //     agentId 的枚举调用直接报错**（带 agentId 时 includeActivity 为真，
-        //     无 undefined，故不报错——这正是该缺陷长期未被发现的原因）。
-        //     现按需省略该字段，而不是赋 undefined。
         const listed = typeof listChildren === "function"
           ? listChildren().map((record) => [record.agentId, record])
           : Array.from(children.entries()).map(([id, entry]) => [id, entry.record]);
@@ -158,36 +105,17 @@ export function registerSubagentResultTool(ctx, deps) {
             parentAgentId: snap.parentAgentId,
             scopeState: snap.scopeState,
             startedAt: snap.startedAt,
-            // conclusion is null until the child's first turn ends; that is a
-            // real state (still running), not a missing capability.
             conclusion: record.conclusion,
             conclusionLength: snap.conclusionLength,
-            // Provenance of the record itself (00 §4.6 据实声明): "registry" =
-            // observed live by this plugin instance; "session-record" = the
-            // registry had lost it (plugin rebuilt after the child finished) and
-            // the child's own session record was read instead. The identity and
-            // the conclusion come from the host's log either way — they were read
-            // after the fact in the second case.
             recordSource: record.hydrated === true ? "session-record" : "registry",
             propagationCount: snap.propagationCount,
             activityCount: snap.activityCount,
-            // Only inline the full trail for a single-agent query, so the
-            // list-all case stays small by default. OMITTED (not set to
-            // `undefined`) when not requested: an explicit undefined breaks the
-            // host's lossless-JSON validation and made the list-all call fail
-            // outright (2026-09-26 fix, see the note above).
             ...includeActivity ? { activity: record.activitySnapshot() } : {}
           };
         });
 
         if (requestedId) {
           results = results.filter(r => r.agentId === requestedId);
-          // 2026-10-19: after a plugin rebuild the registry is empty — and so is
-          // the enumeration above, since `listChildren` only spans children this
-          // plugin instance has seen. That is exactly the case where a finished
-          // reviewer gets cited. Ask the durable session-record fallback before
-          // declaring "not found". A successful read also re-adopts the record
-          // into the registry, so the second call hits the fast path.
           let resolveNote = null;
           if (results.length === 0 && typeof resolveChild === "function") {
             const parentSessionId = exec?.agent?.session?.header?.id;
@@ -199,9 +127,6 @@ export function registerSubagentResultTool(ctx, deps) {
             } catch (error) {
               resolveNote = `the durable session-record lookup threw: ${String(error?.message ?? error)}`;
             }
-            // resolveChild returns {ok, source, record, reason}; `record` is the
-            // re-adopted registry entry (an instance with snapshot()/conclusion),
-            // and `source` says where it came from ("registry" | "session-record").
             if (resolved?.ok === true && resolved.record !== null && resolved.record !== undefined) {
               const adopted = resolved.record;
               const snap = adopted.snapshot();
@@ -212,13 +137,6 @@ export function registerSubagentResultTool(ctx, deps) {
                 startedAt: snap.startedAt,
                 conclusion: adopted.conclusion,
                 conclusionLength: snap.conclusionLength,
-                // Provenance (00 §4.6) describes the RECORD, not this lookup:
-                // "session-record" means the registry had once lost it and the
-                // child's own host log was read to recover it. `resolved.source`
-                // cannot serve here — after the first recovery the record sits in
-                // `retiredChildren` and every later lookup reports "registry",
-                // which would silently re-attribute a recovered record as observed.
-                // `adopted.hydrated === true` is the durable mark (child.js:270).
                 recordSource: adopted.hydrated === true ? "session-record" : "registry",
                 propagationCount: snap.propagationCount,
                 activityCount: snap.activityCount,
@@ -236,7 +154,6 @@ export function registerSubagentResultTool(ctx, deps) {
                 sources: [],
                 gaps: [
                   `no child record found for agentId "${requestedId}"`,
-                  // 据实声明：注册表与持久回落都查过了才敢说「没有」。
                   ...(typeof resolveChild === "function"
                     ? [`the durable session-record lookup was consulted as well${resolveNote === null ? " and found no matching subagent session" : ` and reported: ${resolveNote}`}`]
                     : ["no durable session-record lookup is wired into this instance, so only the in-memory registry was consulted"]),
@@ -254,11 +171,6 @@ export function registerSubagentResultTool(ctx, deps) {
             scope: { requested: requestedId ?? "all", completed: results.map(r => r.agentId), not_completed: [] },
             sources: [{ kind: "lifecycle-map", path: "lifecycle.js:children" }],
             gaps: [
-              // Honest boundary: we return the child's final TEXT. Which tools
-              // it called to get there, and whether it completed successfully,
-              // are not reconstructed here — the child registers no LDVH tools
-              // and owns no root lifecycle, so per-tool provenance is out of
-              // scope for this batch.
               "per-child tool-level provenance is not reconstructed: children register no LDVH tools and own no root lifecycle"
             ],
             verification: { checks: ["scope-check", "lifecycle-map"], passed: true },

@@ -1,11 +1,3 @@
-/**
- * 全部管辖联邦聚焦页（全部管辖计划 Step 3）。
- *
- * 只读跨项目汇总：项目卡网格（悬置/推进/待决定计数 + 最后动态 + 进入项目）
- * 与跨项目悬置 Top 列表（项目色标识来源维度）。卡片语言沿用统一设计系统
- * （ldvh-card / ldvh-meta / 左色条 = 项目色第三正交维度，不侵占类型色与状态色）。
- * 单项目详情一律经「进入项目」回到该项目的单项目页面，本页不复制对象阅读功能。
- */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Inbox, Loader2, RefreshCw, Sparkles } from 'lucide-react';

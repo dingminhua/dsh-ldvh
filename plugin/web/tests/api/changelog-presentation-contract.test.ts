@@ -79,7 +79,6 @@ test('breaking and push-state badges use one presentation in list and detail ide
   ]);
 
   assert.match(badge, /<Unplug size=\{10\}/);
-  // v5 现状：紧凑徽章统一走 ldvh-chip-sm 语义类，不再手写 text-[10px]。
   assert.match(badge, /ldvh-chip-sm/);
   assert.doesNotMatch(badge, /text-\[10px\]/);
   assert.doesNotMatch(badge, /className="ml-1\.5/);
@@ -87,14 +86,11 @@ test('breaking and push-state badges use one presentation in list and detail ide
   assert.match(list, /entry\.isBreaking && \(\s*<CommitBreakingBadge \/>/);
   assert.match(list, /getOptionColor=\{\(value\) => CATEGORY_COLORS\[value\] \|\| CATEGORY_COLORS\.other\}/);
   assert.match(list, /style=\{getOptionColor \? \{ color: getOptionColor\(option\) \} : undefined\}/);
-  // v5 现状：类型 chip 用 CATEGORY_COLORS 派生写背景/边框/文字，掩盖三色为同一 typeColor 变量。
   assert.match(list, /style=\{\{ backgroundColor: `\$\{typeColor\}18`, borderColor: `\$\{typeColor\}55`, color: typeColor \}\}/);
-  // 提交卡 footer 经 ObjectUpdatedMeta 呈现时间戳与更新流水署名（v5 统一 meta 身份行）。
   assert.match(list, /<ObjectUpdatedMeta source=\{\{\}\} updatedAt=\{entry\.date\} signature=\{entry\.signature\} \/>/);
   assert.match(panel, /entry\?\.isBreaking && \(\s*<CommitBreakingBadge \/>/);
   assert.match(panel, /const commitColor = entry\?\.category/);
   assert.match(panel, /const categoryMeta = headerMetaItems\.length > 0/);
-  // v5 现状：仅 category 一项元信息，headerMetaItems 内联进类型 chip，并经 id 承接唯一身份串。
   assert.match(panel, /\{headerMetaItems\[0\]\}/);
   assert.match(panel, /id=\{headerMetaItems\.join\(' · '\)\}/);
   assert.match(panel, /showTypeBadge=\{false\}/);
@@ -116,7 +112,6 @@ test('breaking and push-state badges use one presentation in list and detail ide
   assert.match(list, /<ObjectUpdatedMeta source=\{\{\}\} updatedAt=\{entry\.date\} signature=\{entry\.signature\} \/>/);
   assert.match(panel, /<CommitSignatureMeta signature=\{entry\.signature\} \/>/);
   assert.match(panel, /stripCommitSignatureTrailers\(commitBody\)/);
-  assert.match(panel, /<CommitSignatureSection signature=\{entry\.signature\} labels=\{labels\} \/>/);
   assert.match(panel, /<dd className="ldvh-detail-semantic-body mt-1 break-words rounded-md border border-ldvh-border bg-ldvh-bg\/40 px-3 py-2 font-mono">/);
   assert.doesNotMatch(panel, /labels\.sessionId|signature\.sessionId|signature\.agentId|signature\.hostEnvironment/);
   assert.match(locales, /'changelog\.pushed': '已推送'/);

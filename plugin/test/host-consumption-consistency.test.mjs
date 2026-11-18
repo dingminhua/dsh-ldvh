@@ -1,15 +1,3 @@
-// 消费面清单一致性 — Norm host-upgrade-followup「约束与反模式」的机械守卫。
-//
-// 清单 lib/host-consumption.json 是三态判定的比对基准。它与插件**实际消费点**
-// （lib/*.js 里的 ctx.get / inject / .on / slots.register 调用）必须双向一致：
-//   · 代码消费了一个键而清单没登记 → 三态判定会对它漏判（升级破坏看不到）
-//   · 清单登记了一个键而代码已不消费 → 清单漂移，破坏/须审会误报到已死的面
-// 两个方向都必须被抓，否则清单会静默失真（corpus.test 同款「skip 不得掩盖」纪律：
-// 这里不做 skip，代码与清单都在本仓，无外部依赖）。
-//
-// 提取规则刻意用**保守判据**：宿主事件名恒含 `/`，Node/子进程事件（close/data/
-// end/error/exit/open/timeout）不含 `/`——以「是否含 /」区分宿主契约面与本地事件，
-// 不把子进程 on("data") 误当宿主事件。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile, readdir } from "node:fs/promises";
@@ -21,16 +9,8 @@ const LIB = join(PLUGIN, "lib");
 
 const manifest = JSON.parse(await readFile(join(LIB, "host-consumption.json"), "utf8"));
 
-/**
- * `.get("字面量")` 调用里**不是宿主服务**的键（receiver-agnostic 提取的超集会
- * 带进它们）。仅 URLSearchParams 的参数名——`new URL(...).searchParams.get("cwd")`
- * 是取 URL 查询参，不是 ctx.get 服务。这是一个**小而稳定**的排除表；若将来代码
- * 引入新的非宿主 `.get("字面量")`（如 Map.get），在此登记并写明 receiver。
- * 排除表键不得与清单任何键相撞（下方用例守卫）。
- */
 const NON_HOST_LITERAL_GETS = new Set(["cwd", "sessionId"]);
 
-/** 读全部 lib/*.js 源码（排除本清单自身与解析库——它们不含宿主消费点）。 */
 async function readLibSources() {
   const files = (await readdir(LIB)).filter((f) => f.endsWith(".js"));
   const sources = new Map();
@@ -38,23 +18,11 @@ async function readLibSources() {
   return sources;
 }
 
-/**
- * 从一份源码提取它消费的宿主键。返回 { services:Set, events:Set, slots:Set,
- * anchors:Set }——判据与清单的四个分区一一对应。
- *
- * **receiver-agnostic 提取**：`ctx.get("k")` 在真实代码里有多种 receiver 与可选链
- * 形态——`ctx.get(` / `ctx?.get?.(` / `agent?.ctx?.get?.(` / `questionContext?.get(`
- * / `connectionCtx.get?.(`（后两者是 ctx 的别名变量）。若按 receiver 名匹配，
- * `agent?.ctx?.get?.("subagents")` 这类会漏（这正是本清单曾漏登 subagents 服务的
- * 成因）。故这里匹配 `.get`/`?.get` 全形态、不看 receiver，再用 NON_HOST_LITERAL_GETS
- * 减去已知的非宿主字面量键。提取是**超集**：宁可多抓待清单解释，不可漏抓。
- */
 function extractConsumption(src) {
   const services = new Set();
   const events = new Set();
   const slots = new Set();
   const anchors = new Set();
-  // 服务：.get("k") / .get?.("k") / ?.get?.("k")（receiver 无关）+ inject 清单
   const GET_CALL = /(?:\?\.|\.)get\??\.?\(\s*["']([\w.]+)["']/gu;
   for (const m of src.matchAll(GET_CALL)) {
     if (!NON_HOST_LITERAL_GETS.has(m[1])) services.add(m[1]);
@@ -66,23 +34,19 @@ function extractConsumption(src) {
     }
   }
   for (const m of src.matchAll(/ctx\.inject\(\s*\[\s*["']([a-zA-Z0-9_.]+)["']/gu)) services.add(m[1]);
-  // 事件：.on("name")，仅取含 `/` 者（宿主契约面；排除 Node/子进程本地事件）
   for (const m of src.matchAll(/(?:\?\.|\.)on\??\.?\(\s*["']([a-zA-Z0-9_/-]+)["']/gu)) {
     if (m[1].includes("/")) events.add(m[1]);
   }
-  // 槽位：slots.inject/register("key") 与显式配置槽位键
   for (const m of src.matchAll(/slots\.(?:inject|register)\(\s*["']([a-z][a-zA-Z0-9_.]+)["']/gu)) slots.add(m[1]);
   for (const key of ["plugins.bundle.config", "plugins.row.config", "conversation.view", "conversation.chat.node"]) {
     if (src.includes(`"${key}"`)) slots.add(key);
   }
-  // 非契约锚点：CSS/DOM 字面量
   for (const a of ["data-question-key", "optionSelected", "descriptionToggle", "cardMinimized"]) {
     if (src.includes(a)) anchors.add(a);
   }
   return { services, events, slots, anchors };
 }
 
-/** 汇总全 lib 的消费点（并集），另存每个键出现在哪些文件，供 callSites 核对。 */
 async function aggregateConsumption() {
   const sources = await readLibSources();
   const all = { services: new Set(), events: new Set(), slots: new Set(), anchors: new Set() };
@@ -106,7 +70,6 @@ const manifestServices = new Set(manifest.hostServices.map((s) => s.key));
 const manifestEvents = new Set(manifest.hostEvents.map((e) => e.name));
 const manifestSlots = new Set(manifest.clientSlots.map((s) => s.key));
 const manifestAnchors = new Set(manifest.nonContract.map((n) => n.anchor));
-// 值服务/客户端服务也是服务面消费点（ctx.get/inject 抓得到），并入服务清单核对
 for (const v of manifest.valueServices) manifestServices.add(v.key);
 for (const v of manifest.clientServices) manifestServices.add(v.key);
 

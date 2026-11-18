@@ -1,6 +1,3 @@
-/**
- * GET /api/docs?path=specs/03-事实模型基础规范.md — 读取项目内文档内容
- */
 import { Router, type Request, type Response } from 'express'
 import { readFile } from 'fs/promises'
 import path from 'path'
@@ -8,7 +5,6 @@ import { ProjectScopeError, requestProject } from '../services/requestScope.js'
 
 const router = Router()
 
-/** 允许读取的目录前缀（安全白名单） */
 const ALLOWED_PREFIXES = ['specs/', 'web/docs/']
 
 function isWithinDirectory(candidate: string, directory: string): boolean {
@@ -32,8 +28,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     return
   }
 
-  // Resolve first, then apply the allow-list to the resolved location. Checking
-  // the raw prefix would allow e.g. "specs/../.env" to escape the docs roots.
   let projectRoot: string
   try {
     projectRoot = (await requestProject(req)).path
@@ -50,7 +44,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
   try {
     const content = await readFile(resolvedPath, 'utf-8')
-    // 限制返回内容大小（最大 200KB）
     if (content.length > 200 * 1024) {
       res.json({ path: docPath, content: content.slice(0, 200 * 1024), truncated: true })
       return

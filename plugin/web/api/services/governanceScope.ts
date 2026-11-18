@@ -37,16 +37,6 @@ function configuredLocator(): string {
   return path.resolve(raw)
 }
 
-/**
- * v5 登记模式：LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体
- * （~/.dsh/ldvh/governed-projects.yaml，由 DSH 插件安装事务拥有）。
- *
- * 治理验证不经 Python Helper——Node 直接解析载体并逐项目做 git 身份解析
- * （与插件 resolveGitRoot 同语义：路径须为 Git 根、非 bare）。
- *
- * v4 的 Helper 回退路径已随 v4 归档移除：载体路径不存在时如实报配置不可读，
- * 不静默回退到已下线的旧布局。
- */
 function v5CarrierPath(): string | null {
   const configured = process.env.LDVH_GOVERNED_PROJECTS_CONFIG
   return configured ? path.resolve(configured) : null
@@ -78,7 +68,6 @@ function gitQuery(worktree: string, args: string[]): Promise<string> {
   })
 }
 
-/** 单项目 git 身份解析；不可验证（非 Git 根/bare/不存在）返回 null——降级剔除。 */
 async function resolveV5ProjectIdentity(projectPath: string): Promise<{ projectRoot: string, gitCommonDir: string } | null> {
   try {
     const requested = await realpath(projectPath)
@@ -143,11 +132,6 @@ async function refreshVerifiedScope(fingerprint: string): Promise<VerifiedScopeS
   return resolveV5CarrierScope(carrier, fingerprint)
 }
 
-/**
- * Reuse a verified configuration scope while its exact YAML content is unchanged.
- * The cheap fingerprint observation is not a Git validation; it prevents a changed
- * configuration from silently using a previous range snapshot.
- */
 async function currentVerifiedScope(force = false): Promise<VerifiedScopeSnapshot> {
   let fingerprint: string
   try {
@@ -156,8 +140,6 @@ async function currentVerifiedScope(force = false): Promise<VerifiedScopeSnapsho
     throw new WebGovernanceError(`Governance configuration is unavailable: ${error instanceof Error ? error.message : String(error)}`)
   }
   if (!force && verifiedSnapshot?.configurationFingerprint === fingerprint) return verifiedSnapshot
-  // A failed resolution must be tried again by the next request: only successful
-  // observations are reusable.
   if (verificationInFlight) return verificationInFlight
 
   verifiedSnapshot = null
@@ -176,12 +158,10 @@ async function currentVerifiedScope(force = false): Promise<VerifiedScopeSnapsho
   return verificationInFlight
 }
 
-/** Start the one-time validation and expose its completion to lifecycle owners. */
 export function primeWebGovernanceScope(): Promise<void> {
   return currentVerifiedScope().then(() => undefined).catch(() => undefined)
 }
 
-/** Explicit Human-requested validation or controlled configuration write. */
 export async function verifyWebGovernanceConfiguration(): Promise<void> {
   let fingerprint: string
   try {
@@ -197,12 +177,10 @@ export async function verifyWebGovernanceConfiguration(): Promise<void> {
   await resolveV5CarrierScope(carrier, fingerprint)
 }
 
-/** Resolve a current, single governed worktree through the v5 registration carrier. */
 export async function resolveCurrentWebProject(): Promise<WebGovernedProject> {
   return (await currentVerifiedScope()).current
 }
 
-/** The only project discovery path available to Web file browsing. */
 export async function resolveWebGovernedProjects(): Promise<WebGovernedProject[]> {
   return (await currentVerifiedScope()).projects
 }

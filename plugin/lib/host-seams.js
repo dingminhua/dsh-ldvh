@@ -1,23 +1,3 @@
-// dsh-ldvh — consumption of the DSH host seams named in specs/08 §6.
-//
-// Authority: specs/08 §6 「宿主缝的消费义务」. That section is explicit that a
-// host seam existing does NOT mean LDVH is protected by it:
-//
-//   在 LDVH 实际消费该缝之前，不得据本文主张相应防护已部署、已生效或已
-//   fail-closed
-//
-// and §6 lists, per seam, what LDVH must actually do to have "consumed" it:
-//
-//   ctx.tools.register        register operations and accept arg validation
-//   ctx.tools.guard           register a MONOTONIC guard
-//   ctx.invariants.register   deploy runtime invariant assertions
-//   fs/observed               mount read-observation + write version guard
-//   ctx.userQuestions.ask     carry Human Gate requests through it
-//
-// This module is the single home for those consumptions, so the claim
-// "consumed" is backed by one reviewable place rather than scattered calls.
-// Every registration returns a disposer and is owned by the caller's fiber
-// (08 §6 + cordis effect discipline): nothing here leaks past plugin stop.
 
 import { REVIEW_ASK_ANSWERS,
   REVIEW_ASK_PLACEHOLDER_TASK,
@@ -29,32 +9,13 @@ import { REVIEW_ASK_ANSWERS,
 } from "./review-ask.js";
 import { askTextDenial, validateAskText } from "./ask-text-guard.js";
 
-/** 两处把关询问的 question id 与选项标签——问什么与认什么共用同一常量，
- * 使解析永不因一个从未提供过的标签而判定成立（与 CONSENT 同一纪律）。 */
 const REVIEW_ASK_QUESTION_ID = "ldvh-review-ask";
 const REVIEW_ASK_REVIEW_LABEL = "安排代理";
 const REVIEW_ASK_SKIP_LABEL = "跳过，直接推进";
 
-/** 07 §5.6 consent question identity — the id and the affirmative label are
- * shared between what is ASKED and what is ACCEPTED, so the parse can never
- * grant on a label that was never offered. */
 const CONSENT_QUESTION_ID = "ldvh-registration-consent";
 const CONSENT_AFFIRMATIVE_LABEL = "确认";
 
-/**
- * Read the selected label from one answer entry.
- *
- * The host service returns `selected` as an ARRAY of labels
- * (`{answers:[{id, selected:["确认"]}]}`) — confirmed against the official
- * consumer, which does `selected: [...answer.selected]`
- * (dsh-tool-ask-user/lib/index.js:108), and reproduced against the live service
- * on 2026-09-18. Treating it as a scalar made every comparison against a label
- * string fail, so an answered question would still be read as "not chosen".
- *
- * A single-element array is unwrapped to its label. Multi-select answers keep
- * only an exact single match: a multi-label answer must not accidentally
- * satisfy a single-label gate.
- */
 function selectedLabelOf(entry) {
   if (entry === null || entry === undefined) return null;
   const raw = entry.selected ?? entry.answer ?? null;
@@ -62,25 +23,6 @@ function selectedLabelOf(entry) {
   return raw;
 }
 
-/**
- * Read an optional free-text `custom` answer from one answer entry.
- *
- * **这个字段是本次 bug 的正主**（2026-11-14 实测）。宿主提问卡
- * `QuestionComposer.tsx:385-395` 在「单选题 + Human 在自由输入框写了字并点提交」
- * 时，会把 `selected` **强制置空**、把文字只放进 `custom`：
- *   `{ id, selected: [], custom: "老丁：请特别核对 X 模块" }`
- * 宿主工具 `dsh-tool-ask-user`（legacy 与 timed 两个 execute）、服务类型
- * `AskUserQuestionAnswerItem`、Typert 网关 schema、投影 `answerSchema` 全都逐字
- * 透传 `custom`——**宿主这条链是通的**。
- *
- * 断点是 `selectedLabelOf`：它只读 `selected`，于是 `selected:[]` 被判成
- * 「未选/跳过」，而 `custom` 全程无人读取。Human 写的内容既不出现在 decision、
- * 也不出现在留痕、也不出现在回给模型的信封里——即「输入被当成跳过、AI 看不到」。
- *
- * 本函数只负责**把文字取回来**；取到之后怎么处置由各接缝自己决定，且一律不得
- * 冒充 `review|skip` 答复（32 §9.1 闭集）或 Gate 的明确点选（20 §16、27 §15、07 §5.6）。
- * Gate 接缝仍 fail-closed，只是拒绝理由里必须带上这段文字，让模型看得见。
- */
 function customTextOf(entry) {
   if (entry === null || entry === undefined) return null;
   const raw = entry.custom;
@@ -89,50 +31,16 @@ function customTextOf(entry) {
   return text.length > 0 ? text : null;
 }
 
-/**
- * `question` 文本的字符上界（Human 2026-11-13 决定：「所有经过 ldvh 业务的
- * 提请，内容简洁，title 字数在 200 内，没有其它细节信息」）。
- *
- * 宿主把 `question` 渲染为标题区（`flex-shrink:0`，无截断、无行数上限、无
- * 滚动），而 body 才可滚动。超长 `question` 顶高卡片后把选项挤出可视范围，
- * Human 无从作答——实测三次 Spark 创建提请因此 fail-closed。宿主侧对长度
- * 零校验零截断，故本上界只能由本消费侧自查。
- *
- * 该上界与「不带 detail」是同一条决定的两半：卡片上只留一行标题。
- */
 export const ASK_QUESTION_MAX_CHARS = 200;
 
-/**
- * 按字符预算裁剪标题文本，不拆散代理对。
- *
- * 预算以 **UTF-16 码元**（`String.prototype.length`）计量，与仓内既有 200 字符
- * 上界同一口径——否则含代理对的文本
- * （emoji 等）会以「码点数 ≤ 200 而 .length 达 366」的形式越过上界。裁剪时按
- * 码元回退，不把一个代理对劈成两半（半个码元会渲染成替换字符）。
- */
 function clampHead(text, budget) {
   if (text.length <= budget) return text;
-  let cut = Math.max(0, budget - 1); // 末位留给省略号
-  // 不劈开代理对：若切点落在高代理项之后（切点前一位是高代理项），前移一格。
+  let cut = Math.max(0, budget - 1);
   const prev = text.charCodeAt(cut - 1);
   if (cut > 0 && prev >= 0xd800 && prev <= 0xdbff) cut -= 1;
   return `${text.slice(0, cut)}…`;
 }
 
-/**
- * 组装提请的标题行（Human 2026-11-13 决定：所有经 LDVH 业务的提请都简洁，
- * title 在 200 字内，**没有其它细节信息**）。
- *
- * 因此本函数**只产出 `question`，不产出 `detail`**：
- * - `head` — 短外壳行（Gate 名与对象标题）。逐字进入 `question`，超出
- *   `ASK_QUESTION_MAX_CHARS` 时按预算裁剪。
- *
- * **呈报内容去哪了**：不再随提请下发。20 §16 / 27 §15 要求的「呈报内容」由
- * 主控在**调用受控写入之前**写进对话正文（Human 在会话里读到的就是它），
- * 弹窗只承担「这是什么动作、点哪个键」。这一分工的代价必须如实理解：
- * **机械层不再证明 Human 看到过完整呈报**——它只证明取得过一次明确肯定答复。
- * 该缺口的登记见 `20 §16` 与 `27 §15` 的据实声明段。
- */
 function composeAskTitle({ head }) {
   const lines = (Array.isArray(head) ? head : [])
     .filter((line) => typeof line === "string" && line.trim().length > 0)
@@ -141,58 +49,15 @@ function composeAskTitle({ head }) {
 }
 
 
-/** 21 §6.3 路由询问 identity — the Human decides between carrying the work as a
- * routing it or handling it directly. Same discipline as the registration consent:
- * the id and BOTH labels are shared between what is asked and what is accepted,
- * so the parse can never grant on a label that was never offered.
- *
- * This is a ROUTING question ("routed or direct?"), NOT a content approval.
- * The content judgement belongs to the pre-action consultation, where the Human sees the
- * whole object; asking for内容 here would demand a judgement the Human cannot
- * yet make. Only the "carry it as routed work" answer authorises creation —
- * "handle it directly" means no object is created at all. */
 
-/** 20 §16 Spark Human Gate identity — 创建与终态转换两项共用同一询问 id
- * （一次处置只问一次；两项的呈报内容不同，故 id 相同而 question 文本分列）。
- * 与登记同意同纪律：id 与肯定标签在「问」与「收」两处共用同一常量，解析
- * 永远不会在从未提供过的标签上放行。
- *
- * 大改项（§16 第三项）**不走本 seam**：`09 §5` 判定其语义在形式上不可分，
- * 故按 `09 §6` 弱约束处理——实现只交还 question/scope_boundary 的现值与拟
- * 改值对照，不阻断、不代为判定。本 seam 不承载该项，也不得据其存在声称
- * 大改项已获机械保障。 */
 const SPARK_CONSENT_QUESTION_ID = "ldvh-spark-consent";
 const SPARK_CONSENT_LABEL = "确认";
 
-/** 27 §15 Norm Human Gate identity — 第 1 项（创建）与第 2 项（终态决定 retired）
- * 共用同一询问 id：一次处置只问一次，两项的呈报内容不同故 question 文本分列。
- * 与 Spark 同纪律：id 与肯定标签在「问」与「收」两处共用同一常量，解析
- * 永远不会在从未提供过的标签上放行。
- *
- * **为什么它此前不存在**：27 §15 第 1、2 项一直要求 Human 决定，27 §7 也写明
- * 「创建必须经 Human 决定」，但 27 号没有像其它类型规范那样规定「确认由什么
- * 承载」，实现侧因此一次也没问过——`norm-write-object` 的 create 与 retire 都
- * 直接落盘。这是**规范有义务、实现无承载**的缺口，不是规范许可不确认。
- *
- * **第 3 项（方向清单增减或重新分层）与第 4 项（类型取消或合并）不走本 seam**：
- * 前者属对 27 号自身的修改（走规范修改程序），后者当前无实现入口。本 seam 不
- * 承载它们，也不得据其存在声称已获承载。 */
 const NORM_CONSENT_QUESTION_ID = "ldvh-norm-consent";
 const NORM_CONSENT_LABEL = "确认";
 
-/**
- * Latest governance judgement per working directory.
- *
- * The `tools.guard` contract is SYNCHRONOUS (`(execution) => string | undefined`),
- * so a guard cannot await a fresh judgement. This map is the one-line bridge:
- * the lifecycle records every judgement here as it happens, and the guard
- * reads the last recorded state for the invoking cwd. A cwd with no recorded
- * judgement is left alone (the operation's own handler still fails closed) —
- * the guard only ADDS a refusal, never a permission.
- */
 const LATEST_JUDGEMENT = new Map();
 
-/** Record a judgement for the guard to consult (called by the lifecycle). */
 export function recordJudgementForGuard(cwd, state) {
   if (typeof cwd !== "string" || cwd.length === 0) return;
   if (state === "governed" || state === "not_governed" || state === "unavailable") {
@@ -200,30 +65,12 @@ export function recordJudgementForGuard(cwd, state) {
   }
 }
 
-/** Test/diagnostic accessor: the recorded judgement for one cwd, if any. */
 export function judgementForGuard(cwd) {
   return LATEST_JUDGEMENT.get(cwd);
 }
 
-/**
- * Last authoritative observation per filesystem target.
- *
- * `fs/observed` is an EMIT event: the observing side records, listeners mirror.
- * LDVH emits its own observations when it reads a carrier, and mirrors every
- * observation it hears, so the `fs/write-intent` / `fs/edit-intent` guards can
- * key a write to a version that was actually observed rather than invented.
- */
 const OBSERVED_VERSIONS = new Map();
 
-/**
- * Stable key for an FsTarget.
- *
- * The two identity sources MUST NOT collide: `targetKey` is the host's opaque
- * stable identity, while `displayPath` is only a fallback for target-shaped
- * values lacking one. Namespacing the fallback prevents two different files
- * from sharing a key (and thus cross-binding one file's observed version as
- * another file's write guard).
- */
 function targetKeyOf(target) {
   if (target === null || target === undefined) return null;
   if (typeof target.targetKey === "string" && target.targetKey.length > 0) return `key:${target.targetKey}`;
@@ -231,16 +78,6 @@ function targetKeyOf(target) {
   return null;
 }
 
-/**
- * Record an authoritative read observation for a target.
- *
- * LDVH's read path calls this with what it actually read. `version` must come
- * from the host's own read outcome — LDVH must NOT synthesize one, because a
- * fabricated version would make the write guard compare against a value that
- * never existed and defeat the very protection it exists to provide.
- *
- * Returns true when the observation was recorded and emitted.
- */
 export function recordObservation(ctx, { target, version }) {
   const key = targetKeyOf(target);
   if (key === null) return false;
@@ -250,27 +87,20 @@ export function recordObservation(ctx, { target, version }) {
     try {
       ctx.emit("fs/observed", target, { kind: "present", version }, undefined);
     } catch {
-      // Recording succeeded; emission is best-effort (listeners are recorders).
     }
   }
   return true;
 }
 
-/** Diagnostic accessor: the last observed version for a target key, if any. */
 export function observedVersionFor(target) {
   const key = targetKeyOf(target);
   return key === null ? undefined : OBSERVED_VERSIONS.get(key);
 }
 
-/** Test seam: forget all observations (keeps cross-test bleed out of the map). */
 export function resetObservations() {
   OBSERVED_VERSIONS.clear();
 }
 
-/**
- * Registry of what this process actually consumed, exposed for diagnostics
- * (lifecycle snapshot / web state route). Keys match specs/08 §6's table.
- */
 export function createHostSeams() {
   const consumed = Object.create(null);
   const mark = (key, detail) => { consumed[key] = { consumed: true, ...detail }; };
@@ -278,8 +108,6 @@ export function createHostSeams() {
   let questionGeneration = 0;
   let usedQuestionService = null;
 
-  // The service is optional and may become available after this plugin starts.
-  // Resolve it at use time; a missing service or lookup failure never grants.
   function currentUserQuestions() {
     try {
       const service = questionContext?.get("userQuestions");
@@ -289,9 +117,6 @@ export function createHostSeams() {
     }
   }
 
-  // Cordis may return a new traceable proxy on every get(). Its exported
-  // original symbol identifies the underlying service; if identity cannot be
-  // established, diagnostics stay conservative without affecting the Gate.
   function questionServiceIdentity(service) {
     try {
       const original = service?.[Symbol.for("cordis.original")] ?? service;
@@ -301,25 +126,6 @@ export function createHostSeams() {
     }
   }
 
-  /**
-   * `ctx.tools.guard` — a monotonic guard over LDVH tool dispatch.
-   *
-   * 08 §6 requires a guard registered through this入口; the host contract is
-   * that any guard may refuse but never re-allow.
-   *
-   * AUTHORITATIVE SIGNATURE (cordis Inspect, Service `tools`):
-   *   guard(guard: ToolGuard): () => void
-   *   type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
-   *
-   * Two contract details this must honour exactly:
-   *   - "a returned STRING denies the execution" — returning an object (or any
-   *     non-undefined value) is not the documented deny shape;
-   *   - `ToolExecution` is `{ callId, rootCallId?, name, arguments, agent?, ... }`
-   *     — there is no `tool` field and no `scopeState` field. The call name is
-   *     `execution.name`, and the judgement must be made HERE (the guard is
-   *     synchronous), so this guard re-judges the cwd rather than reading a
-   *     cached property that does not exist.
-   */
   function installToolsGuard(ctx, { dshHomePath } = {}) {
     const tools = ctx.get("tools");
     if (tools === undefined || typeof tools.guard !== "function") {
@@ -328,35 +134,17 @@ export function createHostSeams() {
     const dispose = tools.guard((execution) => {
       const name = execution?.name;
       if (typeof name !== "string") return;
-      // 提请文本机械校验（Human 2026-11-14）：管辖会话里**所有** ask_user_question
-      // 工具调用都要过同一判据——只有一行动作标题（≤200 UTF-16 码元）、无 detail、
-      // 无其它呈报细节；不合格 fail-closed 拒绝、让调用方重发，绝不截断。
-      // 与 seams.ask 服务口共用 validateAskText，两个通道都不漏。
       if (name === "ask_user_question") {
         const cwd = execution?.agent?.session?.header?.cwd;
-        // **fail-closed 判管辖**：只有"明确 not_governed"才放行；governed /
-        // unavailable / 判定未就绪 / cwd 取不到一律过校验。理由是 guard 同步、
-        // 不能 await，而 resolve 是异步的（recall 行当年的首回合缺口同源）；
-        // 校验对格式良好的短提问无副作用（合格即放行），故"多拦一次未就绪"
-        // 不会误伤，反倒"未就绪就放行"会漏。明确不受辖的会话不该被 LDVH 约束
-        // （00 §2.6）。
         if (typeof cwd === "string" && cwd.length > 0 && LATEST_JUDGEMENT.get(cwd) === "not_governed") {
           return;
         }
         return askTextDenial(execution.arguments);
       }
       if (!name.startsWith("ldvh_")) return;
-      // The guard sees the invocation before dispatch. It asserts the
-      // precondition the operations themselves also enforce, so a caller can
-      // never reach a write-shaped LDVH operation by bypassing a handler.
       if (!WRITE_SHAPED_OPERATIONS.has(name)) return;
       const cwd = execution?.agent?.session?.header?.cwd;
       if (typeof cwd !== "string" || cwd.length === 0) return;
-      // Synchronous guard on the last recorded judgement. Deny ONLY on
-      // `unavailable`: an absent judgement is left alone (the operation's own
-      // handler still fails closed), and `not_governed` must be left alone too
-      // — registering the project is precisely how a not-yet-governed cwd
-      // becomes governed, so refusing there would make the entry unreachable.
       const judgement = LATEST_JUDGEMENT.get(cwd);
       if (judgement === "unavailable") {
         return `LDVH governance state is unavailable for ${cwd}: write-shaped LDVH operations are refused (07 §7 / 08 §6 fail-closed)`;
@@ -366,25 +154,6 @@ export function createHostSeams() {
     return { consumed: true, dispose };
   }
 
-  /**
-   * `ctx.invariants.register` — runtime invariant assertions.
-   *
-   * AUTHORITATIVE SIGNATURE (cordis Inspect, Service `invariants`):
-   *   register(packageName: string, installer: InvariantInstaller): () => void
-   *   interface InvariantInstaller { (ctx: Context, fail: InvariantFailure): void | Promise<void> }
-   *   type InvariantFailure = (message: string) => never
-   *
-   * So an installer is a FUNCTION that runs at install time and reports a
-   * violation by CALLING `fail(message)` — not by returning an array of check
-   * descriptors. `fail` throws, so a violation aborts the installer.
-   *
-   * The assertion is stated as 08 §6 requires (a runtime check, not a test):
-   * the registration carrier must satisfy the v5 schema. An `unavailable`
-   * carrier is a legitimate runtime state (no DSH home yet, a carrier the
-   * Human has not confirmed) and must NOT be reported as a violation —
-   * otherwise the invariant fires on the ordinary not-yet-installed case and
-   * trains readers to ignore it.
-   */
   function installInvariants(ctx, { dshHomePath }) {
     const invariants = ctx.get("invariants");
     if (invariants === undefined || typeof invariants.register !== "function") {
@@ -394,8 +163,6 @@ export function createHostSeams() {
       const { evaluateRegistrationEntry } = await import("./governed-projects.js");
       const result = await evaluateRegistrationEntry(dshHomePath);
       if (result.ok) return;
-      // Only a schema violation is an assertion failure; the other four
-      // unavailable codes are legitimate runtime states.
       if (result.error.code === "registration_schema_invalid") {
         fail(`${result.error.code}: ${result.error.message}`);
       }
@@ -404,35 +171,11 @@ export function createHostSeams() {
     return { consumed: true, dispose };
   }
 
-  /**
-   * `fs/observed` — read observation plus write version guard.
-   *
-   * 08 §6 defines consumption of this seam as "挂载读观察并挂载写入版本守卫" —
-   * BOTH halves, and both are now carried:
-   *
-   *   READ half — LDVH's own reads of the registration carrier RECORD an
-   *   authoritative observation through `recordObservation()`, emitting
-   *   `fs/observed` with `{kind:'present', version}` or `{kind:'absent'}`.
-   *   The host requires listeners to be SYNCHRONOUS recorders, so the emit
-   *   path is synchronous and never awaits.
-   *
-   *   WRITE half — LDVH writes to the observed carrier mount `fs/write-intent`
-   *   and `fs/edit-intent`, demanding `{kind:'replaceIfVersion', version}`
-   *   keyed to the last RECORDED observation. A write to a target LDVH has not
-   *   observed yields no LDVH intent (the host's own policy decides), so LDVH
-   *   never manufactures a version it did not read.
-   *
-   * Before this, only a counting listener existed: it recorded nothing and
-   * guarded nothing, so claiming the seam would have been exactly the false
-   * claim 08 §6 forbids.
-   */
   function installFsObservation(ctx) {
     if (typeof ctx.on !== "function") {
       return { consumed: false, detail: "event listening (ctx.on) is unavailable in this composition" };
     }
     const disposers = [];
-    // READ half: observe (and mirror) every observation that flows, so the
-    // write guard below can key writes to the latest authoritative version.
     disposers.push(ctx.on("fs/observed", (target, observation) => {
       seams.observations += 1;
       const key = targetKeyOf(target);
@@ -440,21 +183,15 @@ export function createHostSeams() {
       if (observation?.kind === "present") OBSERVED_VERSIONS.set(key, observation.version);
       else if (observation?.kind === "absent") OBSERVED_VERSIONS.delete(key);
     }));
-    // WRITE half: demand a version keyed to a real observation.
     const writeIntent = (target, actor, next) => {
       const key = targetKeyOf(target);
       if (key === null) return next();
       const version = OBSERVED_VERSIONS.get(key);
-      // Never observed → no LDVH intent; the host's own policy decides.
       if (version === undefined) return next();
       return { kind: "replaceIfVersion", version };
     };
     disposers.push(ctx.on("fs/write-intent", writeIntent));
     disposers.push(ctx.on("fs/edit-intent", writeIntent));
-    // The fs service is what lets LDVH obtain a REAL FsVersion (`stat` returns
-    // `{version, type}`). Without it LDVH could only guess, which the write
-    // guard must never do — so the observation capability is installed only
-    // when the service exists.
     const fs = typeof ctx.get === "function" ? ctx.get("fs") : undefined;
     seams.fs = fs ?? null;
     mark("fs/observed", {
@@ -466,67 +203,18 @@ export function createHostSeams() {
     return {
       consumed: fs !== undefined,
       ...(fs === undefined ? { partial: true } : {}),
-      dispose: () => { for (const d of disposers) { try { d(); } catch { /* already removed */ } } }
+      dispose: () => { for (const d of disposers) { try { d(); } catch {   } } }
     };
   }
 
-  /**
-   * `ctx.userQuestions.ask` — Human Gate requests through the host entry.
-   *
-   * 08 §6 defines consumption as "经该入口承载 Human Gate 决策提请" — a Human
-   * Gate request must actually BE routed through the entry. The Gate this
-   * satisfies is `07 §5.6`: "登记或取消仅由 Human 明确意图触发", i.e. an AI
-   * cannot register a project on its own initiative.
-   *
-   * `requestRegistrationConsent()` is the real call site: the 07 §5.4/§5.7
-   * entries invoke it before writing, so the consent is asked, recorded by the
-   * host (and thus answerable/reviewable) instead of being assumed from prose.
-   * The seam reports `consumed` only because that path exists and is wired to
-   * the entry — a captured-but-never-called reference would not count.
-   */
   function installUserQuestions(ctx) {
     const userQuestions = ctx.get("userQuestions");
     if (userQuestions === undefined || typeof userQuestions.ask !== "function") {
       return { consumed: false, detail: "ctx.userQuestions.ask is unavailable in this composition" };
     }
-    // The `agent` argument is MANDATORY in every real composition, not an
-    // optimisation. The answerer lives in the browser
-    // (`dsh-client-ui-user-questions` registers `user-questions/request` via
-    // `ctx.remote.$on`) and reaches the host through `dsh-api-remotes`, whose
-    // forwarding listener enforces (dsh-api-remotes/lib/index.js:115-119):
-    //
-    //   const carrierAgent = carrierKeyOf(this);
-    //   if (carrierAgent === void 0) return next();
-    //   const agent = request.agent;
-    //   if (agent === void 0 || agent !== carrierAgent) throw new TypeError(...)
-    //
-    // Without `agent` the forwarder declines and the waterfall exhausts to
-    // `noAnswerer` → NO_PROVIDER ("no user-questions answerer accepted the
-    // request"). Measured live 2026-09-18: the official ask_user_question tool
-    // (which passes `exec.agent`, dsh-tool-ask-user/lib/index.js:105) prompted
-    // the Human in this very session, while this seam — called without an
-    // agent — failed with NO_PROVIDER in the same session.
-    //
-    // Passing a *scoped* agent additionally narrows routing: `scopeTarget`
-    // admits untagged listeners plus tags matching the key, so the answerer of
-    // THIS agent is selected rather than a sibling's. The agent must be the
-    // live registry instance; `dsh-user-questions` rejects anything else with
-    // CALLER_NOT_LIVE.
     return { consumed: false, available: true, detail: "userQuestions service is available; actual use is tracked when a request is sent" };
   }
 
-  /**
-   * Ask the Human for explicit registration intent (07 §5.6).
-   *
-   * Returns `{ granted }` — never throws for a refusal. A `declined` answer, a
-   * missing answerer, or a failed ask all yield `granted: false` with a reason,
-   * because 07 §5.6 requires EXPLICIT intent: silence is not consent, and this
-   * path must fail closed. Callers must not write when `granted` is false.
-   *
-   * `signal` is the calling tool's cancellation signal, forwarded so an
-   * abandoned session releases the prompt (ASK_ABORTED → fail closed) instead
-   * of leaving it pending forever — this ask has no wall-clock deadline.
-   */
   async function requestRegistrationConsent({ action, projectId, projectPath, agent, signal }) {
     const ask = seams.ask;
     if (typeof ask !== "function") {
@@ -544,24 +232,13 @@ export function createHostSeams() {
             { label: "取消", description: "不执行，保持现状" }
           ]
         }],
-        // The caller's cancellation MUST reach the question, or an abandoned
-        // session leaves this ask pending forever (the tool that hosts it
-        // declares no wall-clock deadline — see the `awaitsHumanDecision`
-        // operations). `ctx.userQuestions.ask` throws ASK_ABORTED on abort and
-        // the browser's PendingQuestion drops the prompt, so the operation
-        // fails closed instead of hanging.
         ...(signal === undefined ? {} : { signal })
       }, agent);
-      // Accept ONLY an affirmative for THIS question. Do not fall back to
-      // `answers[0]`: that could grant registration consent from an affirmative
-      // given to a different question. Do not accept shapes never offered
-      // ("confirm"/true) — widening the accept surface weakens the gate.
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === CONSENT_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
       const customNote = customTextOf(entry);
       const granted = selected === CONSENT_AFFIRMATIVE_LABEL;
-      // 自由输入不冒充明确点选（Gate 仍 fail-closed），但文字必须让模型看得见。
       return granted
         ? { granted: true, answer: selected, ...(customNote === null ? {} : { custom_note: customNote }) }
         : { granted: false, ...(customNote === null ? {} : { custom_note: customNote }), reason: `human did not affirmatively confirm (answer: ${JSON.stringify(selected ?? null)})${customNote === null ? "" : `；Human 另写了自由文本（见 custom_note），不作为授权` }` };
@@ -570,35 +247,6 @@ export function createHostSeams() {
     }
   }
 
-  /**
-   * Ask the Human to confirm one Spark action (20 §16).
-   *
-   * 20 §16 registers three Human Gates for this type (创建 / 终态转换 /
-   * 问题·边界大改). Two of them are carried HERE: create and the terminal
-   * transition. The third (大改) is deliberately NOT carried by this seam — see
-   * the note on `SPARK_CONSENT_QUESTION_ID`; it is a `09 §6` weak constraint
-   * whose judgement the implementation must NOT make.
-   *
-   * Same discipline as the other consent seams: the Human's own answer is
-   * recorded by the host, not asserted by the AI. A missing answerer, a failed
-   * ask or an unchosen/declined answer all yield `granted: false` — silence is
-   * not consent, and this path must fail closed.
-   *
-   * `signal` is forwarded so an abandoned prompt is released (ASK_ABORTED →
-   * fail closed) instead of pending forever: the hosting tool declares no
-   * wall-clock deadline (`awaitsHumanDecision`).
-   *
-   * `summary` is the 呈报内容 required by 20 §16 — the caller passes what the
-   * Human must see to judge (create: dedup conclusion + question +
-   * scope_boundary + serves; terminal: target status + disposition + relation
-   * targets). **It no longer travels with the question** (Human 2026-11-13:
-   * 所有经 LDVH 业务的提请都简洁，title 在 200 字内，没有其它细节信息):
-   * the report is presented by 主控 in the conversation body BEFORE this call,
-   * and the dialog carries only the action line. The parameter is still
-   * required so a caller cannot reach this gate without having produced the
-   * report at all — but see the honest boundary: the seam can no longer prove
-   * the Human was shown it (20 §16 的据实声明段已登记该缺口).
-   */
   async function requestSparkConsent({ action, objectTitle, summary, agent, signal }) {
     const ask = seams.ask;
     if (typeof ask !== "function") {
@@ -608,14 +256,9 @@ export function createHostSeams() {
     const report = typeof summary === "string" && summary.trim().length > 0
       ? summary.trim()
       : null;
-    // A caller that supplies no report at all is refused rather than asked a
-    // content-free question: asking without one would record a "yes" to
-    // something the Human was never shown. (The seam cannot check WHERE the
-    // report was shown — only that one exists.)
     if (report === null) {
       return { granted: false, reason: "20 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
     }
-    // 标题组装：只放 Gate 名与对象标题，不携带任何呈报细节。
     const head = [`Spark ${verb}确认（20 §16）`];
     if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
     const composed = composeAskTitle({ head });
@@ -632,9 +275,6 @@ export function createHostSeams() {
         }],
         ...(signal === undefined ? {} : { signal })
       }, agent);
-      // Accept ONLY the affirmative for THIS question. Do not fall back to
-      // `answers[0]` — that could grant Spark consent from an affirmative given
-      // to a different question in the same batch.
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === SPARK_CONSENT_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
@@ -646,43 +286,19 @@ export function createHostSeams() {
     }
   }
 
-  /**
-   * Ask the Human to confirm one Norm action (27 §15 Human Gate).
-   *
-   * Carries the first two of the four 27 §15 items: 创建 (action=create) and
-   * 终态决定 retired (action=retire). Items 3 and 4 are deliberately NOT
-   * carried: item 3 is a modification of spec 27 itself (its own change
-   * procedure), item 4 has no implementation entry.
-   *
-   * Same discipline as `requestSparkConsent`: the Human's own answer is recorded
-   * by the host, not asserted by the AI. A missing answerer, a failed ask or an
-   * unchosen/declined answer all yield `granted: false` — silence is not
-   * consent, and this path must fail closed.
-   *
-   * `summary` is the 呈报内容 the Human must see to judge — create: the dedup
-   * conclusion + title/direction_key + 正文「方向定位与适用范围」段（**本类型没有
-   * `scope` 字段**：27 §8 闭集里没有它，规则整体住正文，见 27 §7 载体内聚）;
-   * retire: retirement_reason + the
-   * change_log.summary evidence statement. A caller that supplies none is
-   * refused rather than asked a content-free question. It does NOT travel with
-   * the question (Human 2026-11-13: LDVH 提请一律简洁); 主控 presents it in
-   * the conversation body before calling. The seam therefore cannot prove the
-   * Human saw the report — that gap is registered in 27 §15.2.
-   */
   async function requestNormConsent({ action, objectTitle, summary, agent, signal }) {
     const ask = seams.ask;
     if (typeof ask !== "function") {
-      return { granted: false, reason: "no human-answerer entry is available; 27 §15 requires an explicit Human confirmation, so consent cannot be assumed" };
+      return { granted: false, reason: "no human-answerer entry is available; 23 §15 requires an explicit Human confirmation, so consent cannot be assumed" };
     }
     const verb = action === "retire" ? "转入终态" : "创建";
     const report = typeof summary === "string" && summary.trim().length > 0
       ? summary.trim()
       : null;
-    // A content-free ask would record consent to something the Human never saw.
     if (report === null) {
-      return { granted: false, reason: "27 §15 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
+      return { granted: false, reason: "23 §15 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
     }
-    const head = [`Norm ${verb}确认（27 §15）`];
+    const head = [`Norm ${verb}确认（23 §15）`];
     if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
     const composed = composeAskTitle({ head });
     try {
@@ -698,9 +314,6 @@ export function createHostSeams() {
         }],
         ...(signal === undefined ? {} : { signal })
       }, agent);
-      // Accept ONLY the affirmative for THIS question — never fall back to
-      // `answers[0]`, which could grant Norm consent from an affirmative given
-      // to a different question in the same batch.
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === NORM_CONSENT_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
@@ -712,43 +325,6 @@ export function createHostSeams() {
     }
   }
 
-    /**
-     * 两处把关询问（2026-11-13 Human 决定：改问「要不要安排代理」）。
-     *
-     * 与上面三处 consent 的**根本差别**：那三处是 Human Gate（不取得答复就不许
-     * 继续，fail-closed）。本处**不是 Gate**——Human 选「跳过」是**合法答复**，
-     * 不是拒绝。所以本函数的返回值不叫 `granted`，叫 `decision`：
-     *
-     *   - `"review"` —— 安排代理；
-     *   - `"skip"`   —— 不安排（明确答复，不是未决策）；
-     *   - `null`     —— 未取得答复（无答题器／询问失败／人跳过未选）。
-     *
-     * 空答复（`selected: []`）**不落载体**：它是「未决策」，落盘会让下一次误以为
-     * 问过了而直接复用一个不存在的决定（与其他接缝同纪律）。
-     *
-     * 开关关闭时**直接返回 null 且不问**——这是 Human 的原话「打开才有」。调用方
-     * 传入 `enabled: false` 即走这条路径；本函数不自己读配置，因为配置读取属
-     * 装配侧（host-seams 不认识 Cordis Config）。
-     */
-  /**
-   * 把关询问的身份范围：会话 id + 会话工作目录。
-   *
-   * 只用**宿主提供的**身份（`agent.session.header`），不让调用方自报——自报键
-   * 会被填成固定值，等于退回全局键。取不到时返回 `undefined`，指纹退回旧形态
-   * （偏重复提问而非跨项目复用）。
-   */
-  /**
-   * 把关询问的身份范围：会话 id + 会话工作目录。
-   *
-   * **只从宿主提供的身份取**（`agent.session.header`），不让调用方自报——自报键
-   * 会被填成固定值，等于退回全局键。
-   *
-   * @returns {{scope: string|undefined, sessionIdentified: boolean}}
-   *   `sessionIdentified: false` 表示**会话 id 取不到**。此时 scope **不得**被
-   *   用来复用答复：只带 cwd 的 scope 会让**同项目下另一个会话**的询问命中上一
-   *   会话的记录，静默复用别的上下文的决定（2026-11-13 独立审核 MAJOR-3）。
-   *   故这种情况走「每次都问」，宁可多问一次。
-   */
   function reviewAskScopeKey(agent) {
     const header = agent?.session?.header;
     if (header === undefined || header === null) return { scope: undefined, sessionIdentified: false };
@@ -769,64 +345,23 @@ export function createHostSeams() {
     if (typeof ask !== "function") {
       return { decision: null, asked: false, reason: "no human-answerer entry is available; the review-ask cannot be issued, so no decision is assumed" };
     }
-    // 先读后问：同一内容指纹问过一次就不再问（消灭「同一件事问两次」）。
-    //
-    // **指纹必须带会话与项目范围**（2026-11-13 独立审核 MAJOR #2）。
-    //
-    // 原实现只喂 { point, task }，而 `task` 在工具面是**可省的**——于是所有不带
-    // task 的 pre-action 询问共用一个指纹（实测同为 298fbda3…）。载体落在
-    // `~/.dsh/ldvh/review-ask-decisions.json`，是**全局**的（不分项目、不分会话）。
-    //
-    // 后果实测：
-    //   * 第一次答 `skip` → 之后所有同类任务**静默不再问**（Human 以为机制在跑，
-    //     其实早已失效）；
-    //   * 第一次答 `review` → 另一件事也被当成「Human 已同意安排复核」，
-    //     把一个**别的上下文里**的决定搬过来用。
-    //
-    // 取身份只从 `agent` 读，**不接受调用方自报**：能自报的键迟早会被填成固定值，
-    // 那等于又退回全局键。两者都取不到时**退回不带 scope 的旧键**——宁可偶尔重复
-    // 提问（代价：多问一次），也不要跨项目静默复用（代价：机制失效且无人察觉）。
     const scopeInfo = reviewAskScopeKey(agent);
     const scopeKey = scopeInfo.scope;
     const fingerprint = reviewAskFingerprint({ point, task, scope: scopeKey });
-    // **会话 id 取不到 ⇒ 禁止复用**（2026-11-13 独立审核 MAJOR-3，fail-closed）。
-    //
-    // scope 降级成「只带 cwd」时，同项目下**另一个会话**的询问会命中本会话的记录
-    // ——那正是本机制要消灭的「把别的上下文的决定搬过来用」。宁可多问一次。
     const reuseAllowed = scopeInfo.sessionIdentified;
     const prior = await findReviewAskDecision(seams.dshHomePath, fingerprint);
     if (!prior.ok) {
-      // 载体不可读时**不问也不猜**：既不能当「问过」（会跳过 Human），也不能
-      // 当「没问过」（会重复提问）。如实返回，由调用方报告并决定怎么处置。
       return { decision: null, asked: false, reason: `${prior.error.code}: ${prior.error.message}`, fingerprint };
     }
     if (prior.value !== null) {
-      // **task 为空的历史记录不可复用**（2026-11-13 独立审核 MAJOR-2）。
-      //
-      // 问题：`task` 是可省参数，省略时指纹 = point + scope，同一会话里**所有**
-      // 该位置的询问指纹相同。第一次答 skip 后，另一件复杂任务的询问会静默复用
-      // 那次 skip——Human 根本收不到第二次提问。这正是本机制要消灭的失效，
-      // 只是从「全局」缩小到了「会话内」。
-      //
-      // 为什么不用「task 设为必填」：那会让模型忘填时直接调用失败，违背
-      // 「缺任务描述时不虚构，退化成中性占位」的设计。也不用「拿会话消息参与
-      // 指纹」：那会破坏「同一件事重试不重问」这个核心语义。
-      //
-      // 本解法的判据是**记录本身能否标识「是哪件事」**：task 为空的记录标识不了，
-      // 故不复用——宁可多问一次（代价：一次弹窗），也不静默套用无关答复（代价：
-      // 机制失效且无人察觉）。新问出来的答复会覆盖旧记录（latest-wins）。
       const priorTask = prior.value.task;
-      // 占位词与 null 同义（2026-11-13 独立审核 MAJOR-2）：占位词记录标识不了
-      // 「是哪件事」，若判为「可复用」，模型传恒定字符串时静默复用复发。
       const priorIsPlaceholder = typeof priorTask === "string" && priorTask.trim() === REVIEW_ASK_PLACEHOLDER_TASK;
       const reusable =
         reuseAllowed
         && typeof priorTask === "string"
         && priorTask.trim().length > 0
         && !priorIsPlaceholder;
-      if (!reusable) {
-        // 不可复用 → 继续往下问，不返回。
-      } else {
+      if (reusable) {
         return {
           decision: prior.value.answer,
           asked: false,
@@ -841,18 +376,8 @@ export function createHostSeams() {
       const answer = await ask({
         questions: [{
           id: REVIEW_ASK_QUESTION_ID,
-          // header 与 question 不重复（Human 2026-11-13：对话框太啰嗦）。
-          // question 已写明「<做什么>——要不要安排审查？」，header 只留一个短标签；
-          // options 的 description 也压成一句话，不再重述 detail 里已有的后果。
           header: point === REVIEW_ASK_POINTS.PRE_ACTION ? "审查" : "复核",
           question: composed.question,
-          // **不带 detail**（Human 2026-11-13 截图指认）：detail 与两个选项说的是
-          // 同一件事，卡片上于是三处重复。宿主契约里 detail 是 optional，缺省即
-          // 不渲染该块。
-          //
-          // 后果信息改由**选项的 description** 承担——选项就贴在答案输入框上方，
-          // 是 Human 实际会读的地方；原先第二个选项的 description「直接推进」与
-          // 它自己的标签「跳过，直接推进」逐字重复，等于没写。
           options: [
             {
               label: REVIEW_ASK_REVIEW_LABEL,
@@ -868,15 +393,8 @@ export function createHostSeams() {
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === REVIEW_ASK_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
-      // **本次 bug 的修复口**（2026-11-14）：宿主卡片「单选 + 自由输入提交」产出
-      // `{selected:[], custom:"..."}`，文字原先被 selectedLabelOf 静默丢掉，于是
-      // 被判成「跳过/未决策」且模型一个字都看不到。这里把 custom 逐字取回，作为
-      // 补充信息随结果返回；**decision 仍守 32 §9.1 的 review|skip 闭集**，自由
-      // 输入不冒充任何一个答复值，也不写进留痕载体。
       const customNote = customTextOf(entry);
       if (selected !== REVIEW_ASK_REVIEW_LABEL && selected !== REVIEW_ASK_SKIP_LABEL) {
-        // 区分「点跳过按钮」({selected:[]}) 与「自由输入提交」({selected:[], custom})：
-        // 前者的 reason 不该暗示 Human 写过东西；后者必须把文字交给模型。
         const shape = customNote !== null
           ? `free-text answer submitted (no option selected): ${JSON.stringify(customNote)}`
           : `skipped / no option chosen (answer: ${JSON.stringify(selected ?? null)})`;
@@ -889,8 +407,6 @@ export function createHostSeams() {
         };
       }
       const decision = selected === REVIEW_ASK_REVIEW_LABEL ? REVIEW_ASK_ANSWERS.REVIEW : REVIEW_ASK_ANSWERS.SKIP;
-      // **写入载体时把占位词归一为 null**（MAJOR-2）：载体里的 task 是「这件事
-      // 是什么」的标识，占位词不承载该语义；留着它会让复用门误判。
       const recorded = await recordReviewAskDecision(seams.dshHomePath, {
         fingerprint,
         point,
@@ -898,12 +414,8 @@ export function createHostSeams() {
         task: typeof task === "string" && task.trim() === REVIEW_ASK_PLACEHOLDER_TASK ? null : (task ?? null),
       });
       if (!recorded.ok) {
-        // 答复已取得但留不下痕迹：仍如实返回 Human 的选择，同时把留痕失败说
-        // 清楚——否则重试时会再问一次，而这正是本载体要消灭的形态。
         return { decision, asked: true, fingerprint, ...(customNote === null ? {} : { custom_note: customNote }), recordError: `${recorded.error.code}: ${recorded.error.message}` };
       }
-      // custom_note 只回给模型，**不进留痕载体**：载体只记 {point, answer, at, task}
-      // 的闭集答复，自由文本是过程信息、不是决定（32 §9.1 / §9.3）。
       return { decision, asked: true, fingerprint, ...(customNote === null ? {} : { custom_note: customNote }), at: recorded.value.at };
     } catch (error) {
       return { decision: null, asked: true, fingerprint, reason: `review-ask request failed: ${String(error?.message ?? error)}` };
@@ -914,21 +426,15 @@ export function createHostSeams() {
   const seams = {
     observations: 0,
     consumed,
-    /** Current service adapter, or null; service presence does not prove a Human is connected. */
     get ask() {
       const service = currentUserQuestions();
       if (service === null) return null;
       return (request, agent) => {
-        // 提请文本机械校验（Human 2026-11-14）：经服务口发出的每一份提请都必须
-        // 只有一行动作标题（≤200）、无 detail、无其它呈报细节。不合格 fail-closed
-        // 拒绝（抛错，由调用方 try/catch 转为未授权/未答复），绝不截断、不改写。
-        // 与 tools.guard 口共用同一判据。
         const textCheck = validateAskText(request);
         if (!textCheck.ok) {
           throw new Error(`LDVH ask-text guard (service seam) refused the request: ${textCheck.reason}`);
         }
         const result = service.ask(agent === undefined ? request : { ...request, agent });
-        // Diagnostics must never discard an already-dispatched Human request.
         try {
           const identity = questionServiceIdentity(service);
           usedQuestionService = identity === null ? null : new WeakRef(identity);
@@ -939,37 +445,12 @@ export function createHostSeams() {
       };
     },
     get humanGateAvailable() { return currentUserQuestions() !== null; },
-    /**
-     * The host home resolver captured at install; `null` until then.
-     *
-     * The review-ask decision carrier needs it to locate its file (先读后问).
-     * Before install() it is null, and the seam treats a null resolver exactly
-     * like an unreadable carrier: fail closed rather than assume "never asked"
-     * (that would re-ask the Human — the very defect the carrier exists to
-     * remove).
-     */
     dshHomePath: null,
-    /** The host fs service captured at install; `null` when unavailable. */
     fs: null,
-    /** 07 §5.6 consent request routed through ctx.userQuestions.ask. */
     requestRegistrationConsent,
-    /** 20 §16 Spark create/terminal confirmation routed through ctx.userQuestions.ask. */
     requestSparkConsent,
-    /** 27 §15 consent request routed through ctx.userQuestions.ask. */
     requestNormConsent,
-    /** 两处把关询问（2026-11-13 Human 决定）：非 Gate——`skip` 是合法答复。 */
     requestReviewAsk,
-    /**
-     * Read a target and RECORD the authoritative observation.
-     *
-     * This is the read half of `fs/observed` made real: LDVH asks the HOST for
-     * the version (`fs.stat`) rather than inventing one, records it, and emits
-     * `fs/observed` so the write guard can key a later write to it. Returns
-     * `{observed, version}`; when the target is absent it records `absent`.
-     *
-     * `path` is resolved through the host so the target identity is the host's,
-     * not a locally reconstructed one.
-     */
     async observePath(path, { cwd, signal } = {}) {
       const fs = seams.fs;
       if (fs === null || typeof fs.resolve !== "function" || typeof fs.stat !== "function") {
@@ -984,14 +465,13 @@ export function createHostSeams() {
         }
         OBSERVED_VERSIONS.set(targetKeyOf(target), info.version);
         if (typeof seams.emitter?.emit === "function") {
-          try { seams.emitter.emit("fs/observed", target, { kind: "present", version: info.version }, undefined); } catch { /* recorder only */ }
+          try { seams.emitter.emit("fs/observed", target, { kind: "present", version: info.version }, undefined); } catch {   }
         }
         return { observed: true, kind: "present", version: info.version, target };
       } catch (error) {
         return { observed: false, reason: String(error?.message ?? error) };
       }
     },
-    /** Install every seam this composition supports; returned disposers are fiber-owned. */
     install(ctx, { dshHomePath } = {}) {
       const disposers = [];
       const results = {};
@@ -1008,43 +488,27 @@ export function createHostSeams() {
           outcome = { consumed: false, detail: String(error?.message ?? error) };
         }
         results[key] = outcome;
-        // Track the disposer whenever one exists — including partial/available
-        // outcomes (e.g. the fs/observed listener), otherwise a side effect
-        // would leak past plugin stop (the 08 §6 + cordis fiber discipline).
         if (typeof outcome.dispose === "function") disposers.push(outcome.dispose);
       }
       const questionEpoch = ++questionGeneration;
       questionContext = ctx;
       usedQuestionService = null;
-      // 询问的持久载体需要 home 解析器（先读后问）。在此保存：install 是唯一
-      // 能拿到它的地方，而询问接缝在之后被调用。
       seams.dshHomePath = typeof dshHomePath === "function" ? dshHomePath : null;
       seams.emitter = ctx;
       return {
         results,
         dispose() {
-          // An older installation must not detach a newer one. Clear the
-          // current owner synchronously before releasing any other effects.
           if (questionEpoch === questionGeneration) {
             questionContext = null;
             usedQuestionService = null;
             delete consumed["ctx.userQuestions.ask"];
           }
           for (const dispose of disposers) {
-            try { dispose(); } catch { /* already removed */ }
+            try { dispose(); } catch {   }
           }
         }
       };
     },
-    /**
-     * Honest per-seam status. Every seam is reported with an explicit state:
-     *   consumed  — 08 §6's consumption requirement is actually met
-     *   partial   — part of the requirement is met, part is not (named in detail)
-     *   available — the entry exists but nothing routes through it yet
-     *   absent    — the composition does not provide the seam
-     * Unconsumed seams are reported alongside consumed ones, never omitted:
-     * omitting them would itself imply protection (08 §6).
-     */
     snapshot() {
       const all = ["ctx.tools.register", "ctx.tools.guard", "ctx.invariants.register", "fs/observed", "ctx.userQuestions.ask"];
       return all.map((key) => {
@@ -1076,32 +540,15 @@ export function createHostSeams() {
   return seams;
 }
 
-/**
- * Names of the write-shaped LDVH tools the guard covers.
- *
- * This list must name tools that ACTUALLY ship. A phantom entry widens the
- * documented coverage without protecting anything (and a stale entry silently
- * stops covering a tool that was renamed). It is therefore REGISTERED, not
- * hardcoded: each type module registers its writer at import time, so the set
- * reflects what this build really exposes.
- *
- * The two 07 registration entries are listed explicitly because they are
- * declared in specs/07 rather than by a fact-type module.
- */
 const WRITE_SHAPED_OPERATIONS = new Set([
   "ldvh_register_governed_project",
   "ldvh_unregister_governed_project"
 ]);
 
-/**
- * Register a write-shaped tool name with the guard's coverage set.
- * Called by the modules that actually register such tools.
- */
 export function registerWriteShapedTool(toolName) {
   if (typeof toolName === "string" && toolName.startsWith("ldvh_")) WRITE_SHAPED_OPERATIONS.add(toolName);
 }
 
-/** Diagnostic: the current coverage set (test/verification accessor). */
 export function writeShapedTools() {
   return [...WRITE_SHAPED_OPERATIONS].sort();
 }

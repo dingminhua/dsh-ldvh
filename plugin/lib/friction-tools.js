@@ -1,25 +1,3 @@
-// LDVH friction mechanical layer — runtime wiring.
-//
-// This module connects the Friction writer (friction-writer.js, specs/23 §13 +
-// specs/03 §9) to the governed tool surface so the main controller can
-// drive it from a live session:
-//
-//   - friction-read-object  (effect: read)             — precise F3 read by
-//     object_uid: frontmatter, body, mechanical issues and fingerprint.
-//   - friction-list-objects (effect: read)             — F0/F1 discovery:
-//     ledger-relevant projection (title/phenomenon/status/attribution),
-//     open by default (26 §12 2026-10 修订：观察态已退出闭集; resolved stays out of ordinary
-//     candidates until historical tracing).
-//   - friction-write-object (effect: may_change_state) — controlled create
-//     (after Human-confirmed proposal) and CAS update
-//     with change_log: status-preserving updates are supplement-level
-//     (26 §9.3); transitions follow 26 §9.2 (open→resolved/voided, both terminal; 观察不进账本).
-//
-// Authorities: specs/05 §6 (operation declaration + common envelope),
-// §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
-// write-back read-back), specs/23 §13 (type-specific mechanical checks).
-// Dedup semantic comparison (23 §6.2) is AI work recorded in the creation
-// proposal — the list tool only supplies the deterministic inputs.
 
 import {
   createFrictionObject,
@@ -27,15 +5,7 @@ import {
   updateFrictionObject,
   correctFrictionObject,
   listFrictionObjects,
-  // 投影归一只有一份权威（复核发现 7）：原先此处内联了一份
-  // 逐字等价的 copy，两份一旦漂移就会出现「详情归一了、列表没归一」这类只在
-  // 某个读法上暴露的分叉。writer 侧已 export，直接复用。
   normalizeAttributionRef,
-  // 删除白名单同理（2026-11-04 修）：schema 的 enum 原先是一份手写的三个字段名，
-  // 与 writer 的两张白名单各自漂移——`impact`（update/correct 两处都收）与
-  // `occurrence`（correct 收）被 writer 接受、却被 schema 拒收。schema 是模型读
-  // 得到的唯一入口：枚举写小了不是「拦住越权」，而是让模型以为某个合法的删除不
-  // 存在，于是不去做本该做的事。改为从 writer 的具名常量取，任一方增删同时反映。
   FRICTION_REMOVABLE_FIELDS,
   CORRECT_REMOVABLE_FIELDS_FOR_TEST as CORRECT_REMOVABLE_FIELDS,
 } from "./friction-writer.js";
@@ -49,8 +19,6 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { registerWriteShapedTool } from "./host-seams.js";
-// 2026-11-17：子代理记录面复用发现层已有的写入路径，不另造一条——两条写入口
-// 必然漂移（字段闭集、fail-closed 处置、容量淘汰都在那条路径上）。
 import { recordObservation } from "./friction-discovery.js";
 
 const OPERATIONS = {
@@ -61,22 +29,19 @@ const OPERATIONS = {
   },
   "friction-list-objects": {
     toolName: "ldvh_friction_list",
-    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 11 §12bis.1 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided/accepted only with status=all (specs/03 §8, specs/26 §12)",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 36 §8.8 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided/accepted only with status=all (specs/03 §8, specs/26 §12)",
     effect: "read"
   },
   "friction-write-object": {
     toolName: "ldvh_friction_write",
     writeShaped: true,
-    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided/accepted，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; →accepted needs disposition (non-empty), no informs, and a 处置 section (the 复审触发 inside it is an AI/Human semantic requirement — Code only checks the section is present and disposition is non-empty, 26 §15 内容项); all three terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 11 §12bis.1 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
+    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided/accepted，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; →accepted needs disposition (non-empty), no informs, and a 处置 section (the 复审触发 inside it is an AI/Human semantic requirement — Code only checks the section is present and disposition is non-empty, 26 §15 内容项); all three terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 36 §8.8 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
     effect: "may_change_state"
   }
 };
 
 const FACT_SOURCE_ROOT_DIR = "ldvh-base";
 
-// ---------------------------------------------------------------------------
-// Envelope helpers (05 §8 common response semantics)
-// ---------------------------------------------------------------------------
 
 function envelope(operationKey, outcome, fields) {
   return { operation_key: operationKey, outcome, ...fields };
@@ -102,20 +67,12 @@ async function governedProject(dshHomePath, exec) {
   return { ok: true, scope, project: scope.project };
 }
 
-/** The change_log signature fields, from the authoritative session record. */
 async function signatureFor(deps, exec) {
   const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
   if (!route.ok) return { ok: false, reason: route.reason };
-  // Return the BRANDED carrier, not a plain object: the writers only accept
-  // the branded form, and returning a plain object here is what let the
-  // update paths silently drop the signature (found 2026-09-12). Branding
-  // at the source makes it impossible for a caller to pass the wrong one.
   return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
 }
 
-// ---------------------------------------------------------------------------
-// friction-read-object / friction-list-objects / friction-write-object handlers
-// ---------------------------------------------------------------------------
 
 async function executeReadObject(args, exec, deps) {
   const governed = await governedProject(deps.dshHomePath, exec);
@@ -136,8 +93,6 @@ async function executeReadObject(args, exec, deps) {
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
   const read = await readFrictionObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
   if (!read.ok) {
-    // Distinguish "not found / bad uid shape" (rejected) from carrier-level
-    // defects (unavailable — the object exists but cannot be consumed).
     const rejectedCodes = new Set(["friction/invalid_uid", "friction/object_not_found"]);
     const outcome = rejectedCodes.has(read.error.code) ? "rejected" : "unavailable";
     return envelope("friction-read-object", outcome, {
@@ -160,9 +115,6 @@ async function executeReadObject(args, exec, deps) {
       status: fm.status,
       phenomenon: typeof fm.phenomenon === "string" ? fm.phenomenon : undefined,
       attribution: typeof fm.attribution === "string" ? fm.attribution : undefined,
-      // 26 §8/§11（2026-10 订正）：attribution_ref 是对象形态 { object_uid }
-      // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃
-      // 裸 string 为存量兼容，归一为对象形态后投影。
       attribution_ref: normalizeAttributionRef(fm.attribution_ref),
       occurrence: fm.occurrence && typeof fm.occurrence === "object" ? fm.occurrence : undefined,
       disposition: typeof fm.disposition === "string" ? fm.disposition : undefined,
@@ -226,7 +178,7 @@ async function executeListObject(args, exec, deps) {
     gaps,
     verification: { checks: ["directory-scan", "frontmatter-parse"], passed: gaps.length === 0 },
     follow_up: [
-      "dedup (26 §6.2) is a semantic comparison over attribution + mechanism pattern (NOT title/phenomenon literal similarity — that anchor was replaced 2026-10-28) — performed by the AI on this projection, never by the tool. This projection carries attribution/attribution_ref precisely so the anchor is executable; cross-type same-root candidates come from the Pitfall side (11 §9 第 1 项 第三层)",
+      "dedup (26 §6.2) is a semantic comparison over attribution + mechanism pattern (NOT title/phenomenon literal similarity — that anchor was replaced 2026-10-28) — performed by the AI on this projection, never by the tool. This projection carries attribution/attribution_ref precisely so the anchor is executable; cross-type same-root candidates come from the Pitfall side (36 §8.7 第 1 项 第三层)",
       "friction-read-object for the F3 full content of any candidate",
     ]
   });
@@ -250,13 +202,6 @@ async function executeWriteObject(args, exec, deps) {
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
   const sig = await signatureFor(deps, exec);
-  // Human requirement 2026-09-12: "changelog 和提交都要机械署名，不能署名的
-  // 要报告 human". The commit half is already enforced by the Git Gate
-  // trailer rules; this is the object half. When the authoritative
-  // signature cannot be obtained the write is REFUSED and reported here,
-  // rather than recorded as an unsigned stable fact (03 §6.1 says Code
-  // fills the signature; 09 requires a definite unavailable outcome for
-  // blank/historical sessions and model switches).
   if (!sig.ok) {
     return envelope("friction-write-object", "unavailable", {
       result: null,
@@ -284,7 +229,6 @@ async function executeWriteObject(args, exec, deps) {
     if (!created.ok) {
       return writeRejected("friction-write-object", created, factSourceRoot);
     }
-    // 03 §9.4 item 5: precise read-back of the current file after create.
     const readBack = await readFrictionObject({ factSourceRoot, objectUid: created.value.object_uid });
     if (!readBack.ok || readBack.value.fingerprint !== created.value.fingerprint) {
       return envelope("friction-write-object", "partial", {
@@ -313,7 +257,6 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  // action === "correct"（26 §13 终态事实更正；Human Gate）
   if (action === "correct") {
     if (typeof args?.object_uid !== "string" || args.object_uid.length === 0) {
       return invalidRequest("friction-write-object", "object_uid is required for action=correct", "correct");
@@ -327,7 +270,6 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof args?.change_summary !== "string" || args.change_summary.length === 0) {
       return invalidRequest("friction-write-object", "change_summary (one short semantic summary for the change_log) is required for action=correct", "correct");
     }
-    // Human 授权记录必填（26 §13）：更正与其它受控更新同权限，缺之 fail-closed。
     const auth = args?.human_authorization;
     if (typeof auth !== "string" || auth.trim().length === 0) {
       return invalidRequest("friction-write-object", "human_authorization is required for action=correct (26 §13 终态事实更正：Human 确认；无授权记录的更正请求 fail-closed)", "correct");
@@ -336,10 +278,7 @@ async function executeWriteObject(args, exec, deps) {
       factSourceRoot,
       objectUid: args.object_uid,
       expectedFingerprint: args.expected_fingerprint,
-      // 省略即不动 relations（只改正文）；显式给数组则整体替换并重跑全套关系校验。
       relationsAfter: Array.isArray(args?.relations_after) ? args.relations_after : null,
-      // 2026-10：correct 入口新增的唯一 frontmatter 动作——显式删除已退出类型
-      // 闭集的字段（首个用例 serves，26 §8）。省略即逐字继承落盘对象。
       frontmatterRemovals: Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : [],
       bodyMarkdownAfter: args.body_markdown_after,
       changeSummary: args.change_summary,
@@ -357,7 +296,6 @@ async function executeWriteObject(args, exec, deps) {
     if (!corrected.ok) {
       return writeRejected("friction-write-object", corrected, factSourceRoot);
     }
-    // 写后回读（26 §13「回读同其它动作」）
     const back = await readFrictionObject({ factSourceRoot, objectUid: args.object_uid });
     if (!back.ok || back.value.fingerprint !== corrected.value.fingerprint) {
       return envelope("friction-write-object", "partial", {
@@ -385,11 +323,9 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  // action === "update"
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
-  // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
@@ -399,10 +335,6 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("friction-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
-  // 缺什么报什么：`frontmatter_after` 与正文是两个独立通道（02 §10.5），合成一句
-  // 「两者都必填」会让调用方看不出究竟缺哪一项——实测本窗口有 5 次失败其实是正文
-  // 已给、`frontmatter_after` 未给，却被读成「要重抄全文」。`frontmatter_after` 传
-  // 空对象 `{}` 合法（各类型入口参数面均标「须携带，可为空对象」）。
   if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
     return invalidRequest("friction-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
   }
@@ -420,13 +352,7 @@ async function executeWriteObject(args, exec, deps) {
     frontmatterRemovals,
     bodyMarkdownAfter,
     changeSummary,
-    // Update path MUST brand the carrier exactly like the create path: a plain
-    // {provider,model} object is rejected by resolveAuthoritativeSignature(), so
-    // passing sig.value here silently wrote an unsigned change_log entry while
-    // the envelope still reported sig.ok === true (no gap). Found 2026-09-12.
     sessionSignature: sig.ok ? sig.value : null,
-    // commit 例外（26 §9.2）：核验 informs 的 commit 目标在本仓真实存在。writer 不自行
-    // 执行 git，故由本层注入——用 execFile 而非 shell，避免命令注入面。
     gitCommitResolver: async (hash) => {
       if (typeof hash !== "string" || !/^[0-9a-f]{40}$/i.test(hash)) return false;
       return new Promise((resolve) => {
@@ -457,8 +383,6 @@ async function executeWriteObject(args, exec, deps) {
       fingerprint: updated.value.fingerprint,
       read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
       changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
-      // 写入侧的警告（如载体内聚差异；21 §263「只报告不阻断」）。放进 result 才能被
-      // renderEnvelope 渲染成 `warning:` 行——只留在 envelope 里模型侧看不见。
       ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
         ? { warnings: updated.value.warnings }
         : {})
@@ -473,15 +397,10 @@ async function executeWriteObject(args, exec, deps) {
 
 function writeRejected(operationKey, failureResult, factSourceRoot) {
   const code = failureResult.error.code;
-  // Mechanical rejections (source-defined conditions refusing the write) vs
-  // availability failures (carrier/IO-level problems). Both are zero-write.
   const mechanicalCodes = new Set([
     "friction/frontmatter_invalid", "friction/body_invalid", "friction/coherence_invalid",
     "friction/initial_state_violation", "friction/status_transition_invalid", "friction/status_terminal",
     "friction/relations_invalid", "friction/relation_target_unresolvable", "friction/occurrence_invalid",
-    // 26 §8/§11 锚点型：attribution_ref 出现时 object_uid 必须可解析为同项目事实
-    // 对象；不可解析即零写拒绝——必须登记在此，否则会被当作 availability 失败
-    // 报成 unavailable（同类教训：漏登记的关系键会静默失败）。
     "friction/attribution_ref_unresolvable",
     "friction/cas_conflict", "friction/change_summary_required", "friction/invalid_uid",
     "invalid_request",
@@ -504,10 +423,6 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Registration (same shape as spark-tools.js — mounted from
-// registerLdvhTools, so tools land only in governed sessions)
-// ---------------------------------------------------------------------------
 
 function text(body) {
   return [{ type: "text", text: body }];
@@ -523,9 +438,6 @@ function renderEnvelope(operationKey, value) {
   if (result?.scope !== undefined) lines.push(`scope: ${result.scope}`);
   if (result?.trigger_signal !== undefined) lines.push(`trigger_signal: ${result.trigger_signal}`);
   if (result?.disposition !== undefined) lines.push(`disposition: ${result.disposition}`);
-  // Full fingerprint, never truncated (03 §9.5): the render output is the
-  // model's only window on the tool result — a truncated fingerprint makes
-  // the CAS baseline unobtainable and blocks every controlled update.
   if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
   if (result?.body_valid !== undefined) lines.push(`body_valid: ${result.body_valid}`);
   if (result?.read_back?.ok !== undefined) lines.push(`read_back: ${result.read_back.ok ? "ok" : "FAILED"}`);
@@ -533,10 +445,6 @@ function renderEnvelope(operationKey, value) {
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
   if (Array.isArray(result?.items)) {
     for (const item of result.items) {
-      // 26 §12 配对反查（2026-10-28）：`paired_with` 必须出现在**模型实际读到的
-      // 那一行**上。规范把它点名为 agent 可达入口，而投影里带该字段、渲染行不印，
-      // 等于入口存在但不可见——「返回所有」在模型侧退化为「看不见任何配对」。
-      // 无配对时不印任何东西（不写「[]」），避免把「无配对」伪装成一个值。
       const paired = Array.isArray(item?.paired_with) && item.paired_with.length > 0
         ? ` (配对: ${item.paired_with.join(", ")})`
         : "";
@@ -545,13 +453,8 @@ function renderEnvelope(operationKey, value) {
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "friction")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
-  // **warnings 必须进模型可见文本**：只留在 envelope 里等于没给（与
-  // `mechanical_issues` 此前「写入路径算出来了、投影与呈现两侧各 0 处命中」
-  // 同一失效模式）。与 gaps 同层渲染，用 `warning:` 前缀区分——gap 是缺口
-  // 披露，warning 是不阻断的提示。
   const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
-  // **follow_up 必须进模型可见文本**（05 §8「给出可继续读取、分页、回读、修复、分流或 Human 决定入口」）。此前本渲染只打 gap:/warning: 行，envelope 里算出的 follow_up 对模型侧那行文本不可见——与「只数据显示在 envelope 等于没给」同一失效模式；Goal/Norm/SubGoal/基础批次四处都已渲染，这里补齐以消除不一致。逐条目 stringify 与 gap/warning 同为结构化记录兜底。
   for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
   return text(lines.join("\n"));
 }
@@ -559,21 +462,14 @@ function renderEnvelope(operationKey, value) {
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
 
 function parameterSchemaFor(operationKey) {
-  // Models mis-shape open objects when they see additionalProperties:true
-  // with no declared properties — every Friction data object declares its
-  // shape explicitly (mirrors 26 §8 field contract).
   const frictionFrontmatter = {
     type: "object",
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; obstacle short title for locating and Human scanning" },
-      status: { type: "string", enum: ["open", "resolved", "voided", "accepted"], description: "create must be open (26 §9 2026-10 修订：观察态已退出闭集，账目初态即待修态); transitions: →resolved (informs 1..n), →voided (no relations, requires disposition), →accepted (no informs, requires non-empty disposition and a 处置 section; the 复审触发 inside it is AI/Human-verified, not machine-checked — 26 §15 内容项); resolved/voided/accepted terminal & read-only. 机械通道不改变任何既有账目的状态——阈值晋升只发生在观察缓冲侧 (11 §12bis.1)" },
+      status: { type: "string", enum: ["open", "resolved", "voided", "accepted"], description: "create must be open (26 §9 2026-10 修订：观察态已退出闭集，账目初态即待修态); transitions: →resolved (informs 1..n), →voided (no relations, requires disposition), →accepted (no informs, requires non-empty disposition and a 处置 section; the 复审触发 inside it is AI/Human-verified, not machine-checked — 26 §15 内容项); resolved/voided/accepted terminal & read-only. 机械通道不改变任何既有账目的状态——阈值晋升只发生在观察缓冲侧 (36 §8.8)" },
       phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section (carrier coherence, 26 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; free text — the root is often a spec/tool/process with no object identity; omit when not yet attributable (backfill via supplement update)" },
-      // 26 §8/§11（2026-10 订正）：规范形态是对象 { object_uid }（锚点型，与
-      // relations 的 target 同一承载）；裸 string 保留为存量兼容分支，排名在
-      // 第一——schema-writer-agreement.test.mjs 的 valueSatisfying 取 oneOf[0]
-      // 造样，string 在前既保持存量样仍是合法样，也不会把对象形态判成不合法。
       attribution_ref: {
         oneOf: [
           { type: "string" },
@@ -586,7 +482,7 @@ function parameterSchemaFor(operationKey) {
         ],
         description: "precise reference to an existing same-project fact object_uid for the root, as the OBJECT form { object_uid: \"<uuid>\" } (26 §8/§11 锚点型, 2026-10 订正 — the same carrier shape as relations.target); a bare uuid string is accepted for legacy carriers only. Optional — when present Code verifies object_uid resolves (26 §8); enables mechanical aggregation by attribution"
       },
-      occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create. count = the number of independent sightings CONFIRMED WHEN THE ENTRY CAME INTO BEING (from the observation group size at promotion time; 1 for a Human-entered entry). It is NOT a threshold input any more — the threshold lives in the observation buffer (11 §9 第 3 项 / §12bis.1). first_at/last_at = earliest/latest sighting time. Frozen once resolved/voided. 例外: voided 且来源为闭集收缩改判者可缺 (26 §14.2). 2026-10 修订已删除 human_return_at：放回留观流转取消，机械通道不再按 count 改任何既有账目状态" },
+      occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create. count = the number of independent sightings CONFIRMED WHEN THE ENTRY CAME INTO BEING (from the observation group size at promotion time; 1 for a Human-entered entry). It is NOT a threshold input any more — the threshold lives in the observation buffer (36 §8.7 第 3 项 / §12bis.1). first_at/last_at = earliest/latest sighting time. Frozen once resolved/voided. 例外: voided 且来源为闭集收缩改判者可缺 (26 §14.2). 2026-10 修订已删除 human_return_at：放回留观流转取消，机械通道不再按 count 改任何既有账目状态" },
 
       disposition: { type: "string", description: "why this entry was voided; REQUIRED iff status=voided, forbidden otherwise (26 §8) — the list card renders it so Human can read the reason without opening the detail page. resolved carries no such field: its outcome is already carried by the informs relation" },
       relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs", "paired-with"] }, target: { type: "object", description: "26 §9.2 commit 例外：解药是一次受控提交且没有任何对象身份时，本形态用 `commit`（40 位 hex）代替 `object_uid`——两种形态互斥。此例外只对 informs 开放（paired-with 不采用，commit 不是「同源跨角色的经验」）。", properties: { object_uid: { type: "string" }, commit: { type: "string" } }, additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "closed set {informs, paired-with} (26 §11, 2026-10-28). informs 1..n points at remedy objects (fact-object uids), appears only on resolved; paired-with points at the same-root cross-role Pitfall and may appear in ANY state (a pair exists whether or not the debt is settled). paired-with resolves in pitfalls/, informs resolves across the existing fact-object directories. **Single-sided storage**: the edge lives ONLY here; the Pitfall side does not carry a reverse edge (23 §11 — a mirrored copy would be a second carrier of the same fact that neither side can mechanically verify, and the two could silently diverge). The reverse direction (which debt corresponds to this experience?) is derived by reverse lookup over this field (26 §12 配对反查; ldvh_friction_list exposes paired_with). Do NOT instruct the Pitfall side to write a matching edge — its writer rejects relations outright" },
@@ -640,9 +536,6 @@ function parameterSchemaFor(operationKey) {
 }
 
 export function toolDescriptorFor(operationKey, operation, handler) {
-  // Register through defineTool so the DSH argument check actually runs: the
-  // bare-descriptor path only asserts output/timeoutMs shape and stores the
-  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
   return defineTool({
     name: operation.toolName,
     description: operation.summary,
@@ -651,9 +544,6 @@ export function toolDescriptorFor(operationKey, operation, handler) {
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);
-        // Prune undefined values (JSON round-trip): the harness lossless-JSON
-        // validation rejects them, and conditional fields legitimately produce
-        // undefined on objects where they are absent.
         return { envelope: JSON.parse(JSON.stringify(result)) };
       } catch (error) {
         return {
@@ -683,72 +573,28 @@ export function registerFrictionTools(ctx, deps) {
   };
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
-    // Coverage is registered from the declaration itself, so the guard's target
-    // set always matches the tools this build really exposes (a hardcoded list
-    // drifts into phantom or stale entries).
     if (operation.writeShaped === true) registerWriteShapedTool(operation.toolName);
     disposers.push(ctx.tools.register(toolDescriptorFor(operationKey, operation, handlers[operationKey])));
   }
   return () => {
     for (const dispose of disposers) {
-      try { dispose(); } catch { /* already removed */ }
+      try { dispose(); } catch {   }
     }
   };
 }
 
 export { OPERATIONS };
 
-// ---------------------------------------------------------------------------
-// 子代理记录面（2026-11-17，00 §4.5 代理辅助任务「发现摩擦」）
-// ---------------------------------------------------------------------------
 
-/**
- * 「记录摩擦观察」操作声明。
- *
- * **为什么需要这一面**：2026-11-17 前，摩擦观察由宿主侧的发现层在闲时派发中写入
- * 缓冲（`friction-discovery.js` 的 `recordObservation`）。机制改为主控发起后，
- * 写入者是**主控派出的执行体**，而该执行体此前**没有任何工具面可写缓冲**——
- * 只有 `ldvh_friction_read/list/write` 三个操作，其中 `write` 写的是**账目**，
- * 不写缓冲，且它要求 Human 确认（绕过 N=3 阈值，26 §16 第 1 项）。
- *
- * 故新增本操作，且**只注册在 child 面**：它是执行体的动作，不是主控的动作。
- * 主控若也能直接写缓冲，则「主控只转发」这条纪律立即失效（主控可自行记录，
- * 无须派代理），而那正是本次机制变更要避免的上下文污染。
- *
- * **effect 是 `may_change_state`**：它写盘（缓冲是运行状态，不构成事实对象），
- * 但**不改任何账目状态**——阈值晋升在同一次派发内由 `runFrictionReviewPromotion`
- * 完成，不由本操作完成（11 §9 第 3 项、36 §15.1 的机械通道边界）。
- */
 const RECORD_OBSERVATION_OPERATION = Object.freeze({
   toolName: "ldvh_friction_record_observation",
   writeShaped: true,
   childOnly: true,
   summary:
-    "Record ONE friction observation into the observation buffer (11 §12bis.1) as the delegate of a main controller that reported an obstacle. Records always; promotion to an open ledger entry happens only when same-group count reaches N=3 within the same dispatch (26 §10). This does NOT create a Friction ledger object and does NOT change any ledger status.",
+    "Record ONE friction observation into the observation buffer (36 §8.8) as the delegate of a main controller that reported an obstacle. Records always; promotion to an open ledger entry happens only when same-group count reaches N=3 within the same dispatch (26 §10). This does NOT create a Friction ledger object and does NOT change any ledger status.",
   effect: "may_change_state",
 });
 
-/**
- * 注册**子代理**的摩擦记录面（`surface: "child"`）。
- *
- * 与 `registerFrictionTools` 分开成两个函数，而不加 `surface` 参数：两者的操作集
- * **不相交**——根面是 read/list/write（账目），子面只有 record（缓冲）。若合成一个
- * 函数再按 surface 过滤，`OPERATIONS` 就要同时承载两种语义不同的对象（账目 vs
- * 缓冲），而它们的字段闭集、受控写入要求、fail-closed 处置都不同。分开更清楚。
- *
- * @param {object} ctx - 子代理的 ctx（`agent.ctx`）。
- * @param {object} deps - 依赖注入。
- * @param {object} deps.dshHomePath - 宿主 home 路径（缓冲按项目分区）。
- * @param {() => Promise<string|{id:string,path:string}|null>} deps.resolveProjectId -
- *   解析当前项目。返回 `{id, path}` 时执行体会顺带做阈值晋升（建账需要 `path`）；
- *   只返回裸 id 时晋升被如实跳过（`promotion.reason = "no-project-path"`）。
- * @param {() => string|null} deps.resolveSessionId - 解析当前会话 id（写入署名）。
- * @param {() => object|null} [deps.sessionPersistence] - 宿主会话持久化服务（晋升署名）。
- * @param {() => boolean} [deps.isFrictionDiscoveryEnabled] - 本次是否启用发现摩擦
- *   （每次现读）；缺省视为 true（兼容旧调用方/测试）。返回 false 时整次调用
- *   拒绝写入缓冲，也不做阈值晋升。
- * @returns {() => void} 释放函数。
- */
 export function registerFrictionChildSurface(ctx, deps) {
   const operation = RECORD_OBSERVATION_OPERATION;
   registerWriteShapedTool(operation.toolName);
@@ -767,12 +613,12 @@ export function registerFrictionChildSurface(ctx, deps) {
         evidence: {
           type: "string",
           description:
-            "The verbatim fragment from the material the main controller delivered, plus its source anchor. Must be copied exactly — a paraphrase makes the observation unverifiable (11 §18「逐字引证」).",
+            "The verbatim fragment from the material the main controller delivered, plus its source anchor. Must be copied exactly — a paraphrase makes the observation unverifiable (36 §14「逐字引证」).",
         },
         group: {
           type: "string",
           description:
-            "Aggregation key for the same-root obstacle. Same group ⇒ same obstacle recurring; the threshold N=3 counts per group (11 §9 第 3 项). Choose it so that the SAME obstacle seen twice yields the SAME key.",
+            "Aggregation key for the same-root obstacle. Same group ⇒ same obstacle recurring; the threshold N=3 counts per group (36 §8.7 第 3 项). Choose it so that the SAME obstacle seen twice yields the SAME key.",
         },
         title: {
           type: "string",
@@ -790,7 +636,7 @@ export function registerFrictionChildSurface(ctx, deps) {
         target_uid: {
           type: "string",
           description:
-            "OPTIONAL. When the obstacle already has an OPEN ledger entry, pass its object_uid: the observation then becomes a supplement-level count increment on that entry (11 §9 第 4 项) instead of a new group. Omit when this is a new obstacle.",
+            "OPTIONAL. When the obstacle already has an OPEN ledger entry, pass its object_uid: the observation then becomes a supplement-level count increment on that entry (36 §8.7 第 4 项) instead of a new group. Omit when this is a new obstacle.",
         },
         anchor: {
           type: "string",
@@ -802,13 +648,6 @@ export function registerFrictionChildSurface(ctx, deps) {
       additionalProperties: false,
     }),
     execute: async (args) => {
-      // ── 设置面开关（2026-11-18，D3）─────────────────────────────────────
-      //
-      // **每次现读**：配置是 volatile 字段，装配时取值会把「Human 之后关掉开关」
-      // 定格在旧值上，于是出现「设置面关了、子代理仍照写」的失效。故由调用方
-      // 传函数；缺省不传视为启用（兼容旧调用方与直接构造的测试）。
-      //
-      // 关闭时在**任何副作用之前**返回：不写缓冲、不建账、不晋升。
       if (typeof deps.isFrictionDiscoveryEnabled === "function"
         && deps.isFrictionDiscoveryEnabled() === false) {
         return {
@@ -818,7 +657,6 @@ export function registerFrictionChildSurface(ctx, deps) {
         };
       }
       const project = await deps.resolveProjectId();
-      // 兼容两种返回：`{id, path}`（lifecycle 注入，晋升需要 path）与裸 id 字符串。
       const projectId = typeof project === "string" ? project : project?.id;
       const projectPath = typeof project === "object" ? project?.path : undefined;
       if (typeof projectId !== "string" || projectId.length === 0) {
@@ -826,7 +664,7 @@ export function registerFrictionChildSurface(ctx, deps) {
           ok: false,
           error: "friction_observation/no_project",
           message:
-            "No governed project could be resolved for this session — an observation cannot be recorded without a project partition (11 §12bis.1).",
+            "No governed project could be resolved for this session — an observation cannot be recorded without a project partition (36 §8.8).",
         };
       }
       const session = deps.resolveSessionId() ?? undefined;
@@ -851,14 +689,6 @@ export function registerFrictionChildSurface(ctx, deps) {
         };
       }
 
-      // ── 机械收尾：同一次派发内的阈值晋升与补充级更新（11 §9 第 3／4 项）────
-      //
-      // **由本执行体顺带做，不再另派一个代理**（Human 2026-11-17）。晋升是纯机械的
-      // （N=3 固定内嵌、group 相等比较、标题/依据/归因已随条目落进缓冲），不需要
-      // 模型调用，故它就是「跑完后顺带」的那一步，而不是第二次派发。
-      //
-      // **记录成功不因收尾失败而作废**：观察已经落进缓冲（第 2 项已完成），收尾失败
-      // 只如实登记在回执里（§12：不静默跳过），由主控在交还时如实转述。
       let promotion = { skipped: true, reason: "no-project-path" };
       if (typeof projectPath === "string" && projectPath.length > 0) {
         try {
@@ -878,7 +708,6 @@ export function registerFrictionChildSurface(ctx, deps) {
             }),
           });
           if (locked?.skipped) {
-            // 锁被占用＝另一个会话正在做同一件事。如实记账，不静默跳过。
             promotion = { skipped: true, reason: locked.reason ?? "locked" };
           } else if (locked?.value?.ok) {
             promotion = {
@@ -886,10 +715,6 @@ export function registerFrictionChildSurface(ctx, deps) {
               promoted: locked.value.value.promotions.length,
               supplemented: locked.value.value.supplemented.length,
             };
-            // **residual 必须带出**（11 §12：不静默跳过）。晋升函数把单条失败记进
-            // residual 后仍返回 ok:true——若回执只报 promoted/supplemented 两个计数，
-            // 「0 条晋升」看起来与「没有达阈值的组」完全同形，而真实原因（如署名不可用）
-            // 被丢掉。那正是本仓反复记载的「看似工作而实则停滞」失效形态。
             const residual = locked.value.value.residual ?? [];
             if (residual.length > 0) promotion.residual = residual;
           } else {
@@ -912,13 +737,13 @@ export function registerFrictionChildSurface(ctx, deps) {
         group_pending_count: result.value?.group_pending_count ?? null,
         promotion,
         note:
-          "Observation recorded. Promotion to an open ledger entry was attempted in this same dispatch (11 §9 items 3/4); see `promotion` for the outcome. This tool does NOT create a Friction ledger object directly and does NOT change any ledger status.",
+          "Observation recorded. Promotion to an open ledger entry was attempted in this same dispatch (36 §8.7 items 3/4); see `promotion` for the outcome. This tool does NOT create a Friction ledger object directly and does NOT change any ledger status.",
       };
     },
   };
 
   const dispose = ctx.tools.register(descriptor);
   return () => {
-    try { dispose(); } catch { /* already removed */ }
+    try { dispose(); } catch {   }
   };
 }

@@ -26,7 +26,6 @@ import { getFactReadMeta, isReadableFact } from '@/utils/factReadMeta';
 import { usePanel } from '@/utils/panelContext';
 import { LDVH_WARN_SURFACE_CLASS } from '@/utils/semanticColors';
 
-/** Reads the deliberately minimal relation contract, not source or evidence projections. */
 export function FactAssociationsSection({
   obj,
   locale,
@@ -40,9 +39,6 @@ export function FactAssociationsSection({
 }) {
   const [state, setState] = useState<ReadingNodeState>('expanded');
   const associations = projectFactReadingAssociations(obj);
-  // 03 §7.2 关联引用型 / 20 §8：refs 是普通内容关联，与 relations 并列呈现、
-  // 语义互不并入（relations 承载生命周期关系）。二者共用同一种可点行渲染，
-  // 但数据上始终是两个独立集合。
   const refs = projectFactReadingRefs(obj);
   if (associations.relations.length === 0 && associations.unresolved.length === 0 && refs.length === 0) return null;
   const currentProjectId = getCurrentProjectId(obj);
@@ -69,12 +65,6 @@ export function FactAssociationsSection({
   );
 }
 
-/**
- * refs 关联对象行（03 §7.2 关联引用型 / 20 §8）。
- *
- * 与 RelationGroup 并列但**独立**：refs 不定义 relation key、不参与关系
- * 闭集校验，因此这里不渲染 relation key chip，也不并入 relations 列表。
- */
 function RefGroup({ refs, currentProjectId, locale }: {
   refs: ReadingRef[];
   currentProjectId?: string;
@@ -90,15 +80,6 @@ function RefGroup({ refs, currentProjectId, locale }: {
   );
 }
 
-/**
- * 单条 refs 目标行：复用与 relations 相同的可点行形态（图标 + 标题 + 状态
- * 徽章 + 跳转箭头）。
- *
- * Hook 纪律：本组件无条件调用 usePanel/useState/useEffect，**是否可读的分支
- * 在 hook 之后**——否则条件挂载会破坏 hook 调用序（react-hooks/rules-of-hooks）。
- * 目标不可读时如实标注 uid，不伪造本地对象（03 §7.2 第 5 条同精神：目标解析
- * 失败不得降级为「无关联」）。
- */
 function RefTarget({ entry, currentProjectId, locale }: {
   entry: ReadingRef;
   currentProjectId?: string;
@@ -108,8 +89,6 @@ function RefTarget({ entry, currentProjectId, locale }: {
   const [detail, setDetail] = useState<ObjectDetail | null>(null);
   const locator = entry.resolvedTarget;
   const readable = Boolean(locator && currentProjectId && locator.governedProjectId === currentProjectId);
-  // effect 只消费这两个标量。依赖整个 locator 对象会在其每次新建时重取详情，故先在
-  // 渲染期取出，使依赖数组与 effect 真正读取的值一致（react-hooks/exhaustive-deps）。
   const locatorFactTypeKey = locator?.factTypeKey;
   const locatorObjectId = locator?.objectId;
 
@@ -218,7 +197,6 @@ function groupRelationsByRelationKey(relations: ReadingRelation[]): Array<{ key:
   return [...grouped.entries()].map(([key, items]) => ({ key, relations: items }));
 }
 
-/** A target is resolved on demand; title and status are never duplicated into relations. */
 function RelationTarget({ relation, currentProjectId, locale, showRelationKey }: {
   relation: ReadingRelation;
   currentProjectId?: string;
@@ -226,9 +204,6 @@ function RelationTarget({ relation, currentProjectId, locale, showRelationKey }:
   showRelationKey: boolean;
 }) {
   const target = relation.target;
-  // 02 §8.1「commit 形态」：解药是一次受控提交，不是事实对象——跳提交详情页。
-  // 必须在两个对象分支之前判定：commit 目标既无 resolvedTarget 也无
-  // governedProjectId，落到最后的 ExternalRelationTarget 会被当外链渲染。
   if ('commit' in target) {
     return <CommitRelationTarget relation={relation} locale={locale} showRelationKey={showRelationKey} />;
   }
@@ -249,11 +224,8 @@ function ReadableRelationTarget({ relation, locale, showRelationKey }: {
 }) {
   const target = relation.target;
   const locator = relation.resolvedTarget ?? ('governedProjectId' in target ? target : null);
-  // Hook 纪律：hook 必须先于任何条件分支调用，否则 locator 从有到无（或反之）
-  // 会破坏调用序（react-hooks/rules-of-hooks）。
   const { isOpen: panelOpen, content: panelContent, openPanel } = usePanel();
   const [detail, setDetail] = useState<ObjectDetail | null>(null);
-  // 同 RefTarget：effect 只消费这两个标量，取出后依赖数组与读取值一致。
   const locatorFactTypeKey = locator?.factTypeKey;
   const locatorObjectId = locator?.objectId;
 
@@ -305,13 +277,6 @@ function relationTargetTitle(detail: ObjectDetail | null, readMeta: ReturnType<t
   return getLocalizedObjectTitle(source, locale);
 }
 
-/** A target outside the currently readable project remains a reference, not a fabricated local object. */
-/**
- * 02 §8.1「commit 形态」的目标行：解药是一次受控提交，点击进入提交详情页
- * （/changelog/:hash，与 Changelog 列表同一入口）。提交不是事实对象，故没有
- * 标题/状态可展示——显示短 hash 并在悬停时给出全 hash（08 §5 的引用纪律：
- * 不复制目标标题进关系，本行只呈现定位所需的最小信息）。
- */
 function CommitRelationTarget({ relation, locale, showRelationKey }: {
   relation: ReadingRelation;
   locale: string;
@@ -321,8 +286,6 @@ function CommitRelationTarget({ relation, locale, showRelationKey }: {
   const target = relation.target;
   if (!('commit' in target)) return null;
   const short = target.commit.slice(0, 7);
-  // 标题由服务端随关联投影带出（见 api/services/facts.ts 与 factReadingProjection）；
-  // 缺失时退回短 hash——定位符可读，但不冒充内容。
   const subject = relation.resolvedCommitTitle ?? short;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -338,7 +301,7 @@ function CommitRelationTarget({ relation, locale, showRelationKey }: {
       onKeyDown={onKeyDown}
       className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-2 transition-colors hover:bg-ldvh-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/45"
     >
-      {/* 提交图标（复用侧栏「提交」那一项）；标题行只显示标题，hash 由 title 属性承担 */}
+      { }
       <CommitRelationIcon size={13} className="shrink-0 text-ldvh-text-secondary" />
       {showRelationKey && <RelationKeyChip relationKey={relation.relationKey} locale={locale} />}
       <span className="ldvh-meta-primary min-w-0 flex-1 truncate">{subject}</span>
@@ -352,8 +315,6 @@ function ExternalRelationTarget({ relation, locale, showRelationKey }: {
   showRelationKey: boolean;
 }) {
   const target = relation.target;
-  // commit 目标由 CommitRelationTarget 承接，不落到这里——此函数只处理两种对象
-  // locator 形态。收窄以满足类型：commit 分支在此不可达。
   if ('commit' in target) return null;
   const isUid = 'objectUid' in target;
   const factTypeKey = isUid ? 'uid' : target.factTypeKey;

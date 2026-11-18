@@ -32,7 +32,7 @@ export const GATE_RULES = Object.freeze({
   "validation/signature_model_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Model does not match the authoritative session record" }),
   "validation/signature_source_unverifiable": Object.freeze({ severity: "blocking", description: "the authoritative route could not be resolved inside the commit-msg Hook, so the trailers' traceability cannot be verified — 09 §5.5 非 passed 即阻断; rule established by the 09 §8.1 item 2 decision (Human 2026-11-05)" }),
   "git/index_empty": Object.freeze({ severity: "blocking", description: "candidate Index is empty" }),
-  "facts/norm_direction_collision": Object.freeze({ severity: "blocking", description: "two or more ACTIVE Norm objects in ldvh-base/norms/ share one direction_key (27 §11 uniqueness second layer: the Git Gate traverses the index and refuses the commit)" }),
+  "facts/norm_direction_collision": Object.freeze({ severity: "blocking", description: "two or more ACTIVE Norm objects in ldvh-base/norms/ share one direction_key (23 §11 uniqueness second layer: the Git Gate traverses the index and refuses the commit)" }),
   "facts/norm_carrier_unparseable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base/norms/norm-*.md carrier cannot be parsed for the direction_key uniqueness assertion — an unreadable carrier cannot be proven conflict-free, so the gate fails closed rather than passing it" }),
   "validation/docs_reference_dangling": Object.freeze({ severity: "blocking", description: "a newly added or modified non-docs carrier references a docs/ path that does not exist in the candidate tree (09 §5.3 item 5, Human 2026-10-12: docs/ holds temporary documents only and must not be relied on as an authority)" }),
   "validation/load_bearing_declaration_removed": Object.freeze({ severity: "blocking", description: "a load-bearing declaration present at HEAD is absent from the candidate and no 关键变更 item carries a resolvable independent-review reference (01 §7 末段; 09 §5.3 item 6, Human 2026-10-15)" }),
@@ -256,7 +256,7 @@ export function checkNormDirectionUniqueness(carriers) {
   for (const carrier of carriers) {
     const parsed = parseNormCarrierFrontmatter(carrier.content);
     if (!parsed.ok) {
-      issues.push(newFinding("facts/norm_carrier_unparseable", `${carrier.path}: ${parsed.reason} — cannot prove this carrier conflict-free (27 §11 second layer fails closed)`, null));
+      issues.push(newFinding("facts/norm_carrier_unparseable", `${carrier.path}: ${parsed.reason} — cannot prove this carrier conflict-free (23 §11 second layer fails closed)`, null));
       continue;
     }
     const { status, direction_key: directionKey } = parsed.frontmatter;
@@ -275,7 +275,7 @@ export function checkNormDirectionUniqueness(carriers) {
     if (group.length > 1) {
       issues.push(newFinding(
         "facts/norm_direction_collision",
-        `${group.length} active Norm objects share direction_key "${directionKey}" (27 §11: Count(direction_key=d ∧ status=active) ≤ 1) — ${group.map((g) => g.path).join(", ")}; retire all but one before committing`,
+        `${group.length} active Norm objects share direction_key "${directionKey}" (23 §11: Count(direction_key=d ∧ status=active) ≤ 1) — ${group.map((g) => g.path).join(", ")}; retire all but one before committing`,
         null
       ));
     }

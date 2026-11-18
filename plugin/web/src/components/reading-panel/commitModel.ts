@@ -80,16 +80,9 @@ export function getCommitNodeNextState(state: 'collapsed' | 'expanded') {
   return state === 'collapsed' ? 'expanded' : 'collapsed';
 }
 
-// specs/03 §9.8 固定提交正文小标题集；渲染必须忠实，不得增删或改义。
 const COMMIT_BODY_SECTION_TITLES = new Set(['关键变更', '动机', '验证结论', '影响边界', '风险与后续']);
-// v5 权威键 LDVH-Provider/LDVH-Model 与 v4 兼容键一并剥离——trailer 是机器
-// 署名数据，不进关键变更等正文阅读段（署名字段由提交详情的署名区呈现）。
 const COMMIT_SIGNATURE_TRAILER = /(?:^|\n)\s*(?:LDVH-Provider|LDVH-Model|LDVH-Product-Name|LDVH-Model-Name|Session-ID|Signer-Type|Agent-ID|Host-Environment|Model-ID|Agent-Workbench|Workbench-Name):\s*/i;
 
-/**
- * Keep signature trailers out of the prose sections they follow.
- * Their readable fields are rendered as dedicated commit metadata instead.
- */
 export function stripCommitSignatureTrailers(value: string): string {
   const match = value.match(COMMIT_SIGNATURE_TRAILER);
   return match?.index === undefined ? value.trim() : value.slice(0, match.index).trim();

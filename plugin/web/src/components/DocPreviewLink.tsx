@@ -14,7 +14,6 @@ export default function DocPreviewLink({ docs, variant = 'card' }: DocPreviewLin
   if (docs.length === 0) return null;
 
   const handleClick = (docPath: string) => {
-    // Emit custom event for right panel consumption
     const event = new CustomEvent('ldvh:doc-preview', {
       detail: { path: docPath },
       bubbles: true,

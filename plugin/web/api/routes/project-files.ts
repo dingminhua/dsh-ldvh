@@ -1,7 +1,3 @@
-/**
- * Project files API：管辖项目文件浏览、Markdown/文本读取和 Git 工作区 diff。
- * 所有接口均为只读能力，不提供暂存、提交、还原或删除。
- */
 
 import { Router, type Request, type Response } from 'express'
 import { lstat, readdir, readFile, stat } from 'fs/promises'

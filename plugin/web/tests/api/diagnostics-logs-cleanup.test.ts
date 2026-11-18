@@ -1,14 +1,3 @@
-/**
- * 运行账清理的契约（`/api/diagnostics/logs/preview|clean`）。
- *
- * 这组用例守的是**不可逆操作的安全边界**，不是像素：
- *   1. **历史水位与已退役队列不可清** —— 清它们须是显式决定，不混进常规清理；
- *   2. **预览与真删同源** —— 界面说删 N 条，真删就必须是 N 条；
- *   3. **判定不了时间的记录原样保留** —— 删一条读不懂的记录，是用解析失败
- *      换一次静默损失；
- *   4. **清理前必有备份** —— 且备份内容与原文件一致；
- *   5. **清理后 /gate 缓存必须失效** —— 否则页面会显示清理前的旧数字。
- */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -42,7 +31,6 @@ test('历史水位与已退役队列都不在可清理清单里', () => {
     !ids.some((id) => id.includes('watermark')),
     `任何水位类载体都不得出现在可清理清单；实际=${JSON.stringify(ids)}`,
   )
-  // 反向确认清单非空（否则上面的断言会因"什么都没列"而空转通过）。
   assert.ok(ids.length >= 2, `可清理目标应有若干项；实际=${ids.length}`)
   assert.ok(!ids.includes('pending-queue'), '待处置队列已退役（2026-11-17），存量文件不进常规清理清单')
 })
@@ -70,7 +58,6 @@ test('预览不写任何文件（dryRun 必须无副作用）', async () => {
   assert.equal(preview.targets[0].removing, 2, '10 天前与 5 天前应被计入删除')
   assert.equal(preview.targets[0].keeping, 1)
 
-  // 关键：文件逐字未变。
   assert.equal(await readFile(file, 'utf8'), body, '预览不得改写文件')
 })
 
@@ -190,7 +177,6 @@ test('队列备份清理项已删除（2026-11-17：队列退役，备份口径�
 
 test('清理后 /gate 缓存须失效——否则页面显示清理前的旧数字', async () => {
   const home = await makeHome()
-  // 造一个空会话目录：两次调用应命中缓存（第二次 0ms 级），但失效后须重算。
   const workspaceRoot = path.join(home, 'proj')
   await mkdir(path.join(home, 'sessions'), { recursive: true })
 

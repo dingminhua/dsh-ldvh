@@ -1,4 +1,3 @@
-// Human Gate 接缝：使用模拟 answerer，不发真实提问、不写项目事实源。
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";

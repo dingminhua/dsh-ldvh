@@ -1,6 +1,3 @@
-// 版本序比较单测 — lib/host-version.js（guide 区间筛选的底座）。
-// 纯函数测试，零外部依赖。重点覆盖 DSH 实际用到的预发布序：alpha < rc、
-// 同号段数字序、正式版 > 任何预发布、以及形态不符 fail-closed。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseVersion, compareVersions, tagVersion, inInterval } from "../lib/host-version.js";

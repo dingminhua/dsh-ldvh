@@ -1,12 +1,4 @@
-/**
- * Web 呈现偏好（项目颜色）——插件侧读写。
- *
- * 载体：dshHome 下 ldvh/web-preferences.yaml（与登记载体同目录），键为项目 ID，
- * 值必须为色板键名闭集成员。颜色是呈现偏好不是管辖事实：独立于
- * governed-projects.yaml（那是安装事务的地盘），Web 侧与插件设置卡共用本模块。
- */
 
-/** 十色板键名闭集——与 plugin/web/shared/projectColors.ts 同源（两处闭集必须同步演进）。 */
 export const PROJECT_COLOR_KEYS = Object.freeze([
   "emerald",
   "sky",
@@ -24,7 +16,6 @@ export function isProjectColorKey(value) {
   return typeof value === "string" && PROJECT_COLOR_KEYS.includes(value);
 }
 
-/** CSS 变量名（--ldvh-pj-<key>，亮暗值定义在 Web 的 index.css）。 */
 export function projectColorVar(key) {
   return `var(--ldvh-pj-${key})`;
 }
@@ -67,7 +58,6 @@ export async function readProjectColors(dshHomePath) {
   }
 }
 
-/** 读登记项目（id/name/path）并合并颜色——供设置卡与 Web API 呈现。 */
 export async function readGovernedProjectsWithColors(dshHomePath) {
   const [registration, colors] = await Promise.all([
     import("./governed-projects.js").then((m) => m.readGovernedProjects(dshHomePath)),
@@ -81,10 +71,6 @@ export async function readGovernedProjectsWithColors(dshHomePath) {
   return { ok: true, value: { ...registration.value, projects } };
 }
 
-/**
- * 更新单项目颜色。color 为 null/undefined 表示清除（回到按 ID 哈希的自动取色）。
- * 写入原子（临时文件+改名），全部清除时删除偏好文件。
- */
 export async function updateProjectColor(dshHomePath, projectId, color) {
   if (color !== null && color !== undefined && !isProjectColorKey(color)) {
     return { ok: false, error: { code: "invalid_color", message: `颜色必须是预制色板键名：${PROJECT_COLOR_KEYS.join("/")}`, details: {} } };
@@ -111,18 +97,6 @@ export async function updateProjectColor(dshHomePath, projectId, color) {
   return readGovernedProjectsWithColors(dshHomePath);
 }
 
-/**
- * 取路径最后一段。
- *
- * **必须按平台分隔符切分**（2026-11-02 修）。原实现只 `split("/")`：Windows 上
- * `dshHomePath()` 产出的是 `C:\Users\...\web-preferences.yaml`，按 `/` 切分得不到
- * 任何分段，函数原样返回**整条路径**，于是临时文件名变成
- * `.<整条路径>.uuid.tmp`——其中含盘符冒号与反斜杠，`writeFile` 直接抛 ENOENT，
- * 插件侧改项目颜色（`POST /ldvh/api/governed-projects/color`）整条路径不可用。
- *
- * 交由 `node:path` 的 `basename` 判定，天然兼容 `\` 与 `/` 两种分隔符；POSIX 上
- * 行为与原来一致（`a/b/c.yaml` → `c.yaml`）。
- */
 async function basename(filePath) {
   const { basename: pathBasename } = await import("node:path");
   return pathBasename(filePath);

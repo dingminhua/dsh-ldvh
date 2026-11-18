@@ -9,9 +9,7 @@
     @apply text-lg font-semibold leading-7 text-ldvh-text-primary;
   }
 
-  /* 统计大数字：卡片/面板内的关键计数（联邦计数、commit 数等）。
-     tabular-nums 保证数字等宽对齐；与页面标题同号但语义不同，仅供统计数值。 */
-  .ldvh-stat-value {
+    .ldvh-stat-value {
     @apply text-lg font-semibold leading-6 tabular-nums text-ldvh-text-primary;
   }
 
@@ -23,45 +21,19 @@
     @apply text-sm font-semibold leading-5 text-ldvh-text-primary;
   }
 
-  /* 卡片标题（16px / 24px / 500）。
-   *
-   * 字号沿革（Human 2026-09-08 当天三次改口，务必读完再动）：
-   *   08:41 8cfba19 全部标题缩 2 级 → 14px
-   *   08:45 c4bf4e4 Human 二次定案「卡片标题回到 16px」→ 16px
-   *   08:51 cacd71a Human 定 → 14px  ← 曾是最后一次
-   *   2026-10-05 Human 复核后回到 16px：卡片上 chip 盒高 18px 与标题行高
-   *   20px 之比达 0.90，一排彩色胶囊与标题行几乎齐平，标题压不住标签；
-   *   回到 24px 行高后该比值降至 0.75，接近详情页（18px 标题 / 28px 行高，
-   *   比值 0.64）的层级感。这次不是审美偏好，是针对**可度量的比例失调**。
-   *
-   * 与之配套的 `ldvh-object-title-tray-compact`（min-h-9 = 36px）正是为
-   * 16px/24px + py-1.5(12px) = 36px 而设，回 14px 时 min-h 反而是空撑。 */
-  .ldvh-card-title {
+    .ldvh-card-title {
     @apply text-base font-medium leading-6 text-ldvh-text-primary;
   }
 
-  /* Shared neutral surface for an object title on cards and reading headers. */
-  .ldvh-object-title-tray {
+    .ldvh-object-title-tray {
     @apply min-h-11 rounded-md border border-ldvh-border/45 bg-ldvh-bg/40;
   }
 
-  /* 列表卡标题带：16px/24px 正文 + py-1.5(12px) = 36px，恰等于 min-h-9。 */
-  .ldvh-object-title-tray-compact {
+    .ldvh-object-title-tray-compact {
     @apply min-h-9 py-1.5;
   }
 
-  /* 对象卡框：列表卡、聚焦页待决定事项卡、聚焦页近期动态行与 Spark 健康度行**共用**
-   * 同一个外框（Human 2026-11-03 定案：「这里的样式要和待决定事项一样，要有个外框」）。
-   *
-   * 此前后两者没有外框——它们只有标题那一行套着 `ldvh-object-title-tray`（标题带），
-   * 于是同页里「待决定事项」是整块有框的卡，而「近期动态」「Spark 健康度」读起来像
-   * 一张无框的流水账：标题带被当成了卡的外框，读者要自己把元信息行与时间戳行归到
-   * 标题那条上去。
-   *
-   * 标题带**保留**：它是 `docs/01` §1.10「统一要求」第 4 条（对象标题必须落在标题带
-   * 内）与 §1.8.1 的组件契约，与卡框是两层不同的东西——卡框圈住**整条记录**，
-   * 标题带圈住**标题本身**。两者并存正是对象列表卡的既有形态。 */
-  .ldvh-object-card-frame {
+    .ldvh-object-card-frame {
     @apply flex min-w-0 flex-col gap-2 rounded-lg border border-ldvh-border bg-ldvh-panel p-3 text-left;
   }
 
@@ -69,18 +41,7 @@
     @apply text-base font-semibold leading-6 text-ldvh-text-primary;
   }
 
-  /*
-   * 分区标题：tab 型页面（帮助页）当前分区名（h2）。
-   *
-   * **为什么单独一档、比页面标题大一号**：页名（「帮助」）在左侧导航里已经出现过，它是
-   * 站点里的一个标签；分区标题是读者此刻真正在读的那句话（「如何开始：先定项目，再立目标」）。
-   * 两级标题同号同重时，扫页分不清「我在哪个分区」——所以给它独立一档 20px，
-   * 与页面标题 18px、卡片标题 16px 拉开三档。
-   *
-   * **它不替代 `ldvh-card-title-prominent`**：后者按 `docs/01` §1.5 第 3 条只用于
-   * 「同一卡片承载多个 Human 判断区」的对象主标题，不得代替页面或详情标题。
-   */
-  .ldvh-region-title {
+    .ldvh-region-title {
     @apply text-xl font-semibold leading-7 text-ldvh-text-primary;
   }
 
@@ -139,42 +100,15 @@
     @apply text-xs font-medium leading-4;
   }
 
-  /* 短句标签（12px/16px/500 + 几何）：一屏扫得完的**否定项清单**用它。
-   *
-   * `ldvh-chip` 只给文字样式、没有几何；`ldvh-chip-sm` 是 18px 固定盒高（状态/优先级
-   * 徽标）；本 token 补的是第三种形态——圆角矩形 + 内边距 + 四边同宽边框，装的是
-   * 「这些都不能单独证明……」这类短语，而不是状态或类型。
-   *
-   * **为什么单列**：调用方只给底色与文字色，几何在这里给一次。帮助页的标签阵列
-   * （七个否定项）是本页唯一的用法；它若在别处再出现，走这一个 token，不另抄几何。 */
-  .ldvh-chip-tag {
+    .ldvh-chip-tag {
     @apply inline-flex items-center rounded-md border border-ldvh-border bg-ldvh-panel px-2.5 py-1.5 text-xs font-medium leading-4;
   }
 
-  /* Compact chip for tight 18px status/priority badges. Kept as a semantic
-     token so callers never hand-roll a bare `text-[10px]`, matching the
-     type-scale rule in docs/01 §1.4.
-
-     字号 11px（Human 2026-10-05 定）：原 10px 时汉字墨迹仅 8.8px、占 18px 盒高
-     的 49%，Human 反馈「汉字看起来偏小」。汉字墨迹与字号几乎 1:1（8.8/10），而
-     拉丁大写字母只占约 0.74em（7.39/10），故同一个 10px 档里汉字显得单薄。
-     提到 11px 后汉字墨迹 9.68px（占盒高 54%），汉字/拉丁的比例关系保持不变
-     （两档均为 119%）——**只放汉字会把这比例拉到 131%，那是另一种不齐**，故整体提档。
-     行高同步 12px→13px；18px 固定盒高仍有余量，居中不变。 */
-  .ldvh-chip-sm {
+    .ldvh-chip-sm {
     @apply inline-flex h-[18px] shrink-0 items-center justify-center gap-0.5 rounded-md border px-1.5 text-[11px] font-medium leading-[13px];
   }
 
-  /* Fully-rounded inline pill for short identifying marks (project entry tags,
-     default-project / main-worktree callouts). Previously these four call sites
-     each hand-rolled `rounded-full border … px-1.5 py-0.5 text-xs font-semibold
-     leading-none` — the "every site writes its own variant" pattern that
-     docs/01 §1.3/§1.4 forbids. Kept distinct from `ldvh-chip-sm`: that token is
-     a fixed-height 18px rectangle for card-header status chips, whereas this is
-     a radius-9999px pill whose height follows its own line box.
-
-     Callers supply only colour classes (border/bg/text); geometry lives here. */
-  .ldvh-pill {
+    .ldvh-pill {
     @apply inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-xs font-semibold leading-none;
   }
 
@@ -246,8 +180,7 @@
     @apply p-6;
   }
 
-  /* 折叠内容不应因主区滚动条出现/消失而改变可用宽度。 */
-  .ldvh-main-scroll {
+    .ldvh-main-scroll {
     scrollbar-gutter: stable;
   }
 
@@ -255,19 +188,15 @@
     @apply flex flex-wrap items-start justify-between gap-4 border-b border-ldvh-border pb-4;
   }
 
-  /* 图标按钮（ghost）：跨页面复用的中性操作入口（复制/展开/关闭等）。
-     单一来源——此前同一串类名在 7 处各抄一份（10 §5.5 单一来源纪律）。 */
-  .ldvh-icon-button {
+    .ldvh-icon-button {
     @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50;
   }
 
-  /* 加载指示（spinner）：替代 6 处各写一份的同一串动画类（单一来源）。 */
-  .ldvh-spinner {
+    .ldvh-spinner {
     @apply h-6 w-6 animate-spin rounded-full border-2 border-ldvh-accent border-t-transparent;
   }
 
-  /* 工作台面板壳：页面主内容的分栏外壳（ProjectFiles / Changes 共用，4 处各抄一份→单源）。 */
-  .ldvh-pane {
+    .ldvh-pane {
     @apply min-w-0 rounded-lg border border-ldvh-border bg-ldvh-panel xl:flex xl:min-h-0 xl:flex-col;
   }
 
@@ -289,9 +218,7 @@
 
   .ldvh-section-grid {
     display: grid;
-    /* Cards retain their own content height; a taller neighbour must not turn
-       the short card's bottom padding into an oversized visual gap. */
-    align-items: start;
+        align-items: start;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
     gap: 1.5rem;
   }
@@ -302,11 +229,7 @@
     gap: 0.75rem;
   }
 
-  /* 次级面板网格：聚焦页「近期动态」下方的用量条/统计块（16rem 下限、1rem 间距）。
-     此前该处是全站**唯一**内联手写 `grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))]`
-     的网格——其余网格一律走语义 token，故此处补齐为 token，使列数仍由容器宽度决定
-     （docs/01 §1.5 禁按视口断点定列数），且该取值不再散落在业务组件里。 */
-  .ldvh-subgrid {
+    .ldvh-subgrid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
     gap: 1rem;
@@ -329,8 +252,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Light theme (default) — RGB channels for Tailwind alpha support */
-  --ldvh-bg: 248 249 251;
+    --ldvh-bg: 248 249 251;
   --ldvh-panel: 255 255 255;
   --ldvh-border: 229 231 235;
   --ldvh-text-primary: 24 24 27;
@@ -349,8 +271,6 @@
   color-scheme: dark;
 }
 
-/* 项目色彩标识（全部管辖计划 Step 2）——第三正交维度（不侵占类型色/状态色）。
-   键名闭集与哈希兜底见 shared/projectColors.ts；此处只定义亮暗两套色值。 */
 :root {
   --ldvh-pj-emerald: #059669;
   --ldvh-pj-sky: #0284c7;
@@ -384,7 +304,6 @@ body,
   overflow: clip;
 }
 
-/* The application shell owns the viewport; only its explicit panels scroll. */
 #root {
   position: fixed;
   inset: 0;
@@ -397,7 +316,6 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Remove ALL focus rings, outlines, and visual artifacts on click/focus */
 *:focus,
 *:focus-visible,
 *:focus-within,
@@ -406,12 +324,10 @@ body {
   box-shadow: none !important;
 }
 
-/* Chrome-specific: remove default focus ring color */
 * {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Remove default button/link rings from browser UA stylesheet */
 button::-moz-focus-inner,
 input::-moz-focus-inner {
   border: 0;
@@ -422,7 +338,6 @@ input::-moz-focus-inner {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -441,8 +356,6 @@ input::-moz-focus-inner {
   opacity: 0.8;
 }
 
-/* Markdown reading surface. GitHub Markdown CSS provides the base renderer styles;
-   these variables bind it to the LDVH theme without reimplementing Markdown tags. */
 .ldvh-markdown-preview {
   --bgColor-default: transparent;
   --bgColor-muted: rgb(var(--ldvh-panel));
@@ -581,8 +494,6 @@ input::-moz-focus-inner {
   vertical-align: -0.1em;
 }
 
-/* Study reports are evidence-heavy documents.  Keep their source Markdown intact,
-   but give its top-level evidence list and recommendations a readable scan rhythm. */
 .ldvh-research-report-preview {
   max-width: 54rem;
   margin-inline: auto;
@@ -624,8 +535,7 @@ input::-moz-focus-inner {
 .ldvh-research-report-preview > ul > li::before {
   content: '';
   position: absolute;
-  /* Center the marker on the first text line, not on the list card. */
-  top: 1.4rem;
+    top: 1.4rem;
   left: 0.7rem;
   width: 0.25rem;
   height: 0.25rem;
@@ -683,8 +593,6 @@ input::-moz-focus-inner {
   margin-bottom: 0.125rem;
 }
 
-/* Terminal fact cards use the same compact, circular list marker as criteria surfaces.
- * Terminal source text can use either Markdown list form; both are non-sequential here. */
 .ldvh-terminal-fact-content .ldvh-inline-markdown :where(ul, ol) {
   list-style: none;
   padding-left: 0;
@@ -762,13 +670,7 @@ input::-moz-focus-inner {
   padding: 0.05rem 0.25rem;
   color: rgb(var(--ldvh-accent));
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  /* 字号/行高取**绝对值**（2026-09-24 修）。
-   *
-   * 原为 `font-size: 0.88em` 且**未设行高**：字号先按父级 14px 缩为 12.32px，
-   * 行高随后继承父级的**无单位** 1.75 并**再按新字号解析**为 21.56px —— 同一元素被
-   * 缩放两次，产生全页偏离最大的非设计值（实测 34 处）。
-   * 12px / 20px 与 `docs/01 §1.4` 的辅助标签档一致（`ldvh-caption`）。 */
-  font-size: 12px;
+    font-size: 12px;
   line-height: 20px;
 }
 
@@ -819,71 +721,23 @@ input::-moz-focus-inner {
   padding: 0.5rem 0.75rem;
 }
 
-/* 阅读节点的正文取色：正文须达 4.5:1（本仓库既有「正文线」，见卡体正文
-   对框/字分取的登记）。原值为 `text-secondary) / 0.92`，其 alpha 叠加使浅色壳底
-   上实测只有 4.05:1，低于该线；去掉 alpha 后浅色 4.74:1、暗色 7.46:1，两主题均过。
-   仅去掉这一个 alpha，不改色相，故节点间的主次层级不变。 */
 .ldvh-research-node-content .ldvh-inline-markdown {
   color: rgb(var(--ldvh-text-secondary));
 }
 
-/* 纯文本阅读节点（`ldvh-detail-semantic-body`）在本壳内须与 Markdown 节点**同层级**
-   （Human 裁定 2026-09-22）。
-
-   背景：本仓统一设计语言是「阅读区正文基准 14px」（`docs/01-全局设计约束.md` §1.4
-   第 9 条：Markdown 阅读区正文基准为 14px；第 4 条：详情页与阅读面板使用各自正文层级、
-   不得缩小）。全仓 14 处阅读节点字段都经 `ResearchTextNodeContent`（→ `ldvh-inline-markdown`，
-   14px / 24px），**唯一例外是 `gist`（要点）**——21 §8 定义它为纯文本、不得经 Markdown
-   渲染（该约束由 gist 呈现契约钉住），故它由裸 `<p class="ldvh-detail-semantic-body">`
-   渲染，落到 13px / 22px，于是同页内出现两种字号与两种取色。
-
-   修法：只对齐**本壳内**这一类的字号/行高/取色，**不改 `.ldvh-detail-semantic-body`
-   的全局取值**——该类还用于阅读面板的 mono 元信息 `dd`（那里是元信息语义，13px 恰当），
-   改动全局会波及它。也不把 gist 改走 Markdown：那会违反 21 §8 的纯文本字段契约。 */
 .ldvh-research-node-content .ldvh-detail-semantic-body {
-  font-size: 0.875rem;   /* 14px，与 .ldvh-inline-markdown 同基准 */
-  line-height: 1.5rem;   /* 24px */
+  font-size: 0.875rem;
+  line-height: 1.5rem;
   color: rgb(var(--ldvh-text-secondary));
 }
 
-/* 阅读节点**不设行宽上限**（Human 裁定 2026-09-22，撤销原 40em 规则）。
- *
- * 原规则按「中文正文舒适行宽 25–40 字/行」把行文元素收窄到 40em，意在让长摘要更易读。
- * 撤销理由是其**作用面与动机不匹配**：
- *
- *   1. 该选择器挂在**六类阅读面共用的壳**（.ldvh-research-node-content）上——
- *      Pitfall/Spark/Research/Friction/Norm 全部走它，而当初的动机只是某一类型的
- *      长摘要；等于给所有类型一并收窄（Human 实测发现 Spark 亦受影响）。
- *   2. 壳内文本列宽约 792px，40em（14px 字号）≈ 560px，**右侧留出约 29% 空白**。
- *      阅读节点里大多是**短字段**（几行即尽），对短字段收窄不产生任何可读性收益，
- *      只留下「文字没排满」的视觉缺陷——留白本身成了新问题。
- *
- * 「舒适行宽」是针对**连续长文**的经验值，不能不加区分地施加到任意字段上。若日后
- * 确需限宽，应**按内容长度**择一施加（改组件而非改公共壳），并先在 10 号登记 measure
- * ——该规范至今未登记行宽，故本项此前也从未取得规范效力，只是呈现取值。
- *
- * 注：本块紧邻的**取色**规则（去掉 alpha 使正文达 4.5:1）不受影响、继续保留；
- * 撤销的只是行宽一项。 */
 .ldvh-research-node-content .ldvh-inline-markdown :where(h2, h3, h4, h5, h6) {
   margin-top: 0.75rem;
   margin-bottom: 0.35rem;
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.25rem;
-  /* 标题与正文**必须可区分**（Human 裁定 2026-09-22）。
-   *
-   * 此前 H3 与正文同取 `--ldvh-text-secondary`——于是 2026-09-22 落地的 H3 分节
-   * **结构上分开了、视觉上没分开**：读者看到的是「同色的一行行文字」，看不出层级，
-   * 分节的可读性收益被抵消。
-   *
-   * 改取 `--ldvh-text-primary`。依据是它**天然表达「比正文更重」**（primary 是正文基准色、
-   * secondary 是其弱化档），且实测对比度两个主题都远超本仓既有的 4.5:1 正文线：浅色
-   * 16.82:1、暗色 15.57:1。**不用 accent**：accent 在浅色主题下仅 3.58:1，低于该线，
-   * 会为了「好看」牺牲可读性——可读性优先于配色偏好。
-   *
-   * 本值是**呈现取值**，不是规范规则：10 号未登记阅读节点标题的对比基准，此处按
-   * 「H3 骨架已登记（21 §8）→ 其视觉层级须可区分」这一目的取值。 */
-  color: rgb(var(--ldvh-text-primary));
+    color: rgb(var(--ldvh-text-primary));
 }
 
 .ldvh-research-node-content .ldvh-inline-markdown :where(h2, h3, h4, h5, h6):first-child {
@@ -898,13 +752,6 @@ input::-moz-focus-inner {
   color: rgb(var(--ldvh-accent));
 }
 
-/* 行高取**绝对像素**而非无单位比例（2026-09-24 修）。
- *
- * 原为 `line-height: 1.85`（无单位）：无单位比例按**元素自身 font-size** 解析，
- * 14px 正文因此得 25.9px，而同页 `li` 用 1.75 得 24.5px —— 同为正文却出现两种行高，
- * 这是 Human 观察到「字体大大小小」的直接来源之一（实测 16 种字体形态，其中 3 种
- * 是此类纯计算事故）。
- * 取 24px 与 `docs/01 §1.4` 的正文基准（14px / 24px）及 Human 2026-09-22 裁定一致。 */
 .ldvh-research-node-content .ldvh-inline-markdown :where(p) {
   margin-top: 0;
   margin-bottom: 0.75rem;
@@ -920,38 +767,18 @@ input::-moz-focus-inner {
   flex-direction: column;
   gap: 0.45rem;
   margin-top: 0;
-  /* 下间距（Human 裁定 2026-09-22：「`明确不做什么` 之前还要增加一个换行」）。
-     原值为 0，于是 `做什么：` → 列表 → `明确不做什么：` 结构里，后一个标签行**紧贴
-     最后一个条目**，两段骨架挤在一起、看不出分界。
-
-     这一项**必须在呈现层解决**，不能靠数据层加空行——实测 Markdown 已把空行渲染为两个
-     兄弟节点（`<ul>` 与 `<p>`），是 CSS 的零间距让它们视觉相贴；故数据侧的空行不产生
-     任何效果（Human 在数据里看到空行、界面上却无变化，即此因）。
-
-     直接改本规则而非另写一条覆盖规则：同特异性下后写者胜，另写一条会在同一处留下两个
-     同选择器规则（初版即如此，构建产物实测确认前者被后者覆盖、可读性差）。 */
-  margin-bottom: 0.625rem;
+    margin-bottom: 0.625rem;
   padding-left: 1.45rem;
 }
 
-/* 列表为其父容器最后一项时不留下间距（与上方 `p:last-child` 同纪律）。 */
 .ldvh-research-node-content .ldvh-inline-markdown :where(ul, ol):last-child {
   margin-bottom: 0;
 }
 
-/* 列表之后的段落/标题须有上间距（与列表下间距共同构成「明确不做什么」前的空档）。 */
 .ldvh-research-node-content .ldvh-inline-markdown :where(ul, ol) + :where(p, h2, h3, h4, h5, h6) {
   margin-top: 0.625rem;
 }
 
-/* 标签行（`.ldvh-label-line` —— 由 ResearchTextNodeContent 在渲染层附加）：
-   21 §8 的 `scope` 由「`做什么：`／`明确不做什么：` 两标签行 + 各自条目」构成，但标签行
-   在 Markdown 里是**普通段落**（`<p>`），与正文段落同标签——CSS 无法只选中它。故组件按
-   「整段 ≤20 字且以 `：` 结尾」识别并加类，此处把它呈现为小标题。
-
-   Human 裁定 2026-09-22：此前标签行与正文同色同重，读者看不出授权范围的骨架——与 H3
-   分节那次是同一类缺陷（结构在、视觉不在）。取色与 H3 同（text-primary，实测浅色
-   16.82:1 / 暗色 15.57:1，两主题均远超本仓正文 4.5:1 线），使其与 `<li>` 条目形成层级。 */
 .ldvh-research-node-content .ldvh-inline-markdown .ldvh-label-line {
   margin-top: 0.625rem;
   margin-bottom: 0.375rem;
@@ -961,7 +788,6 @@ input::-moz-focus-inner {
   color: rgb(var(--ldvh-text-primary));
 }
 
-/* 标签行为首段时不留上间距（节点标题已在上面）。 */
 .ldvh-research-node-content .ldvh-inline-markdown .ldvh-label-line:first-child {
   margin-top: 0;
 }
@@ -971,8 +797,7 @@ input::-moz-focus-inner {
   margin-bottom: 0;
   min-height: 1.55rem;
   padding-left: 0.1rem;
-  /* 绝对像素而非无单位比例：理由同上方 `p`（2026-09-24）。 */
-  line-height: 24px;
+    line-height: 24px;
 }
 
 .ldvh-research-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown,
@@ -980,12 +805,10 @@ input::-moz-focus-inner {
   line-height: 26px;
 }
 
-/* Preserve a readable group break when Markdown follows a list with a new paragraph. */
 .ldvh-research-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown :where(ul, ol) + p {
   margin-top: 12px;
 }
 
-/* Optically center the custom marker on Spark's fixed 26px reading line. */
 .ldvh-research-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown :where(ul > li)::before {
   top: 12px;
 }
@@ -1013,15 +836,7 @@ input::-moz-focus-inner {
   width: 0.35rem;
   height: 0.35rem;
   border-radius: 999px;
-  /* 实心圆点，**不发光**（Human 裁定 2026-09-22）。
-   *
-   * 原值另有一圈外发光：`box-shadow: 0 0 0 3px rgb(var(--ldvh-text-secondary) / 0.08)`。
-   * 它是 v4 平移时继承下来的（`6bf5e4f`，设计语言原样迁移），此处按 Human 明确要求
-   * 去掉——光晕使圆点在浅色壳底上显得发虚、边界不清，而列表项标记的作用是**给出清晰的
-   * 行首锚点**，不需要额外的视觉装饰（与 07 §4 第 6 条「不加入装饰性动画与效果」同向）。
-   *
-   * 只去光晕，保留圆点本身与其取色：圆点是行首结构标记，不是装饰。 */
-  background: rgb(var(--ldvh-text-secondary) / 0.55);
+    background: rgb(var(--ldvh-text-secondary) / 0.55);
 }
 
 .ldvh-research-node-content .ldvh-inline-markdown :where(ol > li)::marker {

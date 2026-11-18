@@ -1,15 +1,3 @@
-// Tests for plugin/lib/session-signature.js: pure mechanical tail-read of
-// routing events from a session JSONL stream.
-//
-// Contract authority: dev-memo 2026-09-02 (decision #29).
-//   - extractRouteValuesFromLines: walk from the END, return the LAST
-//     model/selection or request/context routing event verbatim.
-//   - splitJsonlLines: split by newline.
-//   - Zero-cleaning: never strip -vision suffixes, never filter, never
-//     substitute a "current" value.
-//   - A line that fails to parse is skipped (a torn tail write must not
-//     fabricate a signature).
-//   - When no routing event is found, return { ok: false, reason: ... }.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -25,7 +13,6 @@ import {
 } from "../lib/session-signature.js";
 import { resolveAuthoritativeSignature } from "../lib/signature-channel.js";
 
-/** Run fn with the DSH shell env keys replaced by overrides (restored after). */
 async function withShellEnv(overrides, fn) {
 	const keys = ["DSH_SESSION_JSONL", "DSH_SESSION_ID", "DSH_HOME"];
 	const saved = {};
@@ -63,9 +50,6 @@ const ROUTING_LINES = [
 	JSON.stringify({ type: "model/selection", data: { provider: "zzztoken-glm", model: "glm-5.3" } }),
 ].join("\n");
 
-// ---------------------------------------------------------------------------
-// extractRouteValuesFromLines — happy paths
-// ---------------------------------------------------------------------------
 
 test("extractRouteValuesFromLines returns the LAST routing event when there are several", () => {
 	const lines = [
@@ -115,9 +99,6 @@ test("extractRouteValuesFromLines returns the last event even when earlier event
 	assert.equal(result.value.model, "test");
 });
 
-// ---------------------------------------------------------------------------
-// extractRouteValuesFromLines — zero-cleaning
-// ---------------------------------------------------------------------------
 
 test("extractRouteValuesFromLines preserves the -vision suffix verbatim (zero-cleaning)", () => {
 	const lines = [
@@ -126,7 +107,6 @@ test("extractRouteValuesFromLines preserves the -vision suffix verbatim (zero-cl
 	const result = extractRouteValuesFromLines(lines);
 	assert.equal(result.ok, true);
 	assert.equal(result.value.model, "kimi-k3-vision");
-	// explicit non-cleaning: no normalization to "kimi-k3"
 	assert.notEqual(result.value.model, "kimi-k3");
 });
 
@@ -139,8 +119,6 @@ test("extractRouteValuesFromLines preserves arbitrary routing variant suffixes",
 });
 
 test("extractRouteValuesFromLines preserves whitespace inside provider/model values", () => {
-	// A real JSONL string is not trimmed; the implementation must not
-	// trim either.
 	const lines = [
 		JSON.stringify({ type: "model/selection", data: { provider: "  spaced  ", model: "\tm\t" } }),
 	];
@@ -149,9 +127,6 @@ test("extractRouteValuesFromLines preserves whitespace inside provider/model val
 	assert.equal(result.value.model, "\tm\t");
 });
 
-// ---------------------------------------------------------------------------
-// extractRouteValuesFromLines — failure modes
-// ---------------------------------------------------------------------------
 
 test("extractRouteValuesFromLines returns ok:false when no routing event exists", () => {
 	const lines = [
@@ -195,7 +170,7 @@ test("extractRouteValuesFromLines skips lines with non-object JSON", () => {
 
 test("extractRouteValuesFromLines skips lines with no data object", () => {
 	const lines = [
-		JSON.stringify({ type: "model/selection" }), // missing data
+		JSON.stringify({ type: "model/selection" }),
 		JSON.stringify({ type: "model/selection", data: { provider: "p", model: "m" } }),
 	];
 	const result = extractRouteValuesFromLines(lines);
@@ -205,7 +180,7 @@ test("extractRouteValuesFromLines skips lines with no data object", () => {
 
 test("extractRouteValuesFromLines reports ok:false when a routing event's data has no provider/model pair", () => {
 	const lines = [
-		JSON.stringify({ type: "model/selection", data: { provider: "p" } }), // missing model
+		JSON.stringify({ type: "model/selection", data: { provider: "p" } }),
 	];
 	const result = extractRouteValuesFromLines(lines);
 	assert.equal(result.ok, false);
@@ -232,9 +207,6 @@ test("extractRouteValuesFromLines skips blank lines without crashing", () => {
 	assert.equal(result.value.provider, "p");
 });
 
-// ---------------------------------------------------------------------------
-// splitJsonlLines
-// ---------------------------------------------------------------------------
 
 test("splitJsonlLines splits by newline", () => {
 	const result = splitJsonlLines("a\nb\nc");
@@ -242,19 +214,12 @@ test("splitJsonlLines splits by newline", () => {
 });
 
 test("splitJsonlLines preserves a trailing partial line", () => {
-	// A torn tail write ends in a fragment without a newline; the split
-	// returns it as the last element so the extractor can decide whether
-	// to parse it or skip.
 	const result = splitJsonlLines('{"a":1}\n{"b":2');
 	assert.equal(result.length, 2);
 	assert.equal(result[0], '{"a":1}');
 	assert.equal(result[1], '{"b":2');
 });
 
-// ---------------------------------------------------------------------------
-// currentRouteValuesFromShellEnvironment — the Code channel for DSH
-// shell-child scripts (specs/09 机械签名)
-// ---------------------------------------------------------------------------
 
 test("shell environment resolves nothing when no DSH identity is present", async () => {
 	await withShellEnv({}, async () => {
@@ -401,9 +366,6 @@ test("shell environment rejects an unsafe DSH_SESSION_ID path segment", async ()
 	});
 });
 
-// ---------------------------------------------------------------------------
-// shellAuthoritativeSignature — branded carrier for direct writer calls
-// ---------------------------------------------------------------------------
 
 test("shellAuthoritativeSignature returns a branded carrier the channel resolves", async () => {
 	await withTempDir("sig-shell-", async (root) => {
@@ -427,27 +389,6 @@ test("shellAuthoritativeSignature returns null when the authoritative record is 
 	});
 });
 
-// ---------------------------------------------------------------------------
-// 宿主正规入口：SessionPersistence.open(id,'read') → SessionHandle.read()
-// ---------------------------------------------------------------------------
-//
-// 为什么加这条守卫：现有 host 路径以 `sessionPersistence.locate()` 取**物理文件
-// 路径**，再自行读文件、自行解 zstd 多帧、自行切行解析（session-signature.js 的
-// readSessionLogText 链路 + 自造 zstd-compat.js）。而宿主已提供**正规的日志读取
-// 入口**：`open(id, 'read')` 取句柄（`read` 语义为「never takes ownership and
-// works while another handle or process holds write ownership」），
-// `handle.read(offset, length)` 返回**已解压、已解析**的 SessionEvent 数组，
-// 并自带两条契约：「a torn physical tail is never returned」「repeated reads on
-// this handle never observe an older state than a prior read」。
-//
-// 关键事实：`locate` 是 jsonl 后端的 **private 方法**
-// （packages/session/session-persistence-jsonl/src/index.ts:299），无公开契约；
-// 而 `model/selection` 与 `request/context` 都是标准 SessionEvent 类型
-// （packages/core/session/src/known-event-types.ts:47,50），read() 直接返回。
-//
-// 本用例提供**只有 open() 而没有 locate()** 的 persistence 桩：若实现仍走
-// locate 链路，它会因 locate 缺失而失败——即本用例锁定的正是「是否已换用宿主
-// 正规入口」这一行为。
 test("host path: currentRouteValues consumes the official open().read() entry, not a private locate()", async () => {
 	const ROUTING = [
 		{ type: "model/selection", data: { provider: "vendor-a", model: "model-x" } },
@@ -457,7 +398,6 @@ test("host path: currentRouteValues consumes the official open().read() entry, n
 	let opened = 0;
 	let readCalls = 0;
 	let locateCalls = 0;
-	// 桩：只实现 open()，**故意不提供 locate()**。
 	const persistence = {
 		open(id, access) {
 			opened += 1;
@@ -481,7 +421,6 @@ test("host path: currentRouteValues consumes the official open().read() entry, n
 	const agent = { session: { header: { id: "session-1", cwd: "/tmp/x" } } };
 	const result = await currentRouteValues(persistence, agent);
 	assert.equal(result.ok, true, `应经宿主入口取到签名：${JSON.stringify(result)}`);
-	// 零清洗纪律：逐字取值，不得剥掉 -vision 后缀。
 	assert.equal(result.value.provider, "vendor-b");
 	assert.equal(result.value.model, "model-y-vision");
 	assert.equal(opened, 1, "必须经 open() 取句柄");
@@ -489,10 +428,6 @@ test("host path: currentRouteValues consumes the official open().read() entry, n
 	assert.equal(locateCalls, 0, "不得再调用 private 的 locate()");
 });
 
-// 换接的关键回归护栏：**同一份日志，两条入口必须给出同一个值**。
-// 12 个 *-tools.js 的受控写入都经 currentRouteValues 取署名，若两入口取值不同，
-// 换接会静默改变所有写入的署名（值错而不报错）。本用例对同一事件集分别走
-// 「已解析事件（host handle）」与「JSONL 文本（文件链路）」两条路，断言逐字相同。
 test("both entries yield the identical signature for the same log (swap must not change values)", async () => {
 	const ROUTING = [
 		{ type: "model/selection", data: { provider: "vendor-a", model: "model-x" } },
@@ -512,8 +447,6 @@ test("both entries yield the identical signature for the same log (swap must not
 	assert.equal(viaEvents.value.model, "model-y-vision", "零清洗：后缀保留");
 });
 
-// 方向回归：host 的 read() 返回正序事件，若实现忘记反转，会静默取到**最旧**的
-// routing 事件。本用例用「新旧取值不同」的日志把该错误变成红。
 test("host handle path takes the NEWEST routing event, not the oldest (ordering guard)", async () => {
 	const OLDEST = { type: "model/selection", data: { provider: "old-vendor", model: "old-model" } };
 	const NEWEST = { type: "request/context", data: { provider: "new-vendor", model: "new-model" } };

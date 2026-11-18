@@ -1,13 +1,3 @@
-// Tests for plugin/lib/governance-scope.js: three-state judgement
-// (governed / not_governed / unavailable) for a session cwd.
-//
-// Authority: specs/07 §5. The contract is fail-closed: a broken carrier
-// must NEVER be guessed into governed or not_governed.
-//
-// Test construction: a throwaway DSH home + a throwaway Git root, then
-// register the root through the existing governed-projects registration
-// path. We deliberately do NOT install hooks (the scope resolver only
-// consumes the registration reader).
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -19,16 +9,10 @@ import { initRepo, withTemp } from "./helpers.mjs";
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
 async function writeCorruptRegistration(home) {
-	// A non-parsable YAML carrier: governed-scope must surface
-	// registration_unavailable, not guess into either governed or
-	// not_governed.
 	await mkdir(join(home, "ldvh"), { recursive: true });
 	await writeFile(join(home, "ldvh", "governed-projects.yaml"), ":\n  this is: : not yaml\n  [broken");
 }
 
-// ---------------------------------------------------------------------------
-// dshHomePath / cwd preconditions
-// ---------------------------------------------------------------------------
 
 test("resolveGovernanceScope returns unavailable when dshHomePath is not a function", async () => {
 	const result = await resolveGovernanceScope("/not/a/function", "/some/cwd");
@@ -53,9 +37,6 @@ test("resolveGovernanceScope returns unavailable when cwd is not a string", asyn
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Fail-closed on a broken registration
-// ---------------------------------------------------------------------------
 
 test("resolveGovernanceScope returns unavailable when the registration is unparseable (fail-closed)", async () => {
 	await withTemp("ldvh-gs.", async (base) => {
@@ -65,7 +46,6 @@ test("resolveGovernanceScope returns unavailable when the registration is unpars
 		const result = await resolveGovernanceScope(dshHome(home), cwd);
 		assert.equal(result.state, "unavailable");
 		assert.match(result.detail, /governed-projects registration unavailable/);
-		// fail-closed: must NOT guess into either governed or not_governed
 		assert.equal(result.state === "governed", false);
 		assert.equal(result.state === "not_governed", false);
 	});
@@ -74,9 +54,6 @@ test("resolveGovernanceScope returns unavailable when the registration is unpars
 test("resolveGovernanceScope returns not_governed when the registration is empty and cwd is a real path", async () => {
 	await withTemp("ldvh-gs.", async (base) => {
 		const home = join(base, "home");
-		// An initialized-but-empty registration: a brand-new carrier is
-		// `uninitialized: true` with `projects: []`. That's a valid state —
-		// no project to match, every cwd is not_governed.
 		await mkdir(join(home, "ldvh"), { recursive: true });
 		await writeFile(
 			join(home, "ldvh", "governed-projects.yaml"),
@@ -90,9 +67,6 @@ test("resolveGovernanceScope returns not_governed when the registration is empty
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Governed
-// ---------------------------------------------------------------------------
 
 test("resolveGovernanceScope returns governed when cwd is the registered Git root", async () => {
 	await withTemp("ldvh-gs.", async (base) => {
@@ -136,9 +110,6 @@ test("resolveGovernanceScope propagates the project's name and description when 
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Not governed
-// ---------------------------------------------------------------------------
 
 test("resolveGovernanceScope returns not_governed when cwd is outside the registered root", async () => {
 	await withTemp("ldvh-gs.", async (base) => {
@@ -155,13 +126,8 @@ test("resolveGovernanceScope returns not_governed when cwd is outside the regist
 });
 
 test("resolveGovernanceScope returns not_governed when the cwd path resembles the registered root but is not inside it", async () => {
-	// A path that shares a prefix with the registered root but is in a
-	// different directory (e.g. "/repo-evil" vs "/repo") must NOT be
-	// reported as governed. The containment check uses a trailing slash.
 	await withTemp("ldvh-gs.", async (base) => {
 		const home = join(base, "home");
-		// registered: <base>/realrepo
-		// look-alike sibling: <base>/realrepo-evil
 		const real = await initRepo(base, { name: "realrepo" });
 		const evil = await initRepo(base, { name: "realrepo-evil" });
 		const reg = await registerProject(dshHome(home), { id: "demo", path: real });
@@ -180,43 +146,26 @@ test("resolveGovernanceScope returns unavailable when cwd does not exist and can
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Skipped projects
-// ---------------------------------------------------------------------------
 
 test("resolveGovernanceScope skips a project whose status is error (not a match candidate)", async () => {
-	// We register a valid Git root first, then unregister its underlying
-	// directory to make inspectCandidate fail. The scope resolver must
-	// skip that project and report not_governed (no other project to match).
 	await withTemp("ldvh-gs.", async (base) => {
 		const home = join(base, "home");
 		const root = await initRepo(base);
 		const reg = await registerProject(dshHome(home), { id: "demo", path: root });
 		assert.equal(reg.ok, true, reg.error?.message);
-		// Wipe the registered path so inspectCandidate fails on the next
-		// readGovernedProjects. The registration still points at it.
 		const { rm } = await import("node:fs/promises");
 		await rm(root, { recursive: true, force: true });
-		// cwd must be a real path that exists; we use another real Git
-		// root under the same base so the cwd realpath succeeds.
 		const otherCwd = await initRepo(base, { name: "other" });
 		const result = await resolveGovernanceScope(dshHome(home), otherCwd);
 		assert.equal(result.state, "not_governed");
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Containment is platform-correct (independent review 2026-09-26, C1)
-// ---------------------------------------------------------------------------
 
 test("withinRoot holds under BOTH path semantics — the win32 regression that killed the hot path", async () => {
 	const { withinRoot } = await import("../lib/governance-scope.js");
 	const { posix, win32 } = await import("node:path");
 
-	// The defect this guards: both operands come from realpath and carry NATIVE
-	// separators, while the old check appended a hard-coded "/". On win32 that
-	// produced `C:\repo/` and never matched `C:\repo\sub`, so direct containment
-	// silently failed and every subdirectory paid a git subprocess fallback.
 	const truths = [
 		["C:\\repo", "C:\\repo\\sub", true],
 		["C:\\repo", "C:\\repo\\a\\b", true],
@@ -245,8 +194,6 @@ test("withinRoot holds under BOTH path semantics — the win32 regression that k
 
 test("withinRoot treats a '..'-prefixed child as inside, not as an escape", async () => {
 	const { withinRoot } = await import("../lib/governance-scope.js");
-	// `..foo` is an ordinary child NAME; anchoring the escape check to a
-	// separator is what keeps this from being rejected as a traversal.
 	assert.equal(withinRoot("/a/b", "/a/b/..foo"), true);
 	assert.equal(withinRoot("/a/b", "/a/b/../x"), false);
 });

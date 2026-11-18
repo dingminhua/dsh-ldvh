@@ -1,23 +1,3 @@
-// dsh-ldvh — mechanical evidence binding for specs/01 §9.2 items 8/9/11/12.
-//
-// Authority: specs/01 §9.2 「条件分类与核对方式」. Items 8 (independent review),
-// 9 (Human decision), 11 (controlled commit) and 12 (fingerprint binding) are
-// SEMANTIC/EVIDENCE items: the spec is explicit that code cannot judge whether
-// a review record is真实、充分或有效 — that stays with AI semantic review and
-// the Human decision. What the spec DOES require is that each item's
-// **mechanically checkable sub-part** must be concluded by machine:
-//
-//   代码可以核对记录是否存在、提交是否形成、签名与候选指纹是否一致
-//   （这些部分已有机械载体）
-//
-// and that anything not actually verified must enter `gaps` rather than be
-// silently dropped. This module produces exactly that: per-item, per-carrier
-// mechanical conclusions, with the semantic remainder explicitly left open so
-// no caller can mistake "mechanically checkable part passed" for "membership
-// proven".
-//
-// It never claims membership. Every result carries semantic_remainder naming
-// what a human/AI reviewer still owes.
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -25,7 +5,6 @@ import { contentFingerprint } from "./spec-registry.js";
 
 const execFileAsync = promisify(execFile);
 
-/** Run git read-only; returns null when git or the repo is unavailable. */
 async function git(projectRoot, args) {
   try {
     const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
@@ -40,12 +19,6 @@ async function git(projectRoot, args) {
   }
 }
 
-/**
- * Item 11 (controlled commit): did a commit exist that touched this carrier,
- * and does its message carry the controlled-commit signature? The spec's
- * mechanically checkable sub-part is "提交是否形成、签名与候选指纹是否一致";
- * whether the commit was PROPERLY AUTHORISED is the semantic remainder.
- */
 async function checkControlledCommit(projectRoot, repoPath) {
   const log = await git(projectRoot, ["log", "-1", "--format=%H%n%s%n%b", "--", repoPath]);
   if (log === null) return { concluded: false, reason: "git history unavailable for this work tree" };
@@ -67,21 +40,10 @@ async function checkControlledCommit(projectRoot, repoPath) {
     satisfied: hasProvider && hasModel,
     detail: `latest commit ${sha.slice(0, 12)} (${subject}); signature ${hasProvider && hasModel ? "present" : "incomplete"}`,
     evidence: { commit: sha, subject, signature: { provider: hasProvider, model: hasModel } },
-    // The spec is explicit: signature presence is NOT authorisation.
     semantic_remainder: "signature presence does not prove the commit was authorised, reviewed or Human-approved (01 §9.2 items 8/9)"
   };
 }
 
-/**
- * Item 12 (fingerprint binding): does the carrier's CURRENT content fingerprint
- * still equal what the Human decision / review / commit were bound to? The
- * mechanically checkable sub-part is exactly this comparison; whether the bound
- * decision was REAL and still APPLICABLE is the semantic remainder.
- *
- * A `bindings` record supplies the expected fingerprint per carrier, as
- * recorded at decision time. When no expectation exists we conclude nothing
- * and say so — absence of an expectation is not a pass.
- */
 function checkFingerprintBinding(repoPath, currentFingerprint, bindings) {
   const expected = bindings?.[repoPath];
   if (typeof expected !== "string" || expected.length === 0) {
@@ -103,12 +65,6 @@ function checkFingerprintBinding(repoPath, currentFingerprint, bindings) {
   };
 }
 
-/**
- * Item 8 (independent review) + item 9 (Human decision): the only mechanical
- * sub-part available is whether a record EXISTS and is REFERENCED. The spec
- * forbids concluding more. We report existence/absence honestly and always
- * name the semantic remainder.
- */
 function checkRecordPresence(kind, records, repoPath, responsibilityKey) {
   const matched = (records ?? []).filter((record) =>
     record?.carriers === undefined || record.carriers.includes(repoPath) || record.carriers.includes(responsibilityKey)
@@ -130,14 +86,6 @@ function checkRecordPresence(kind, records, repoPath, responsibilityKey) {
   };
 }
 
-/**
- * Build the §9.2 evidence report for one snapshot.
- *
- * @param projectRoot   governed project root (Git work tree)
- * @param members       admissible candidates from the same scan snapshot
- * @param options       { bindings, reviews, decisions }
- * @returns per-carrier mechanical conclusions + an explicit gap list
- */
 export async function bindMembershipEvidence(projectRoot, members, options = {}) {
   const { bindings = {}, reviews = [], decisions = [] } = options;
   const carriers = [];
@@ -148,13 +96,9 @@ export async function bindMembershipEvidence(projectRoot, members, options = {})
     const responsibilityKey = identity.spec_key ?? identity.attachment_key ?? null;
     const currentFingerprint = contentFingerprint(member.markdownText);
     const items = {
-      // Item 8 — independent adversarial review (existence only).
       "8": checkRecordPresence("review", reviews, repoPath, responsibilityKey),
-      // Item 9 — Human decision (existence only).
       "9": checkRecordPresence("decision", decisions, repoPath, responsibilityKey),
-      // Item 11 — controlled commit formed, with signature.
       "11": await checkControlledCommit(projectRoot, repoPath),
-      // Item 12 — fingerprint still bound.
       "12": checkFingerprintBinding(repoPath, currentFingerprint, bindings)
     };
     for (const [item, outcome] of Object.entries(items)) {
@@ -181,7 +125,6 @@ export async function bindMembershipEvidence(projectRoot, members, options = {})
       responsibility_key: responsibilityKey,
       content_fingerprint: currentFingerprint,
       items,
-      // The single sentence a caller must not lose:
       membership_proven: false
     });
   }
@@ -191,8 +134,6 @@ export async function bindMembershipEvidence(projectRoot, members, options = {})
     items_covered: ["8", "9", "11", "12"],
     carriers,
     gaps,
-    // Restated at the top level so no consumer can read the item table as a
-    // membership verdict.
     guarantee:
       "Mechanical conclusions cover only record existence, commit formation/签名 and fingerprint equality. "
       + "Whether a review or decision is真实、充分或有效 is NOT mechanically decidable (01 §9.2) and remains with AI semantic review and the Human decision.",
@@ -205,15 +146,6 @@ export async function bindMembershipEvidence(projectRoot, members, options = {})
   };
 }
 
-/**
- * specs/01 §10.3: the §9.2 mechanical sub-items apply to a corpus the governed
- * project AUTHORS. When the reading was answered by a fallback source
- * (dev-checkout / plugin-bundle), the consuming project carries no git
- * history, review records or decision records for those carriers — running
- * the per-project lookups would only manufacture "no commit touches this
- * carrier" noise that reads like a corpus defect. The corpus's own membership
- * conditions belong to its source repository, not to the consuming session.
- */
 export function notApplicableEvidence(source) {
   return {
     spec: "01 §9.2",

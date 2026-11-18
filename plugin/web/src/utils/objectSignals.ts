@@ -42,7 +42,6 @@ export function getSignalText(field: string, value: unknown, locale: string): st
 }
 
 export function getObjectPriority(source: ObjectSignalSource, type?: SignalObjectType): string | null {
-  // priority 信号仅 Spark 携带（20 §8）。
   if (type !== 'spark') return null;
   return normalizeSignalValue(source.priority);
 }

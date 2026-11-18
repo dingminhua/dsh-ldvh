@@ -1,12 +1,3 @@
-// Tests for plugin/lib/governed-projects.js:
-// - strict Git root checks (resolveGitRoot)
-// - ldvh-base five-directory fact-source initialization and states
-// - registration file atomic creation + first-project default
-// - full installProject flow and failure rollback
-// - uninstallHook delegation
-//
-// Registration lives under a throwaway DSH home (a function of a temp path),
-// and every repository is created and removed inside withTemp().
 import assert from "node:assert/strict";
 import test from "node:test";
 import { lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
@@ -27,16 +18,10 @@ import {
 import { realpath } from "node:fs/promises";
 import { git, initRepo, runnerPath, withTemp } from "./helpers.mjs";
 
-// Mirrors FACT_DIRECTORIES in ../lib/governed-projects.js. Kept in lockstep with
-// the lib (03 §6.1: 目录名 = 类型短名复数); the deepEqual assertion below pins it.
 const FACT_DIRECTORIES = ["sparks", "pitfalls", "reports", "frictions", "norms"];
 
-/** Build a dshHomePath-style function rooted at an arbitrary temp dir. */
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
-// ---------------------------------------------------------------------------
-// Git root strict check
-// ---------------------------------------------------------------------------
 
 test("resolveGitRoot rejects non-absolute, non-directory, subdirectory, and bare inputs", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
@@ -69,16 +54,12 @@ test("inspectCandidate reports fact source and hook state for a fresh repo", asy
 		const root = await initRepo(base);
 		const result = await inspectCandidate(root);
 		assert.equal(result.ok, true);
-		// resolveGitRoot canonicalizes symlinked path components (e.g. /var -> /private/var)
 		assert.equal(result.value.projectRoot, await realpath(root));
 		assert.equal(result.value.factSource.state, "absent");
 		assert.equal(result.value.hook.state, "absent");
 	});
 });
 
-// ---------------------------------------------------------------------------
-// ldvh-base five-directory initialization
-// ---------------------------------------------------------------------------
 
 test("initializeFactSource creates the five fact directories and reports ready", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
@@ -108,18 +89,14 @@ test("fact source is incomplete when a directory is missing", async () => {
 
 test("fact source conflicts when ldvh-base is not a regular directory", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		// a regular file where the directory should be
 		const rootA = await initRepo(base, { name: "repo-a" });
 		await writeFile(join(rootA, "ldvh-base"), "not a directory");
 		let inspected = await inspectCandidate(rootA);
 		assert.equal(inspected.value.factSource.state, "conflict");
 		assert.match(inspected.value.factSource.detail, /not a regular directory/);
 
-		// a symlink where the directory should be
 		const rootB = await initRepo(base, { name: "repo-b" });
 		await mkdir(join(base, "real-base"));
-		// Windows 建符号链接需 SeCreateSymbolicLinkPrivilege；junction 是目录重解析点，
-		// 无需该特权，且同样使 ldvh-base 不再是 regular directory（跨平台等价）。
 		await symlink(
 			join(base, "real-base"),
 			join(rootB, "ldvh-base"),
@@ -130,9 +107,6 @@ test("fact source conflicts when ldvh-base is not a regular directory", async ()
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Registration: atomic creation and first-project default
-// ---------------------------------------------------------------------------
 
 test("registerProject atomically creates the registration and makes the first project default", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
@@ -148,16 +122,9 @@ test("registerProject atomically creates the registration and makes the first pr
 		assert.equal(first.value.document.projects[0].path, await realpath(rootA));
 		assert.ok(typeof first.value.fingerprint === "string" && first.value.fingerprint.length > 0);
 
-		// atomic write: file exists with mode 0600, no leftover temp files
 		const registrationFile = join(home, "ldvh", "governed-projects.yaml");
 		const stat = await lstat(registrationFile);
 		if (process.platform === "win32") {
-			// 07 §5.6 Windows clause: the carrier inherits the DSH user-config
-			// ACL — Windows does not honour POSIX mode bits, and `chmod` cannot
-			// produce 0600 (observed 0o666). The 0600/0700 target is a Unix-only
-			// assertion; what IS asserted on win32 is the atomic-write outcome
-			// (a regular file, no temp residue). The ACL half stays unverified
-			// and is registered as a known limitation rather than passed.
 			assert.ok(stat.isFile(), "the carrier must be written as a regular file");
 		} else {
 			assert.equal(stat.mode & 0o777, 0o600);
@@ -167,7 +134,6 @@ test("registerProject atomically creates the registration and makes the first pr
 		const raw = await readFile(registrationFile, "utf8");
 		assert.match(raw, /default_project_id: proj-a/);
 
-		// second project keeps the first one as default
 		const second = await registerProject(dshHome(home), { id: "proj-b", path: rootB });
 		assert.equal(second.ok, true, second.error?.message);
 		assert.equal(second.value.document.default_project_id, "proj-a");
@@ -234,11 +200,9 @@ test("registerProject detects a stale expected fingerprint", async () => {
 		const fingerprint = first.value.fingerprint;
 		assert.ok(typeof fingerprint === "string" && fingerprint.length > 0);
 
-		// a concurrent writer moved the document forward
 		const second = await registerProject(dshHome(home), { id: "b", path: rootB, expectedFingerprint: fingerprint });
 		assert.equal(second.ok, true, second.error?.message);
 
-		// the original fingerprint is now stale -> conflict, nothing written
 		const stale = await registerProject(dshHome(home), { id: "c", path: rootC, expectedFingerprint: fingerprint });
 		assert.equal(stale.ok, false);
 		assert.equal(stale.error.code, "conflict");
@@ -247,9 +211,6 @@ test("registerProject detects a stale expected fingerprint", async () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// installProject: full flow
-// ---------------------------------------------------------------------------
 
 test("installProject initializes fact source, installs the Hook, and registers", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
@@ -285,7 +246,6 @@ test("installProject rejects a third-party Hook without touching the project", a
 		assert.equal(result.ok, false);
 		assert.equal(result.error.code, "hook_conflict");
 
-		// nothing was created or overwritten
 		assert.equal(await readFile(join(root, ".git", "hooks", "commit-msg"), "utf8"), thirdParty);
 		await assert.rejects(lstat(join(root, "ldvh-base")), (error) => error?.code === "ENOENT");
 		assert.equal((await readGovernedProjects(dshHome(home))).value.initialized, false);
@@ -302,16 +262,9 @@ test("installProject rejects a bare repository", async () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// installProject: failure rollback
-// ---------------------------------------------------------------------------
 
 test("installProject rolls back the fact source when the Hook preflight fails", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		// A broken runnerPath makes the preflight's Hook exec fail, so the
-		// install aborts after ldvh-base was created. (Preflight no longer
-		// depends on the real Index, so an empty Index can no longer trigger
-		// this path.)
 		const root = await initRepo(base);
 		const home = join(base, "home");
 		const result = await installProject(dshHome(home), { id: "p", path: root }, { runnerPath: join(base, "missing-runner.js"), workspaceRoot: base });
@@ -319,7 +272,6 @@ test("installProject rolls back the fact source when the Hook preflight fails", 
 		assert.equal(result.error.code, "installation_failed");
 		assert.deepEqual(result.error.details.rollback, []);
 
-		// the newly created fact source was removed again
 		await assert.rejects(lstat(join(root, "ldvh-base")), (error) => error?.code === "ENOENT");
 		await assert.rejects(readFile(join(root, ".git", "hooks", "commit-msg")), (error) => error?.code === "ENOENT");
 		assert.equal((await readGovernedProjects(dshHome(home))).value.initialized, false);
@@ -328,9 +280,7 @@ test("installProject rolls back the fact source when the Hook preflight fails", 
 
 test("installProject rolls back the Hook and fact source when registration fails", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		const root = await initRepo(base); // staged -> Hook install succeeds
-		// Force registration to fail: point the DSH home under a regular file,
-		// so mkdir(<home>/ldvh) fails with ENOTDIR.
+		const root = await initRepo(base);
 		const blocker = join(base, "blocker");
 		await writeFile(blocker, "not a directory\n");
 		const badHome = (...segments) => join(blocker, ...segments);
@@ -339,9 +289,7 @@ test("installProject rolls back the Hook and fact source when registration fails
 		assert.equal(result.ok, false);
 		assert.equal(result.error.code, "installation_failed");
 
-		// the installed Hook was rolled back...
 		await assert.rejects(readFile(join(root, ".git", "hooks", "commit-msg")), (error) => error?.code === "ENOENT");
-		// ...and the newly created fact source was removed
 		await assert.rejects(lstat(join(root, "ldvh-base")), (error) => error?.code === "ENOENT");
 	});
 });
@@ -355,8 +303,6 @@ test("installProject is idempotent for the same id and realpath and rejects the 
 		const first = await installProject(dshHome(home), { id: "p", path: rootA }, { runnerPath, workspaceRoot: base });
 		assert.equal(first.ok, true, JSON.stringify(first.error ?? first));
 
-		// same id + same realpath -> idempotent repair install succeeds and
-		// preserves the existing Hook and fact source (macOS /var vs /private/var)
 		const second = await installProject(dshHome(home), { id: "p", path: await realpath(rootA) }, { runnerPath, workspaceRoot: base });
 		assert.equal(second.ok, true, JSON.stringify(second.error ?? second));
 		const afterRepair = await inspectCandidate(rootA);
@@ -366,13 +312,11 @@ test("installProject is idempotent for the same id and realpath and rejects the 
 		assert.equal(registered.value.projects.length, 1, "repair install must not duplicate the registration");
 		assert.equal(registered.value.defaultProjectId, "p");
 
-		// same id on a different repo -> conflict, nothing torn down
 		const third = await installProject(dshHome(home), { id: "p", path: rootB }, { runnerPath, workspaceRoot: base });
 		assert.equal(third.ok, false);
 		assert.equal(third.error.code, "installation_failed");
 		assert.match(third.error.message, /already registered to another entry/);
 		assert.equal((await readGovernedProjects(dshHome(home))).value.projects.length, 1);
-		// rootB's freshly created Hook and fact source were rolled back
 		await assert.rejects(readFile(join(rootB, ".git", "hooks", "commit-msg")), (error) => error?.code === "ENOENT");
 		await assert.rejects(lstat(join(rootB, "ldvh-base")), (error) => error?.code === "ENOENT");
 	});
@@ -391,9 +335,6 @@ test("registerProject is idempotent for the same id and path", async () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// uninstallHook delegation
-// ---------------------------------------------------------------------------
 
 test("uninstallHook removes only the managed Hook", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
@@ -406,7 +347,6 @@ test("uninstallHook removes only the managed Hook", async () => {
 		assert.equal(removed.value.state, "absent");
 		assert.equal((await inspectCandidate(root)).value.hook.state, "absent");
 
-		// a third-party Hook is refused, matching hook-manager semantics
 		await writeFile(join(root, ".git", "hooks", "commit-msg"), "#!/bin/sh\necho third-party\nexit 0\n", { mode: 0o755 });
 		const refused = await uninstallHook(root);
 		assert.equal(refused.ok, false);
@@ -414,13 +354,9 @@ test("uninstallHook removes only the managed Hook", async () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// unregisterProject
-// ---------------------------------------------------------------------------
 
 test("unregisterProject removes the managed Hook, keeps the fact source, and drops the registration", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		// register "beta" first so it becomes the default; "alpha" is non-default
 		const rootA = await initRepo(base, { name: "a" });
 		const rootB = await initRepo(base, { name: "b" });
 		const home = join(base, "home");
@@ -433,7 +369,6 @@ test("unregisterProject removes the managed Hook, keeps the fact source, and dro
 		assert.equal(result.value.hook.state, "absent");
 		assert.equal(result.value.factSourcePreserved, join(await realpath(rootA), "ldvh-base"));
 
-		// fact source is preserved, the Hook is gone, the registration shrinks
 		assert.ok((await lstat(join(rootA, "ldvh-base"))).isDirectory());
 		await assert.rejects(readFile(join(rootA, ".git", "hooks", "commit-msg")), (error) => error?.code === "ENOENT");
 		const readBack = await readGovernedProjects(dsh);
@@ -445,11 +380,6 @@ test("unregisterProject removes the managed Hook, keeps the fact source, and dro
 
 test("unregisterProject refuses to remove the default without a next default", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		// registerProject, not installProject: this case is about the registration
-		// document's default-project rule and asserts nothing about Hooks. A full
-		// install would spend two preflights (~2.8s) proving a fact this test never
-		// reads. The Hook-bearing path is covered by the 「removes the managed Hook」
-		// case and by installProject's own cases.
 		const rootA = await initRepo(base, { name: "a" });
 		const rootB = await initRepo(base, { name: "b" });
 		const home = join(base, "home");
@@ -461,15 +391,12 @@ test("unregisterProject refuses to remove the default without a next default", a
 		assert.equal(result.ok, false);
 		assert.equal(result.error.code, "default_required");
 		assert.match(result.error.message, /nextDefaultProjectId/);
-		// registration is unchanged
 		assert.equal((await readGovernedProjects(dsh)).value.projects.length, 2);
 	});
 });
 
 test("unregisterProject switches the default when a valid next default is supplied", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		// registerProject: default switching is registration-document semantics and
-		// no assertion here touches a Hook.
 		const rootA = await initRepo(base, { name: "a" });
 		const rootB = await initRepo(base, { name: "b" });
 		const home = join(base, "home");
@@ -488,7 +415,6 @@ test("unregisterProject switches the default when a valid next default is suppli
 
 test("unregisterProject clears the default when the only project is removed", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		// registerProject: this case is about the empty-default rule.
 		const root = await initRepo(base);
 		const home = join(base, "home");
 		const dsh = dshHome(home);
@@ -504,7 +430,6 @@ test("unregisterProject clears the default when the only project is removed", as
 
 test("unregisterProject rejects an id/path that is not registered", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		// registerProject: the case is about the "not registered" refusal.
 		const root = await initRepo(base);
 		const home = join(base, "home");
 		const dsh = dshHome(home);
@@ -520,7 +445,6 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 
 	test("unregisterProject detects a stale expected fingerprint", async () => {
 		await withTemp("ldvh-gp.", async (base) => {
-			// registerProject: the case is about the fingerprint CAS, not Hooks.
 			const rootA = await initRepo(base, { name: "a" });
 			const rootB = await initRepo(base, { name: "b" });
 			const home = join(base, "home");
@@ -536,19 +460,8 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 		});
 	});
 
-	// ---------------------------------------------------------------------------
-	// unregisterProject: a refusal must not destroy anything
-	// ---------------------------------------------------------------------------
 
 	test("unregisterProject leaves the Hook installed when it refuses", async () => {
-		// 缺陷形态（2026-10-31 实测）：refused 调用把项目的 Git Gate 先删了。
-		// 三条拒绝（指纹过期、未登记、缺 nextDefaultProjectId）都在**读登记文档**
-		// 就能判定，却被排在删 Hook 之后——于是调用方看到「拒绝」，项目却已经
-		// 失去门禁，而它仍在册、仍被报告为受管辖。后果不是理论上的：修好之前，
-		// 该项目的非法提交（缺关键变更节）会直接通过。
-		//
-		// 判据取 Hook 的 observable 状态，不取调用顺序：把删 Hook 挪回校验之前，
-		// 本用例必须转红。
 		await withTemp("ldvh-gp.", async (base) => {
 			const rootA = await initRepo(base, { name: "a" });
 			const rootB = await initRepo(base, { name: "b" });
@@ -558,7 +471,6 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 			await installProject(dsh, { id: "alpha", path: rootA }, { runnerPath, workspaceRoot: base });
 			const fingerprint = (await readGovernedProjects(dsh)).value.fingerprint;
 
-			// 三条拒绝路径各走一遍，每条之后 Hook 都必须还在
 			const refusals = [
 				["conflict", { id: "beta", path: rootB, expectedFingerprint: "stale" + fingerprint }],
 				["not_registered", { id: "ghost", path: rootB }],
@@ -574,9 +486,6 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 		});
 	});
 
-	// ---------------------------------------------------------------------------
-	// ensureRegistrationCarrier
-	// ---------------------------------------------------------------------------
 
 	test("ensureRegistrationCarrier creates the carrier for an empty DSH home", async () => {
 		await withTemp("ldvh-gp.", async (base) => {
@@ -588,7 +497,6 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 			assert.equal(ensured.created, true);
 			assert.ok(typeof ensured.fingerprint === "string" && ensured.fingerprint.length > 0);
 
-			// the carrier exists and parses as YAML
 			const stat = await lstat(carrierPath);
 			assert.ok(stat.isFile(), "carrier must exist after ensureRegistrationCarrier");
 			const raw = await readFile(carrierPath, "utf8");
@@ -602,7 +510,6 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 			assert.equal(typeof document.product_description, "string");
 			assert.ok(document.product_description.length > 0);
 
-			// the follow-up read-only inspection agrees: empty but initialized
 			const result = await readGovernedProjects(dsh);
 			assert.equal(result.ok, true);
 			assert.equal(result.value.initialized, true);

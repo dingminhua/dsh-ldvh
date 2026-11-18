@@ -1,63 +1,7 @@
-// LDVH minimal rule-guidance text.
-//
-// Status: this text is the "插件 AI 面向语义文本" protected class (specs/10
-// §7.6, decision #14). Any content change here must follow 00 §3.3: show the
-// existing text and the exact candidate, state the difference and reason, pass
-// independent review, obtain the Human's explicit consent (逐段同意), and form a
-// standalone commit containing only this protected document.
-//
-// Contract (specs/01 §10.4): the minimal guidance names the SIX 00 anchor
-// groups — identity block, §1 three core values, §2 method & constitution,
-// §3 Human decision rights, §4 AI responsibilities (incl. §4.6/§4.7/§4.8),
-// §5 value discipline — WITHOUT copying rule text (no second rule source,
-// specs/10 §5.3 single-authority red line). Anchor names calibrate to the
-// current 00 text.
-//
-// 2026-10-25 修正（第四十四次独立审核 M-3）：本注释此前写「seven anchors」、
-// 把 §5.6-5.8 列为第 7 项，并引用了 00 里已不存在的 §7；另把出处误标为
-// 「08 §7.6」与「08 §5.3」——08 无 §7.6（其 §7 是「管辖判定消费方」），其
-// §5.3 是「判定方式」而非引导面。正确出处是 specs/10 §7.6（受保护文档承接）
-// 与 specs/10 §5.3（引导面）。01 §10.4 实列六组（2026-10-25 当时为 §5 组内含
-// §5.6/§5.7/§5.8；00 重构后现行编号为 §4 组内含 §4.6/§4.7/§4.8）。
-// 同一漂移的注疏侧记录见 plugin/lib/guidance.js:9-13。
-//
-// 2026-10-26 定口径（第四十四次独立审核 F1-1 的收口）：本文件内的 `specs/...`
-// 指针**按 LDVH 元规范语料视图书写**，即它们指向「插件所服务的这套 LDVH 规范」
-// 本身，不保证在受辖项目自著语料里解析到同一份载体。依据 `01 §10.3` 的语料
-// 三级回退（受辖项目根 specs/ → 插件开发布局源仓库根 specs/ → 插件包内 specs/），
-// 在有自著 `specs/` 的受辖项目里，同一路径会先解析到**该项目自己的**载体。
-//
-// 为什么选择「定口径」而不是「把指针全删」：引导的职责是让主控**在无须自行
-// 检索的前提下取得最小充分的方向约束**（`03 §10.4`），保留语料指针正是为此；
-// 全删会退化为「什么都指向不明」。但**执行纪律**（唯一入口禁令、不写事件流前提、
-// 重试复用语义、重问判据）由插件实施、不属任一受辖项目专有，故纪律本身写在这里、
-// 不依赖语料指针；相关排除项由检查机制规范（04 号）§6.1 承载，本文件不回指。本文件现存
-// 的 `specs/00-理念与构成.md`（governed 分支）与 `specs/07 §5.3`（unavailable
-// 分支）是**元规范自身的引用**，按本口径保留。
-//
-// 该口径的边界：它只解释本文件的书写约定，**不改变** `01 §10.3` 的回退规则，
-// 也不主张受辖项目自著语料里存在同名载体。若将来要在受辖项目里保证解析正确，
-// 应由 `01 §10.3` 的读取入口在应答时如实标注实际应答方（该条已如此要求）。
 
 export const GUIDANCE_SECTION_NAME = "ldvh:minimal-guidance";
 export const GUIDANCE_SECTION_ORDER = 1550;
 
-/**
- * One-line governance judgment notice (Human 2026-09-04: "上下文注入告知
- * 判定结果", the dsh-subagent-default-model notice pattern). This is the
- * explicit statement of WHAT LDVH judged for the current session — every
- * state gets one, including not_governed (which previously returned "" and
- * left the AI with no LDVH trace at all; that zero-interference shape is
- * superseded by this Human decision, pending live verification).
- */
-/**
- * Full judgment notice for the visible context-injection row (Human
- * 2026-09-04: "显示的不够完整" — one line was not enough). Builds the
- * complete card from the resolved scope: state, project identity, judgment
- * basis and what governance means for THIS session. Falls back to the bare
- * judgment line when the scope carries no project (not_governed / a
- * hand-made scope in tests).
- */
 export function noticeTextFor(scope) {
   const state = scope?.state;
   const line = judgmentLineFor(state);
@@ -80,10 +24,6 @@ export function noticeTextFor(scope) {
   return rows.join("\n");
 }
 
-/**
- * Inline summary for the collapsed context-injection row (renders next to
- * "上下文注入 · dsh-ldvh ·" — Human 2026-09-04 external title format).
- */
 export function noticeSummaryFor(state) {
   if (state === "governed") return "本会话受 LDVH 管辖";
   if (state === "unavailable") return "管辖登记不可读";
@@ -96,12 +36,6 @@ export function judgmentLineFor(state) {
   return "【LDVH 管辖判定】not_governed —— 本会话不受 LDVH 管辖，LDVH 工具不注册。";
 }
 
-/**
- * Migration notice when the judgment CHANGES mid-session (the "已切换到"
- * event-notice pattern): a one-line statement of the transition, so the AI
- * knows its earlier context may be stale (tools registered earlier may have
- * disappeared, guidance anchors no longer apply, etc.).
- */
 export function migrationLineFor(fromState, toState) {
   return `【LDVH 管辖状态变更】${fromState ?? "未知"} → ${toState} —— 本回合起按新状态执行，此前上下文中的 LDVH 信息可能已失效。`;
 }
@@ -117,8 +51,8 @@ const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md�
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
 把关请示：在行动前与收口前两处向 Human 请示是否安排一次独立核对，答复留痕，答复不构成授权凭据、也不使行动在取得答复前暂停（§2.6）；两处各有开关，缺省关闭；关着只保证「不问」，不禁止 AI 按 04 §6.1 自行安排隔离视角；两处询问之上另有执行档位（征询／静默，缺省征询），静默时该处不逐次征询、按 Human 的预先答复直接安排那次核对并留执行痕迹，它只免征询不免核对、不越过该处的询问开关，且不外推到火花／管辖项目等 Human Gate 的提请；「算不算复杂」由 AI 判断，机械层不判定，故这不构成机械保障；
 模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，请将 question 控制在 200 字符内，判断依据写进对话正文；此为对 AI 的指令、无机械保障（该工具不转发 detail，长内容无承载位）；
-失败留痕：待处置队列已删除（Human 2026-11-17，11 §12）——代理辅助任务失败由执行体当次回执承载（主控按 00 §4.6 如实转述），另以运行痕迹跨会话可查（诊断页只读呈现）；不再有「接管前先读账」的义务，也不再有结案通道。
-经验主动记录：主控在当次行动中发现已查明验证的失败机制时，按 23 §13 把该机制所需的上下文材料交给一个零上下文派生的代理起草发现记录，再由主控受控写入（子代理不写事实源）；**不继承主控对话**——材料由主控按该机制挑选（23 §13 上下文供给段）。通道边界、免事前确认与摩擦归属依 23 §13、23 §16；摩擦的发现同样由主控发起、交代理记录（依 11 号 §9 与 00 §4.5 的代理辅助任务），不属本行。
+失败留痕：待处置队列已删除（Human 2026-11-17，36 §8.7）——代理辅助任务失败由执行体当次回执承载（主控按 00 §4.6 如实转述），另以运行痕迹跨会话可查（诊断页只读呈现）；不再有「接管前先读账」的义务，也不再有结案通道。
+经验主动记录：主控在当次行动中发现已查明验证的失败机制时，按 23 §13 把该机制所需的上下文材料交给一个零上下文派生的代理起草发现记录，再由主控受控写入（子代理不写事实源）；**不继承主控对话**——材料由主控按该机制挑选（23 §13 上下文供给段）。通道边界、免事前确认与摩擦归属依 23 §13、23 §16；摩擦的发现同样由主控发起、交代理记录（依 36 号 §9 与 00 §4.5 的代理辅助任务），不属本行。
 管辖状态：ldvh_resolve_governance_scope。完整规则以规范源原文为准，本引导不复制规则正文。`;
 
 const UNAVAILABLE_GUIDANCE = `LDVH 管辖登记当前不可读取。本项目暂按不受管辖处理（与 not_governed 一致），但状态确为「不可用」而非「不受辖」，不得据此认定本项目不受辖。
@@ -128,12 +62,6 @@ const UNAVAILABLE_GUIDANCE = `LDVH 管辖登记当前不可读取。本项目暂
 
 const NOT_GOVERNED_GUIDANCE = `本会话无 LDVH 工作要求；如被问及 LDVH，据实回答本会话不受管辖。`;
 
-/**
- * Guidance text for a governance state: judgment line first, then the
- * state-specific body. not_governed now carries a one-line judgment +
- * minimal body (Human 2026-09-04 上下文注入决定) — the former "" (zero
- * interference) shape is superseded; see judgmentLineFor note.
- */
 export function guidanceTextFor(state) {
   const line = judgmentLineFor(state);
   if (state === "governed") return `${line}\n${GOVERNED_GUIDANCE}`;

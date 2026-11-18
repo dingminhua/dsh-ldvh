@@ -1,25 +1,3 @@
-// LDVH Goal mechanical layer — runtime wiring.
-//
-// Connects the Goal writer (goal-writer.js, specs/25 §11 + specs/03 §9) to the
-// governed tool surface so the main controller can drive the singleton from a
-// live session:
-//
-//   - goal-read-object  (effect: read)             — precise read of the
-//     singleton: frontmatter, body, parsed sub-goal anchors and fingerprint.
-//     A missing goal.md returns `unavailable` with the 25 §10 reason (项目未
-//     initialized) — reads are NOT blocked, because exploring is how a goal
-//     gets formed.
-//   - goal-write-object (effect: may_change_state) — controlled create (project
-//     init conversation) and CAS update (statement refinement, sub-goal
-//     refinement/obsoletion, achieved transition).
-//
-// Authorities: specs/05 §6 (operation declaration + common envelope), §9.3
-// (may_change_state), specs/03 §9 (controlled read/create/update + read-back),
-// specs/25 §11 §12 §13 (type-specific checks, singleton fail-closed, Human
-// Gate on every revision and on the achieved transition).
-//
-// The singleton is deliberately NOT part of F0–F2 candidate discovery
-// (25 §10 单例三免): consumers know the path, so there is no list operation.
 
 import {
   createGoalObject,
@@ -68,7 +46,6 @@ function invalidRequest(operationKey, message, action) {
 async function signatureFor(deps, exec) {
   const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
   if (!route.ok) return { ok: false, reason: route.reason };
-  // Branded carrier only: the writers refuse anything else (03 §6.1 / 09).
   return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
 }
 
@@ -96,8 +73,6 @@ export function makeExecute(deps) {
     }
     const read = await readGoalObject({ factSourceRoot: `${governed.path}/ldvh-base` });
     if (!read.ok) {
-      // 25 §10: a missing goal.md is a legitimate state — authorisation is then
-      // architecturally fail-closed, and exploration is not blocked.
       const outcome = read.error.code === "goal/not_initialised" ? "unavailable" : "rejected";
       return envelope("goal-read-object", outcome, {
         result: null,
@@ -108,15 +83,7 @@ export function makeExecute(deps) {
         follow_up: read.error.code === "goal/not_initialised" ? ["run the project init conversation to create the goal"] : []
       });
     }
-    // 28 §8.1：拆解与落实情况不存储为字段，一律由机械反查派生。子目标清单
-    // 按 `parent_goal` 反查 SubGoal 载体得到；空集既可能是「还没拆解」也可能
-    // 是「拆了但下游没声明」，两种情形机械层不可区分，故显式标注。
     const derived = await listSubGoalObjects({ factSourceRoot: `${governed.path}/ldvh-base`, status: "all" });
-    // `listSubGoalObjects` 返回的是 `success({ total, items, unreadable })` 信封，
-    // 列表在 `derived.value.items` 而不在 `derived.items`。此处曾直取 `derived.items`
-    // （得 `undefined`），使本工具在**任何已有子目标的项目**上抛
-    // `Cannot read properties of undefined (reading 'map')`——空项目不触发，
-    // 故长期未被发现。读 `value` 后 `ok` 已保证 `value` 存在，无需再兜 undefined。
     const derivedItems = derived.ok ? derived.value.items : [];
     const derivedGaps = derived.ok
       ? []
@@ -125,9 +92,6 @@ export function makeExecute(deps) {
       result: {
         status: read.value.frontmatter.status,
         title: read.value.frontmatter.title,
-        // 28 §7 已废止 `SG-n` 业务编号（2026-11-01），故此处不再投影 `anchor`：
-        // 该字段在载体与列表投影里都已不存在，继续投影只会给出恒为 `undefined`
-        // 的键——读起来像「有编号但缺失」，而事实是「本类型没有编号」。
         sub_goals: derivedItems.map((item) => ({
           object_uid: item.object_uid,
           title: item.title,
@@ -180,8 +144,6 @@ export function makeExecute(deps) {
     }
     const factSourceRoot = `${governed.path}/ldvh-base`;
     const sig = await signatureFor(deps, exec);
-    // Human requirement 2026-09-12: an unsigned change_log entry is refused,
-    // and the refusal is reported for Human handling.
     if (!sig.ok) {
       return envelope("goal-write-object", "unavailable", {
         result: null,
@@ -223,18 +185,14 @@ export function makeExecute(deps) {
       });
     }
 
-    // action === "update"
     const expectedFingerprint = args?.expected_fingerprint;
     if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
       return invalidRequest("goal-write-object", "expected_fingerprint is required for action=update (CAS baseline)", "update");
     }
     const frontmatterAfter = args?.frontmatter_after;
-    // 显式删除声明（specs/02 §10.5）：未在通道内重述即继承基线，删除须显式声明。
     const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
     const bodyMarkdownAfter = args?.body_markdown_after;
     const changeSummary = args?.change_summary;
-    // 缺什么报什么：两个通道独立（02 §10.5）。实测本窗口有 5 次失败其实是正文已给、
-    // `frontmatter_after` 未给，却被读成「要重抄全文」。空对象 `{}` 合法。
     if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
       return invalidRequest("goal-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
     }
@@ -266,8 +224,6 @@ export function makeExecute(deps) {
       sources: [{ kind: "fact-object", path: updated.value.file, content_fingerprint: updated.value.fingerprint }],
       gaps: [],
       verification: { checks: ["cas-baseline", "anchor-stability", "frontmatter-closed-set", "body-structure", "atomic-write", "read-back"], passed: true },
-      // 25 §11: the cascade is a MARK, not Goal-side state — the caller runs
-      // the `serves` scan over the reported anchors.
       follow_up: ["run the goal revision cascade over revised_anchors (21 §C2 semantics); Goal stores no downstream state"]
     });
   }
@@ -279,21 +235,10 @@ export function makeExecute(deps) {
   return { handlers, OPERATIONS };
 }
 
-/** The block array shape every LDVH tool returns for the model-visible text. */
 function text(body) {
   return [{ type: "text", text: body }];
 }
 
-/**
- * 模型可见的渲染形态 + 输出 schema。
- *
- * DSH 0.1.7 要求每个工具声明 `output: { schema, render }`；缺了它
- * `ctx.tools.register` 直接抛错（真机日志：`tool "ldvh_goal_read" must declare
- * output { schema, render, presentationMeta? }`）。而注册中途抛错会让
- * lifecycle 的幂等守卫（`syncTools` 里 `toolsDisposer === null`）永远无法落地，
- * 于是每次 assemble 都重试并刷「already registered」警告。本文件此前是唯一
- * 没有 output 声明的工具层（2026-09-25 desktop profile 真机验证发现）。
- */
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
 
 function renderEnvelope(operationKey, value) {
@@ -301,8 +246,6 @@ function renderEnvelope(operationKey, value) {
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   if (env.result) lines.push(JSON.stringify(env.result, null, 2));
   if (Array.isArray(env.gaps) && env.gaps.length > 0) {
-    // Gaps may be structured records (05 §8 traceability), so stringify them
-    // rather than interpolating them as [object Object].
     lines.push("gaps:", ...env.gaps.map((gap) => `  - ${typeof gap === "string" ? gap : JSON.stringify(gap)}`));
   }
   if (Array.isArray(env.follow_up) && env.follow_up.length > 0) {
@@ -312,9 +255,6 @@ function renderEnvelope(operationKey, value) {
 }
 
 export function toolDescriptorFor(operationKey, operation, handler) {
-  // Register through defineTool so the DSH argument check actually runs: the
-  // bare-descriptor path only asserts output/timeoutMs shape and stores the
-  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
   return defineTool({
     name: operation.toolName,
     description: operation.summary,
@@ -369,10 +309,6 @@ function parameterSchemaFor(operationKey) {
   }
 }
 
-/**
- * Register the Goal tool batch. Called from registerLdvhTools for governed
- * sessions only, on the same registration surface as the other type layers.
- */
 export function registerGoalTools(ctx, deps) {
   const { handlers } = makeExecute(deps);
   const disposers = [];
@@ -382,7 +318,7 @@ export function registerGoalTools(ctx, deps) {
   }
   return () => {
     for (const dispose of disposers) {
-      try { dispose(); } catch { /* already removed */ }
+      try { dispose(); } catch {   }
     }
   };
 }

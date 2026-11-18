@@ -11,7 +11,6 @@ const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-settings-works
 const firstProject = path.join(workspaceRoot, 'first')
 const secondProject = path.join(workspaceRoot, 'second')
 const firstLinkedWorktree = path.join(workspaceRoot, 'first-linked')
-// v5 登记模式的载体路径：夹具自带沙箱配置，不读写用户的 ~/.dsh 登记载体。
 const configPath = path.join(workspaceRoot, 'governed-projects.yaml')
 
 fs.mkdirSync(firstProject, { recursive: true })
@@ -37,7 +36,6 @@ fs.writeFileSync(configPath, [
 process.env.LDVH_ROOT = firstProject
 process.env.LDVH_WORKSPACE_ROOT = workspaceRoot
 process.env.LDVH_WEB_WORKTREE_LOCATOR = firstProject
-// v5 登记模式：治理验证走 Node git 解析，零 Python Helper 依赖。
 process.env.LDVH_GOVERNED_PROJECTS_CONFIG = configPath
 
 let server: Server
@@ -101,10 +99,6 @@ test('discovers current workspace Git worktrees with read-only status and regist
   assert.equal(response.status, 200, JSON.stringify(body))
   assert.equal(body.workspaceRoot, workspaceRoot)
   const items = body.items as Array<Record<string, unknown>>
-  // Canonicalize exactly as the API does: `governanceScope.ts` uses
-  // `realpathSync.native`, which on Windows expands the 8.3 short name
-  // (`ADMINI~1`) returned by `os.tmpdir()`. Plain `realpathSync` keeps the short
-  // form, so comparing the two forms fails only on Windows.
   const canonical = (value: string): string => fs.realpathSync.native(value)
   const first = items.find((item) => item.path === canonical(firstProject))
   const second = items.find((item) => item.path === canonical(secondProject))
@@ -134,7 +128,6 @@ test('governed-projects write endpoints are read-only (501) — registration wri
   const verify = await request('/api/settings/governed-projects/verify', { method: 'POST' })
   assert.equal(verify.response.status, 501)
 
-  // 配置未被触碰
   const current = await request('/api/settings/governed-projects')
   assert.equal(current.response.status, 200)
 })

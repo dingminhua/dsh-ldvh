@@ -1,61 +1,6 @@
-/**
- * dsh-ldvh — 两份代理派发模板：**行动前审查**与**行动后复核**。
- *
- * ## 为什么要有模板（实证来源）
- *
- * Human 2026-11-13 指出「复核就是主回话把控，通过新建代理，主回话提供上下文
- * 就可以了，这个经常做」，并给了实证会话 `session-b93adc39`。该会话里实际做的
- * 是一次独立代码复核，派发参数为 `subagent({ name: "reviewer", description:
- * "Independent code review", prompt: <4294 字> })`——**零上下文**（不是 fork）、
- * prompt 手工写全。
- *
- * 那份 prompt 的五块结构是有作用的，且**它抓到了真实的 BLOCKER**：主对话当时
- * 已经报了「完成」，复核体读宿主源码后指出 `turn/end` 期间调 `followup` 会被
- * `dsh-session` 的重入保护拒绝（`session append cannot reenter while another
- * append is being published`），于是那条「自动续轮」机制实际是空转——扣预算、
- * 装监听、触发、抛错、记日志，一条都没排进去。主对话拿到结论后的第一句是
- * 「审查代理发现一个 BLOCKER，而且我确实没有在真宿主上验证新机制就报告完成」。
- *
- * 结论：**这套形态值得固化**。模板的作用不是教人写 prompt，而是把「上次侥幸
- * 想全了的那五块」变成默认形状——尤其是「声明的主张要逐条列出」与「必须自己
- * 去读代码验证，不许信作者」，这两条正是抓到 BLOCKER 的原因。
- *
- * ## 为什么分两份（Human 2026-11-13 决定）
- *
- * 审查与复核的**对象与时点不同**，一份模板盖不住：
- *
- * | | 行动前审查 | 行动后复核 |
- * |---|---|---|
- * | 对象 | 还没取得效力的**候选/方案** | 已经发生的**工作与结果** |
- * | 时点 | 方案已有候选、尚未产生副作用 | 工作做完、尚未形成完成声明 |
- * | 要问的 | 「这个方案哪里想错了、漏了什么前提」 | 「实际做了什么、与声称的差在哪」 |
- * | 主要失效 | 想错方向、漏掉约束、方案本身不可行 | 报了完成但没做到、测试形同虚设、文档与代码不一致 |
- * | 证据形态 | 规范条文、既有事实、方案内部一致性 | `git diff`、测试输出、运行观察 |
- *
- * 两者共用同一条纪律（零上下文、只读、可反驳、必须给证据、结论分级），但**追问
- * 的方向相反**：审查是「往后推演会不会出问题」，复核是「往前核对是不是真做了」。
- *
- * ## 如实声明边界（00 §4.6）
- *
- * **模板不是机械保障。** 它不保证：
- * - 主控真的用了它（可以自己写 prompt，也可以根本不派）；
- * - 派出去的代理真的独立（零上下文是对**主控**的要求，机械层不知道它是否用
- *   `subagent_fork` 派发的——fork 会继承全部上下文，独立性即不成立）；
- * - 结论被采纳（是否改、改成什么，仍是主控与 Human 的判断）。
- *
- * 它只做一件事：**把「该提供的上下文」与「该问的问题」变成一份可复制的默认形状**，
- * 使主控不必每次临时设计，也使 Human 能核对「这次的代理到底被要求查什么」。
- */
 
 import { REVIEW_ASK_POINTS } from "./review-ask.js";
 
-/**
- * 两份模板共用的纪律块（逐字复用，避免两份漂移）。
- *
- * 这几条不是装饰：实证会话里「Be skeptical and specific. Do NOT assume the
- * author is right.」与「Read-only, DO NOT modify any file」都是原文，且前者
- * 直接决定了复核体敢不敢否定作者的判断。
- */
 const COMMON_DISCIPLINE = [
   "## 硬性约束",
   "",
@@ -66,9 +11,6 @@ const COMMON_DISCIPLINE = [
   "- **不确定就说不确定**：查不到、看不懂、缺前提时如实说明，不要用看起来完整的推断填空。",
 ];
 
-/**
- * 输出格式块（两份共用，故复核与审查的结论可互相比较、可汇总）。
- */
 const OUTPUT_FORMAT = [
   "## 输出格式",
   "",
@@ -83,15 +25,10 @@ const OUTPUT_FORMAT = [
   "结尾给一句总体结论：**能不能往下走**，以及**必须先修什么**。简洁，但不要为了省篇幅漏掉真问题。",
 ];
 
-/** 把主控给的改动/方案描述收进模板；缺内容时明确说缺，不虚构。 */
 function describeSubject({ subject, claims, evidence, task } = {}) {
   const lines = [];
   lines.push("## 本次要审的对象");
   lines.push("");
-  // 对象描述优先取 subject；没有时**退到 task 那句话再退到明说缺**。
-  // 为什么不直接写「未提供」：单工具调用里主控往往只填 task，而 task 那句
-  // 通常已经把「改了什么」说清了。此时再让代理「不知道要审什么」是自造缺口
-  // ——但**绝不编造**：两句都没有时才明说缺。
   const subjectText = typeof subject === "string" && subject.trim().length > 0
     ? subject.trim()
     : (typeof task === "string" && task.trim().length > 0 ? task.trim() : null);
@@ -113,15 +50,6 @@ function describeSubject({ subject, claims, evidence, task } = {}) {
   return lines;
 }
 
-/**
- * 行动前审查模板——对象是**尚未取得效力的候选**。
- *
- * 追问方向：这个方案在想什么层面可能错？漏了哪些前提？有没有更简单的做法？
- * 依据是否真的支持结论？边界有没有说清？
- *
- * **不对它问「该不该做」**：需求裁夺归 Human（对审核体的同一条边界，
- * 此处沿用理由——审核体不知道 Human 的取舍权重，问它等于让它替 Human 决定）。
- */
 export function composePreActionReviewPrompt({ subject, claims, evidence, task } = {}) {
   const lines = [];
   lines.push("# 独立审查请求（行动前 · 对候选方案主动找错）");
@@ -129,8 +57,6 @@ export function composePreActionReviewPrompt({ subject, claims, evidence, task }
   lines.push("你是一位独立审查者。**你没有参与这份方案的形成**，所以你的判断有意义。");
   lines.push("请对下面这份**还没开始执行**的方案做一次对抗性审查——目标是**在动手之前**找出它会在哪里出错。");
   lines.push("");
-  // 「任务背景」只在另有 subject 时才加——否则 task 就是对象描述本身，
-  // 写两遍会让代理以为这是两条不同的信息。
   if (typeof subject === "string" && subject.trim().length > 0
     && typeof task === "string" && task.trim().length > 0) {
     lines.push(`任务背景：${task.trim()}`);
@@ -157,16 +83,6 @@ export function composePreActionReviewPrompt({ subject, claims, evidence, task }
   return lines.join("\n");
 }
 
-/**
- * 行动后复核模板——对象是**已经发生的工作与结果**。
- *
- * 追问方向：声称做了什么 vs 实际做了什么？判据真的达到了吗？测试是真的在测
- * 还是形同虚设？文档与代码一致吗？
- *
- * 这份直接脱胎于实证会话 `session-b93adc39` 的那次独立代码复核——它的
- * 「改动声称做到的事，逐条核对」与「测试是不是形同虚设」两段是抓到真缺陷的
- * 关键，故保留同样的锋利度。
- */
 export function composePostWorkReviewPrompt({ subject, claims, evidence, task } = {}) {
   const lines = [];
   lines.push("# 独立复核请求（行动后 · 对已发生的工作逐条核对）");
@@ -174,8 +90,6 @@ export function composePostWorkReviewPrompt({ subject, claims, evidence, task } 
   lines.push("你是一位独立复核者。**你没有参与这项工作**，也没有读过主控的推理过程——这正是你的价值所在：你只能看到结果与声称，必须自己去核实。");
   lines.push("主控认为这项工作已经完成。你的任务是**核对它是否真的做到了**。");
   lines.push("");
-  // 「任务背景」只在另有 subject 时才加——否则 task 就是对象描述本身，
-  // 写两遍会让代理以为这是两条不同的信息。
   if (typeof subject === "string" && subject.trim().length > 0
     && typeof task === "string" && task.trim().length > 0) {
     lines.push(`任务背景：${task.trim()}`);
@@ -202,12 +116,6 @@ export function composePostWorkReviewPrompt({ subject, claims, evidence, task } 
   return lines.join("\n");
 }
 
-/**
- * 按询问位置取对应的派发模板。
- *
- * @param {"pre-action"|"post-work"} point
- * @returns {{point: string, prompt: string, kind: string}}
- */
 export function reviewDispatchTemplate(point, inputs = {}) {
   if (point === REVIEW_ASK_POINTS.PRE_ACTION) {
     return { point, kind: "pre-action-review", prompt: composePreActionReviewPrompt(inputs) };

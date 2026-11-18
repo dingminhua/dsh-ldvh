@@ -1,9 +1,4 @@
-// ============================================================
-// 状态词汇表 — 仅作未被类型投影覆盖时的显示后备，不定义状态闭集或状态机。
-// 类型来源定义了不同语义时，必须通过 OBJECT_STATUS_LOCALES 覆盖本表。
-// ============================================================
 export const STATUS_LOCALES: Record<string, { zh: string; en: string }> = {
-  // 类型专属状态词
   draft: { zh: '草稿', en: 'Draft' },
   proposed: { zh: '已提议', en: 'Proposed' },
   accepted: { zh: '已采纳', en: 'Accepted' },
@@ -47,7 +42,6 @@ export const STATUS_LOCALES: Record<string, { zh: string; en: string }> = {
   pass_with_followups: { zh: '通过但有后续项', en: 'Pass with follow-ups' },
   fail: { zh: '不通过', en: 'Fail' },
   unknown: { zh: '未知', en: 'Unknown' },
-  // Spark
   resolved: { zh: '已分流', en: 'Routed' },
   discarded: { zh: '已废弃', en: 'Discarded' },
   deleted: { zh: '已删除', en: 'Deleted' },
@@ -59,23 +53,13 @@ export function getStatusLocale(status: string, locale: string): string {
   return locale === 'en' ? entry.en : entry.zh;
 }
 
-// 状态码可在不同事实对象中复用，但展示语义不必相同。Spark 的 `open`
-// 表示「尚待判断或分流」，不是「未关闭」式的终态语义。
-//
-// 本表是**类型专属展示词条的唯一来源**：徽标（StatusBadge ← getObjectStatusLocale）、
-// 列表卡、详情身份头部、联邦与热点图都经 getObjectStatusLocale 取词条。筛选器的
-// 不得在 UI_LOCALES 里再登记一份同义词条——两处登记必然漂移。
 const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
   spark: {
-    // 20 §9 状态闭集：open（待处理——尚待召回、判断、拆分或分流；Human 定案
-    // 2026-09-13 改称，原「悬置中」）/ implemented（落实或交接，只结束入口
-    // 职责，不代表下游完成）/ discarded（废弃或被合并/拆分）。
     open: { zh: '待处理', en: 'Pending' },
     implemented: { zh: '已落实', en: 'Implemented' },
     discarded: { zh: '已废弃', en: 'Discarded' },
   },
   pitfall: {
-    // 23 §9 状态闭集两值（2026-11-03 Human 决定取消 `draft` 待确认态）。
     active: { zh: '活跃', en: 'Active' },
     discarded: { zh: '已废弃', en: 'Discarded' },
   },
@@ -84,40 +68,24 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     retired: { zh: '已废弃', en: 'Retired' },
   },
   friction: {
-    // 26 §9 状态闭集四值（2026-10 修订，Human 决定：观察不进事实源；2026-10 新增 accepted）：
-    // open（待修）/ resolved（已销账，informs 指向解药）/ voided（已废弃）/
-    // accepted（已接受——阻碍真实但不可清偿，记录一次即不再报告）。
-    // 原第四值 `observing`（留观）已退出闭集——观察材料改由 11 §12bis.1 的
-    // 摩擦观察缓冲承载（非事实对象、不进事实源），故此处不再有留观词条。
     open: { zh: '待修', en: 'Open' },
     resolved: { zh: '已销账', en: 'Resolved' },
-    // 与其余事实对象（Pitfall/Spark 的 discarded、Report 的 retired）统一
-    // 用「已废弃」，Human 扫读不必记忆类型专属词（2026-11 Human 裁定）。
     voided: { zh: '已废弃', en: 'Voided' },
-    // accepted 是「记对了但清偿不了」，与 voided（记错了）是不同结论，故不复用
-    // 「已废弃」；用「已接受」标明它是 Human 的接受决定，不是废弃。
     accepted: { zh: '已接受', en: 'Accepted' },
   },
   norm: {
-    // 27 号 §9 状态闭集：active（生效中）/ retired（已退役，终态不重开）。
     active: { zh: '生效中', en: 'Active' },
     retired: { zh: '已退役', en: 'Retired' },
   },
   goal: {
-    // 25 号 §7 状态闭集：active（项目存续期常态）/ achieved（收官判定，
-    // 全部 sub-goal 达成后 Human 终局判定；冻结为历史档案）。
     active: { zh: '生效中', en: 'Active' },
     achieved: { zh: '已达成', en: 'Achieved' },
   },
   subgoal: {
-    // 28 号 §9 状态闭集：active（推进中）→ achieved（已达成）/ retired（已作废）。
-    // 后两者均为终态且不重开；「已达成」与 Goal 的 achieved 同词，但判定主体
-    // 不同（子目标是逐条判据，Goal 是全量收官），故两处都保留而不合并。
     active: { zh: '推进中', en: 'Active' },
     achieved: { zh: '已达成', en: 'Achieved' },
     retired: { zh: '已作废', en: 'Retired' },
   },
-  // 29 号 DevLog 的状态闭集词条已随该类型于 2026-11-14 撤除。
 };
 
 export function getObjectStatusLocale(type: string, status: string, locale: string): string {
@@ -126,24 +94,6 @@ export function getObjectStatusLocale(type: string, status: string, locale: stri
   return getStatusLocale(status, locale);
 }
 
-/**
- * **状态徽标文案的唯一入口**（含建前审核后缀）：任何呈现面要显示某个对象的状态词，
- * 都调本函数，不要直接调 `getObjectStatusLocale`。
- *
- * ## 为什么必须收敛到一处（2026-10-17）
- *
- * 后缀最初只加在**列表卡**（`ObjectList` 的 `cardStatusLabel`），聚焦页的四处徽标
- * 仍各自直调 `getObjectStatusLocale`，于是同一个对象在列表卡上显示
- * 「待批准执行 · 待审核」、在聚焦收件箱里却只显示「待批准执行」——**同一事实两处
- * 说法不同**。Human 为此直接指出「聚焦栏的 card 表现要同步」。
- *
- * 根因不是漏改某一处，而是**判据没有单一来源**：只要后缀的拼接逻辑住在某个页面的
- * 局部 const 里，任何新增的呈现面都必然再漏一次。故收敛到这里，各处只传数据。
- *
- * @param type 对象类型
- * @param status 派生分组或状态值
- * @param preAuditPassed 该对象的建前审核是否已取得通过结论
- */
 export function getObjectStatusDisplayLabel(
   type: string,
   status: string,
@@ -153,30 +103,8 @@ export function getObjectStatusDisplayLabel(
   return getObjectStatusLocale(type, status, locale);
 }
 
-// `TYPE_DESCRIPTION_LOCALES` / `getTypeDescription` 已删除（2026-11-02）。
-//
-// 它们是**类型定义的复述**表（「事实规范——一个工程
-// 方向的成体系规则体系（27 §1）」……），迁自 v4。全部 11 条里，**只有 `norm` 一条曾
-// 真正上屏**——规范卡卡体的类型说明行。那一行随方向键块一并撤除后，本表再无消费方，
-// 即「11 条里 10 条自始是死的、最后 1 条也死了」。
-//
-// 不保留的理由就是呈现收窄的落点纪律（`docs/11` §4quater）：撤掉呈现却留着词表，
-// 「不呈现」这个决定就没有落点，下一轮读者会把它当成「本该呈现、只是暂时没接上」。
-// 类型定义本身仍在各规范 §1 与 `TYPE_LOCALES` 的类型名里，不因删表而丢失。
-//
-// `objectList.normDirectionKeyMissing`（「方向键缺失 / Direction key missing」）随
-// 详情面方向键节点一并删除：缺 `direction_key` 属**载体不合规**，读取层已按字段契约
-// 产出 `field_issues`（`missing`）并由 `FieldIssuesSection` 如实报出，页面另写一句
-// 提示是同一事实的第二处呈现。
 
-// ============================================================
-// 对象类型 / 字段名 / 字段枚举值 中英映射（显式 mapping 表）
-// 来源：docs/01-全局设计约束 §1.3 — 字段名与枚举值必须经显式映射本地化
-// 这些表集中维护于此，组件经下方 get*Label 函数读取，
-// 不得在组件内用 locale === 'en' ? ... : ... 内联分支。
-// ============================================================
 
-/** 对象类型中英映射 */
 export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
   pitfall: { zh: '经验', en: 'Pitfall' },
   spark: { zh: '火花', en: 'Spark' },
@@ -219,7 +147,6 @@ export function getOppositeLanguageNameKey(locale: Locale): 'language.english' |
   return locale === 'zh' ? 'language.english' : 'language.chinese';
 }
 
-/** 字段名中英映射 */
 export const FIELD_LABEL_LOCALES: Record<string, { zh: string; en: string }> = {
   id: { zh: 'ID', en: 'ID' },
   type: { zh: '类型', en: 'Type' },
@@ -246,11 +173,9 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   relation_contributed_to: { zh: '贡献了', en: 'Contributed To' },
   relation_informs: { zh: '提供参考', en: 'Informs' },
   relation_inspired_by: { zh: '受启发于', en: 'Inspired By' },
-  // 20 §11：Spark 关系闭集仅合并/拆分两键（目标必须可解析且为 open）。
   relation_merged_into: { zh: '合并入', en: 'Merged Into' },
   relation_split_into: { zh: '拆分为', en: 'Split Into' },
   user_intent: { zh: '用户意图', en: 'User Intent' },
-  // 20 §8：intent = 保留理由与后续方向（为什么值得保留 + 后续判断方向）。
   intent: { zh: '保留意图', en: 'Intent' },
   description: { zh: '描述', en: 'Description' },
   evolution: { zh: '演变记录', en: 'Evolution' },
@@ -258,7 +183,6 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   routing: { zh: '分流', en: 'Routing' },
   trigger_signal: { zh: '触发信号', en: 'Trigger Signal' },
   disposition_summary: { zh: '处置', en: 'Disposition' },
-  // 20 §8：Spark 终态去向与理由（implemented/discarded 时必填）。
   disposition: { zh: '去向', en: 'Disposition' },
   termination: { zh: '终止善后', en: 'Termination Cleanup' },
   initiated_at: { zh: '中止发起时间', en: 'Termination Initiated At' },
@@ -291,21 +215,12 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   recovery: { zh: '恢复定位', en: 'Recovery Locator' },
   commit: { zh: '提交', en: 'Commit' },
   blob_oid: { zh: 'Blob OID', en: 'Blob OID' },
-  // 24 §8（2026-11-14）：报告形态字段——三形态共用一个类型。与 v4 遗留的
-  // `report_kind`（external_research/internal_audit/...，见上）**同名不同义**，
-  // 故取不同字段名与不同标签，避免两代语义在呈现层串味。
   report_form: { zh: '报告形态', en: 'Report Form' },
   research_question: { zh: '研究问题', en: 'Research Question' },
   research_purpose: { zh: '调研目的', en: 'Research Purpose' },
-  // 20 §8：Spark 悬置问题字段——question（单句待答）/scope_boundary（何时停止）/
-  // current_understanding（summary 正文节的展示名）。`serves` 在此保留标签只为
-  // 字段语义登记（28 §12.3：它的值是 SubGoal 的 object_uid，不是 SG-n）；
-  // 它已无呈现面（2026-11-01 撤除），不再有组件读本条目。
   question: { zh: '调查问题', en: 'Question' },
   scope_boundary: { zh: '调查边界', en: 'Investigation Boundary' },
   serves: { zh: '服务子目标', en: 'Serves Sub-goal' },
-  // 03 §7.2 关联引用型 / 20 §8：refs 为关联的事实对象引用，列表卡与详情头
-  // 以 chip 呈现，使 Human 无需读全文即可看到本议题与哪些对象相关。
   refs: { zh: '关联对象', en: 'Related Objects' },
   current_understanding: { zh: '当前理解', en: 'Current Understanding' },
   stopping_reason: { zh: '停止原因', en: 'Stopping Reason' },
@@ -326,8 +241,6 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   validation_summary: { zh: '验证', en: 'Validation Notes' },
   body: { zh: '正文', en: 'Body' },
   report_body: { zh: '正文', en: 'Body' },
-  // 21 §8：gist 是给 Human 扫读的一句话要点，与 summary（给执行者的完整快照）
-  // 分工不同（10 §5.5）。词条须与 summary 可区分，不得同译。
   gist: { zh: '要点', en: 'Gist' },
   summary: { zh: '摘要', en: 'Summary' },
   conclusion: { zh: '结论', en: 'Conclusion' },
@@ -338,9 +251,6 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   next_steps: { zh: '后续步骤', en: 'Next Steps' },
   lessons: { zh: '经验教训', en: 'Lessons' },
   success_criteria: { zh: '成功标准', en: 'Success Criteria' },
-  // `plan[].done_criteria`（21 §8）。此前**未登记**，`getFieldLabel` 遂回退到
-  // `fieldKey.replace(/_/g, ' ')`，使中文界面里直接显示英文原始字段名
-  // 「done criteria」且每条计划步骤重复一次。词取 21 §8 原文「逐条完成判据」的简称。
   done_criteria: { zh: '完成判据', en: 'Done criteria' },
   constraints: { zh: '约束', en: 'Constraints' },
   acceptance: { zh: '验收标准', en: 'Acceptance' },
@@ -360,14 +270,11 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   analysis: { zh: '分析', en: 'Analysis' },
   mitigation: { zh: '缓解措施', en: 'Mitigation' },
   resolution: { zh: '方案', en: 'Resolution' },
-  // v5 Pitfall（23 号）正文七段阅读布局标题（正文段标题与 v4 字段名解耦）。
   pitfall_symptoms: { zh: '症状', en: 'Symptoms' },
   pitfall_triggers: { zh: '触发条件', en: 'Trigger Conditions' },
   pitfall_resolution: { zh: '解决', en: 'Resolution Applied' },
   pitfall_scope_section: { zh: '影响与适用范围', en: 'Impact & Applicability' },
   goal: { zh: '目标', en: 'Goal' },
-  // 闭集无 `phase`：v5 用派生分组 `group`（
-  // executing/closed）表达生命周期位置，故 `phase` 词条已移除。
   resume_from: { zh: '恢复入口', en: 'Resume From' },
   waiting_on: { zh: '等待对象', en: 'Waiting On' },
   blocking_summary: { zh: '阻塞说明', en: 'Blocking Summary' },
@@ -446,44 +353,23 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   alternatives: { zh: '备选与理由', en: 'Alternatives & Rationale' },
   decision_consequences: { zh: '后果', en: 'Consequences' },
   evidence: { zh: '证据', en: 'Evidence' },
-  // 26 §8 的 friction `impact`（轻/中/重影响评级）已于 2026-11-02 撤销分级制度，
-  // 词条随之删除——留着「词条在、字段不在」正是本仓反复纠正的漂移形态。
-  // v5 Friction（26 号）阅读布局标题。
   phenomenon: { zh: '现象', en: 'Phenomenon' },
   attribution: { zh: '归因', en: 'Attribution' },
   friction_basis: { zh: '入账依据', en: 'Ledger Basis' },
   friction_disposition: { zh: '处置', en: 'Disposition' },
-  // v5 Norm（27 号）阅读布局标题：direction_key 是机器方向标识（唯一性/索引），
-  // 正文四段固定 H2 骨架（方向定位与适用范围/核心规则体系/约束与反模式/
-  // 验证与遵从性检查）。
   direction_key: { zh: '方向键', en: 'Direction Key' },
   norm_positioning: { zh: '方向定位与适用范围', en: 'Direction Positioning & Scope' },
   norm_rules: { zh: '核心规则体系', en: 'Core Rule System' },
   norm_constraints: { zh: '约束与反模式', en: 'Constraints & Anti-patterns' },
   norm_compliance: { zh: '验证与遵从性检查', en: 'Verification & Compliance' },
-  // v5 Goal（25 号）详情阅读布局标题：目标陈述（冻结区——为什么 + 要实现什么）
-  // 与子目标（28 号对象，按 parent_goal 反查派生，不在本载体存储）。
   goal_statement: { zh: '目标陈述', en: 'Goal Statement' },
   goal_sub_goals: { zh: '子目标', en: 'Sub-goals' },
-  // v5 SubGoal（28 号）阅读布局与卡片标题：身份由 object_uid 承担、显示次序由
-  // 可选 `order` 承担（§7，2026-11-01 废止 SG-n），criterion/criterion_kind/
-  // alignment 是本类型存在的理由（§8）。
   subgoal_order: { zh: '次序', en: 'Order' },
-  // `parent_goal` 的词条已撤（2026-11-02 Human 定案「圈出来的不用显示」）。它曾以
-  // 裸键登记（而非 subgoal_ 前缀）——因为身份头辅助元信息行按 **frontmatter 键名**
-  // 取标签，前缀命不中就会退化成 `parent goal`。现在那一行整体撤除，词条失去唯一
-  // 消费方；留着它等于「不呈现」这个决定没有落点（与 `serves` 2026-11-01 出列、
-  // `anchor` 2026-11-01 废止时同一条纪律）。字段本身仍在对象上，只是没有面板渲染。
   subgoal_criterion: { zh: '达成条件', en: 'Criterion' },
   subgoal_criterion_kind: { zh: '判据类型', en: 'Criterion Kind' },
-  // Human 2026-11-02：「这个地方只保留判法即可」——详情面不再显示判据类型的
-  // **词**，只显示它的判法。判法自成一个阅读节点，标题即「判法」，故上面三条
-  // 判法说明文案不再自带「判法：」前缀（否则同一行出现两次同名）。
   subgoal_kind_hint: { zh: '判法', en: 'How it is judged' },
   subgoal_alignment: { zh: '对齐说明', en: 'Alignment' },
   subgoal_disposition: { zh: '作废去向', en: 'Disposition' },
-  // 29 号 DevLog 的阅读节点与卡片标题词条（devlog_*）已随该类型于
-  // 2026-11-14 撤除；其 `occurred_at` 呈现面早在 2026-11-02 已撤（见 git 历史）。
   category: { zh: '分类', en: 'Category' },
   priority: { zh: '优先级', en: 'Priority' },
   assignee: { zh: '执行者', en: 'Assignee' },
@@ -504,14 +390,6 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   reason: { zh: '原因', en: 'Reason' },
 };
 
-/**
- * 字段标签。`type` 为可选参数：**同名 frontmatter 字段在不同类型下语义不同**时，
- * 按类型取专属词条（与 getObjectStatusLocale 同形的分派）。
- *
- * 先例是 `disposition`：spark 的（20 §8 终态去向）与 friction 的（26 §8 废弃
- * 去向说明）**同名字段、不同语义**——不按类型分派会让摩擦界面显示 spark 的
- * 「去向」。未命中类型专属词条时回落到通用表，故既有调用方无需改动。
- */
 export function getFieldLabel(fieldKey: string, locale: string, type?: string): string {
   if (type) {
     const typed = TYPE_FIELD_LABEL_LOCALES[type]?.[fieldKey];
@@ -522,24 +400,14 @@ export function getFieldLabel(fieldKey: string, locale: string, type?: string): 
   return locale === 'en' ? entry.en : entry.zh;
 }
 
-/** 类型专属的字段标签覆盖表（先命中者优先于通用表）。仅在**同名字段语义不同**
- * 时登记——否则徒增第二处来源（10 §5.5 单一来源）。 */
 export const TYPE_FIELD_LABEL_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
-  // 26 §8：摩擦的 disposition 专述**终态去向**（voided 的废弃理由或 accepted 的
-  // 不可清偿理由），与 spark 的终态去向（20 §8）同名字段不同语义——Human 裁定
-  // 中文为「去向说明」。
   friction: {
     disposition: { zh: '去向说明', en: 'Disposition' },
     occurrence: { zh: '重复观察', en: 'Occurrence' },
   },
 };
 
-/** 字段枚举值中英映射 */
 export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
-  // 28 §10.2 判据类型闭集：材料形态决定判据怎么判——指标（存在一个可回读的
-  // 数值并与阈值比较）、闭环记录（需要若干条可回指的记录同时在场）、可执行
-  // 校验（跑一次命令或脚本，看退出码或输出）。不映射则界面直出 metric /
-  // closure-records / executable-check 这类 raw 值（docs/01 §1.3）。
   criterion_kind: {
     metric: { zh: '指标', en: 'Metric' },
     'closure-records': { zh: '闭环记录', en: 'Closure records' },
@@ -609,8 +477,6 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     'no-gain': { zh: '零增益收敛', en: 'No Gain' },
     'round-cap': { zh: '轮次上限收敛', en: 'Round Cap' },
   },
-  // 24 §8 退出原因闭集（与 plugin/lib/research-writer.js RETIREMENT_REASONS 同源）—
-  // 见 22 §9.2，二者在 Research 侧不可出现）。abolished 是「记录不再保留、已产生的影响保留」，与「内容作废」不同形。
   retirement_reason: {
     outdated: { zh: '已过时', en: 'Outdated' },
     superseded: { zh: '已被取代', en: 'Superseded' },
@@ -629,10 +495,6 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     technical_assessment: { zh: '技术评估', en: 'Technical Assessment' },
     comparison: { zh: '方案比较', en: 'Comparison' },
   },
-  // 24 §8（2026-11-14）：报告形态闭集三值——来源面决定形态，形态决定正文骨架。
-  // Human 2026-11-14：值标签不带「型」——筛选条与卡头徽章都是窄空间，
-  // 「调研型」比「调研」多一个字却不多一分信息（同一个筛选组里当然是形态）。
-  // 英文已是 Research/Summary/Audit，本就不带 Form 后缀，中英保持一致。
   report_form: {
     research: { zh: '调研', en: 'Research' },
     summary: { zh: '总结', en: 'Summary' },
@@ -801,8 +663,6 @@ export function getStatusHint(status: string, locale: string): string {
 }
 
 export function getObjectStatusHint(type: string, status: string, locale: string): string {
-  // 20 §1/§9：implemented 只结束 Spark 入口职责，不代表下游完成——终态语义
-  // 在提示层显式限定，防「交了就当完成」的自欺。
   if (type === 'spark') {
     if (status === 'open') {
       return locale === 'en'
@@ -820,11 +680,6 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '不再跟踪，或已被合并/拆分到其他火花'
     }
   }
-  // 26 §9：账目语义限定——open 是待修的账（参与攒账与度量），resolved 由
-  // informs 指向解药，voided 是记错了的账目（不参与查重、度量与迭代决策输入），
-  // accepted 是记对了但不可清偿的账（参与查重、命中静默；不参与 open 计数与解决率）。
-  // （2026-10 修订：原第四值 observing 已退出闭集，观察材料改由 11 §12bis.1 的
-  // 摩擦观察缓冲承载，非事实对象，故此处不再有留观的语义限定文案。）
   if (type === 'friction') {
     if (status === 'open') {
       return locale === 'en'
@@ -847,7 +702,6 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '已接受（不可清偿）：阻碍真实但消除途径不存在或不在可动范围；记录一次，不再重复报告';
     }
   }
-  // 27 号 §9：active 是当前生效规则；retired 终态不重开。
   if (type === 'norm') {
     if (status === 'active') {
       return locale === 'en'
@@ -860,9 +714,6 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '已退役：保留为只读历史档案，不重开';
     }
   }
-  // 28 号 §9：子目标三态语义限定。achieved 的证据是**判据材料**，不是
-  // 「名下工作都关了」——后者是本类型最主要的误读（28 §18 红线 3），
-  // 故提示层显式否定它。
   if (type === 'subgoal') {
     if (status === 'active') {
       return locale === 'en'
@@ -880,8 +731,6 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '已作废且不重开；锚点编号不复用';
     }
   }
-  // 25 号 §7：active 是项目存续期常态；achieved 是全部 sub-goal 达成后的
-  // Human 终局判定——冻结为历史档案。
   if (type === 'goal') {
     if (status === 'active') {
       return locale === 'en'
@@ -907,8 +756,6 @@ export const UI_LOCALES = {
     'nav.studies': '报告',
     'nav.frictions': '摩擦',
     'nav.norms': '规范',
-    // 2026-11-13：侧栏不设子目标入口，'nav.subgoals' 随之撤除（子目标在聚焦页目标区）。
-    // 2026-11-14：'nav.devlogs' 随 29 号类型撤除（zh/en 两表同步删键）。
 
     'goalDetail.openDetail': '查看目标详情',
     'goalDetail.subGoals': '子目标',
@@ -916,47 +763,23 @@ export const UI_LOCALES = {
     'objectList.subGoalAchievedNote': '该子目标的达成条件已由证据满足——由判据判定，不由名下工作全部关闭推出（28 §18 红线 3）。',
     'objectList.subGoalOrderLabel': '次序',
     'objectList.subGoalOrderAbsent': '未定次序',
-    // 子目标卡的关联区（28 §8.1 名下工作派生）：按类型分层、每层先展固定条数。
-    //
-    // 「每层先展 N 条」是**扫读预算**，不是收窄：超出部分必须可展开，且展开后
-    // 条目与折叠时逐条相同、次序相同——只改变可见条数，不改变内容。
     'objectList.subGoalServingWork': '名下的工作',
     'objectList.subGoalServingEmpty': '未声明或未拆解——名下没有任何 serves 指向本条子目标（28 §8.1；这不是进度 0%）',
     'objectList.subGoalServingUnreadable': '读不到，不能当作「没有」',
     'objectList.subGoalServingExpand': '展开其余 {count} 条',
     'objectList.subGoalServingCollapse': '收起',
-    // 28 号子目标卡的「火花落实」比值（Human 定案 2026-11-02）。四句「算不出」的各
-    // 自原因见 utils/servingSparkProgress.ts——它们下一步动作不同，不能合成一句「暂无」。
     'objectList.subGoalSparkProgress': '火花落实',
     'objectList.subGoalSparkProgressEmpty': '名下没有火花——分母为空，不是 0%',
     'objectList.subGoalSparkProgressAllDiscarded': '名下火花均已废弃，不再计入分母（已废弃＝被合并或拆分，不代表这件事少了一件）',
     'objectList.subGoalSparkProgressUnavailable': '火花读取失败，无法算出这个比值——读不到不等于没有（00 §4.6）',
     'objectList.subGoalSparkProgressUnknown': '{count} 条火花状态在闭集外，未计入分母',
-    // 聚焦页目标区的**行内**短词（Human 定案 2026-11-02「目标块的 sg 都要附带进度条」）。
-    // 行内只有 20px 高，长句会把子目标标题挤成两行；完整理由仍由上面四条承载并挂
-    // title。短词必须与完整说明**同时**给出——只给短词会让「读不到」看起来像状态。
     'focusV2.subGoalProgressEmpty': '未拆解',
     'focusV2.subGoalProgressAllDiscarded': '已处置',
     'focusV2.subGoalProgressUnavailable': '读不到',
-    // 聚焦页目标区的子目标行（2026-11-03 改版）：除标题外默认收起，点击展开。
-    //
-    // 「展开」只写一个词：展开后是**判据面 + 名下的工作**两块，与子目标卡同形，
-    // 不再另加小标题——「达成条件」「对齐说明」两个小标题已撤（Human 2026-11-03
-    // 圈出）：判据面自带类型色，小标题是复述；对齐说明是理由不是判定，留在详情页读。
     'focusV2.subGoalExpand': '展开',
     'focusV2.subGoalCollapse': '收起',
-    // 进度摘要的两档标签**不在此处登记**：它们由 `getObjectStatusLocale('spark', …)`
-    // 给出（待处理／已落实），与子目标卡、详情页同源。单独登记一份会在两处漂移——
-    // 「已落实」在本仓库是跨类型的状态词，不该有第二个出处。
     'objectList.subGoalSparkProgressOpen': '待处理',
     'objectList.subGoalSparkProgressImplemented': '已落实',
-    // 29 号 DevLog 列表卡与详情面的界面词条已随该类型于 2026-11-14 撤除
-    // （devlogCompressedBody / devlogConclusionMissing；devlogNoTopic 更早于
-    // 2026-11-02 撤除，均见 git 历史）。
-    // `objectDetail.subGoalOrderAbsent` 已删除（2026-11-02 晚）：它唯一的消费方是
-    // 子目标详情面顶部那个锚点块，该块已随「只保留判法」整体撤除。缺失态文案改由
-    // `objectList.subGoalOrderAbsent` 承担——卡头与身份头用的是同一枚
-    // `SubGoalOrderBadge`，本来就不该有第二份。留着两个同名键，改一处就会漏另一处。
     'objectDetail.subGoalCriterionDetail': '达成条件（展开）',
     'objectDetail.subGoalAlignmentDetail': '对齐说明（展开）',
     'objectDetail.subGoalServingWork': '名下的工作',
@@ -998,7 +821,6 @@ export const UI_LOCALES = {
     'diagnostics.cleanup.backupAt': '备份位置',
     'diagnostics.cleanup.notListed': '不在清理范围的内容',
     'diagnostics.cleanup.notListedHint': '事实源（ldvh-base/）不在此处——它不受日志清理影响。历史水位文件（friction-discovery-watermarks）也不在清理清单：该载体已随闲时机制退役（2026-11-17），只剩存量文件，无机制再读它。',
-    // ── 摩擦观察（11 §12bis.1）。原并列的经验观察文案已随经验缓冲删除（2026-11-16）──
     'diagnostics.observations.entries': '观察条目',
     'diagnostics.observations.projects': '按管辖项目分载：{count} 个文件',
     'diagnostics.observations.groups': '观察组',
@@ -1008,7 +830,7 @@ export const UI_LOCALES = {
     'diagnostics.observations.groupsTitle': '观察组：同一阻碍被看过几次',
     'diagnostics.observations.groupsHint': '观察材料不是事实对象，此处只作「攒到几分」的进度呈现，不构成账目、不可点入详情。',
     'diagnostics.observations.recentTitle': '最近的观察条目',
-    'diagnostics.observations.recentHint': '仅呈现现象／时间／来源／状态四项（11 §12bis.1 第 2 条）；证据全文与晋升目标不在呈现面内。',
+    'diagnostics.observations.recentHint': '仅呈现现象／时间／来源／状态四项（36 §8.8 第 2 条）；证据全文与晋升目标不在呈现面内。',
     'diagnostics.observations.readyBadge': '可晋升',
     'diagnostics.observations.empty': '暂无条目',
     'diagnostics.observations.noBufferDir': '观察目录尚未建立',
@@ -1161,7 +983,6 @@ export const UI_LOCALES = {
     'cognition.inbox.collapse': '收起',
     'cognition.inbox.expandSection': '展开待决定事项',
     'cognition.inbox.collapseSection': '收起待决定事项',
-    // 26 §12：已接受成本单列计数（accepted 不进待决定事项，只作度量观测量）。
     'cognition.frictionLedger.accepted': '已接受（不可清偿）{count} 笔',
     'cognition.inbox.unavailable': '本模块部分数据不可用',
     'cognition.active.expandSection': '展开推进中事项',
@@ -1190,9 +1011,6 @@ export const UI_LOCALES = {
     'cognition.recent.showRemainingUsage': '显示其余 {count} 项署名统计',
     'cognition.recent.collapse': '收起',
     'cognition.recent.activityCount': '{count} 条动态',
-    // 26 §8 occurrence（重复观察次数 = 频次的机械权威源）：卡头眼睛图标 chip 的悬浮说明。
-    // 措辞与「修改次数」明确区分——前者是「被观察到几次」，后者是「改过几次」；
-    // 二者是不同的量，混同会误导阈值判断。
     'cognition.recent.occurrenceCount': '重复观察 {count} 次（26 §8 频次的机械权威源）',
     'cognition.recent.modelUsage': '模型',
     'cognition.recent.environmentUsage': '供应商',
@@ -1218,15 +1036,6 @@ export const UI_LOCALES = {
     'cognition.sparkHealth.copyModuleSummary': '复制模块摘要',
     'cognition.sparkHealth.copiedModuleSummary': '已复制模块摘要',
 
-    // 空态分两句（Human 定案 2026-11-02）：此前只有一句「未找到 {type} 对象」，且 {type}
-    // 传的是**原始类型键**（norm 一类），于是中文界面里会冒出英文键名。两句的分工是
-    // **读者的问题不同**，不是措辞偏好：
-    // · `noObjects` —— 这个类型**本来就没有**任何对象（目录都没建过也算），下一步是去建；
-    // · `noObjectsUnderFilter` —— 对象**有**，只是当前筛选没命中，下一步是放宽筛选。
-    // 而 `typeNotIntegrated` 不再作为空态文案出现：目录缺失已按零对象处理（见
-    // `api/services/localFactReader.ts` 的 `emptyTypeDirectory`）；该键仍保留，因为
-    // `coverage_status=type_not_integrated` 这条前端契约还在（三个筛选器的 `—` 计数与
-    // 上方覆盖警示条按它工作），只是后台已不会因「目录不存在」产出它。
     'objectList.noObjects': '还没有{type}对象',
     'objectList.noObjectsUnderFilter': '当前筛选条件下没有{type}对象',
     'objectList.searchLabel': '搜索对象',
@@ -1292,37 +1101,6 @@ export const UI_LOCALES = {
     'objectList.associationState.active': '活跃',
     'objectList.discarded': '已废弃',
     'objectList.reason': '原因',
-    // 10 §5.5「呈现降级」：gist 在 closed 时缺失合法（21 §8 终态只读）。卡面
-    // 如实降级，不以 summary 静默替代、也不留白。
-    // 派生分组（呈现契约；派生规则：待批准关闭 = open ∧ 正文含 ## 结果 节）
-    // 已关闭卡的**合并徽标**用词（状态词 + 中心圆点 + 结论词，Human 裁定 2026-09-30）。
-    // 与结论词单独出现的那套分开（已完成／部分达成
-    // ／未达成／已取消，用于详情面与独立徽标），本套是**与状态词并排出现**时的短词——
-    // 「已关闭 · 已完成」这类双重「已」字重复，故此处用短式。
-    // 变更流水（卡片主体）：关键行动用二字标出（Human 2026-09-23）。
-    // 不呈现阶段标签——状态显示恒为来源状态的真实值。
-    // 整块级收起（已关闭卡默认收起，Human 2026-10-17）。与上面的条目级
-    // 「更早 N 条 / 收起」是两级不同粒度，措辞须能区分：这里是「显示/收起变更流水」。
-    // 「待批准关闭」的核对与建议（21 §8 结果节解析所得）
-    // 去向词（21 §8 建议段）。前两条为闭集二词；后两条是 2026-09-28 撤销的存量词，
-    // 仅为既有载体继续可读而保留（§15.3 存量不溯及）——受控写入已拒绝这两词。
-    // 「已关闭」卡的结论行与残留块（Human 2026-09-24 方案 A）
-    // 「已关闭」卡的取消记录（21 §8，仅 outcome=cancelled）
-    // Human 裁定 2026-10-01：标记词由「理由」改为「取消理由」——它是**块首标题**（形态同去向分区），
-    // 因此须自足地说明「这是取消的理由」，不能只写半个词。
-    // 残留计数已随 2026-09-28 二次修订
-    // 从「已关闭」卡结论行移除（决定 A：关闭后只呈现去向）。**词条保留**：它们是
-    // 「待批准关闭」期的可复用词条，且历史对象/其它呈现面仍可能引用——删词条会让
-    // 引用点变成缺词，属静默破坏而非收敛。
-    // 「转入 Spark」去向的目标关联行（10 §5.5「已关闭」卡表：就地渲染为关联行）。
-    // 21 §13 / 03 §7.2：反向 refs 只显示声明引用来源，不暗示建议已履行或已闭环。
-    // 2026-11-07 Human 裁定删除行内的方向与关系键标注（`outgoing`／`incoming`／
-    // `relation`／`relationUnknown`／`routedTo`／`routedToCandidate`）：卡面关联行只留
-    // 「类型图标 ＋ 标题 ＋ 状态图标」，同一行不再并排三段规范腔标签。词条一并删除而非
-    // 留作死键——残留词条会让后来者以为该标注仍在某处呈现，且删键后 `LocaleKey` 会当场
-    // 拒绝任何恢复该标注的引用（编译期兜底）。事实侧不受影响，详情面仍有关系键 chip。
-    // 复核记录 `summary` 的七要素（21 §8 引 02 §16）。原文按此七项书写，
-    // 详情面据此分块呈现（此前整段输出，546 字一段无法阅读）。
     'objectDetail.reviewElementEmpty': '（未记录）',
     'objectDetail.reviewElement.对象': '对象',
     'objectDetail.reviewElement.基线': '基线',
@@ -1331,11 +1109,6 @@ export const UI_LOCALES = {
     'objectDetail.reviewElement.未覆盖': '未覆盖',
     'objectDetail.reviewElement.发现': '发现',
     'objectDetail.reviewElement.保证边界': '保证边界',
-    // 正文 H2 节（21 §8 闭集）：`执行` 与 `结果` 两节**无字段承载**，
-    // 故详情页各设一个节点。标签用节名本身（执行 / 结果节），不用其它词条的近义表述——
-    // 「执行项」是另一实体（工作项），「结果草稿」指关闭提案，均非本节点。
-    // 去向（21 §8 残留段的去向子项）：决定 A 收窄后详情面唯一保留的一侧（10 §5.5）。
-    // 中性表述——§10.2 明写批准对象只有「关闭」与 outcome，去向不因关闭而成为承诺。
     'objectList.frictionPhenomenonMissing': '现象缺失',
     'objectList.objectProblems': '读取范围完整，但部分候选存在问题，无法呈现；请查看诊断。',
     'objectList.coveragePartial': '读取范围不完整；以下卡片只来自已取得且可以呈现的对象，不能据此判断项目中只有这些对象。',
@@ -1349,9 +1122,6 @@ export const UI_LOCALES = {
     'objectDetail.back': '返回',
     'objectDetail.fieldIssues': '来源字段问题',
     'objectDetail.unparsedStructures': '未解析结构',
-    // `scope` / `summary` 书写结构问题（21 §8）。写入口已校验，但此前结果到不了
-    // 呈现面（mechanical_issues 在投影与前端两侧各 0 处命中），读者只看得到
-    // 「读不了」而看不到原因。
     'objectDetail.structuredTextIssue': '书写结构不合规',
     'objectDetail.structuredTextIssueHint': '（21 §8：仅判形态，不判内容是否名副其实）',
     'objectDetail.fieldMissing': '缺失',
@@ -1751,8 +1521,6 @@ export const UI_LOCALES = {
     'nav.studies': 'Reports',
     'nav.frictions': 'Frictions',
     'nav.norms': 'Norms',
-    // 2026-11-13: the sidebar has no sub-goal entry; 'nav.subgoals' is withdrawn with it.
-    // 2026-11-14: 'nav.devlogs' is withdrawn with the DevLog type (both zh/en tables).
 
     'goalDetail.openDetail': 'Open goal detail',
     'goalDetail.subGoals': 'Sub-goals',
@@ -1773,9 +1541,6 @@ export const UI_LOCALES = {
     'focusV2.subGoalProgressEmpty': 'Not broken down',
     'focusV2.subGoalProgressAllDiscarded': 'All settled',
     'focusV2.subGoalProgressUnavailable': 'Unreadable',
-    // 聚焦页目标区的子目标行（2026-11-03 改版）：除标题外默认收起，点击展开。
-    // 展开区是判据面 + 名下的工作两块（与子目标卡同形），不再有小标题——
-    // 见中文侧同条注释。
     'focusV2.subGoalExpand': 'Expand',
     'focusV2.subGoalCollapse': 'Collapse',
     'objectList.subGoalSparkProgressOpen': 'Pending',
@@ -1830,7 +1595,7 @@ export const UI_LOCALES = {
     'diagnostics.observations.groupsTitle': 'Observation groups: how many times one obstacle was seen',
     'diagnostics.observations.groupsHint': 'Observation material is not a fact object. This is progress toward the threshold only — not a ledger entry, and not openable as a detail page.',
     'diagnostics.observations.recentTitle': 'Recent observations',
-    'diagnostics.observations.recentHint': 'Only phenomenon / time / source / status are shown (11 §12bis.1 item 2). Evidence text and promotion target are outside the presentation surface.',
+    'diagnostics.observations.recentHint': 'Only phenomenon / time / source / status are shown (36 §8.8 item 2). Evidence text and promotion target are outside the presentation surface.',
     'diagnostics.observations.readyBadge': 'Ready',
     'diagnostics.observations.empty': 'No entries',
     'diagnostics.observations.noBufferDir': 'The observation directory does not exist yet',
@@ -2105,26 +1870,6 @@ export const UI_LOCALES = {
     'objectList.associationState.active': 'Active',
     'objectList.discarded': 'Discarded',
     'objectList.reason': 'Reason',
-    // v5 lifecycle groups (presentation contract)
-    // Change flow (card body): key actions marked with a word (Human 2026-09-23).
-    // Awaiting-closure checks and advice (parsed from the 21 §8 result section)
-    // Advice directions (21 §8 advice section). The first two are the current
-    // closed set; the next two were retired on 2026-09-28 and are kept only so
-    // existing carriers stay readable (§15.3 存量不溯及) — the write path
-    // rejects them.
-    // Closed-card conclusion line and residual block (Human 2026-09-24, option A)
-    // Closed-card cancellation record (21 §8, outcome=cancelled only)
-    // The residual tally keys are kept after the 2026-09-28 revision removed the
-    // residual count from the closed-card conclusion line (decision A: a closed
-    // card shows directions only). Deleting them would turn any remaining
-    // reference into a missing key, which is silent breakage rather than
-    // convergence.
-    // Routed-to direction target row (10 §5.5 closed card: rendered in place as an
-    // association row).
-     // 21 §13 / 03 §7.2: reverse refs show declared sources only; they do not imply fulfilment or closure.
-     // 2026-11-07: the inline direction / relation-key labels were removed from the
-     // card row (Human decision). The keys are deleted rather than left dead so that
-     // `LocaleKey` refuses any attempt to reintroduce them at compile time.
     'objectDetail.reviewElementEmpty': '(not recorded)',
     'objectDetail.reviewElement.对象': 'Subject',
     'objectDetail.reviewElement.基线': 'Baseline',
@@ -2133,9 +1878,6 @@ export const UI_LOCALES = {
     'objectDetail.reviewElement.未覆盖': 'Not covered',
     'objectDetail.reviewElement.发现': 'Findings',
     'objectDetail.reviewElement.保证边界': 'Assurance boundary',
-    // Directions (21 §8 residual-section direction sub-items): the only side the
-    // detail face keeps after decision A's narrowing (10 §5.5). Neutral wording —
-    // §10.2 states only closure and outcome are approved.
     'objectList.frictionPhenomenonMissing': 'Phenomenon missing',
     'objectList.objectProblems': 'Read coverage is complete, but some candidates have issues and cannot be displayed. Review the diagnostics.',
     'objectList.coveragePartial': 'Read coverage is incomplete. The cards shown come only from successfully read objects; this does not prove these are the only objects in the project.',

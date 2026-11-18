@@ -1,15 +1,3 @@
-/**
- * 2026-11-14 修复回归：提请卡「自由输入 + 点提交」不再被视为跳过、文字不再丢失。
- *
- * 宿主 QuestionComposer.tsx:385-395 在「单选 + 自由输入」时产出
- *   { id, selected: [], custom: "..." }
- * host-seams.js 的 selectedLabelOf 原先只读 selected，于是 custom 被静默丢弃：
- * decision=null（未决策）、模型一个字都看不到。本文件钉住修复后的行为：
- *   - 文字逐字回到 custom_note / reason / render / follow_up；
- *   - decision 仍守 32 §9.1 的 review|skip 闭集，自由文本不冒充其中任何一个；
- *   - 三处 Human Gate 仍 fail-closed，但拒绝理由里带上文字、不静默丢弃；
- *   - 「点跳过按钮」({selected:[]}) 与「自由输入提交」在 reason 上可区分。
- */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
@@ -47,7 +35,6 @@ function reviewCall(extra = {}) {
   };
 }
 
-// ── 主 bug：把关请示 seam ────────────────────────────────────────────────────
 
 test("自由输入提交：custom_note 逐字回传，decision 仍为 null（不冒充答复）", async () => {
   const { seams } = installWith({
@@ -104,7 +91,6 @@ test("custom 不进留痕载体（载体只记闭集答复）", async () => {
   assert.match(raw, /"answer": "review"/);
 });
 
-// ── 工具信封 + render（模型唯一可见窗口，03 §9.5）─────────────────────────
 
 test("executeReviewAsk：custom_note 进入 result，且 follow_up 指引主控读它", async () => {
   const { seams } = installWith({
@@ -133,7 +119,6 @@ test("renderEnvelope：custom_note 逐字打给模型，且明说不冒充答复
   assert.match(text, /非答复|不冒充/);
 });
 
-// ── 三处 Human Gate：同源修复，fail-closed 不变，文字可见 ───────────────────
 
 function gateSeam(answer) {
   const seams = createHostSeams();

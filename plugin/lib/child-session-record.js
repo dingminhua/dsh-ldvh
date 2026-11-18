@@ -1,54 +1,6 @@
-// dsh-ldvh — durable resolution of a delegated child from the host's session record.
-//
-// Why this module exists (2026-10-18 「子代理登记表被清空」 修复 · 步骤 3):
-//
-// lib/lifecycle.js keeps live children in `children` and finished ones in
-// `retiredChildren`. Both are per-plugin-instance Maps: a plugin rebuild
-// (dispose → start) builds new ones, and start() can only re-adopt what the host
-// still lists as live agents. A child that has ALREADY FINISHED is gone from the
-// host's agent service, so the rebuilt registry cannot see it at all — and that
-// is precisely the state the review channel needs ("the reviewer finished its
-// turn, now record its conclusion": the review/audit recording entry).
-// Measured live: five isolated reviewers (
-// 7b598299 / 47ef943e / 230fe389 / 61ae6b21) each ended in "is not a subagent
-// registered under this session", while ldvh_collect_subagent_results reported
-// zero records.
-//
-// The durable reader is the authority the rest of this plugin already trusts for
-// Code-observed session identity (lib/session-signature.js head note): the
-// child's OWN session record. Nothing here is inferred or fabricated —
-//
-//   * the header the host wrote (`origin: "subagent"`) establishes that this
-//     session was created as a delegated subagent, not an ordinary session;
-//   * `parentSession` + `delegationDepth` establish the delegation lineage, so a
-//     session from an unrelated conversation cannot be cited as this caller's
-//     reviewer;
-//   * the child's own last text-bearing assistant message is its conclusion,
-//     under the same rule the live capture uses (lib/child.js session/event
-//     handling: a text-less turn never clears an earlier real product).
-//
-// Disclosure boundary: this module reports「读不到」as a reason, never as a
-// silent fallback to something weaker (00 §4.6 据实声明). The RegExp-free,
-// host-handle-only read keeps `session-signature.js`'s 入口优先级 discipline:
-// the host's own `open(id, "read")` is the authority; a backend that does not
-// expose it fails closed with a reason the caller can report to Human.
 
-/** How many parent hops to walk when establishing the delegation lineage. */
 const MAX_ANCESTOR_HOPS = 4;
 
-/**
- * Resolve one delegated child from its authoritative session record.
- *
- * @param {object} input
- * @param {object} input.sessionPersistence DSH service (ctx.get("sessionPersistence")).
- * @param {string} input.childId the cited agent/session id.
- * @param {string} [input.parentSessionId] the calling session id. When given, the
- *   cited session must be a descendant of it (any depth up to MAX_ANCESTOR_HOPS);
- *   when omitted, only「是子代理」is established, not「是谁的子代理」.
- * @param {number} [input.maxAncestors] lineage depth bound (tests inject small values).
- * @returns {Promise<{ok: true, header: object, conclusion: string, ancestry: string[]}
- *   | {ok: false, reason: string}>}
- */
 export async function resolveChildFromSessionRecord({
   sessionPersistence,
   childId,
@@ -70,14 +22,6 @@ export async function resolveChildFromSessionRecord({
   if (cited.ok !== true) {
     return { ok: false, reason: `child session ${childId} unreadable: ${cited.reason}` };
   }
-  // The host exposes the session header as a property of the SESSION HANDLE, not
-  // as an event in the returned array (measured 2026-10-19 against a real reviewer
-  // record: handle.header = {id, createdAt, cwd, parentSession, origin,
-  // delegationDepth}; handle.read() returns only the body events). Reading the
-  // header out of `events` therefore never matched and every finished child was
-  // reported as "carries no session header" — the review channel stayed broken
-  // even after the durable lookup was wired. Keep the events fallback for
-  // backends that DO emit a session line as an event.
   const header = cited.header
     ?? cited.events.find((event) => event?.type === "session")
     ?? null;
@@ -105,11 +49,6 @@ export async function resolveChildFromSessionRecord({
   return { ok: true, header, conclusion: lastChildText(cited.events), ancestry };
 }
 
-/**
- * Read one session's events through the host's own read entry.
- * Mirrors session-signature.js readRouteEventsViaHandle: a real failure is
- * reported, never swallowed into a weaker source.
- */
 async function readSessionEvents(sessionPersistence, sessionId) {
   let handle;
   try {
@@ -121,8 +60,6 @@ async function readSessionEvents(sessionPersistence, sessionId) {
     const result = await handle?.read?.();
     const events = result?.events;
     if (!Array.isArray(events)) return { ok: false, reason: "host read() returned no events array" };
-    // handle.header is the authority for the session header (see the caller's
-    // note); it is optional here so a backend without it still resolves.
     const header = handle?.header !== null && typeof handle?.header === "object" ? handle.header : null;
     return { ok: true, events, header };
   } catch (error) {
@@ -131,19 +68,10 @@ async function readSessionEvents(sessionPersistence, sessionId) {
     try {
       await handle?.close?.();
     } catch {
-      /* 句柄关闭失败不影响已读出的事件 */
     }
   }
 }
 
-/**
- * Walk `parentSession` upward until the caller's session id is found.
- *
- * A direct child (delegationDepth 1) matches on the first hop. Deeper nesting is
- * legal — a reviewer may itself have delegated — so the chain is walked rather
- * than compared once; each ancestor costs one session read, which is why the
- * walk is bounded and only ever runs on the miss path.
- */
 async function isDescendantOf({ sessionPersistence, header, ancestorId, maxAncestors }) {
   const chain = [];
   let current = header;
@@ -182,14 +110,6 @@ async function isDescendantOf({ sessionPersistence, header, ancestorId, maxAnces
   };
 }
 
-/**
- * The child's own final prose.
- *
- * Same rule as the live capture in child.js: only `assistant/message` events
- * carrying a real turn count, and a text-less message never clears an earlier
- * real product (「不得用空值清掉既有数据」). Ordering uses the log's own `seq`
- * when present so the result does not depend on the backend's event ordering.
- */
 function lastChildText(events) {
   let best = null;
   events.forEach((event, index) => {

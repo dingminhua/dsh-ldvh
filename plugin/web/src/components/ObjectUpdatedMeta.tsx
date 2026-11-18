@@ -3,11 +3,6 @@ import type { CommitSignature } from '@/utils/api';
 import { formatDateTime } from '@/utils/dateFormat';
 import { getLatestFactChangeSignature } from '@/utils/factChangeLog';
 
-/**
- * The single update-attribution presentation used by fact cards and headers.
- * The attribution is deliberately derived from the latest complete
- * change_log signature, never inferred from other fact fields.
- */
 export default function ObjectUpdatedMeta({
   source,
   updatedAt,
@@ -15,7 +10,6 @@ export default function ObjectUpdatedMeta({
 }: {
   source?: { change_log?: unknown };
   updatedAt?: string;
-  /** Used by commit evidence, which has a direct signature rather than a fact change_log. */
   signature?: CommitSignature;
 }) {
   const updated = formatDateTime(updatedAt);

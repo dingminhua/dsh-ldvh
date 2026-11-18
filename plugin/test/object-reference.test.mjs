@@ -1,13 +1,3 @@
-// Tests for the fact-object reference form (specs/02 §9.3 候选条款): every
-// controlled tool response that names an object renders「类型短名 + 短标识」
-// (`pitfall-bb0fe837`), never a bare 8-hex id, and the writer projections carry
-// `fact_type_key` so the rendering layer never has to hard-code a type name
-// (a second authority — 03 §7.1/§7.2).
-//
-// The three axes covered here map 1:1 onto the authorised four layers:
-//   - writer projection + list rendering (:①②)
-//   - read envelope + change log (:②③)
-//   - a render point outside the spark tool (:④)
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -64,9 +54,6 @@ function renderText(descriptor, args, envelope) {
 
 const SPARK_UID_RE = /spark-([0-9a-f]{8})/;
 
-// ---------------------------------------------------------------------------
-// The single form generator
-// ---------------------------------------------------------------------------
 
 test("objectRef: minimum form is type + 8-hex short id", () => {
   assert.equal(objectRef({ object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7", fact_type_key: "spark" }), "spark-996e207a");
@@ -79,7 +66,6 @@ test("objectRef: title is appended only when asked (02 §9.3 第 2 条 is the wr
 });
 
 test("objectRef: an unknown type degrades to the bare short id instead of fabricating a type", () => {
-  // 猜造类型比缺类型更坏：读者会以为该对象属于一个它并不属于的类型。
   assert.equal(objectRef({ object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7", fact_type_key: "unknown-type" }), "996e207a");
   assert.equal(objectRef({ object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7" }), "996e207a");
 });
@@ -91,14 +77,10 @@ test("objectRef: a missing uid renders as empty, never as a partial reference", 
 });
 
 test("promptObjectRef keeps the FULL uid for executors that must echo it back", () => {
-  // 执行体要把 object_uid 作为结构化字段回填；截成 8 位会让它无从回填合法值。
   const item = { object_uid: "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7", fact_type_key: "friction", title: "CI 平均 8 分钟" };
   assert.equal(promptObjectRef(item), "friction-996e207a CI 平均 8 分钟 (996e207a-3ca2-494b-bcbe-3f00d7c0c3b7)");
 });
 
-// ---------------------------------------------------------------------------
-// Layers ①②: writer projection + list rendering
-// ---------------------------------------------------------------------------
 
 async function governedFixture(base) {
   const home = join(base, "home");
@@ -118,11 +100,6 @@ function sparkDeps(home, base) {
   };
 }
 
-/**
- * Spark create through the tool plane, carrying the precheck's candidate
- * fingerprint (20 §13: a required create entry parameter; the write path
- * deliberately does not compute or backfill it).
- */
 async function createSpark(descriptors, args, cwd) {
   const pre = await run(descriptors, "ldvh_spark_precheck_create", {
     frontmatter_draft: args.frontmatter_draft,
@@ -159,19 +136,16 @@ test("spark list: every item line carries a type-prefixed reference, and the pro
     }, repo);
     assert.equal(created.outcome, "completed", JSON.stringify(created));
 
-    // ① writer 投影：fact_type_key 必须可达——否则渲染层只能硬编码类型短名。
     const listed = await run(descriptors, "ldvh_spark_list", {}, repo);
     assert.equal(listed.outcome, "completed", JSON.stringify(listed));
     assert.equal(listed.result.items[0].fact_type_key, "spark", "F1 projection must carry fact_type_key");
 
-    // ① 列表渲染：行首是 `spark-<8hex>`，不是裸 uid。
     const listText = renderText(descriptors["ldvh_spark_list"], {}, listed);
     const itemLine = listText.split("\n").find((line) => line.startsWith("- ")) ?? "";
     const match = SPARK_UID_RE.exec(itemLine);
     assert.ok(match, `list line must carry a type-prefixed reference:\n${listText}`);
     assert.equal(match[1], created.result.object_uid.slice(0, 8), "the short id must be the uid prefix");
 
-    // ② 读取 envelope + ③ 变更流水：同样带类型短名。
     const read = await run(descriptors, "ldvh_spark_read", { object_uid: created.result.object_uid }, repo);
     assert.equal(read.outcome, "completed", JSON.stringify(read));
     const readText = renderText(descriptors["ldvh_spark_read"], { object_uid: created.result.object_uid }, read);
@@ -179,7 +153,6 @@ test("spark list: every item line carries a type-prefixed reference, and the pro
       readText.split("\n").includes(`object: spark-${created.result.object_uid.slice(0, 8)}`),
       `read envelope must carry the reference:\n${readText}`,
     );
-    // ③ 变更流水在 **write** 的响应里（read 不产生流水）。
     const writeText = renderText(descriptors["ldvh_spark_write"], { action: "create" }, created);
     assert.ok(
       writeText.split("\n").includes(`change: created spark-${created.result.object_uid.slice(0, 8)}`),
@@ -188,12 +161,8 @@ test("spark list: every item line carries a type-prefixed reference, and the pro
   });
 });
 
-// ---------------------------------------------------------------------------
-// Layer ④: a render point outside the spark tool
-// ---------------------------------------------------------------------------
 
 test("pitfall list: the projection carries fact_type_key and the rendered line is type-prefixed", () => {
-  // 直接驱动 render，不经文件系统：本用例钉住的是**形态**，不是写入通道。
   const descriptor = makeDescriptors(pitfallToolsModule.registerPitfallTools, {
     dshHomePath: () => "/nope",
     workspaceRoot: "/nope",
@@ -212,17 +181,10 @@ test("pitfall list: the projection carries fact_type_key and the rendered line i
   assert.ok(text.includes("- pitfall-bb0fe837 [active] 裸标识指称（测试夹具）"), `pitfall list line must be type-prefixed:\n${text}`);
 });
 
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Layer ②: refs targets render as type-prefixed references too
-// ---------------------------------------------------------------------------
 
 test("spark read: refs targets carry type + title, unresolvable ones keep their bare id", async () => {
-  // refs 在载体里只存 object_uid（03 §7.2 最小形态）；读路径补成指称形态是为了让
-  // 读者看得出「指向哪一类对象」，这是派生投影，不构成第二权威。
   await withTemp("object-reference.refs.", async (base) => {
     const { home, repo } = await governedFixture(base);
-    // 一个可解析的 Pitfall 载体（refs 目标的实际种类与载体自身种类可不同）。
     await mkdir(join(repo, "ldvh-base", "pitfalls"), { recursive: true });
     const targetUid = "bb0fe837-2a8f-4f4e-b17a-a0200abc116b";
     await writeFile(
@@ -254,7 +216,6 @@ test("spark read: refs targets carry type + title, unresolvable ones keep their 
 
     const read = await run(descriptors, "ldvh_spark_read", { object_uid: created.result.object_uid }, repo);
     assert.equal(read.outcome, "completed", JSON.stringify(read));
-    // 派生投影已补出类型与标题，但载体里的 refs 仍是最小形态（不回写）。
     assert.deepEqual(read.result.refs, [{ object_uid: targetUid, fact_type_key: "pitfall", title: "裸标识指称（测试夹具）" }]);
     assert.deepEqual(read.result.frontmatter.refs, [{ object_uid: targetUid }], "the carrier must keep the minimal refs shape");
 
@@ -264,7 +225,6 @@ test("spark read: refs targets carry type + title, unresolvable ones keep their 
 });
 
 test("spark read: an unresolvable refs target renders as its bare short id, never dropped", () => {
-  // 读路径不复制写路径的零写入拒绝：丢弃会让「载体声明了关联、响应看不见」比裸标识更坏。
   const descriptor = makeDescriptors(sparkToolsModule.registerSparkTools, {
     dshHomePath: () => "/nope",
     workspaceRoot: "/nope",
@@ -283,18 +243,10 @@ test("spark read: an unresolvable refs target renders as its bare short id, neve
   assert.ok(text.includes("refs: deadbeef"), `unresolved refs target must keep its short id:\n${text}`);
 });
 
-// ---------------------------------------------------------------------------
-// F1 list line: refs targets use the SAME form as the read path
-// ---------------------------------------------------------------------------
-// 第 7 轮复核发现 1：读路径把 refs 目标渲染成 `spark-2074408b`，而 F1 列表行内
-// 同一目标退化为裸 `2074408b`——两条消费路径对同一对象给出不同指称。根因是
-// `listSparkObjects` 的 refs 投影只保留 `object_uid`。此处钉住两端：投影必须
-// 带解析出的类型，渲染必须给出同样的前缀形态。
 
 test("spark F1 list: refs targets carry a resolved type, so the line is type-prefixed", async () => {
   await withTemp("object-reference.f1refs.", async (base) => {
     const root = join(base, "ldvh-base");
-    // 目标是一个 pitfall 载体——类型与宿主 spark 不同，正是必须解析才能得知的情形。
     const targetUid = "bb0fe837-1111-4222-8333-444455556666";
     await mkdir(join(root, "pitfalls"), { recursive: true });
     await writeFile(
@@ -346,7 +298,6 @@ test("spark F1 list: refs targets carry a resolved type, so the line is type-pre
     assert.ok(item, "the host spark must be listed");
     assert.deepEqual(item.refs, [{ object_uid: targetUid, fact_type_key: "pitfall" }]);
 
-    // 渲染端：同一个投影喂给列表渲染器，行内目标必须是 `pitfall-<8hex>`。
     const descriptor = makeDescriptors(sparkToolsModule.registerSparkTools, {
       dshHomePath: () => "/nope",
       workspaceRoot: "/nope",
@@ -365,13 +316,6 @@ test("spark F1 list: refs targets carry a resolved type, so the line is type-pre
   });
 });
 
-// ---------------------------------------------------------------------------
-// Layer ④: the spark terminal-transition report (relation targets)
-// ---------------------------------------------------------------------------
-//
-// 第九轮复核的决定性发现：`sparkTerminalReport` 的「关系目标：<key> → <uid>」行
-// 仍输出完整 36 位 UUID，是四层中唯一漏改的渲染点。关系目标在载体里只有
-// object_uid（03 §7.2），呈报要按 02 §9.3 出指称就得先解析出目标类型。
 test("spark terminal report: relation targets render with the type prefix, never the full uid", async () => {
   await withTemp("object-reference.relation.", async (base) => {
     const { home, repo } = await governedFixture(base);
@@ -413,7 +357,6 @@ test("spark terminal report: relation targets render with the type prefix, never
     await seed(targetUid, "合并目标（测试夹具）");
     await seed(hostUid, "被合并议题（测试夹具）");
 
-    // 抓 Host 收到的那一份 Gate 呈报正文——它就是渲染点本身。
     const captured = [];
     const descriptors = makeDescriptors(sparkToolsModule.registerSparkTools, {
       dshHomePath: dshHome(home),

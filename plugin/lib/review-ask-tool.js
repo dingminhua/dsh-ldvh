@@ -1,43 +1,8 @@
-/**
- * dsh-ldvh — `ldvh_review_ask`：两处把关询问的工具面入口。
- *
- * ## 为什么需要一个专门工具（而不是让主控裸调 ask_user_question）
- *
- * 三个原因，每条都对应一个实测过的失效面：
- *
- * 1. **留痕**：宿主 `ctx.userQuestions.ask` 走 waterfall，**不进入会话事件流**
- *    （历史实测记录）。裸调之后，事后无法从任何
- *    权威记录回答「问过没有、答了什么」——本仓已经因此发生过一次主控误判
- *    「询问未发生」并补问了一遍。
- * 2. **不重问**：同一内容指纹问过就有答复可复用。裸调没有这层，重试必重问。
- * 3. **开关**：本工具自己读开关，关闭时**不问**——这样「打开才有」由一处实现
- *    保证，而不是要求主控每次都记得先查配置。
- *
- * ## 它不是 Gate（与任何 Human Gate 的 approve 根本不同）
- *
- * Human 选「跳过」是**合法答复**，不是拒绝，不阻断任何后续动作。故本工具
- * 返回 `decision: "review" | "skip" | "silent" | null`，**不返回 granted**——用
- * `granted` 会诱导调用方把它当成授权闸门，那与它的性质相反。
- *
- * `silent` 不是 Human 的答复，是**配置决定的自动安排**（见 index.js 的
- * `reviewAskSilentRunEnabled`）：它使这个枚举多了一个来源，故消费方
- * **不得**把 `silent` 读成「Human 同意了」——它只说明「这一处没问，照配置做了」。
- *
- * ## 如实声明边界（00 §4.6）
- *
- * 本工具**不判定「这次任务算不算复杂」**，也不检查主控是否真的来调用。它保障的
- * 只有：开关关闭时不问、问过的不重问、答复可回读。**「该问而没问」机械层不知道**
- * ——故不得据本工具的存在声称审查/复核已获机械保障。
- */
 
 import { reviewDispatchTemplate } from "./review-dispatch-template.js";
 import { GATE_POINT_EXCLUSIONS, askEnabledFor, reviewAskMode, silentRunNotice } from "./review-ask.js";
-// 只复用**归一化**口径，不复用 `verifyQuotation`（2026-11-16 独立审核 MINOR-1）：
-// 后者的错误码与文案属 11 号（摩擦发现）域，其 `minChars=8` 是 11 §11 的实现侧
-// 护栏，搬进 32 号会把两套判据的词汇混在一起，日后改一处会牵动另一处。
 import { normalizeQuotationText } from "./quotation-text.js";
 
-/** 05 §8 公共响应信封（与各 tool 模块同一形状）。 */
 function envelope(operationKey, outcome, fields) {
   return { operation_key: operationKey, outcome, ...fields };
 }
@@ -48,10 +13,6 @@ export const REVIEW_ASK_OPERATION = Object.freeze({
     "两处把关询问（2026-11-13 Human 决定：改为「要不要安排代理审查／复核」两问）。"
     + "\n\nWHEN TO CALL: 仅当对应开关打开、你判定当次任务属「复杂任务」、**该次工作未命中点位排除**、**且该处的前置时点已到**时。行动前那处的前置时点是「方案已形成候选、尚未产生副作用」（不是「任务的第一个动作之前」）；收口前那处是「工作已做完、尚未形成完成声明」。"
     + "两步判据都不新造：**第一步** specs/04 §6.1 三条正面是**条文原文**（建立或修改结构性事物／存在多个可选路径的选型／方向可能与既定决策冲突），其排除清单取反是**据此推导的判据，不是条文原文**（该节只列排除清单，规范里没有正面规定「什么情况算复杂任务」）；"
-    // **类别枚举由 GATE_POINT_EXCLUSIONS 渲染，不在此手抄**（2026-11-14 复审 MAJOR-D）。
-    // 手抄副本的失效形状是实测过的：规范改动过某类的边界之后，工具描述仍停在旧措辞
-    // ——而它恰恰是模型读得最靠后的那一面。
-    // 只抄类别名也不够：某类改名前后类别名可能不变，变的是括号里那串限定。
     + `**第二步** specs/32 §4.2 的**点位排除**（Human 2026-11-14 决定；2026-11-15 随 ADR 事实类型撤除删除第 4 类）：判为复杂之后，当次工作**整件**属于下列任一类别时，该处**不问**，也不派代理——\n`
     + GATE_POINT_EXCLUSIONS.map((item) => `  · ${item.label}`).join("\n")
     + "\n\n两步不得混读（specs/32 §19 第 5 项）：点位排除**不改动也不重新解释** 04 §6.1 的判据，命中排除**不等于**「这不算复杂任务」；它只免除本文定义的两处征询，**不免除** 04 §6.1 的方案收敛自查与主控自查，**不免除**任何 Human Gate 的提请（新建事实对象、改变既有对象的决策与适用范围语义），**也不免除** 00 §2.5 独立审核的适用范围（受保护内容修改、下位规范建立或实质修改、进入事实源的事实规范候选）。"
@@ -66,26 +27,10 @@ export const REVIEW_ASK_OPERATION = Object.freeze({
     + "\n\nNOT A GATE: skip 是合法答复，不阻断任何后续动作；本工具不返回 granted。"
     + "\n\nBOUNDARY: 它不判定「算不算复杂」，也不检查你是否真的调用了它——故这不构成机械保障（00 §4.6）。"
     + "它同样**不判定「方案是否已有候选」**：那个条件在形式上不可分（敷衍的「候选：按 A 做」与真候选字形相同），按 specs/06 §5 不得以机械校验强制，故只在发问时点把判断依据（result.candidate_basis）交还给你，**不拦你、也不替你判**。因此本工具对「空问」没有拦截力，过去没有、现在也没有——不要因为看到了 candidate_basis 就认为这一步已被机制保证。",
-  // **effect 改为 may_change_state**（2026-11-13 独立审核 MINOR #7）。
-  //
-  // 原值 "read" **是错的**：本工具会把答复写进载体
-  // （~/.dsh/ldvh/review-ask-decisions.json），那是状态变更，不是只读。
-  // 该字段当时无人消费，错值没造成实际后果——但留着会让将来读它的人（或工具）
-  // 以为它不落盘。**错误但无人消费的声明仍然是错的**。
   effect: "may_change_state",
-  // 询问会阻塞在人身上，故整个工具不声明墙钟期限（与其它写入类工具同理：
-  // 期限是逐工具的，声明一个会让所有调用都付 Human 等待的代价）。
-  //
-  // **该字段此前是死的**（本工具走 defineTool 直注册，不经 toolDescriptor，
-  // 而消费点 `operation.awaitsHumanDecision` 在 toolDescriptor 里）。现已**接线**：
-  // 见 ldvh-tools.js 的注册处——同一套语义（等 Human → 不设期限）。
   awaitsHumanDecision: true,
 });
 
-/**
- * 工具参数 schema。`point` 必填（闭集）；`task` 是给人看的一句话任务描述，
- * 参与内容指纹——同一任务重试时指纹相同、不重问。
- */
 export function reviewAskParameterSchema() {
   return {
     type: "object",
@@ -114,39 +59,6 @@ export function reviewAskParameterSchema() {
   };
 }
 
-/**
- * 组装行动前那处的**判断依据**（弱约束，specs/06 §5／§6）。
- *
- * ## 这不是闸
- *
- * `06 §5`：被区分对象在形式上不可分时（同一字形承载不同语义），不得以机械校验
- * 强制执行；此时改用弱约束。本函数因此**只交还依据、不判定对错**——`06 §6`
- * 明禁实现代为判定，也明禁以「已提供依据」声称该纪律已获保障。
- *
- * ## 为什么必须是弱约束（实测，2026-11-16）
- *
- * 曾拟「claims 必填 + claims 逐字出现在同轮正文，否则拒绝」。实测全量会话语料：
- * 53 次 pre-action 调用、52 次带 claims、claims 逐字出现在同轮正文 **0/52**；
- * 整轮正文为空 **0/53**（最小 119 字、中位 4494 字）。真实形状是「正文写叙述、
- * 主张写在工具参数里」，两者从不重合 ⇒ 该闸会 100% 误拒合法询问；而模型空问时
- * claims 照样齐备、正文照样长篇 ⇒ 对真正的空问 0 拦截力。只拒不拦，且拒绝不留痕
- * （32 §16「记录缺失即按未请示处理」），外部看到的是「主控没问」——比不加闸更糟。
- *
- * ## 交还什么
- *
- * 三项可核对的事实，供调用方自己判断「是否已有候选」：
- *   1. `turn_text_chars`：本轮已写出的正文长度（0 = 一个字都没写）；
- *   2. `claims_present`：本次是否带了 claims；
- *   3. `claims_in_turn_text`：**归一化后**逐条 claims 是否出现在本轮正文里。
- *
- * 第 3 项**不得**被读成「候选合格」：一份敷衍的「候选：按 A 做」照样能让它为真。
- * 它只说明「你写下的主张，在你自己的正文里也能找到」。
- *
- * @param {object} args 工具参数
- * @param {object} exec 工具执行上下文
- * @param {object} deps 装配依赖（用 deps.readCurrentTurnText）
- * @returns {object|null} 判断依据；取不到时如实返回 unavailable 形态，不虚构
- */
 function buildCandidateBasis(args, exec, deps) {
   const claims = Array.isArray(args?.claims)
     ? args.claims.filter((item) => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
@@ -194,22 +106,10 @@ function buildCandidateBasis(args, exec, deps) {
     claims_count: claims.length,
     claims_in_turn_text: inText,
     claims_in_turn_text_count: inText.filter(Boolean).length,
-    // 口径说明随依据一起交还，避免被读成「为真即合格」。
     note: "claims_in_turn_text 只说明「你写下的主张在你本轮正文里也能找到」，**不说明它是合格候选**——一份敷衍的「候选：按 A 做」照样能让它为真。判断「是否已有候选」由你做（specs/06 §5：形式不可分，故本层不判定对错）。",
   };
 }
 
-/**
- * 处理一次把关询问。
- *
- * @param {object} args
- * @param {string} args.point - "pre-action" | "post-work"
- * @param {string} [args.task] - 一句话任务描述
- * @param {object} deps - 装配侧依赖
- * @param {() => object} deps.getReviewAskSettings - 每次现读的开关解析
- * @param {object} deps.hostSeams - 见 host-seams.js（用其 requestReviewAsk）
- * @param {object} exec - 工具执行上下文（含 agent 与 signal）
- */
 export async function executeReviewAsk(args, exec, deps) {
   const point = args?.point;
   if (point !== "pre-action" && point !== "post-work") {
@@ -224,26 +124,8 @@ export async function executeReviewAsk(args, exec, deps) {
   }
   const task = typeof args?.task === "string" && args.task.trim().length > 0 ? args.task.trim() : null;
 
-  // 行动前那处的**判断依据**（弱约束，specs/06 §5／§6）。只交还、不判定、
-  // 不阻断任何分支——它在静默档、开关关闭、实际询问三条路径上都要出现，
-  // 因为「无候选可核对」在这三种情形下同样成立（独立审核 MAJOR-1）。
   const candidateBasis = point === "pre-action" ? buildCandidateBasis(args, exec, deps) : null;
 
-  // 开关**每次现读**（volatile 字段无变更通知）。
-  //
-  // **读不到 ≠ 关着**（2026-11-13 独立审核 MAJOR #3）。原实现把 getter 抛错与
-  // getter 缺失都并进 `settings = null`，随后 `enabled !== true` 走「开关关闭」
-  // 分支，返回 `completed` + `verification.passed: true`。后果：Human 明明开着
-  // 开关却永远收不到提问，而我这边看到的是「completed / 开关关着 / 直接推进」，
-  // 不会去报告——日志里只当一次正常关闭。
-  //
-  // 这与 review-ask.js 自己那段注释的警告直接矛盾（「静默兜底会让『Human 显式
-  // 关掉』与『配置没读到』不可区分」），也是本仓「不得让读数不可判读」的同类。
-  //
-  // 现在分三种情况，各自如实申报：
-  //   * getter 缺失（装配漏传）  → unavailable，明说取不到开关状态
-  //   * getter 抛错              → unavailable，带错误消息
-  //   * 读到了但为假             → 这才是「Human 关掉了」，completed
   let settings = null;
   let settingsGap = null;
   let settingsUnavailable = false;
@@ -268,26 +150,10 @@ export async function executeReviewAsk(args, exec, deps) {
       follow_up: ["report the unavailable switch state to Human; do not claim the review was skipped by configuration; do NOT pause the work over this — 00 §2.5 says the ask neither grants nor suspends"],
     });
   }
-  // 开关分派**走 askEnabledFor**（2026-11-13 独立审核 MINOR #7）：此前此处另写
-  // 一遍 `point === "pre-action" ? … : …`，与 review-ask.js 的同款分派**是两处
-  // 副本**——改一处漏一处，两边对「未知位置怎么办」的处置就可能不一致。
   const enabled = askEnabledFor(settings, point);
-  // **known 标记必须被消费**（2026-11-13 独立审核 MINOR-1）。
-  //
-  // `resolveReviewAskSettings` 专门用 `preActionKnown/postWorkKnown` 区分
-  // 「Human 关掉了」与「配置面取不到」，而此前这里只读布尔值——known 为 false
-  // 时仍报 `completed` + `switch_off` + `passed:true`，与 review-ask.js 的注释
-  // （「后者应如实报告，不假装是关」）正好相反。
-  //
-  // 后果：配置面取不到时，界面上看不出「这不是 Human 的决定」，而工具回报说
-  // 「开关是关的」——两处都把「取不到」说成了「关掉」。
   const known = point === "pre-action"
     ? settings?.preActionKnown !== false
     : settings?.postWorkKnown !== false;
-  // `settings === null`（读取器返回空）与 `known === false`（读取器说「这个值
-  // 没设置」）**同属「取不到」**，都不是「Human 关掉了」——后者只有读到 `false`
-  // 才成立（2026-11-13 独立审核 MINOR-1 提级：行路径已按 known 口径处理，工具
-  // 路径此前把两者都报成「开关关闭，是配置的结果」，属不实声明）。
   if (!enabled && (!known || settings === null)) {
     return envelope("review-ask", "unavailable", {
       result: { point, task, decision: null, asked: false, switch_enabled: null },
@@ -302,17 +168,6 @@ export async function executeReviewAsk(args, exec, deps) {
     });
   }
 
-  // ── 静默执行（2026-11-13 晚 Human 确认 A1）──────────────────────────────
-  //
-  // 开关开着时**不问、直接给派发模板**：免掉的是那次询问，不是那次核对。
-  //
-  // **为什么这个分支放在「问签可用性」检查之前**：静默执行不需要询问通道。
-  // 把它排在 seam 检查之后，会让「宿主没有 userQuestions 服务」这一情形把静默
-  // 执行一并判成 unavailable——而静默的全部意义正是绕开那个人工接缝。
-  //
-  // **为什么它不能越过询问开关**：`reviewAskMode` 已把「询问开关关着」判成
-  // `off`，本分支只在 `silent` 时进入。关掉询问开关的语义是「这一处不必有人
-  // 盯着」，静默若越过它，关开关就失去了「省掉这次核对」的意思。
   const mode = reviewAskMode(settings, point);
   if (mode.mode === "silent") {
     return envelope("review-ask", "completed", {
@@ -323,31 +178,17 @@ export async function executeReviewAsk(args, exec, deps) {
         asked: false,
         switch_enabled: true,
         silent_run: true,
-        // 静默执行同样给模板——它与「安排」给的**是同一份**，因为要做的
-        // 是同一件事。区别只在「谁决定的」：那边是 Human 刚选的，这边是配置。
         review_template: reviewDispatchTemplate(point, {
           task,
           claims: args?.claims,
           evidence: args?.evidence,
         }),
-        // **痕迹行**：交付说明里须原样引用它，否则「静默」就成了「无痕」。
         notice: silentRunNotice({ point, task }),
-        // 静默档同样可能「无候选可核对」（32 §6.2 第 2 项：免掉的是询问，不是
-        // 那次核对），故判断依据在此分支**一并交还**（独立审核 MAJOR-1）。
         ...(candidateBasis === null ? {} : { candidate_basis: candidateBasis }),
       },
       scope: { requested: point, completed: [point], not_completed: [] },
-      // **没有 sources**：这一支没有经过任何宿主服务，如实留空比填一个
-      // `userQuestions` 更诚实（那一面根本没被调用）。
       sources: [],
-      // `silent` 分支的 `silentUnknown` 恒为 false（取不到时 reviewAskMode
-      // 返回 `ask`，不进本分支）；「取不到 → 照旧询问并如实报告」由下面的
-      // ask 路径承担。此处**不写死一个永不成立的条件**（独立复核 MAJOR-4）。
       gaps: [],
-      // **不写 `silent-run-no-prompt` 这类自证标签**（独立复核 MINOR-9）：
-      // 它不是一次实际检查，`passed: true` 会凭空成立。本分支能机械保证的
-      // 只有两件——`point` 在闭集内、开关被读到且为开。派发是否真的发生，
-      // 机械层不知道（见本文件头注的如实边界）。
       verification: {
         checks: ["point-closed-set", "switch-read"],
         passed: true,
@@ -372,12 +213,6 @@ export async function executeReviewAsk(args, exec, deps) {
     });
   }
 
-  // **开关在这里短路，不委托给 seam**（2026-11-13，由单测抓出）。
-  //
-  // 原实现把 `enabled` 传给 seam 由它决定问不问。那使「打开才有」这条语义
-  // **取决于每个 seam 实现的自觉**——本插件自己的 seam 会照做，但任何替换实现
-  // （测试桩、将来重构）都可能照问不误，而调用方看不出来。开关是本工具的核心
-  // 语义，必须在**唯一入口**处生效：这里短路，则无论 seam 怎么写都不会问。
   if (enabled !== true) {
     return envelope("review-ask", "completed", {
       result: {
@@ -409,25 +244,11 @@ export async function executeReviewAsk(args, exec, deps) {
   const decision = outcome?.decision ?? null;
   const gaps = [];
   if (settingsGap !== null) gaps.push(settingsGap);
-  // 「静默开关取不到 → 照旧询问」须**如实报告**（独立复核 MAJOR-4）。
-  //
-  // 这条路径是真实存在的那条：配置里没有静默键时 `silentRunKnown === false`，
-  // `reviewAskMode` 保守地退回询问。退回本身是对的（不知道就别擅自免掉询问），
-  // 但**不回读就报**会让「配了静默却不生效」与「我本来就没开静默」不可区分——
-  // 那正是本仓反复处理的那类失效。
   if (mode.silentUnknown) {
     gaps.push("the silent-run switch could not be read, so the question was asked as usual instead of being skipped by silence — this is a fallback, not a Human decision (00 §4.6)");
   }
   if (outcome?.recordError !== undefined) gaps.push(`the answer could not be recorded (${outcome.recordError}) — a retry will ask again`);
   if (outcome?.reason !== undefined && decision === null) gaps.push(outcome.reason);
-  // **本次 bug 的修复口**（2026-11-14）：宿主卡片「自由输入提交」把文字放在
-  // `custom`、把 `selected` 置空；seam 现在把它取回为 `custom_note`。它必须出现在
-  // 模型可见的信封里——否则 Human 写了字、主控却只读到「未取得明确答复」。
-  // 它**不是** decision，不进留痕、不冒充 review/skip、不改变闭集语义。
-  // 此处原有一个 `decision === null && asked === false && enabled === false` 的分支，
-  // 追加同样的 switch_off 说明。**它不可达**——`enabled !== true` 时上面已提前
-  // return，走到这里时 enabled 必为 true。留着它的害处不是多几行，而是让读者
-  // 以为「开关关闭」还有第二条申报路径，从而误判开关语义的覆盖范围。
 
   return envelope("review-ask", decision === null ? "partial" : "completed", {
     result: {
@@ -436,16 +257,11 @@ export async function executeReviewAsk(args, exec, deps) {
       decision,
       asked,
       reused: outcome?.reused === true,
-      // 自由输入提交的文字逐字回传（不是决定、不进留痕）。缺位时不产出该键。
       ...(outcome?.custom_note === undefined ? {} : { custom_note: outcome.custom_note }),
       ...(outcome?.fingerprint === undefined ? {} : { fingerprint: outcome.fingerprint }),
       switch_enabled: enabled,
-      // 行动前那处的判断依据（弱约束，06 §6）：只交还、不判定、不改变 decision。
       ...(candidateBasis === null ? {} : { candidate_basis: candidateBasis }),
-      // 「安排」时才给模板——「跳过」时给模板是噪声，也会诱导主控照派。
       ...(decision === "review" ? { review_template: reviewDispatchTemplate(point, {
-        // 不传 subject：主控只用 task 一句时，模板会把它作为对象描述呈现；
-        // 硬塞 subject=task 会让同一句话在模板里出现两次。
         task,
         claims: args?.claims,
         evidence: args?.evidence,
@@ -475,9 +291,6 @@ export async function executeReviewAsk(args, exec, deps) {
           ? [
             "未取得答复（32 §9.1：答复只表明「被问过并给出安排／不安排」，没有答复即没有决定，不得读成 skip）；但 Human 在自由输入框写了字，见 result.custom_note —— 逐字读它并纳入本轮判断，不要当成跳过",
             "该自由文本不是 review/skip 答复，不改变 decision=null；如需明确决定请重新提请",
-            // **不暂停**：旧文案写「按 00 §4.7」，而两处请示是 00 §2.5 明定的
-            // 「Human Gate 之外的征询」，§4.7 的必停情形不适用；32 §3.4 更明禁把
-            // 「未取得答复」处置为「必须暂停」。
             "未取得答复**不放行也不暂停**（00 §2.5、32 §3.4、32 §9.1）：按既有路径继续，并在交付说明中如实写明「未取得该处答复」；不得把沉默当作 skip，也不得据此停下整件工作",
           ]
           : ["未取得答复：按 32 §9.1 不得把沉默当作 skip（没有答复即没有决定）；也**不得据此暂停**——两处请示是 00 §2.5 明定的 Human Gate 之外征询，答复不是行动放行的前提；按既有路径继续，并在交付说明中如实写明「未取得该处答复」"],

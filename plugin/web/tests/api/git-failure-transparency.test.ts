@@ -10,7 +10,6 @@ function source(relativePath: string): string {
 test('Changelog reports a Git log failure without suppressing field-level facts', () => {
   const changelog = source('api/routes/changelog.ts')
 
-  // git 日志失败必须如实上抛，不得静默吞掉为成功空结果
   assert.match(changelog, /ok: false, error/)
   assert.doesNotMatch(changelog, /getGitLog\([\s\S]*?\)\.catch\(\(\) => \[\]\)/)
 })

@@ -1,8 +1,3 @@
-/**
- * Recreate the blueprint research object with strict evidence discipline,
- * per the new single-file spec (specs/24) — replaces the deprecated
- * first object (d5bd2681, directory-era + loose evidence).
- */
 import { createResearchObject, readResearchObject, updateResearchObject } from "../../lib/research-writer.js";
 import { shellAuthoritativeSignature } from "../../lib/session-signature.js";
 import { rm } from "node:fs/promises";
@@ -11,7 +6,6 @@ import { join } from "node:path";
 const ROOT = "/Users/dmh2002/DshProject/dsh-ldvh/ldvh-base";
 const OLD_UID = "d5bd2681-3432-45f8-bf29-f62f2da3c2d2";
 
-// Sources (5 official docs, verbatim-fetched via read_page)
 const urls = [
   { ref: "https://linear.app/docs/initiative-and-project-updates", title: "Initiative and Project updates – Linear Docs", summary: "Linear update 的固定结构（健康指示灯+富文本）、三档健康状态、最新置顶+历史 tab、周期提醒、自动进度报告(2%阈值)、Write with Agent、Slack 分发与 emoji 反应" },
   { ref: "https://docs.github.com/en/issues/planning-and-tracking-with-projects/learning-about-projects/about-projects", title: "About Projects - GitHub Docs", summary: "GitHub Projects 三种布局、数据自动双向同步、内置工作流自动设字段" },
@@ -64,7 +58,6 @@ const implications = [
   { finding_ref: confirmed[11].statement, implication: "Jira Plans 的沙箱+Review changes 提交模式与 LDVH 蓝图的受控更新（CAS+change_log）同构——业界先例支持蓝图更新走受控通道而非自由编辑" },
 ];
 
-// Build the body (directed: five H2)
 function findingBlock(c, i) {
   return "### 发现 " + (i + 1) + "：" + c.statement + "\n\n置信度：" + c.confidence + "。摘录：「" + c.quotes[0].text + "」（" + c.quotes[0].source + "，锚点：" + c.quotes[0].anchor + "）[" + (i + 1) + "]";
 }
@@ -91,7 +84,6 @@ const analysisBody = [
   "后续：业界依据已获取——六区块无先例（LDVH 原创需自行验证）、更新机制有三条可吸收模式（机械投影/变化阈值/agent 起草+人验收）、受控更新有 Jira 沙箱先例。可进入蓝图 §5 五个待裁决问题的 Human 裁决阶段。",
 ].join("\n");
 
-// Create the new object
 const result = await createResearchObject({
   factSourceRoot: ROOT,
   frontmatterDraft: {
@@ -117,11 +109,9 @@ if (!result.ok) {
 console.log("New object:", result.value.object_uid);
 console.log("File:", result.value.file);
 
-// Read back to verify
 const readBack = await readResearchObject({ factSourceRoot: ROOT, objectUid: result.value.object_uid });
 console.log("Read-back ok:", readBack.ok, "| confirmed:", readBack.value.frontmatter.confirmed.length, "| gaps:", readBack.value.frontmatter.gaps.length, "| implications:", readBack.value.frontmatter.implications.length);
 
-// Retire the old object (CAS update: status → retired)
 const oldRead = await readResearchObject({ factSourceRoot: ROOT, objectUid: OLD_UID });
 if (oldRead.ok) {
   const retired = await updateResearchObject({

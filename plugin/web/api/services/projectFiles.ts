@@ -31,7 +31,6 @@ export type GovernedProject = {
   color?: string
 }
 
-/** A verified project worktree is sufficient for read-only file and Git access. */
 export type ProjectFileScope = Pick<GovernedProject, 'id' | 'path'>
 
 export type FileKind = 'directory' | 'markdown' | 'yaml' | 'svg' | 'text' | 'binary'
@@ -87,7 +86,6 @@ export async function resolveProjectTarget(project: ProjectFileScope, relativePa
   const projectRoot = path.resolve(project.path)
   const target = path.resolve(projectRoot, relativePath || '.')
   if (!isInside(projectRoot, target)) return null
-  // 阻止 symlink 逃逸：词法 containment 通过后，再通过 realpath 检查实际路径
   const resolved = await realpath(target)
   return isInside(projectRoot, resolved) ? resolved : null
 }

@@ -1,12 +1,3 @@
-// Tests for plugin/lib/friction-discovery.js — the §9 自动动作闭集.
-//
-// **2026-10 修订（Human 决定：观察不进事实源）**：`observing` 已退出 26 §9 的
-// 状态闭集，观察材料改由 §12bis.1 的摩擦观察缓冲承载。故本文件的测试重心由
-// 「observing 账目的创建与阈值流转」改为「观察条目的写入、同组聚合与阈值晋升」。
-//
-// Every case is derived from specs/11 §9 (the single authority) and specs/26
-// (the ledger contract). Where the implementation diverges from the spec the
-// failure is reported, never "fixed" by bending the assertion.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
@@ -41,12 +32,10 @@ async function withRoot(fn) {
   await fn(base);
 }
 
-/** DSH home 路径拼接器（缓冲在事实源之外，故需要一个 home 根）。 */
 function makeHome(base) {
   return (...segments) => join(base, ...segments);
 }
 
-/** 造一条 open 账目（2026-10 修订后账本的初态就是 open）。 */
 async function seedOpen(base, { count = 1, title = "重复出现的阻碍" } = {}) {
   const created = await createFrictionObject({
     factSourceRoot: base,
@@ -64,7 +53,6 @@ async function seedOpen(base, { count = 1, title = "重复出现的阻碍" } = {
   return created.value.object_uid;
 }
 
-/** 写一条观察条目。 */
 async function seedObservation(base, { group = "ci-slow", phenomenon = "CI 平均 8 分钟", at, evidence } = {}) {
   const result = await recordObservation({
     dshHomePath: makeHome(base),
@@ -74,7 +62,6 @@ async function seedObservation(base, { group = "ci-slow", phenomenon = "CI 平�
     phenomenon,
     evidence: evidence ?? "CI 耗时 8m02s（构建日志第 12 行）",
     group,
-    // 2026-10-30：晋升搬到审核层后，这四项随条目落进缓冲（§12bis.1 字段闭集）。
     title: "CI 慢",
     basis: "重复出现；归因：CI 配置未缓存依赖层；修了会改善。",
     attribution: "CI 配置未缓存依赖层",
@@ -84,7 +71,6 @@ async function seedObservation(base, { group = "ci-slow", phenomenon = "CI 平�
   return result.value;
 }
 
-/** 晋升一个组的便利包装。 */
 async function promote(base, group = "ci-slow", extra = {}) {
   return promoteReadyGroup({
     factSourceRoot: base,
@@ -99,25 +85,19 @@ async function promote(base, group = "ci-slow", extra = {}) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// N 的固定性（§9「阈值 N」：不可配置）
-// ---------------------------------------------------------------------------
 
-test("11 §9：N 固定为 3 且不经任何配置载体", () => {
-  assert.equal(FRICTION_THRESHOLD_N, 3, "N is pinned to 3 by 11 §9");
+test("36 §8.7：N 固定为 3 且不经任何配置载体", () => {
+  assert.equal(FRICTION_THRESHOLD_N, 3, "N is pinned to 3 by 36 §8.7");
   assert.equal(FRICTION_OBSERVATION_THRESHOLD_N, 3, "缓冲侧的 N 与发现侧同源（§12bis.1 差异第 3 条）");
   assert.equal(MAX_CREATES_PER_RUN, 1, "§9 每次运行上限：至多晋升 1 条账目");
 });
 
-test("11 §9：阈值求值可用（N 固定后该校验不再恒不可用）", () => {
+test("36 §8.7：阈值求值可用（N 固定后该校验不再恒不可用）", () => {
   const check = verifyThresholdAvailable();
   assert.ok(check.ok, JSON.stringify(check.error));
   assert.equal(check.value.threshold, 3);
 });
 
-// ---------------------------------------------------------------------------
-// 第 1 项（读取部分）：两层候选集
-// ---------------------------------------------------------------------------
 
 test("§9 第 1 项：账本侧候选只含 open，终态不入查重范围（26 §12）", async () => {
   await withRoot(async (base) => {
@@ -166,9 +146,6 @@ test("§9 第 1 项：缓冲残缺时拒绝在残缺输入上判断", async () =
   });
 });
 
-// ---------------------------------------------------------------------------
-// 第 2 项：写入观察条目（不写事实源）
-// ---------------------------------------------------------------------------
 
 test("§9 第 2 项：观察写入缓冲，**不产生任何账目**（观察不是事实对象）", async () => {
   await withRoot(async (base) => {
@@ -243,9 +220,6 @@ test("§9 第 2 项：观察按管辖项目分区，跨项目不混装（02 §6.
   });
 });
 
-// ---------------------------------------------------------------------------
-// 第 4 项：对既有 open 账目的补充级更新
-// ---------------------------------------------------------------------------
 
 test("§9 第 4 项：count 递增 1、last_at 更新、status 不变", async () => {
   await withRoot(async (base) => {
@@ -292,9 +266,6 @@ test("§9 第 4 项：非 open 的账目拒绝补充（26 §9.3 只对非终态 
   await withRoot(async (base) => {
     const uid = await seedOpen(base, { count: 1 });
     const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    // 走 voided 而非 resolved：resolved 的 informs 需要一个可解析的解药目标，而本
-    // writer 在没有 git 解析器时对 commit 形态 fail-closed（02 §8.1）。终态冻结的
-    // 判定与哪一个终态无关，故用 voided 即可覆盖。
     const voided = await updateFrictionObject({
       factSourceRoot: base,
       objectUid: uid,
@@ -322,9 +293,6 @@ test("§9 第 4 项：非 open 的账目拒绝补充（26 §9.3 只对非终态 
   });
 });
 
-// ---------------------------------------------------------------------------
-// 第 3 项：阈值晋升
-// ---------------------------------------------------------------------------
 
 test("§9 第 3 项：meetsPromotionThreshold 以 pending 条目数为判据（电平条件，不是边沿）", () => {
   assert.equal(meetsPromotionThreshold(0), false);
@@ -424,9 +392,6 @@ test("§9 第 3 项：晋升出的账目正文结构合法（H1 恰好一个，H
   });
 });
 
-// ---------------------------------------------------------------------------
-// 回归：H1 不叠加（read-write asymmetry）
-// ---------------------------------------------------------------------------
 
 test("回归：补充级更新不得叠加 H1——连跑三次 H1 恒为 1", async () => {
   await withRoot(async (base) => {

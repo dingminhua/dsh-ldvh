@@ -1,5 +1,3 @@
-// Scaffolding parity tests: AgentLifecycle object, runtime config swap,
-// event-stream primitives, rpc/commands skeleton.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -8,7 +6,6 @@ import { createRuntimeConfig } from "../lib/runtime-config.js";
 import { openTurn, turnToolCalls, turnUserTexts } from "../lib/event-stream.js";
 import { registerLdvhRpc } from "../lib/rpc.js";
 
-// --- AgentLifecycle object -------------------------------------------------
 
 test("AgentLifecycle: single home for per-agent state with snapshot()", () => {
 	const lifecycle = new AgentLifecycle({ id: "a1", session: { header: { id: "a1", cwd: "/x" } } });
@@ -32,7 +29,6 @@ test("ActivityLog: bounded ring with snapshots", () => {
 	assert.equal(entries[2].detail.index, 4, "latest kept");
 });
 
-// --- runtime config swap ---------------------------------------------------
 
 test("runtime config: stage validates without disturbing live; commit swaps atomically", () => {
 	const config = createRuntimeConfig({ webEnabled: true });
@@ -47,7 +43,6 @@ test("runtime config: stage validates without disturbing live; commit swaps atom
 	assert.throws(() => config.stage(null), /object/);
 });
 
-// --- event stream primitives ----------------------------------------------
 
 test("event-stream: openTurn / turnToolCalls / turnUserTexts over the durable log", () => {
 	const events = [
@@ -65,7 +60,6 @@ test("event-stream: openTurn / turnToolCalls / turnUserTexts over the durable lo
 	assert.deepEqual(turnUserTexts(events, 1), ["改一下"]);
 });
 
-// --- rpc skeleton ------------------------------------------------------------
 
 test("registerLdvhRpc: mounts lifecycle snapshot channel and disposes", () => {
 	const handled = new Map();

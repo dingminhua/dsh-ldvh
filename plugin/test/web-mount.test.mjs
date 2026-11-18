@@ -1,8 +1,3 @@
-/**
- * web-mount.js 契约测试：/ldvh 静态服务（dist 存在/缺失两态、SPA fallback、
- * 越界防护）、代理（路径映射、方法/请求体往返、子进程不可用 503、上游死 502）、
- * 子进程管理器（自定义命令 spawn → 就绪 → dispose）。
- */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import http from "node:http";
@@ -14,28 +9,8 @@ import { gzipSync } from "node:zlib";
 import test from "node:test";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "../lib/web-mount.js";
 
-/**
- * A canonical (long-form) temp root.
- *
- * `os.tmpdir()` returns the 8.3 SHORT name on Windows (`C:\Users\ADMINI~1\...`).
- * Handing a short path to `fs.watch(dir, { recursive: true })` and then mutating
- * the directory ABORTS the whole Node process — `Assertion failed:
- * !_wcsnicmp(filename, dir, dirlen), file src\win\fs-event.c, line 72` — because
- * ReadDirectoryChangesW reports the LONG name while the watcher holds the short
- * one. Reproduced on Node 24.19 / Windows before this helper existed.
- *
- * This is an upstream libuv defect, not an LDVH one:
- *   https://github.com/libuv/libuv/issues/5010
- *   https://github.com/nodejs/node/issues/63638
- * Nothing in the product code is at fault (`fs.watch` is used exactly as
- * documented), so the fixture resolves the path instead of the product
- * weakening its watch. The crash is unrunnable to assert against — a native
- * abort kills the runner — so it is registered as a known platform limitation
- * rather than covered by a test.
- */
 const longTempDir = () => realpathSync.native(tmpdir());
 
-/** 用真实 http.Server 包住 handler 再 fetch——比 mock req/res 更接近真实调用面。 */
 async function withHandler(handler, fn) {
   const server = http.createServer((req, res) => { void Promise.resolve(handler(req, res)).catch((error) => { res.statusCode = 500; res.end(String(error?.message ?? error)); }); });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -57,28 +32,22 @@ test("spa handler serves dist assets, SPA fallback, and blocks traversal", async
   await writeFile(join(dist, "deep", "nested.txt"), "nested");
   const handler = createSpaHandler(dist);
   await withHandler(handler, async (base) => {
-    // 根路径 → index.html
     const root = await fetch(`${base}/ldvh`);
     assert.equal(root.status, 200);
     assert.match(root.headers.get("content-type"), /text\/html/);
     assert.match(await root.text(), /app/);
-    // 静态资源 → 正确 MIME
     const asset = await fetch(`${base}/ldvh/assets/app.js`);
     assert.equal(asset.status, 200);
     assert.match(asset.headers.get("content-type"), /text\/javascript/);
-    // SPA 路由 → index.html fallback（非文件路径）
     const spa = await fetch(`${base}/ldvh/federation/objects/spark`);
     assert.equal(spa.status, 200);
     assert.match(await spa.text(), /app/);
-    // 嵌套静态文件
     const nested = await fetch(`${base}/ldvh/deep/nested.txt`);
     assert.equal(nested.status, 200);
     assert.equal(await nested.text(), "nested");
-    // 越界 → SPA fallback（不泄露 dist 之外的内容，仍回 index.html）
     const traversal = await fetch(`${base}/ldvh/..%2f..%2fetc`);
     assert.equal(traversal.status, 200);
     assert.match(await traversal.text(), /app/);
-    // 非 GET/HEAD → 405
     const post = await fetch(`${base}/ldvh/`, { method: "POST" });
     assert.equal(post.status, 405);
   });
@@ -96,14 +65,11 @@ test("spa handler serves precompressed .gz with the ORIGINAL content type (not o
     const html = await fetch(`${base}/ldvh`, { headers: { "accept-encoding": "gzip" } });
     assert.equal(html.status, 200);
     assert.equal(html.headers.get("content-encoding"), "gzip");
-    // 回归断言：content-type 必须是原始类型——曾按 .gz 后缀误判 octet-stream，
-    // 浏览器把 iframe 页面当下载处理（Electron tab 触发下载保存）。
     assert.match(html.headers.get("content-type"), /text\/html/);
     const js = await fetch(`${base}/ldvh/assets/app.js`, { headers: { "accept-encoding": "gzip" } });
     assert.equal(js.status, 200);
     assert.equal(js.headers.get("content-encoding"), "gzip");
     assert.match(js.headers.get("content-type"), /text\/javascript/);
-    // 内容不变（fetch 对 content-encoding: gzip 已自动解压）
     assert.equal(await js.text(), "console.log('app')");
   });
 });
@@ -118,7 +84,6 @@ test("spa handler falls back to the honest placeholder when dist is missing", as
 });
 
 test("proxy handler maps /ldvh/api paths to the child /api surface with method and body", async () => {
-  // 一个「子进程」替身：真实 http.Server 记录收到的请求并回 JSON。
   const seen = [];
   const upstream = http.createServer((req, res) => {
     let body = "";
@@ -140,7 +105,6 @@ test("proxy handler maps /ldvh/api paths to the child /api surface with method a
       assert.equal((await get.json()).echoed, "/api/settings/governed-projects?project=ldvh");
       assert.equal(seen.at(-1).method, "GET");
     });
-    // POST 带请求体 + content-type 透传
     await withHandler((req, res) => proxy(req, res, "/settings/governed-projects", ""), async (base) => {
       const put = await fetch(`${base}/anything`, {
         method: "PUT",
@@ -171,7 +135,6 @@ test("proxy handler answers 503 when the web api process is unavailable", async 
 });
 
 test("proxy handler answers 502 when the upstream target is dead", async () => {
-  // 占一个端口然后立刻关掉——保证端口无人监听。
   const grave = http.createServer(() => {});
   await new Promise((resolve) => grave.listen(0, "127.0.0.1", resolve));
   const deadPort = grave.address().port;
@@ -185,25 +148,6 @@ test("proxy handler answers 502 when the upstream target is dead", async () => {
   });
 });
 
-/**
- * 建一个可被源码热刷新观察的临时 webRoot（api/ 目录 + 一个可改的文件）。
- * 子进程命令用「把 pid 写到 pidFile」的小 http 服务替身：这样测试能断言
- * 「pid 变了 / 没变」，而不只是「端口通不通」。
- */
-/**
- * Timing knobs, scaled down from production.
- *
- * Every one of these is a duration the manager waits out at runtime, and the
- * tests used to sit through the shipped values: `test/web-mount.test.mjs` spent
- * ~18s in fixed `setTimeout` calls waiting for debounces and recycle windows to
- * elapse. The knobs are now injectable (defaults unchanged), so the tests scale
- * them and assert the same INVARIANTS at the same RELATIVE distances.
- *
- * The ratios are what the tests depend on, not the absolute numbers: the
- * mid-recycle race needs the child's start-up to outlast the debounce window,
- * and the throttle test needs a second write to land inside the throttle. Those
- * relationships are preserved (see the individual tests).
- */
 const FAST = Object.freeze({
   debounceMs: 150,
   recycleThrottleMs: 60,
@@ -213,21 +157,6 @@ const FAST = Object.freeze({
   rewarmDelayMs: 40,
 });
 
-/**
- * Wait until the loopback address actually serves, or fail.
- *
- * WHY NOT A SINGLE fetch: the child writes its pid file the moment it is
- * spawned, then binds the port an instant later. A test that reads the new pid
- * and immediately fetches races that gap — it fails with ECONNREFUSED whenever
- * the machine is loaded, and it failed exactly that way in practice (two cases,
- * under 8 busy loops). The invariant these tests guard is "the address the
- * iframe uses serves again", not "it serves within zero milliseconds of the
- * new pid appearing", so the wait is for the bind, and the assertion is still
- * that it must serve.
- *
- * Bounded on purpose: a child that never serves still fails this helper. It
- * does not turn the assertion into a tautology.
- */
 async function waitForServing(url, { attempts = 100, intervalMs = 50 } = {}) {
   let lastError = null;
   for (let i = 0; i < attempts; i += 1) {
@@ -266,20 +195,13 @@ async function makeWatchFixture(overrides = {}) {
 }
 
 test("source recycle self-heals the child without any incoming request", async () => {
-  // 回归：原实现 kill 之后不重拉，而重拉只由 /ldvh/api/* 代理
-  // 请求触发——那个请求恰来自已打不开的页面，进程一死就永不自愈。这里断言：改内容
-  // → 回收 → **全程不发任何请求** → 子进程自己回到运行态，且换成新 pid。
   const { root, manager, readPid, port } = await makeWatchFixture();
   try {
     await manager.ensureReady();
     const firstPid = await readPid();
     assert.equal(manager.isRunning(), true);
-    // 真实改码（内容变）→ 应触发回收并自愈
     await writeFile(join(root, "api", "server.ts"), "// v1 edited\n");
     let secondPid = firstPid;
-    // Poll at 100ms rather than 500ms: the debounce here is debounceMs (150), so
-    // the recycle completes in well under a second. Polling coarser than the
-    // thing being watched was most of this test's cost, not the behavior.
     for (let i = 0; i < 100; i += 1) {
       await new Promise((done) => setTimeout(done, 100));
       if (!manager.isRunning()) continue;
@@ -288,10 +210,6 @@ test("source recycle self-heals the child without any incoming request", async (
     }
     assert.notEqual(secondPid, firstPid, "a content change must recycle the child");
     assert.equal(manager.isRunning(), true, "replacement must be running again — no request was ever sent");
-    // 自愈的落点是「iframe 那个地址恢复 200」，不是仅进程活着。
-    // 用有界轮询而非单次 fetch：新 pid 出现在文件里时端口尚未 bind，单次
-    // fetch 在负载下必现 ECONNREFUSED（实测两条用例同时红）。轮询守的仍是
-    // 「最终必须服务」——永不 bind 的实现照样红。
     const response = await waitForServing(`http://127.0.0.1:${port}/api/health`);
     assert.equal(response.status, 200, "the loopback address the iframe uses must serve again");
   } finally {
@@ -300,22 +218,16 @@ test("source recycle self-heals the child without any incoming request", async (
 });
 
 test("mtime-only touch keeps the child pid unchanged, real content change replaces it", async () => {
-  // 计划步骤 2 的两条判据：仅触碰 mtime → pid 不变；内容真变 → pid 变化。
   const { root, manager, readPid } = await makeWatchFixture();
   try {
     await manager.ensureReady();
     const firstPid = await readPid();
     const target = join(root, "api", "server.ts");
-    // ① 只改 mtime，内容一字不动
     const future = new Date(Date.now() + 5000);
     await utimes(target, future, future);
-    // Long enough that a fingerprint change WOULD have recycled (debounceMs is
-    // 150 here, and a recycle completes in ~100ms), so "no recycle" is a real
-    // observation rather than "not yet".
     await new Promise((done) => setTimeout(done, 900));
     assert.equal(manager.isRunning(), true, "child must survive an mtime-only touch");
     assert.equal(await readPid(), firstPid, "an mtime-only touch must NOT recycle the child");
-    // ② 内容真变
     await writeFile(target, "// v2 changed\n");
     let secondPid = firstPid;
     for (let i = 0; i < 100; i += 1) {
@@ -331,30 +243,18 @@ test("mtime-only touch keeps the child pid unchanged, real content change replac
 });
 
 test("unexpected child exit re-warms without any incoming request", async () => {
-  // 独立复核发现：初版的「意外退出自愈」是**死代码**——
-  // exit 回调里 re-warm 的守卫是 `if (disposed || spawned !== null) return;`，
-  // 而 spawned 只在 recycleChild 内清空，意外退出时仍指向已死进程，定时器必然
-  // 早退。热刷新路径的自愈成立，崩溃路径从未生效。本用例钉住崩溃路径。
-  //
-  // rewarmDelayMs 此处**放宽到 400ms**（其余仍按 FAST）：本用例要观察的正是
-  // 「进程先被判定为已死、随后才自愈」这个中间态。若重拉推迟得太短，轮询会在
-  // 察觉之前就看到新进程，那条「必须观察到已消失」的断言便无从判定——而它
-  // 不是可有可无的：没有它，一个从不处理 exit 的实现在这里也能蒙混过关。
   const { root, manager, readPid, port } = await makeWatchFixture({ rewarmDelayMs: 400 });
   try {
     await manager.ensureReady();
     const firstPid = await readPid();
     assert.equal(manager.isRunning(), true);
 
-    // 模拟崩溃：从外部 SIGKILL，不经 dispose、不经回收路径。
     process.kill(firstPid, "SIGKILL");
-    // exit 事件是异步送达的：先等它被观察到，再谈重拉。
     for (let i = 0; i < 100 && manager.isRunning(); i += 1) {
       await new Promise((done) => setTimeout(done, 50));
     }
     assert.equal(manager.isRunning(), false, "the child must be observed as gone after the kill");
 
-    // 不发任何请求，等它自己回来。
     let secondPid = firstPid;
     for (let i = 0; i < 100; i += 1) {
       await new Promise((done) => setTimeout(done, 100));
@@ -363,7 +263,6 @@ test("unexpected child exit re-warms without any incoming request", async () => 
       if (secondPid !== firstPid) break;
     }
     assert.notEqual(secondPid, firstPid, "an unexpectedly killed child must be re-warmed with a new pid");
-    // 同上：新 pid 出现 ≠ 端口已 bind，用有界轮询吸收这个窗口。
     const response = await waitForServing(`http://127.0.0.1:${port}/api/health`);
     assert.equal(response.status, 200, "the loopback address must serve again after a crash");
     void root;
@@ -373,10 +272,6 @@ test("unexpected child exit re-warms without any incoming request", async () => 
 });
 
 test("a real content change is not swallowed by the recycle throttle", async () => {
-  // 独立复核发现：回收回调原先**先**推进内容指纹基线、再调 recycleChild，而
-  // recycleChild 会因节流（500ms）或正在回收而早退——本次真实改码就被「吃掉」：
-  // 基线已是新内容，下次事件判成未变，进程却还跑着旧码。
-  // 这里连改两次内容、间隔短于节流窗口，两次都必须生效。
   const { root, manager, readPid } = await makeWatchFixture();
   try {
     await manager.ensureReady();
@@ -385,8 +280,6 @@ test("a real content change is not swallowed by the recycle throttle", async () 
 
     await writeFile(target, "// v2\n");
     await new Promise((done) => setTimeout(done, 60));
-    // 第二次改码落在第一次的去抖窗口内（去抖 debounceMs=150，此处 60ms）；
-    // 两者被同一轮去抖合并消费，正是本用例要辨的情形。
     await writeFile(target, "// v3\n");
 
     let lastPid = firstPid;
@@ -395,8 +288,6 @@ test("a real content change is not swallowed by the recycle throttle", async () 
       if (!manager.isRunning()) continue;
       lastPid = await readPid();
       if (lastPid !== firstPid) {
-        // 换过一次之后再等一轮，确认第二次改码也被消费（基线未被提前吃掉）。
-        // 等待须长于一次完整去抖+回收，否则「第二次也被消费」无从判定。
         await new Promise((done) => setTimeout(done, 700));
         if (manager.isRunning()) lastPid = await readPid();
         break;
@@ -410,15 +301,6 @@ test("a real content change is not swallowed by the recycle throttle", async () 
 });
 
 test("a change landing during an in-flight recycle is not lost", async () => {
-  // 第二次独立复核发现的残留竞态：v2 触发回收后、回收**进行中**再落 v3。初版
-  // 修法只是「回收没发生就不推进基线」，但 v3 此后不会再有 fs 事件来驱动它——
-  // 实测（复核者在 /tmp 用慢启动子进程复现）进程会一直跑 v2 而磁盘是 v3。
-  // 本用例用慢启动子进程放大这个窗口，并直接断言**最终跑的是 v3**。
-  //
-  // 时间参数全部按 FAST 缩放，但**相对距离不变**——竞态的条件是「子进程启动
-  // 耗时 > 去抖窗口」，故 childStartMs 必须显著大于 debounceMs。这里
-  // 400 > 150（生产为 3000 > 1500，同样是 2.67 倍）。缩放不改变竞态是否出现，
-  // 只改变它持续多久。
   const DEBOUNCE = 150;
   const CHILD_START = 400;
   const root = await mkdtemp(join(longTempDir(), "ldvh-recheck-"));
@@ -427,8 +309,6 @@ test("a change landing during an in-flight recycle is not lost", async () => {
   await mkdir(join(root, "api"), { recursive: true });
   const target = join(root, "api", "server.ts");
   await writeFile(target, "// v1\n");
-  // 子进程启动时把自己读到的源码内容写进 bootFile：于是「进程跑的是哪一版」
-  // 可被外部直接读出，不必靠 pid 推断。
   const manager = createWebApiProcess({
     ...FAST,
     debounceMs: DEBOUNCE,
@@ -437,10 +317,6 @@ test("a change landing during an in-flight recycle is not lost", async () => {
     env: {},
     command: {
       exec: process.execPath,
-      // 子进程在 **spawn 时刻**就把读到的源码内容写进 bootFile（真实子进程加载
-      // 模块也是在启动时读盘），然后延迟 CHILD_START 才 listen。
-      // 两个设计各有用处：bootFile 令「进程跑的是哪一版」可被外部直读；
-      // 该延迟把「回收进行中」的窗口拉长到超过去抖窗口，竞态才真会出现。
       argv: ["-e", `const fs=require('fs');fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));let boot='';try{boot=fs.readFileSync(${JSON.stringify(target)},'utf8')}catch{}fs.writeFileSync(${JSON.stringify(bootFile)},boot);setTimeout(()=>{require('http').createServer((q,s)=>{s.setHeader('content-type','application/json');s.end('{"ok":true}')}).listen(Number(process.env.PORT),'127.0.0.1')},${CHILD_START})`],
     },
     readinessPath: "/api/health",
@@ -452,19 +328,8 @@ test("a change landing during an in-flight recycle is not lost", async () => {
     await manager.ensureReady();
     assert.equal(await readBoot(), "// v1");
 
-    // v2 → 触发回收（去抖 DEBOUNCE 后开始 kill + 重启，重启本身要 CHILD_START）
     await writeFile(target, "// v2\n");
 
-    // v3 必须落在**回收进行中**，且晚于新子进程读盘——这两个条件合起来才是
-    // 该竞态的成立条件，不能用「等一个固定毫秒数」去凑。
-    //
-    // 初版按 DEBOUNCE + 常数 去等，结果与子进程读盘的时机重叠：子进程可能
-    // 先读到 v3，于是「最终跑 v3」不靠 recheck 也成立——用例仍然绿，但它已
-    // 不再守护 pendingFingerprint（实测：把挂起差异那两行删掉，本用例照样通过，
-    // 而在未缩放的版本上同一变异转红）。这正是 06 §5 的恒真式。
-    //
-    // 故改为观察 bootFile：等新子进程确实启动并读到 v2 之后，再写 v3。此刻它
-    // 尚未 listen（CHILD_START 延迟仍在），回收必然还在进行中。
     let bootedNow = "";
     for (let i = 0; i < 200; i += 1) {
       await new Promise((done) => setTimeout(done, 20));
@@ -474,7 +339,6 @@ test("a change landing during an in-flight recycle is not lost", async () => {
     assert.equal(bootedNow, "// v2", "the replacement child must have booted on v2 before v3 lands");
     await writeFile(target, "// v3\n");
 
-    // 不发任何请求，等它自己收敛到 v3。
     let booted = "";
     for (let i = 0; i < 150; i += 1) {
       await new Promise((done) => setTimeout(done, 100));
@@ -489,18 +353,10 @@ test("a change landing during an in-flight recycle is not lost", async () => {
 });
 
 test("dispose still refuses to resurrect the child after an unexpected exit", async () => {
-  // dispose 的语义不得被 re-warm 分支破坏：关闭后不复活（既有 dispose 用例钉住
-  // 「dispose 后 ensureReady 返回 null」，这里钉住崩溃路径上也不复活）。
   const { manager, readPid } = await makeWatchFixture();
   await manager.ensureReady();
   const firstPid = await readPid();
   manager.dispose();
-  // Simulate the child dying out-of-band. `dispose()` already sent SIGTERM, and
-  // on Windows that terminates (and reaps) the process immediately — so this
-  // kill can legitimately race into ESRCH. Tolerating it does not weaken the
-  // assertion: "the child is gone" is exactly the precondition this test needs,
-  // and which of the two kills produced it is immaterial. On POSIX SIGTERM is
-  // asynchronous, so the pid is normally still resolvable here.
   try { process.kill(firstPid, "SIGKILL"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
   await new Promise((done) => setTimeout(done, 400));
   assert.equal(manager.isRunning(), false);
@@ -527,34 +383,18 @@ test("web api process manager spawns a custom command, becomes ready, and dispos
     assert.equal(manager.isRunning(), true);
     const response = await fetch(`http://127.0.0.1:${port}/api/health`);
     assert.equal(response.status, 200);
-    // 单飞：再次 ensureReady 不换进程
     const again = await manager.ensureReady();
     assert.equal(again.port, port);
   } finally {
     manager.dispose();
   }
-  // dispose 后端口停止服务（给 SIGTERM 一点时间）
   await new Promise((done) => setTimeout(done, 300));
   await assert.rejects(() => fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1000) }));
   assert.equal(manager.isRunning(), false);
-  // dispose 后 ensureReady 返回 null（不再复活）
   assert.equal(await manager.ensureReady(), null);
 });
 
 test("dispose() racing the async watcher import does not keep the process alive", async () => {
-  // 回归：createWebApiProcess 用 import("node:fs").then(...) 异步创建 fs.watch。
-  // 若 dispose() 在该 then 回调之前同步跑完，它会看到 watcher 仍为 null 而跳过
-  // close，随后创建出来的 watcher 再无机会关闭——进程被永久挂住。
-  //
-  // 失败模式只在**子进程退出**时可见，且仅在某些平台：darwin 的 FSEvent 支持
-  // unref（掩盖该缺陷），Linux 的 inotify 句柄不受 unref 影响（CI 的 plugin job
-  // 因此挂起 30 分钟以上；同一份代码在 macOS 上 15 秒跑完）。
-  //
-  // 由于 darwin 上 unref 会掩盖该缺陷，**本用例在 macOS 上恒通过**；它的实际
-  // 守护发生在 Linux（CI 的 plugin job 跑全套，HEAD 版在那里 exit=124 挂起，
-  // 修复后 exit=0）。此处直接断言子进程能否自然退出——超时即失败。
-  //
-  // watchSource 需为 true 且 webRoot/api 存在，才能走到 fs.watch 分支。
   const webRoot = await mkdtemp(join(longTempDir(), "ldvh-watch-race-"));
   await mkdir(join(webRoot, "api"), { recursive: true });
   await writeFile(join(webRoot, "api", "server.ts"), "// race fixture\n");
@@ -582,9 +422,7 @@ test("dispose() racing the async watcher import does not keep the process alive"
   child.stdout.on("data", (chunk) => { stdout += String(chunk); });
   child.stderr.on("data", (chunk) => { stderr += String(chunk); });
 
-  // 兜底看门狗：仅在句柄泄漏时触发。它保证用例本身不会永久挂住整轮测试，
-  // 同时把「未退出」判为失败（而非让 CI 超时这种更难诊断的形式）。
-  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 20_000);
+  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch {   } }, 20_000);
   const exit = await new Promise((resolve) => {
     child.on("exit", (code, signal) => resolve({ code, signal }));
   });
@@ -599,17 +437,6 @@ test("dispose() racing the async watcher import does not keep the process alive"
   );
 });
 
-/**
- * 跨平台半：watcher 必须监听 **realpath 解析后的**目录，而不是调用方传进来的
- * 字符串。
- *
- * 为什么要有这一条：上面那条 Windows 用例在本机（macOS/Linux）整条跳过，
- * 于是 `web-mount.js` 里「建立 watcher 前先取长名」这段修复**在非 Windows 上
- * 一行都没被执行过**——修复本身可以被改坏而无人发现。8.3 短名只在 Windows
- * 存在，但「watcher 拿的是解析后路径」这个**机制**在符号链接上可以跨平台验证
- * （符号链接与短名一样，都是「路径字面量 ≠ 真实目录」）。两边合起来才覆盖完整：
- * 这里钉机制，Windows 用例钉那个能 abort 进程的具体触发条件。
- */
 test("watcher resolves the watch target before fs.watch (cross-platform half of the short-name guard)", async () => {
   const base = await mkdtemp(join(tmpdir(), "ldvh-watch-realpath-"));
   const realDir = join(base, "real");
@@ -620,9 +447,6 @@ test("watcher resolves the watch target before fs.watch (cross-platform half of 
   try {
     await (await import("node:fs/promises")).symlink(realDir, linkDir, "dir");
   } catch {
-    // 平台不允许建符号链接（Windows 无符号链接权限）：本半无法验证，
-    // Windows 那半仍在（见下一条用例）。此处如实返回而非静默通过——
-    // 断言失败会误报，故直接跳过。
     return;
   }
 
@@ -640,9 +464,6 @@ test("watcher resolves the watch target before fs.watch (cross-platform half of 
   });
   try {
     await manager.ensureReady();
-    // watcher 建立在 `import("node:fs").then(...)` 的异步链里，ensureReady 返回时
-    // 未必已建立。必须等到它出现再断言——否则 watchTargets() 返回空数组，断言整段
-    // 被跳过，用例就成了**空转的绿灯**（实测：把 realpath 修复删掉，本用例照样通过）。
     const deadline = Date.now() + 5000;
     let targets = [];
     while (Date.now() < deadline) {
@@ -652,20 +473,6 @@ test("watcher resolves the watch target before fs.watch (cross-platform half of 
     }
     assert.ok(targets.length > 0, "watcher 必须在 5s 内建立（否则本用例无法验证任何东西）");
 
-    // 关键断言：webRoot 传的是 `link`（符号链接），watcher 必须挂到 realpath 解析后
-    // 的真实目录。删掉 realpathSync.native 这段修复，此处即失败。
-    //
-    // **不能**用 realpathSync 归一后再比较：它会把两侧都折叠成同一个真实路径，
-    // 于是「watcher 拿到的是 link 还是 real」这个待判事实被断言自己抹平了
-    // （实测：去掉修复后该写法照样通过）。必须比较**未经解析的字面路径**。
-    //
-    // 监听面是 `WATCHED_SOURCE_ROOTS` 的每一根（api/ 与 shared/）——API 子进程
-    // import 了 shared/ 下的模块，只盯 api/ 会让共享模块的改动不触发回收。
-    // **期望值必须用 `.native`**：产品侧 `web-mount.js` 建 watcher 前用
-    // `realpathSync.native` 展开短名（8.3），而 `realpathSync` 非 native 在
-    // Windows 上保留 `ADMINI~1` 形态。两者不一致时断言恒红，却与「watcher 挂到
-    // link 还是 real」这一待判事实无关——实测本机 tmpdir 即短名，正是此情形。
-    // 仍**不**对两侧统一做 realpath 归一：那会抹平待判事实（见上）。
     const expectTargets = ["api", "shared"].map((root) => realpathSync.native(join(realDir, root)));
     assert.deepEqual(
       targets,
@@ -677,24 +484,6 @@ test("watcher resolves the watch target before fs.watch (cross-platform half of 
   }
 });
 
-/**
- * 回归：`fs.watch` 遇 8.3 短路径时，写入该目录会让进程以 **libuv 原生断言**
- * 中止——`Assertion failed: !_wcsnicmp(filename, dir, dirlen), file
- * src\win\fs-event.c, line 72`（ReadDirectoryChangesW 报长名、watcher 持短名）。
- *
- * 为什么必须用**子进程**：原生 abort 不能被 try/catch 捕获，若在本进程里跑，
- * 整轮测试会一起中止，连「失败了」都报不出来。放进子进程后，「子进程是否存活」
- * 就是可断言的判据。
- *
- * 为什么这条用例有真实价值：症状在**宿主**侧。`webRoot` 若含短名组件
- * （`os.tmpdir()` 在本机就返回 `C:\Users\ADMINI~1\...`），`web-mount.js` 建立的
- * watcher 一旦被写入触发，会连带整个 DSH 宿主进程一起崩。修复是建立 watcher 前
- * 先取长名（`realpathSync.native`）；本用例故意喂一个**短名** webRoot 并在建好
- * 子进程后真实写入，从而锁住该修复。
- *
- * 非 Windows 上不存在该缺陷（`fs.watch` 走 inotify/FSEvent），故跳过；Windows
- * 上若 `os.tmpdir()` 已是长名，则本机无法制造触发条件，同样跳过并说明原因。
- */
 test("a short-name (8.3) webRoot does not abort the process when the watched tree changes", async (t) => {
   if (process.platform !== "win32") {
     t.skip("the 8.3 short-name defect is Windows-only (libuv src/win/fs-event.c)");
@@ -744,7 +533,7 @@ test("a short-name (8.3) webRoot does not abort the process when the watched tre
   child.stdout.on("data", (chunk) => { stdout += String(chunk); });
   child.stderr.on("data", (chunk) => { stderr += String(chunk); });
 
-  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 30_000);
+  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch {   } }, 30_000);
   const exit = await new Promise((resolve) => {
     child.on("exit", (code, signal) => resolve({ code, signal }));
   });
@@ -756,16 +545,6 @@ test("a short-name (8.3) webRoot does not abort the process when the watched tre
 });
 
 test("a watch root that cannot be watched does not leak the watchers built before it", async () => {
-  // 回归（friction-92bae156）：`WATCHED_SOURCE_ROOTS` 是 ["api","shared"]，而
-  // 真实工程里两者都存在。但**夹具/裁剪后的 webRoot 常常只有 api/**——原实现
-  // 用 `watchTargets.map((t) => fs.watch(t, ...))` 一次建全部：`fs.watch` 对不
-  // 存在的 shared/ 抛 ENOENT，`map` 整体抛出、`watchers` 从未赋值，而**先建出来
-  // 的 api watcher 再无任何引用**，dispose() 里 `for (const w of watcher)` 关不掉
-  // 它 → 句柄泄漏 → 进程不退出（单跑本文件即挂起，全量回归里表现为超时）。
-  //
-  // 修法是逐个建立、建不起来的根跳过。本用例钉住两件事：
-  //   ① 缺 shared/ 时 api/ 的 watcher 仍然建立（监听面未被削弱）；
-  //   ② 子进程能自然退出（泄漏不再发生）——与上一条同形，超时即失败。
   const webRoot = await mkdtemp(join(longTempDir(), "ldvh-missing-root-"));
   await mkdir(join(webRoot, "api"), { recursive: true });
   await writeFile(join(webRoot, "api", "server.ts"), "// only api/, no shared/\n");
@@ -800,21 +579,17 @@ test("a watch root that cannot be watched does not leak the watchers built befor
   child.stdout.on("data", (chunk) => { stdout += String(chunk); });
   child.stderr.on("data", (chunk) => { stderr += String(chunk); });
 
-  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 25_000);
+  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch {   } }, 25_000);
   const exit = await new Promise((resolve) => {
     child.on("exit", (code, signal) => resolve({ code, signal }));
   });
   clearTimeout(watchdog);
 
   assert.match(stdout, /SCRIPT_DONE/, `子进程应跑完脚本：${stderr}`);
-  // ① 监听面不变：两个目标仍被解析并暴露（api 真实存在、shared 只是解析失败）。
   const targets = JSON.parse((stdout.match(/WATCH_TARGETS:(.*)/) ?? [null, "[]"])[1]);
   assert.equal(targets.length, 2, `watchTargets 应仍报告两个根：${JSON.stringify(targets)}`);
-  // 判据按**路径尾部**比对，不写死分隔符：Windows 上 `watchTargets()` 返回反斜杠
-  // 路径，用 `endsWith("/api")` 会恒为 false——那是断言自身的平台假设，不是泄漏。
   const tail = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop();
   assert.ok(targets.some((t) => tail(t) === "api"), `api/ 根应仍在监听面内：${JSON.stringify(targets)}`);
-  // ② 无句柄泄漏：进程必须自然退出。
   assert.equal(
     exit.code,
     0,

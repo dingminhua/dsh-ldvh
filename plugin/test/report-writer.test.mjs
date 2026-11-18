@@ -19,8 +19,6 @@ import {
 } from "../lib/report-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
-// 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
-// tests supply a branded test carrier; the signature gate has its own cases.
 const TEST_SIGNATURE = authoritativeSignature({ provider: "test-provider", model: "test-model" });
 
 let root;
@@ -221,7 +219,6 @@ test("validateIndexBodyCoherence flags trace ref not in urls", () => {
 });
 
 test("validateIndexBodyCoherence flags 研究问题 section missing question verbatim (24 §8 invariant 10)", () => {
-  // 正文研究问题段改写了问题措辞（frontmatter 有「对 LDVH 编排系统」，正文没有）——漂移即拒。
   const driftedBody = validAnalysisBody.replace(
     "dsh-agent-teams 的队长式委派与任务调度对 LDVH 编排系统有什么可吸收模式？",
     "dsh-agent-teams 的队长式委派对编排有什么可吸收模式？（措辞已漂移）",
@@ -234,7 +231,6 @@ test("validateIndexBodyCoherence flags 研究问题 section missing question ver
 });
 
 test("validateIndexBodyCoherence accepts 研究问题 section that expands around the verbatim question", () => {
-  // 原文逐字在场 + 其外展开背景：合法。
   const expandedBody = validAnalysisBody.replace(
     "dsh-agent-teams 的队长式委派与任务调度对 LDVH 编排系统有什么可吸收模式？",
     "dsh-agent-teams 的队长式委派与任务调度对 LDVH 编排系统有什么可吸收模式？\n\n调研对象为 dsh-agent-teams v0.1.12（单队长多成员的任务编排插件）；本轮调研为 LDVH 编排系统是否引入队长式多角色并行执行提供依据。",
@@ -246,8 +242,6 @@ test("validateIndexBodyCoherence accepts 研究问题 section that expands aroun
 });
 
 test("createResearchObject REFUSES a forged plain sessionSignature — no unsigned change_log entry (specs/09)", async () => {
-  // Human 2026-09-12: changelog must be mechanically signed; a write that cannot
-  // be signed is refused rather than recorded unsigned.
   const result = await createResearchObject({
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
@@ -385,9 +379,6 @@ test("updateResearchObject rejects sub-stage change", async () => {
   assert.equal(result.error.code, "research/substage_immutable");
 });
 
-// ---------------------------------------------------------------------------
-// Relations contract (specs/24 §11 + 03 §7.2) — T4 enforcement
-// ---------------------------------------------------------------------------
 
 test("validateResearchRelations accepts relations omitted entirely", () => {
   const check = validateResearchRelations(validFrontmatterDraft(), null);
@@ -465,23 +456,18 @@ test("createResearchObject rejects invalid relations but accepts resolvable upda
   assert.ok(!rejected.ok);
   assert.equal(rejected.error.code, "research/relations_invalid");
 
-  // Create a first object, then a second one updating it — resolvable target passes.
   const first = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(first.ok);
   const secondDraft = { ...validFrontmatterDraft(), relations: [{ relation_key: "updates", target: { object_uid: first.value.object_uid } }] };
   const second = await createResearchObject({ factSourceRoot: root, frontmatterDraft: secondDraft, analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(second.ok, JSON.stringify(second.error));
 
-  // A dangling updates target must fail resolution.
   const dangling = { ...validFrontmatterDraft(), relations: [{ relation_key: "updates", target: { object_uid: "99999999-9999-4999-8999-999999999999" } }] };
   const failed = await createResearchObject({ factSourceRoot: root, frontmatterDraft: dangling, analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(!failed.ok);
   assert.equal(failed.error.code, "research/relation_target_unresolvable");
 });
 
-// ---------------------------------------------------------------------------
-// Retirement contract (24 §8 retirement_reason + §9 retired invariants)
-// ---------------------------------------------------------------------------
 
 test("validateResearchFrontmatter requires retirement_reason when status=retired", () => {
   const { change_summary: _cs, ...draft } = validFrontmatterDraft();
@@ -584,7 +570,6 @@ test("updateResearchObject rejects AI-supplied retired_at (Code-managed only)", 
     sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(updated.ok, JSON.stringify(updated.error));
-  // Code should overwrite AI-supplied retired_at with wall-clock now
   const read2 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
   assert.ok(read2.ok);
   assert.notEqual(read2.value.frontmatter.retired_at, "1999-01-01T00:00:00.000Z");
@@ -616,10 +601,8 @@ test("updateResearchObject rejects retirement_reason=superseded without updates 
 });
 
 test("updateResearchObject accepts retirement_reason=superseded with resolvable updates relation", async () => {
-  // first: a replacement
   const replacement = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(replacement.ok);
-  // second: the one that will be retired
   const created = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(created.ok);
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -651,7 +634,6 @@ test("updateResearchObject rejects transition retired → active (terminal)", as
   const replacement = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   const created = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
-  // First, retire
   const retireFm = { ...read1.value.frontmatter, status: "retired", retirement_reason: "superseded", relations: [{ relation_key: "updates", target: { object_uid: replacement.value.object_uid } }] };
   const retired = await updateResearchObject({
     factSourceRoot: root, objectUid: created.value.object_uid,
@@ -661,7 +643,6 @@ test("updateResearchObject rejects transition retired → active (terminal)", as
     sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(retired.ok);
-  // Now try to re-open
   const read2 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
   const reopenFm = { ...read2.value.frontmatter, status: "active" };
   delete reopenFm.retirement_reason; delete reopenFm.retired_at;
@@ -730,7 +711,6 @@ A1 修复方法 X：研究→执行断链由回查条件说明补足——可被
 });
 
 test("frontmatter fields are written in the canonical reading order regardless of caller key order (24 §7)", async () => {
-  // 故意按字母序传入 draft——写出必须仍是规范序：语义块在前、流水沉底。
   const alphabetical = {};
   for (const key of Object.keys(validFrontmatterDraft()).sort()) alphabetical[key] = validFrontmatterDraft()[key];
   const result = await createResearchObject({
@@ -744,7 +724,6 @@ test("frontmatter fields are written in the canonical reading order regardless o
   const fmEnd = raw.indexOf("\n---\n", 5);
   const fm = parseYaml(raw.slice(4, fmEnd));
   const keys = Object.keys(fm);
-  // 24 §7：title 首位，change_log 沉底，语义序（question 在 confirmed 之前）。
   assert.equal(keys[0], "title");
   assert.equal(keys.at(-1), "change_log");
   assert.ok(keys.indexOf("research_question") < keys.indexOf("confirmed_statements"));
@@ -752,17 +731,6 @@ test("frontmatter fields are written in the canonical reading order regardless o
   assert.ok(keys.indexOf("urls") < keys.indexOf("object_uid"));
 });
 
-// ---------------------------------------------------------------------------
-// 终态事实更正 correct (24 §13; 24 §8 第 4 项「只允许配套更正或退出说明的更新」)
-//
-// 24 §8 第 4 项原文就允许 retired 报告的配套更正，而 update 因 status 从磁盘
-// 继承，对 retired 对象的任何写入都命中「cannot be re-entered」——该许可此前
-// 只是一句话，没有承载。本条覆盖四个边界：
-//   ① retired 正文可更正，终态判定与不可写字段逐字不变
-//   ② 判断字段（stopping_reason）拒绝 —— 属判断变更而非错述
-//   ③ 缺 Human 授权 → fail-closed
-//   ④ 正文未变 → no-op 拒绝
-// ---------------------------------------------------------------------------
 
 async function createRetiredResearch() {
   const created = await createResearchObject({
@@ -958,9 +926,6 @@ test("correct ⑥: 同改 confirmed_statements 与正文 H3 标题 → 通过（
   assert.equal(read2.value.body_valid, true);
 });
 
-// ---------------------------------------------------------------------------
-// 24 §10.2/§10.3 — 内部来源锚点机械校验（summary/audit）
-// ---------------------------------------------------------------------------
 
 test("internal-source: kind 闭集与 locator 形态 — 四个合法 kind", () => {
   const body = [

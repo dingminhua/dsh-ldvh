@@ -1,20 +1,3 @@
-// 召回质量基准（benchmark）
-//
-// ## 为什么要有这个文件
-//
-// 前面几轮的改进（动作性质判定、DF 过滤、正文层修复、编号层、minHits）
-// 都是靠「看一眼返回结果，觉得好了」判断的。那不是证据。
-//
-// 本文件把「召回该给出什么」写成可复算的断言，每个用例同时声明：
-//   - `must`：必须出现在结果里的（**召回率**，recall）
-//   - `mustNot`：不得出现在结果里的（**精确度**，precision 的反面）
-//   - `maxResults`：结果条数上限（防止「全给一遍」冒充高召回率）
-//
-// 基准**不是**规范要求。`34 §6`/§13 与 `02 §9` 都没有规定召回质量标准——
-// 它们只规定「候选不是结论」「不得静默截断」。故这里守的是**工程可用性**：
-// 召回若把半个语料库都给出来，AI 无法从中取用，功能等于没做。
-//
-// 阈值是**当前实测水平**，不是理想值。任何一项变差都应视为回归。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -25,9 +8,6 @@ import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
-/**
- * 基准用例。每条都应能在不查文档的情况下读懂「为什么这几个必须命中」。
- */
 const BENCH = Object.freeze([
 	{
 		q: "把 34 号规范改名成双源召回，走独立审核",
@@ -82,7 +62,6 @@ const BENCH = Object.freeze([
 	},
 ]);
 
-/** 不得命中的领域词：这些查询与它们无关，若命中说明匹配退化。 */
 const IRRELEVANT = Object.freeze([
 	{ q: "给 Web 页面加一个新面板", mustNotSpec: ["天气", "语料打包"] },
 ]);
@@ -147,10 +126,9 @@ test("基准：纯读取不触发召回（34 §6 排除条件）", async () => {
 
 test("基准：事实源侧必须能召回真实踩过的教训（不是只有规范）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	// 这三条是本项目真实发生过的事故，应在相应查询下被召回。
 	const cases = [
 		{ q: "Web 页面白屏了", want: "白屏" },
-		{ q: "提交被 Git Gate 拦了", want: null }, // 只要求有事实命中
+		{ q: "提交被 Git Gate 拦了", want: null },
 	];
 	for (const c of cases) {
 		const r = await recall(c.q);

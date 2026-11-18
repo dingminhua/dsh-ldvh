@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-// 宿主契约差分器 — Norm `host-upgrade-followup`（norm-e188af99）第 3–4 步的机械通道。
-//
-// 用法：
-//   node scripts/host-contract-diff.mjs <基线tag> <目标tag> [--json] [--repo <上游克隆路径>]
-//
-// tag 可写 `dsh-v0.2.2-rc.1` 或裸 `0.2.2-rc.1`（自动补 `dsh-v` 前缀）。
-//
-// 三通道取数（全部来自上游仓内已提交、带 CI 新鲜度门禁的生成物）：
-//   A. api-catalog.ts   → SERVICE_API / EVENT_API / TYPE_API 三表逐条差分
-//   B. slot-catalog.ts  → CLIENT_SLOT_API 槽位表逐条差分
-//   C. docs/upgrade-guide/ → 区间 (基线,目标] 新增指南清单（官方破坏性变更自述）
-//
-// 三态初值（对照 lib/host-consumption.json 消费面清单，机械函数）：
-//   破坏   — 消费面内条目被删除、改名，或其差分指纹变化
-//   须审   — 命中的 upgrade-guide 强匹配消费面 token；或 TYPE_API 变更出现在
-//            消费面服务的签名文本里；或消费面条目的弱信号变化（如仅注释面）
-//   无关   — 其余（含一切纯新增与非消费面变更）
-//
-// fail-closed：上游克隆缺失、tag 不存在、catalog 解析失败（畸形/不平衡/缺 id
-// 字段）一律报「不可判定」并以非零码退出——**不得降级为「零变更」**
-// （Norm 第 3 步）。三态是初值不是结论：最终归类由 AI 读 guide 后提请、
-// Human 落定；本脚本不构成任何授权。
 import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -35,7 +13,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGIN = join(HERE, "..");
 const DEFAULT_REPO = process.env.LDVH_UPSTREAM_REPO ?? "/Users/dmh2002/DshProject/deepseek-harness";
 
-/** 判据失败即整体不可判定（fail-closed），不产部分报告。 */
 class Undecidable extends Error {}
 
 function parseArgs(argv) {
@@ -51,7 +28,6 @@ function parseArgs(argv) {
   return args;
 }
 
-/** 裸版本号补 dsh-v 前缀；已带前缀或自定义 ref 原样保留。 */
 export function normalizeTag(tag) {
   return /^\d+\.\d+\.\d+/.test(tag) ? `dsh-v${tag}` : tag;
 }
@@ -64,11 +40,6 @@ function git(repo, args) {
   }
 }
 
-/**
- * 一条共有条目的字段级变更：返回 {contractFields:[...], noiseFields:[...]}。
- * 字段分层（契约 vs 噪音）定义在 lib/host-contract-catalog.js 的 FIELD_LAYERS，
- * 与解析器同居为单一来源；source 行号指针已归噪音，不再单独剥离。
- */
 function fieldLevelChange(baseEntry, targetEntry, arrayName) {
   const layer = FIELD_LAYERS[arrayName];
   const fa = parseEntryFields(baseEntry);
@@ -86,13 +57,6 @@ function fieldLevelChange(baseEntry, targetEntry, arrayName) {
   return { contractFields, noiseFields };
 }
 
-/**
- * 差分一张 catalog 表。返回：
- *   added/removed   — 增删条目 id
- *   contractChanged — 共有条目中**契约字段**变化的 id（携带变了哪些字段）
- *   noiseOnlyChanged— 共有条目中仅噪音字段变化的 id（不构成契约变更，单列）
- * consumed 为消费面清单 id 集合，供上层落三态。
- */
 function diffTable(baseParsed, targetParsed, consumedIds, arrayName) {
   const baseSet = new Set(baseParsed.ids);
   const targetSet = new Set(targetParsed.ids);
@@ -111,7 +75,6 @@ function diffTable(baseParsed, targetParsed, consumedIds, arrayName) {
   return { added, removed, contractChanged, noiseOnlyChanged, consumed: consumedIds };
 }
 
-/** 消费面 token → 三态影响。removed/contractChanged 命中消费面 = 破坏（初值）。 */
 function classifyTableDiff(diff) {
   const consumed = new Set(diff.consumed);
   const breaking = {
@@ -119,7 +82,6 @@ function classifyTableDiff(diff) {
     changed: diff.contractChanged.filter((c) => consumed.has(c.id)),
   };
   const review = {
-    // 消费面条目仅噪音字段变化：不构成契约破坏，但列出供人工扫读（如 occupants 变化可能意味邻座重构）
     noiseOnConsumed: diff.noiseOnlyChanged.filter((c) => consumed.has(c.id)),
   };
   const neutral = {
@@ -131,16 +93,6 @@ function classifyTableDiff(diff) {
   return { breaking, review, neutral };
 }
 
-/**
- * 选「回填最完整」的读取参照：上游把 guide **事后回填**到最新 tree（实测
- * subagent-activations/guide.md 在 dsh-v0.2.1-alpha.1 tag 当时不存在，回填到
- * alpha.2+ 的 tree）。故枚举与读取 guide 一律用克隆内**最高版本 tag** 的 tree
- * ——它对区间 (base, target] 内每个版本目录都已回填完整；区间成员资格则按
- * **版本号**判定（inInterval），不靠 git diff 的「新增文件」（那读 targetTag
- * 当时 tree，会漏回填）。
- *
- * @returns {{ref:string, version:string}} 最高版本 tag 及其版本号
- */
 function newestGuideRef(repo) {
   const raw = git(repo, ["tag", "--list", "dsh-v*"]);
   let best = null;
@@ -155,14 +107,7 @@ function newestGuideRef(repo) {
   return best;
 }
 
-/**
- * 区间 (base, target] 的 upgrade-guide 枚举 + 消费面匹配。
- * 从最新 tag tree 列出全部 guide，按版本号筛区间，内容也从最新 tree 读（回填可见）。
- * 强匹配 = guide 目录名或 frontmatter description 含消费面 token（词边界）；
- * 弱匹配 = 仅正文含 token。强匹配 → 须审；弱匹配 → 参考（列出供 AI 阅读判断）。
- */
 function diffUpgradeGuides(repo, baseVersion, targetVersion, tokens, readRef) {
-  // 从最新 tree 列出全部 guide.md（一次 ls-tree，避免逐目录 spawn）
   const raw = git(repo, ["ls-tree", "-r", "--name-only", readRef, "--", CATALOG_PATHS.upgradeGuideRoot]);
   const byVersion = new Map();
   for (const line of raw.split("\n")) {
@@ -170,7 +115,7 @@ function diffUpgradeGuides(repo, baseVersion, targetVersion, tokens, readRef) {
     if (path === "") continue;
     const m = /^docs\/upgrade-guide\/(v[^/]+)\/([^/]+)\/guide\.md$/.exec(path);
     if (m === null) continue;
-    const version = tagVersion(m[1].replace(/^v/u, "")); // v0.2.1-alpha.1 → 0.2.1-alpha.1
+    const version = tagVersion(m[1].replace(/^v/u, ""));
     if (!inInterval(version, baseVersion, targetVersion)) continue;
     if (!byVersion.has(version)) byVersion.set(version, []);
     byVersion.get(version).push({ version, item: m[2], path });
@@ -184,9 +129,8 @@ function diffUpgradeGuides(repo, baseVersion, targetVersion, tokens, readRef) {
       try {
         text = git(repo, ["show", `${readRef}:${g.path}`]);
       } catch {
-        continue; // 最新 tree 上也已删除的指南，不构成当前差异
+        continue;
       }
-      // frontmatter description 有带引号与不带引号两种形态（上游两种都在用），都要取到
       const descMatch = /^description:\s*(?:"([^"]*)"|'([^']*)'|(.+?))\s*$/mu.exec(text);
       const description = descMatch ? (descMatch[1] ?? descMatch[2] ?? descMatch[3] ?? "") : "";
       const haystackStrong = `${g.version} ${g.item} ${description}`.toLowerCase();
@@ -195,8 +139,6 @@ function diffUpgradeGuides(repo, baseVersion, targetVersion, tokens, readRef) {
       const weak = [];
       for (const token of tokens) {
         const t = token.toLowerCase();
-        // 单复数归一：上游行文常用单数（"Managed subagent activations"），
-        // 清单 token 是服务键复数（subagents）——不做归一，已知破坏只落弱匹配。
         const variants = new Set([t]);
         if (t.endsWith("s")) variants.add(t.slice(0, -1));
         else variants.add(`${t}s`);
@@ -212,10 +154,6 @@ function diffUpgradeGuides(repo, baseVersion, targetVersion, tokens, readRef) {
   return { totalAdded, matched: results, readRef };
 }
 
-/**
- * TYPE_API 变更的定向交叉引用：变更/删除的类型名若出现在任一消费面服务的
- * 签名文本里 → 须审（消费面可能经类型间接破坏）。
- */
 function crossRefTypes(targetApiSource, consumedServiceKeys, typeDiff) {
   const suspect = new Set([...typeDiff.removed, ...typeDiff.contractChanged.map((c) => c.id)]);
   if (suspect.size === 0) return [];
@@ -273,7 +211,6 @@ export function runDiff({ repo, baseTag, targetTag, consumption }) {
     ...consumption.clientServices.map((v) => v.key),
     ...consumption.nonContract.map((n) => n.anchor),
   ];
-  // guide 读取参照：克隆内最高版本 tag（回填最全）；目标 tag 更新时用目标 tag
   const newest = newestGuideRef(repo);
   const guideRef = compareVersions(targetVersion, newest.version) > 0 ? targetTag : newest.ref;
   const guides = diffUpgradeGuides(repo, baseVersion, targetVersion, tokens, guideRef);
@@ -338,7 +275,6 @@ export function loadConsumption(file) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-// —— CLI 入口（被 import 时不执行）——
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const args = parseArgs(process.argv.slice(2));

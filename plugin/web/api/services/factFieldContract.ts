@@ -1,30 +1,8 @@
-/**
- * Runtime projection of the Web-consumed fields.
- *
- * This is deliberately a transport projection, not a fact schema: every
- * entry retains its 05.Att.01 field_key and is mechanically reconciled with
- * 05.Att.01, the type bindings, and 08.Att.01 by fact-field-contract.test.ts.
- */
-// 29 号 DevLog 已于 2026-11-14 撤除（Human 根决定，01 §8 号位表 29 为空位）：
-// 'devlog' 随之退出本联合，四张 Record<FactType, ...> 表同步去掉该键。
 export const FACT_TYPES = ['pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
 
-/**
- * `expected: 'object'` 的内容核验形状（一次复核发现 3）。
- *
- * 只登记 `'object'` 无法回答「什么样的对象才算数」：读取层的
- * `matchesExpectation` 对 object 只能做 `isRecord` 判定，于是 `{}` 与
- * `{ garbage_key: 1 }` 都会被当作合法承载**原样投影**（而 CLI 侧
- * `normalizeAttributionRef` 对同样输入返回 undefined、根本不投影）——同一
- * 载体两套读法，且 web 侧那套是静默放行。
- *
- * `requiredKeys` 是「对象形态还必须带哪些身份键」的最小声明；`nonEmptyKeys`
- * 是「这些键的值必须是非空字符串」。二者都只描述**承载完整性**，不解释语义
- * （语义仍归规范源）。未给出的 object 字段维持既有宽松行为，不在本次扩围。
- */
 export type ObjectShape = Readonly<{
   requiredKeys?: readonly string[]
   nonEmptyKeys?: readonly string[]
@@ -50,11 +28,6 @@ const common = {
   title: field('title', 'string', true),
   status: field('status', 'string', true),
   created_at: field('created-at', 'string', true),
-  // `recall_digest` 已于 2026-11-11 从事实源退场（02 §7.1）：召回按各类型自己的
-  // 核心语义字段取值，不再有跨类型统一关键词面。故本契约不再登记它——登记一个
-  // 已不存在的字段会让读取层把它当成合法投影键，反而掩盖残留。
-  // 03 §6.1 明文不保留公共 updated_at：变更时间由 change_log[].at 承担。
-  // 该字段已从公共契约移除——排序与回退一律取 change_log 末条流水的 at。
   change_log: field('change-log', 'array', false),
   urls: field('urls', 'array', false),
   relations: field('relations', 'array', false),
@@ -62,61 +35,25 @@ const common = {
 
 
 export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
-  // ADR 事实类型已于 2026-11-15 撤除（Human 根决定），其字段契约块随类型删除。
-  // v5 Pitfall（23 §8 薄索引）：scope 必填（正文「影响与适用范围」段逐字
-  // 包含）、trigger_signal 条件出现（依赖版本/环境变化时重审）、终态
-  // disposition 仅 discarded（§9）；正文「症状/触发条件/根因/解决/规避/
-  // 验证/影响与适用范围/证据」由 report_body 承载。v4 的 symptoms/
-  // trigger_conditions/root_cause/resolution/avoidance/scope_of_impact/
-  // applicability/validation_summary/disposition_summary 已随 23 号移除
-  // （分析性长文本住正文，不留 frontmatter 字段）。
   pitfall: {
     ...common,
     scope: field('pitfall-scope', 'string', true),
     trigger_signal: field('pitfall-trigger-signal', 'string', false),
     disposition: field('pitfall-disposition', 'string', false),
-    // 正文承载（23 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
-    // 判为 unconsumed_field，且必须从列表投影排除。
     report_body: field('pitfall-report-body', 'string', false),
   },
-  // v5 Friction（26 号规范）：改进账本的字段闭集——phenomenon/occurrence
-  // 必填（现象单句 + 重复出现的证据载体）；
-  // attribution 条件后补、attribution_ref 条件（指向归因对象的 object_uid）、
-  // relations 仅 resolved 时的 informs。本类型不设 serves（2026-10 删除：
-  // 26 §12 无消费方，归属信息已由 attribution 承载）。
-  // 本类型不设 urls（26 §10：摩擦是内部体验）与 trigger_signal（重审信号由
-  // 作废理由与处置段承载）——故不展开 common 的 urls。正文三节（现象/入账
-  // 依据/条件处置）由 report_body 承载。
   friction: {
     ...common,
     phenomenon: field('friction-phenomenon', 'string', true),
     attribution: field('friction-attribution', 'string', false),
-    // 26 §8/§11（2026-10 订正）：attribution_ref 是**对象形态**
-    // { object_uid }，与 relations 的 target 同一承载——原登记 string 致
-    // 真实载体（对象形态）被读取层 type_mismatch 静默丢弃。
     attribution_ref: objectField('friction-attribution-ref', false, {
       requiredKeys: ['object_uid'],
       nonEmptyKeys: ['object_uid'],
     }),
-    // occurrence（§8 必填）与 disposition（§8 条件必填）在契约里都登记为**可选**：
-    // 契约只有 required 二值，无法表达「按状态条件必填」，而二者恰都是条件字段
-    // ——disposition 仅 voided 时必有；occurrence 对「闭集收缩改判而来的 voided」
-    // 存在 §14.2 的豁免（§8 字段表写明「可缺」）。登记为必填会把这些**合法形态**
-    // 误报为 missing（实测：9 份存量中 1 份即属该例外）。条件必填的机械保证由
-    // writer 承担（创建必带 occurrence、流转入 voided 必带 disposition），契约
-    // 只负责结构可解析性。这与 spark 的 disposition 登记为可选同例（20 §8 终态必填，
-    // 契约仍登记 false）。
     occurrence: field('friction-occurrence', 'object', false),
     disposition: field('friction-disposition', 'string', false),
     report_body: field('friction-report-body', 'string', false),
   },
-  // v5 Spark（20 号规范）：悬置问题的字段闭集——question/scope_boundary/
-  // intent/summary 必填；evolution（{at, summary} 流水）/serves（SG-n 轻
-  // 量锚点）/disposition（终态去向）条件出现；relations 仅 merged-into/
-  // split-into（§11）。本类型不设 urls（§10：悬置问题不直接接受外部证据，
-  // 由 30 号调研系统收集）与 priority（§14.2：v4 存量不迁入）——故不展开
-  // common 的 urls，也不用 v4 的 disposition_summary（终态去向由 disposition
-  // 承载）。正文四节（当前理解/调查问题/调查边界/演变）由 report_body 承载。
   spark: {
     object_uid: field('object-uid', 'string', false),
     object_id: field('object-id', 'string', true),
@@ -132,26 +69,11 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     summary: field('current-summary', 'string', true),
     evolution: field('evolution', 'array', false),
     serves: field('spark-serves-sg', 'string', false),
-    // 03 §7.2 关联引用型 / 20 §8：refs 为状态中立的事实对象引用（目标
-    // object_uid，不校验目标状态），用于列表卡与详情呈现「本议题关联了
-    // 哪些对象」。未登记会被判为 unconsumed_field 并从列表投影排除。
     refs: field('spark-refs', 'array', false),
-    // 20 §8：priority 闭集 P0–P3，AI 出初值、Human 可调整；仅 open 时出现。
     priority: field('priority', 'string', false),
     disposition: field('spark-disposition', 'string', false),
-    // 正文承载（20 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
-    // 判为 unconsumed_field，且必须从列表投影排除。
     report_body: field('spark-report-body', 'string', false),
   },
-  // v5 Report（24 号，2026-11-14 由 Research-调研报告 改造为统一报告类型）：
-  // report_form（闭集 research/summary/audit）为形态判定字段，**必填**；三形态
-  // 共用一套字段面，差异在必填条件——research_question/research_purpose 与
-  // urls 仅 report_form=research 时必填（24 §8，本契约的 required 取「最宽必填
-  // 面」即 report_form，条件必填由 writer 按形态判，Web 不做第二权威）。
-  // stopping_reason（闭集 sufficient/no-gain/round-cap）/confirmed_statements
-  // （声明索引）/uncertain/gaps/implications/clarification_log 数组；
-  // serves 与 Spark 同一字段名与解析口径（28 §12.3），三类通用；
-  // retired 时 retirement_reason/retired_at；正文承载报告主体（按 H2 分节解析）。
   report: {
     ...common,
     report_form: field('report-form', 'string', true),
@@ -166,20 +88,9 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     clarification_log: field('report-clarification-log', 'array', false),
     retirement_reason: field('retirement-reason', 'string', false),
     retired_at: field('retired-at', 'string', false),
-    // 正文承载报告主体（24 §7 按 report_form 分叉的固定 H2/H3），由阅读布局按
-    // H2 分节解析并呈现。属已消费字段：不登记会被判为 unconsumed_field，
-    // 误报为未解析结构。
     report_body: field('report-report-body', 'string', false),
     disposition_summary: field('disposition-summary', 'string', false),
   },
-  // v5 Norm（27 号规范）：事实规范的字段闭集——direction_key（专属方向键，
-  // 唯一性公式 Count(direction_key=d ∧ status="active") ≤ 1）必填；title/
-  // status/created_at/change_log 走 common；retirement_reason/retired_at
-  // 条件出现（retired 必填、active 禁现，同 22 号形态）。本类型不设 urls
-  // （规则住正文）与 relations（跨方向以正文引用实现，§9）。正文四段固定
-  // H2 骨架（方向定位与适用范围／核心规则体系／约束与反模式／验证与遵从性
-  // 检查）由 report_body 承载——读取层对 markdown 载体统一以 report_body
-  // 投影正文（同 20/22/23/24/26 形态），不登记为独立字段。
   norm: {
     ...common,
     direction_key: field('norm-direction-key', 'string', true),
@@ -187,14 +98,6 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     retired_at: field('retired-at', 'string', false),
     report_body: field('norm-body', 'string', false),
   },
-  // v5 SubGoal（28 号规范）：子目标的字段闭集。anchor（SG-n）是**业务键**而非
-  // 对象身份——它在面向上人的所有呈现里保持可读，但引用目标一律用 object_uid
-  // （28 §7）。criterion / criterion_kind / alignment 是该类型存在的理由：
-  // 没有可判定的达成条件，子目标就退化成一句待办（28 §18 红线 3）。
-  // 本类型不设 urls（§11：判据与对齐住正文，不接外部证据链）与 relations
-  // （§11：层级只允许两层，上下游都由 parent_goal 与 serves 反查派生，不建第二边）。
-  // 2026-11-01：`anchor`（SG-n）已废止（28 §7）——身份由 object_uid 承担，
-  // 显示次序由可选的 `order` 承担，二者不可互相替代。
   subgoal: {
     ...common,
     order: field('subgoal-order', 'number', false),
@@ -203,60 +106,28 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     criterion_kind: field('subgoal-criterion-kind', 'string', true),
     alignment: field('subgoal-alignment', 'string', true),
     disposition: field('subgoal-disposition', 'string', false),
-    // 正文两块（§8：达成条件/对齐说明）由读取层统一以 report_body 投影，
-    // 分节在阅读布局里按 H2 解析（同 27 号 norm 形态），不登记为独立字段。
     report_body: field('subgoal-body', 'string', false),
   },
-  // 29 号 DevLog 的字段契约已随该类型于 2026-11-14 撤除。
 }
 
-/**
- * List candidates never carry the Markdown body (Spark 20 §12 / Research 24 §12
- * F1：卡片只投影最小权威字段，不投影正文)。report_body 只属详情阅读面，
- * 登记进 FACT_FIELD_CONTRACT 是让它不被判为 unconsumed_field（详情消费），
- * 但必须从列表投影中排除，否则列表会带上整篇正文。
- *
- * `recall_digest` 已于 2026-11-11 退场（02 §7.1），故不再有「从列表投影排除它」
- * 这一步——排除一个不存在的键只会让人以为它还在。
- */
 export const FACT_LIST_FIELD_NAMES: Record<FactType, readonly string[]> = {
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall).filter((field) => field !== 'report_body' ),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body' ),
   report: Object.keys(FACT_FIELD_CONTRACT.report).filter((field) => field !== 'report_body' ),
-  // friction（26 号）此前遗漏于本表，而 FACT_TERMINAL_STATUSES 已含 friction——
-  // 列表投影缺 friction 会使其字段被判为未登记。此处补齐。
   friction: Object.keys(FACT_FIELD_CONTRACT.friction).filter((field) => field !== 'report_body' ),
-  // norm（27 号）：正文以 report_body 承载（读取层统一投影），列表投影不
-  // 携带全文（同其余 markdown 类型纪律）。
   norm: Object.keys(FACT_FIELD_CONTRACT.norm).filter((field) => field !== 'report_body' ),
-  // subgoal（28 号）：正文两段只属详情阅读面，列表不携带全文（同其余 markdown 类型纪律）。
   subgoal: Object.keys(FACT_FIELD_CONTRACT.subgoal).filter((field) => field !== 'report_body' ),
 }
 
-/**
- * Terminal status sets per fact type. Unique definition sources are the
- * status closures in each type spec's "§6 对象语义与生命周期"
- * (specs/20–24); changing any set requires updating the type spec first.
- */
 export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   pitfall: ['discarded'],
   spark: ['implemented', 'discarded'],
   report: ['retired'],
-  // 26 §9：resolved 与 voided 为终态；open 非终态。
-  // （2026-10 修订：原第四值 observing 已退出状态闭集，观察材料改由
-  // 11 §12bis.1 的摩擦观察缓冲承载，非事实对象、不进事实源。）
   friction: ['resolved', 'voided'],
-  // 27 号 §9：active/retired 两态，retired 为终态（不重开）。
   norm: ['retired'],
-  // 28 号 §9：active/achieved/retired 三态，achieved 与 retired 均为终态（不重开；
-  // 目标改了要新建子目标并换号，不得复活旧号）。
   subgoal: ['achieved', 'retired'],
 }
 
-/**
- * v5 事实类型 → 载体目录名（ldvh-base/ 下）。目录名 = 类型短名复数（03 §6.1 惯例）。
- * 25 Goal 为单例（ldvh-base/goal.md），不占目录，故不在本表。
- */
 export const FACT_TYPE_DIR_NAMES: Record<FactType, string> = {
   pitfall: 'pitfalls',
   spark: 'sparks',

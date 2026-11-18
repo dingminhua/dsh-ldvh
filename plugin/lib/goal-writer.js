@@ -1,34 +1,3 @@
-/**
- * dsh-ldvh — Goal fact-object writer (singleton type).
- *
- * Implements the mechanical slice of specs/25 §11 (受控操作) and the shared
- * read-back/CAS contract from specs/03 §9:
- *
- *  - create:  SINGLETON carrier at `ldvh-base/goal.md` — path IS identity.
- *             25 §5 declares the single-instance exemptions: no `object_uid`,
- *             no `fact_type_key`, no type subdirectory, no filename encoding.
- *             Create MUST refuse when goal.md already exists (25 §11 单例
- *             fail-closed).
- *  - read:    returns frontmatter + body + file-level fingerprint (SHA-256).
- *  - update:  CAS on the whole file (25 §11: 以完整文件为单位). Two guarded
- *             concerns:
- *               * sub-goal anchor stability (25 §11 + §12): existing SG-n
- *                 numbers may not be rewritten, reordered or deleted — only
- *                 marked obsolete in place (原位作废).
- *               * status: active → achieved is the terminal transition and is
- *                 a Human Gate (25 §7); achieved freezes the file.
- *
- * Body structure (25 §6): exactly two fixed H2 sections —
- *   ## 目标陈述   (why + what; a paragraph; frozen region)
- *   ## 子目标     (SG-n items, one per line: `SG-n <可判定的达成条件>`)
- * The 方法与规划 regions were REMOVED by Human decision 2026-09-10.
- *
- * Red lines honoured (25 §15): no directory/uid/filename encoding for the
- * singleton; no downstream state stored on Goal (cascade is a mark, reverse
- * projection comes from `serves`); no cache/index/projection copy; no
- * invented status enum for "goal missing" (fail-closed authorisation is the whole
- * enforcement); no separate Gate shape for the init conversation.
- */
 
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
@@ -39,70 +8,28 @@ import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { listResolvableSubGoals } from "./subgoal-writer.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 
-// ---------------------------------------------------------------------------
-// Constants (specs/25 §5, §6, §7)
-// ---------------------------------------------------------------------------
 
-/** The only legal `goal_key` value (25 §6). */
 const GOAL_KEY = "project-goal";
 
-/** Singleton carrier path, relative to the fact-source root (25 §5). */
 export const GOAL_RELATIVE_PATH = "goal.md";
 
-/** Status closure — exactly two values, no third (25 §7). */
 const STATUSES = new Set(["active", "achieved"]);
 
-/** Title cap (25 §6: ≤ 40 字). */
 const MAX_TITLE_LENGTH = 40;
 
-/**
- * 目标陈述上限（25 §7，2026-11-02 Human 决定）：≤ 200 字符。
- *
- * 判定单位与 21 §8 的 `gist` 一致——UTF-16 码元，实现按 `.length`。上限是
- * **意图上限**而非排版上限：它把「怎么做」「做到哪算成」挤出本载体，因为那
- * 两件事各有下游对象承载（28 SubGoal 等）。超限一律拒绝写入，
- * **不得截断后写入**（截断会静默丢掉作者写下的判断，而读者无从知道丢了）。
- *
- * 计数对象是去除首尾空白后的正文段：段内换行与空白照常计入，否则「用换行
- * 排版」就能绕过上限。
- */
 export const MAX_STATEMENT_LENGTH = 200;
 
-/** Fixed body H2 sections, in order (25 §6). */
-/**
- * 正文固定 H2（25 §7，2026-11 修订）：目标陈述为唯一必需段。
- *
- * `子目标` 已移出本载体——子目标改由 SubGoal 事实对象承载（28 号）。存量
- * goal.md 可能仍带该段：它被**容忍读取**（否则迁移前的载体全部拒绝），但
- * 被视为**待迁移**状态并由 VALID 之外的检查报告，不得成为长期形态。
- */
 const BODY_H2 = ["目标陈述"];
 const LEGACY_BODY_H2 = ["目标陈述", "子目标"];
 
-/** sub-goal anchor pattern (25 §6: SG-n, frozen, never renumbered). */
 const SG_ANCHOR_PATTERN = /^SG-[1-9]\d*$/;
 
-/**
- * Closed set of frontmatter keys (25 §6 + §5 exemptions).
- * Deliberately absent: object_uid, fact_type_key, urls, relations —
- * 25 §5/§9 declare each of them not adopted for this type.
- */
 const VALID_FM_KEYS = new Set([
   "goal_key", "title", "status", "created_at", "change_log",
 ]);
 
-/**
- * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
- *
- * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
- * 终态伴随字段（disposition/relations/retirement_reason/retired_at）在 update 路径不可达
- * （终态只读），故不列。
- */
 export const GOAL_REMOVABLE_FIELDS = new Set([]);
 
-// ---------------------------------------------------------------------------
-// Result helpers
-// ---------------------------------------------------------------------------
 
 function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
@@ -112,11 +39,7 @@ function success(value) {
   return { ok: true, value };
 }
 
-// ---------------------------------------------------------------------------
-// Paths and shared primitives
-// ---------------------------------------------------------------------------
 
-/** Absolute path of the singleton carrier. */
 export function goalFilePath(factSourceRoot) {
   return join(factSourceRoot, GOAL_RELATIVE_PATH);
 }
@@ -129,10 +52,6 @@ function buildFileContent(frontmatter, body) {
   return `---\n${stringifyYaml(orderFrontmatterFields(frontmatter), { lineWidth: 0 })}---\n\n${body.trim()}\n`;
 }
 
-/**
- * Display order (same convention as the other writers): semantic block first,
- * identity last, change_log at the bottom. Reorders keys only.
- */
 const FRONTMATTER_FIELD_ORDER = [
   "goal_key", "title", "status", "created_at", "change_log",
 ];
@@ -149,8 +68,6 @@ function orderFrontmatterFields(frontmatter) {
 }
 
 async function atomicWriteFile(filePath, content) {
-  // Random tmp suffix: a deterministic `${filePath}.tmp` would let two
-  // concurrent writers on the same path clobber each other's staging file.
   const tmp = `${filePath}.${process.hrtime.bigint().toString(36)}.tmp`;
   await writeFile(tmp, content, "utf8");
   const written = await readFile(tmp, "utf8");
@@ -161,30 +78,15 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-/**
- * Strip a leading H1 from a body fragment.
- *
- * `readGoalObject` returns the body exactly as stored — which INCLUDES the H1
- * line. Callers legitimately feed that body straight back on update (the tool
- * layer does), so assembly must not prepend a second H1. Found 2026-09-12: the
- * round trip doubled the H1 and the structure check did not notice.
- */
 function stripLeadingH1(text) {
   return typeof text === "string" ? text.replace(/^\s*#\s+[^\n]*\n?/, "") : text;
 }
 
-/** Assemble the carrier body: exactly one H1, then the markdown body. */
 function assembleBody(title, bodyMarkdown) {
-  // The H1 is fixed for this type (25 §6 shows `# 项目目标`); `title` is the
-  // frontmatter short title and deliberately does NOT become the H1.
   return `# 项目目标\n\n${stripLeadingH1(bodyMarkdown).trim()}`;
 }
 
-// ---------------------------------------------------------------------------
-// Body parsing / validation (specs/25 §6)
-// ---------------------------------------------------------------------------
 
-/** Extract the H2 sections of a body, in order, with their text. */
 export function splitBodySections(body) {
   const lines = body.split("\n");
   const sections = [];
@@ -202,25 +104,11 @@ export function splitBodySections(body) {
   return sections.map((s) => ({ heading: s.heading, text: s.lines.join("\n").trim() }));
 }
 
-/**
- * Parse sub-goal entries from the 子目标 section.
- *
- * 25 §6: one entry per line, `SG-n <可判定的达成条件>`; an anchor marked
- * obsolete in place stays present (25 §7 原位作废) — the marker is textual.
- *
- * Robustness matters here for a security-ish reason: an anchor that FAILS to
- * parse becomes invisible to the stability check, and deleting an invisible
- * anchor used to be silently accepted (found 2026-09-12). So a leading list
- * marker is tolerated, and any line that LOOKS like an anchor but does not
- * match the canon is reported as `malformed` rather than being treated as an
- * ordinary prose line.
- */
 export function parseSubGoals(sectionText) {
   const entries = [];
   for (const raw of sectionText.split("\n")) {
     const line = raw.trim();
     if (line.length === 0) continue;
-    // Tolerate a leading markdown list marker — a hand-edited file may use one.
     const withoutMarker = line.replace(/^([-*+]|\d+\.)\s+/, "");
     const m = withoutMarker.match(/^(SG-\d+)\s+(.*)$/);
     if (m !== null) {
@@ -233,7 +121,6 @@ export function parseSubGoals(sectionText) {
       });
       continue;
     }
-    // Does it LOOK like a failed anchor? (`SG3`, `SG-3:`, `SG-3三`, `SG-0`…)
     const looksLikeAnchor = /^SG/i.test(withoutMarker);
     entries.push({
       anchor: null,
@@ -248,15 +135,12 @@ export function parseSubGoals(sectionText) {
 export function validateGoalFrontmatter(frontmatter) {
   const issues = [];
 
-  // Closed set (25 §6 + §5 exemptions)
   for (const k of Object.keys(frontmatter)) {
     if (!VALID_FM_KEYS.has(k)) {
       issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 25 §6)`);
     }
   }
 
-  // 25 §5/§9: these are NOT adopted for the singleton — their presence means
-  // the caller is treating Goal as a multi-instance type.
   for (const forbidden of ["object_uid", "fact_type_key", "urls", "relations"]) {
     if (frontmatter[forbidden] !== undefined) {
       issues.push(`frontmatter: "${forbidden}" must not be present (25 §5/§9 declares it not adopted for the singleton type)`);
@@ -290,19 +174,11 @@ export function validateGoalFrontmatter(frontmatter) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * Body structure (25 §6): exactly the two fixed H2 sections, in order, both
- * non-empty except 子目标 which may legitimately be empty at creation
- * (25 §7: sub-goal 空缺是合法中间态).
- */
 export function validateGoalBodyStructure(body) {
   const issues = [];
   if (!/^# 项目目标\s*$/m.test(body)) {
     issues.push("body: must contain the H1 \"# 项目目标\" (25 §7)");
   }
-  // Exactly ONE H1 (25 §7 shows a single top-level heading). A duplicated H1 is
-  // what a non-idempotent read→update round trip produces; it must be a
-  // mechanical failure, not silently "valid".
   const h1Count = (body.match(/^#\s+\S/gm) ?? []).length;
   if (h1Count > 1) {
     issues.push(`body: must contain exactly one H1, found ${h1Count} (25 §7)`);
@@ -318,9 +194,6 @@ export function validateGoalBodyStructure(body) {
   if (target === undefined || target.text.length === 0) {
     issues.push("body: 目标陈述 section must be present and non-empty (25 §12 创建检查)");
   } else if (target.text.length > MAX_STATEMENT_LENGTH) {
-    // 25 §7 (2026-11-02): ≤ 200 字符。超限拒绝而不是截断——截断会静默丢掉
-    // 作者写下的判断，而读者无从知道丢了什么；拒绝则把「该挪走哪些细节」
-    // 这个决定还给作者。
     issues.push(
       `body: 目标陈述 must be ≤ ${MAX_STATEMENT_LENGTH} characters (25 §7), got ${target.text.length} — `
       + "move implementation detail / acceptance criteria to the downstream object that owns it "
@@ -330,21 +203,10 @@ export function validateGoalBodyStructure(body) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * 存量载体是否仍带已移出的 `子目标` 段（25 §7，2026-11）。
- *
- * 这是**待迁移**信号，不是写入拒绝：迁移前的载体必须仍可读（否则一处规范
- * 修订会让全部既有项目失读）。它由调用方在交还中报告，不得静默。
- */
 export function hasLegacySubGoalSection(body) {
   return splitBodySections(body).some((s) => s.heading === "子目标");
 }
 
-/**
- * sub-goal anchor stability (25 §11 + §12): every anchor present in the
- * baseline must still be present, with the SAME number. Adding anchors is
- * allowed; rewriting, renumbering or deleting one is an update rejection.
- */
 export function validateAnchorStability(previousAnchors, nextAnchors) {
   const issues = [];
   const next = new Set(nextAnchors);
@@ -353,7 +215,6 @@ export function validateAnchorStability(previousAnchors, nextAnchors) {
       issues.push(`sub-goal anchor ${anchor} disappeared — existing SG-n may not be deleted (only marked obsolete in place, 25 §7/§12)`);
     }
   }
-  // Order must be preserved for anchors that exist in both (25 §12: 不重排).
   const prevCommon = previousAnchors.filter((a) => next.has(a));
   const nextCommon = nextAnchors.filter((a) => previousAnchors.includes(a));
   if (prevCommon.join(",") !== nextCommon.join(",")) {
@@ -367,9 +228,6 @@ export function validateAnchorStability(previousAnchors, nextAnchors) {
   return { ok: issues.length === 0, issues };
 }
 
-// ---------------------------------------------------------------------------
-// Read (specs/03 §9.2 + specs/25 §12)
-// ---------------------------------------------------------------------------
 
 export async function readGoalObject({ factSourceRoot }) {
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
@@ -381,8 +239,6 @@ export async function readGoalObject({ factSourceRoot }) {
     content = await readFile(filePath, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") {
-      // 25 §10: a missing goal.md is a legitimate state — authorisation is
-      // architecturally fail-closed and reads are not blocked.
       return failure("goal/not_initialised", "goal.md does not exist (25 §10: 项目未初始化 — authorisation cannot be accepted, reads are not blocked)");
     }
     throw error;
@@ -414,14 +270,9 @@ export async function readGoalObject({ factSourceRoot }) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Create (specs/03 §9.4 + specs/25 §11)
-// ---------------------------------------------------------------------------
 
 export async function createGoalObject(args) {
   const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null } = args;
-  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: the change_log entry
-  // is signed BY CODE and may not be written unsigned.
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
@@ -431,9 +282,6 @@ export async function createGoalObject(args) {
     return failure("invalid_request", "bodyMarkdown is required (starting with '## 目标陈述')");
   }
 
-  // 25 §11 创建检查: goal.md must NOT exist — the singleton is fail-closed.
-  // (25 §14.1 restates this as a Stop Condition; the entry REFUSES rather
-  // than pausing, which is the shape the spec asks for.)
   const filePath = goalFilePath(factSourceRoot);
   try {
     await readFile(filePath, "utf8");
@@ -447,7 +295,6 @@ export async function createGoalObject(args) {
   const frontmatter = { ...draftFields };
   frontmatter.goal_key = GOAL_KEY;
   frontmatter.created_at = now;
-  // 25 §7: 初态必为 active
   if (frontmatter.status !== undefined && frontmatter.status !== "active") {
     return failure("goal/initial_state_violation", `create must initialise as status=active; got ${JSON.stringify(frontmatter.status)} (25 §7)`);
   }
@@ -463,7 +310,6 @@ export async function createGoalObject(args) {
     return failure("goal/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
   const body = assembleBody(frontmatter.title, bodyMarkdown);
-  // 25 §7 (2026-11): a NEW goal carrier must not carry the legacy 子目标 section.
   if (hasLegacySubGoalSection(body)) {
     return failure(
       "goal/legacy_subgoal_reintroduced",
@@ -479,7 +325,6 @@ export async function createGoalObject(args) {
   const content = buildFileContent(frontmatter, body);
   await atomicWriteFile(filePath, content);
 
-  // Read back precisely (03 §9.4 item 5).
   const readBack = await readGoalObject({ factSourceRoot });
   if (!readBack.ok) {
     return failure("goal/read_back_failed", `written but not readable: ${readBack.error.message}`);
@@ -487,9 +332,6 @@ export async function createGoalObject(args) {
   return success({ file: filePath, fingerprint: fileFingerprint(content), read_back_fingerprint: readBack.value.fingerprint });
 }
 
-// ---------------------------------------------------------------------------
-// Update (specs/02 §10.5 — 完整目标 after + content_fingerprint 绑定，:333；+ specs/25 §11)
-// ---------------------------------------------------------------------------
 
 export async function updateGoalObject(args) {
   const {
@@ -499,7 +341,6 @@ export async function updateGoalObject(args) {
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
-    // 25 §6: every entry must independently answer "what changed + why".
     return failure("goal/change_summary_required", "changeSummary is required for update (25 §6: 每条必含修订理由)");
   }
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
@@ -511,14 +352,10 @@ export async function updateGoalObject(args) {
   if (current.value.fingerprint !== expectedFingerprint) {
     return failure("goal/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
-  // 25 §7: achieved is terminal and freezes the file.
   if (current.value.frontmatter.status === "achieved") {
     return failure("goal/status_terminal", "status=achieved is terminal and the file is frozen as a historical record (25 §7); a fundamentally overturned goal is a controlled REVISION before achievement, not a reopen");
   }
 
-  // Build updated frontmatter — 「磁盘基线 + 显式声明变更 + 显式删除通道」
-  // （specs/02 §10.5 实现对齐）：漏传的字段**继承磁盘**，不再被静默删除。
-  // goal 无 §8 条件字段，故 GOAL_REMOVABLE_FIELDS 为空：本类型不接受任何删除声明。
   const built = buildUpdateFrontmatter({
     currentFrontmatter: current.value.frontmatter,
     frontmatterAfter,
@@ -529,7 +366,6 @@ export async function updateGoalObject(args) {
   });
   if (!built.ok) return failure(built.error.code, built.error.message);
   const fm = built.value;
-  // 25 §5: identity is the path; the singleton adopts no uid/type key.
   fm.goal_key = GOAL_KEY;
   fm.created_at = current.value.frontmatter.created_at;
 
@@ -538,28 +374,14 @@ export async function updateGoalObject(args) {
     return failure("goal/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (active/achieved, 25 §7)`);
   }
 
-  // 25 §7（2026-11）：`子目标` 段已移出本载体，子目标由 28 号对象承载。
-  //
-  // 存量载体若仍带该段，本入口**不得**做「锚点稳定性比对」——那会把子目标
-  // 的增删继续当成 goal 更新的一部分，等于承认两处均可承载子目标。改为：
-  // ① 只允许**删除该段**走向新形态（一个方向的迁移），② 删除前必须确认该段
-  // 里的每个锚点都已在 SubGoal 载体中可解析，否则删段会让引用断链。
   const nextBody = assembleBody(fm.title, bodyMarkdownAfter);
   const prevLegacy = current.value.sub_goals.filter((s) => s.anchor !== null);
-  /** 25 §7：被删除的存量条目文本——供 Human 核对它们已迁入 SubGoal 载体。 */
   let droppedLegacy = [];
   const nextHasLegacy = hasLegacySubGoalSection(nextBody);
   const prevHasLegacy = hasLegacySubGoalSection(current.value.body);
 
   if (prevHasLegacy && nextHasLegacy) {
-    // Still carrying the legacy section: refuse to let it DRIFT (editing anchors
-    // through the goal carrier is exactly the second-authority path 25 §7 forbids).
     const nextParsed = parseSubGoals(splitBodySections(nextBody).find((s) => s.heading === "子目标")?.text ?? "");
-    // A malformed anchor line does not parse into an anchor and would therefore
-    // be INVISIBLE to the equality check below — editing `SG-2 x` into `SG-2: x`
-    // would look like "no change" while actually destroying the anchor. Refuse
-    // any anchor-shaped line that does not canon-parse (the same discipline the
-    // pre-2026-11 stability check applied).
     const badAnchors = nextParsed
       .filter((s) => (s.anchor === null && s.reason !== undefined) || (s.anchor !== null && s.malformed))
       .map((s) => s.reason ?? `anchor ${s.anchor} is not canonical`);
@@ -578,14 +400,6 @@ export async function updateGoalObject(args) {
       );
     }
   } else if (prevHasLegacy && !nextHasLegacy) {
-    // One-way migration: removing the section is allowed.
-    //
-    // What used to be checked here: every SG-n in the section must resolve to a
-    // SubGoal object, otherwise deleting it would orphan downstream `serves`.
-    // That check no longer exists — 2026-11-01 废止了 SG-n 与 `serves` 的锚点形态，
-    // `serves` 改用 `object_uid`，所以旧锚点**不再有下游引用可断**。机械层因此
-    // 无法（也不应假装能）判断这些条目是否已经迁入 SubGoal：如实登记被丢弃的
-    // 条目文本，交给 Human 核对（00 §4.6）。
     droppedLegacy = prevLegacy.map((s) => `${s.anchor ?? "?"} ${s.text ?? ""}`.trim());
   } else if (!prevHasLegacy && nextHasLegacy) {
     return failure(
@@ -621,23 +435,11 @@ export async function updateGoalObject(args) {
   return success({
     file: filePath,
     fingerprint: fileFingerprint(content),
-    // 25 §12: the goal revision cascade is a MARK, not an action taken here.
-    // Sub-goals no longer live on this carrier, so the cascade starts from the
-    // `parent_goal` reverse lookup (28 §12.1) — not from a section on disk.
     legacy_subgoal_section: hasLegacySubGoalSection(nextBody),
-    // 25 §7：删除存量子目标段时，如实交还被丢弃的条目文本。机械层无法证明它们
-    // 已迁入 SubGoal 载体（SG-n 已废止，没有任何可解析的映射），故不判断、只登记。
     legacy_sub_goals_dropped: droppedLegacy,
   });
 }
 
-/**
- * SubGoal references that a goal can be served by, for downstream writers.
- *
- * Renamed from `readGoalAnchors` on 2026-11-01: there are no anchors any more.
- * The return shape carries `object_uid` targets (28 §12.3), not `SG-n` strings,
- * so a caller cannot accidentally keep treating a display label as an identity.
- */
 export async function readServableSubGoals({ factSourceRoot }) {
   const goal = await readGoalObject({ factSourceRoot });
   if (!goal.ok) return goal;

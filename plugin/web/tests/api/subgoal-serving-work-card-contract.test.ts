@@ -7,31 +7,8 @@ import { test } from 'node:test';
 import { listObjects, showObject } from '../../api/services/facts.ts';
 import type { LocalFactScope } from '../../api/services/localFactReader.ts';
 
-/**
- * 子目标卡「名下的工作」关联区（Human 决定 2026-11-02）。
- *
- * 该区学习的不是 Spark 卡的**样式细节**，而是它的**判据链**：关联一律由
- * `refs`/`serves` 这类**已声明的引用**派生、以统一关联行呈现。故本组既验行为
- * （投影真的按 uid 归组、空集与读不到分列），也验形态（分层、先展 3 条、可展开）。
- *
- * **保证边界**：行为断言只证明投影的**输出形状**；源码文本断言只证明**形态当前
- * 存在**，不证明交互在浏览器里成立（那属真实 UI 验收，`specs/10` §8）。
- */
 
 
-/**
- * 读取子目标卡**关联区实现**的源码。
- *
- * 2026-11-03：关联区与关联行的实现从 `pages/ObjectList.tsx` 下沉到
- * `components/FactAssociationRows.tsx` 与 `components/SubGoalCardParts.tsx`
- * （聚焦页目标区要复用同一套，而从页面模块里挖会形成页面→组件→页面的循环依赖）。
- *
- * 契约的**语义一个字未变**——单点纪律、分层预算、空集歧义、按钮可达都还在；
- * 变的只是这些断言在哪个文件里落地。故本 helper 读**两处并拼起来**，断言本身
- * 一条不删：它仍能证明「只有一处实现」吗？不能——拼接会掩盖重复实现。
- * 故本 helper 只拼接**确知各自只存在一份**的两处，并另有一条断言守住
- * 「不得在 ObjectList 里另写一份」（见下方 doesNotMatch）。
- */
 function readSubGoalZoneSource(): string {
   const parts = [
     fs.readFileSync(path.resolve('src/components/FactAssociationRows.tsx'), 'utf8'),
@@ -40,14 +17,12 @@ function readSubGoalZoneSource(): string {
   return parts.join('\n');
 }
 
-/** 列表卡页面的源码——用于断言「实现已下沉，页面里不再另写一份」。 */
 function readObjectListSource(): string {
   return fs.readFileSync(path.resolve('src/pages/ObjectList.tsx'), 'utf8');
 }
 
 const SUB_GOAL_UID = '11111111-1111-4111-8111-111111111111';
 const OTHER_SUB_GOAL_UID = '22222222-2222-4222-8222-222222222222';
-/** 名下确实没有任何 `serves` 指向的子目标——空集歧义那一态。 */
 const EMPTY_SUB_GOAL_UID = '33333333-3333-4333-8333-333333333333';
 
 function subGoalCarrier(uid: string, title: string): string {
@@ -131,7 +106,6 @@ async function writeFixture(root: string) {
     sparkCarrier('bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb', '火花二', 'implemented', SUB_GOAL_UID),
     'utf8',
   );
-  // 指向另一条子目标的火花：不得串到本条子目标名下。
   await writeFile(
     path.join(root, 'ldvh-base', 'sparks', 'spark-dddddddd-1111-4111-8111-dddddddddddd.md'),
     sparkCarrier('dddddddd-1111-4111-8111-dddddddddddd', '火花三', 'open', OTHER_SUB_GOAL_UID),
@@ -153,19 +127,15 @@ test('子目标列表项携带名下工作，并按 object_uid 精确归组（28
     const serving = target.serving_work as Array<Record<string, unknown>>;
     assert.equal(Array.isArray(serving), true);
 
-    // 精确相等归组：只收 serves === 本 uid 的两条火花。
     assert.deepEqual(
       serving.map((row) => row.type).sort(),
       ['spark', 'spark'],
       '只收 serves 指向本条子目标的条目',
     );
-    // 另一条子目标的对象不得串入。
     assert.equal(serving.some((row) => row.title === '火花三'), false, '不得串到其它子目标的名下');
 
-    // 列表携带行但**不携带正文**：载荷纪律不因新增派生视图而破。
     assert.equal('report_body' in target, false, '列表项不得携带 report_body');
 
-    // 空集是可区分的一态，不是 0 条静默。
     const empty = items.find((item) => item.object_uid === EMPTY_SUB_GOAL_UID);
     assert.ok(empty, '另一条子目标也应列出');
     assert.deepEqual(empty.serving_work, []);
@@ -190,7 +160,6 @@ test('列表与详情得到同一份名下工作（两层阅读器同一判据�
     if (!detail.ok) throw new Error(detail.error);
     const detailRows = detail.data.serving_work as Array<Record<string, unknown>>;
 
-    // 两层必须给出同一批行（顺序不计——派生源相同即集合相同）。
     const key = (row: Record<string, unknown>) => `${row.type}:${row.id}`;
     assert.deepEqual(
       [...(item.serving_work as Array<Record<string, unknown>>)].map(key).sort(),
@@ -202,18 +171,6 @@ test('列表与详情得到同一份名下工作（两层阅读器同一判据�
   }
 });
 
-/**
- * 名下工作行是**可导航目标**，不是只供计数的标签。
- *
- * 2026-11-12 实测缺陷：`id` 曾写成 `uid ?? object_ref.object_id`，凡 uid 存在就
- * 落成**裸 uuid**；而详情路由（`showObject` 的 ObjectIdPattern）只认
- * `<type>-<uuid>`。于是「名下的工作」里每一行点开都是 `Object not found: <uuid>`
- * ——载体明明可读，UI 却报找不到。
- *
- * 上面那条一致性用例**不可能**抓到它：它把 `id` 当比较键用（`type:id` 两侧同值
- * 即通过），从未断言这个值能不能被路由接受。这就是本用例存在的理由——不是重复
- * 上面那条，而是问一个上面那条结构上问不出的问题。
- */
 test('名下工作行的 id 必须能被详情路由接受（不是裸 uuid）', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-subgoal-serving-navigable-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
@@ -235,7 +192,6 @@ test('名下工作行的 id 必须能被详情路由接受（不是裸 uuid）',
         true,
         `行 id 必须是 <type>-<uuid>（详情路由只认这一形态），实际是 ${JSON.stringify(id)}`,
       );
-      // 直接拿它走详情路由：这正是 UI 点开时做的事（面板以 objectId 打开）。
       const detail = await showObject(id, scope);
       assert.equal(detail.ok, true, `行 id ${id} 必须能被 showObject 接受，否则点开即 404`);
     }
@@ -247,18 +203,12 @@ test('名下工作行的 id 必须能被详情路由接受（不是裸 uuid）',
 test('卡面：按类型分层、每层先展固定条数、其余可展开（Human 决定 2026-11-02）', () => {
   const source = readSubGoalZoneSource();
 
-  // 分层与预算：两个常量都必须存在且被真实消费（不是只声明）。
   assert.match(source, /export const SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT = 3;/, '每层先展 3 条须为具名常量');
   assert.match(source, /SUB_GOAL_SERVING_TYPE_ORDER: readonly string\[\] = \['spark'\]/);
   assert.match(source, /group\.rows\.slice\(0, SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT\)/, '折叠态按预算截取');
   assert.match(source, /const visible = expanded \? group\.rows :/, '展开态给全量（不是另一批）');
   assert.match(source, /Math\.max\(0, group\.rows\.length - SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT\)/, '其余条数由总数减预算得出');
 
-  // 行式与区域形态复用既有单点，不得自建第二套（10 §5.5）。
-  // 2026-11-03：实现下沉到 `components/SubGoalCardParts.tsx` 后，列表卡里只剩
-  // 一层**调用包装**（`SubGoalServingWorkCardZone`，把 ObjectItem 的字段摊成
-  // rows/unreadable）；真正的渲染在共享组件里。两层都要在——包装层证明列表卡
-  // 走了共享实现，共享层证明渲染只有一处。
   assert.match(readObjectListSource(), /function SubGoalServingWorkCardZone/, '列表卡须保留调用包装');
   assert.match(source, /export function SubGoalServingWorkZone/, '渲染实现须在共享组件里');
   assert.match(source, /<FactAssociationCardRow/);
@@ -266,9 +216,6 @@ test('卡面：按类型分层、每层先展固定条数、其余可展开（Hu
   assert.match(source, /FACT_ASSOCIATION_ROWS_LIST_CLASS/);
   assert.doesNotMatch(source, /function SubGoalServingWorkRow/, '不得自建第二套关联行');
 
-  // **不设层名**（Human 定案 2026-11-02 圈掉两行计数）：行由行首类型
-  // 图标自描述，再写一遍类型名是同一信息的第二次呈现。分组仍在（各有 divide-y 与各自
-  // 展开按钮），只是不给块起名——`docs/03` §3.2「不设类型分组标题」由此保持成立。
   assert.match(source, /data-subgoal-serving-type=\{group\.type\}/, '分组承载仍须存在');
   const zoneSource = source.slice(
     source.indexOf('export function SubGoalServingWorkZone'),
@@ -277,10 +224,8 @@ test('卡面：按类型分层、每层先展固定条数、其余可展开（Hu
   assert.doesNotMatch(zoneSource, /getTypeLabel\(group\.type/, '本区不得再渲染类型名（层名已撤）');
   assert.doesNotMatch(zoneSource, /<ObjectTypeIcon type=\{group\.type\}/, '本区不得再渲染层名的类型图标');
 
-  // 三条语义边界：空集歧义、读不到单列、达成不由关闭推出（28 §8.1 / §18 红线 3）。
   assert.match(source, /objectList\.subGoalServingEmpty/);
   assert.match(source, /objectList\.subGoalServingUnreadable/);
-  // 终态说明在列表卡的终态面板里（不在共享关联区里），故读列表卡源码。
   assert.match(readObjectListSource(), /objectList\.subGoalAchievedNote/);
 });
 
@@ -301,10 +246,6 @@ test('展开/收起是按钮而非死文本（键盘可达、状态可读）', (
     source.indexOf('export function SubGoalRowChips'),
   );
   assert.ok(zone.length > 0, '应能定位到关联区源码段');
-  // 2026-11-03：展开/收起按钮抽成 `SubGoalDisclosureButton` 组件（同一枚形态被
-  // 聚焦页目标区与列表卡共用——两处各画一枚按钮时，改一处另一处必然漂移）。
-  // 故断言改为：按钮的**实现**必须在共享组件里（可展开、可读、type=button），
-  // 且关联区**确实调用**它。
   const disclosure = source.slice(
     source.indexOf('export function SubGoalDisclosureButton'),
     source.indexOf('/**\n * 子目标的**名下工作区**'),
@@ -317,17 +258,11 @@ test('展开/收起是按钮而非死文本（键盘可达、状态可读）', (
 });
 
 test('关联区实现只有一处——列表卡与聚焦页目标区共用，不得各写一份', () => {
-  // 2026-11-03：实现下沉到 `components/SubGoalCardParts.tsx`，聚焦页目标区与
-  // 子目标列表卡同源调用。两处若各写一份，「判据长什么样」「空集歧义怎么提示」
-  // 就会分叉——而分叉时没有机械判据说哪边才是对的（与 25 §7「目标只有一条陈述」
-  // 同一纪律）。
   const listSource = readObjectListSource();
 
-  // 列表卡不得自己再实现一遍关联区渲染。
   assert.doesNotMatch(listSource, /function SubGoalServingWorkZone/, '关联区实现须单点，不得在页面里另写一份');
   assert.doesNotMatch(listSource, /const visible = expanded \? group\.rows :/, '分层截取逻辑须单点');
   assert.doesNotMatch(listSource, /group\.rows\.slice\(0, SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT\)/, '每层先展 N 条须单点');
 
-  // 列表卡**调用**共享实现——这是「同源」的正面证据。
   assert.match(listSource, /<SubGoalServingWorkZone/, '列表卡须调用共享的关联区实现');
 });

@@ -1,15 +1,3 @@
-// `summary` 200 字符上限的契约（Human 2026-11-04 裁定 B1 + 乙）。
-//
-// 钉住四件事：
-//   1. 上限**只对 Spark 生效**（索引层）；其余类型不设此上限。
-//   2. 判定单位与既有四处一致：UTF-16 码元、按 `.length`、去首尾空白。
-//   3. **B1 语义**：存量逐字未改放行，改动即受检（沿用 21 §15.1 先例）。
-//   4. 拒绝消息须给出当前字数与超出量，且明写「不得截断后写入」——截断会破坏
-//      载体内聚（正文须逐字包含 summary）。
-//
-// 2026-11-14：原第 4 节「DevLog 不设上限」随该类型撤除而移除；本文件不再
-// import devlog-writer.js。变异钉法改为：把上限改成 Infinity、把 skip 逻辑
-// 去掉，本文件即转红。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -17,7 +5,6 @@ import assert from "node:assert/strict";
 import { SUMMARY_MAX_CHARS, summaryLength, summaryLimitIssue } from "../lib/summary-limit.js";
 import { validateSparkFrontmatter } from "../lib/spark-writer.js";
 
-/** 一个字段齐备的 Spark frontmatter（缺字段会产生无关 issue，淹没断言）。 */
 function sparkCase(summary) {
   return {
     object_uid: "71930c4a-f43f-439e-88bd-3aff7d07d37c",
@@ -33,9 +20,6 @@ function sparkCase(summary) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 1. 上限本身
-// ---------------------------------------------------------------------------
 
 test("SUMMARY_MAX_CHARS 与既有四处同为 200", () => {
   assert.equal(SUMMARY_MAX_CHARS, 200, "须与 Spark.disposition / Pitfall.disposition / Goal 目标陈述 同值");
@@ -62,9 +46,6 @@ test("拒绝消息给出当前字数与超出量，并写明不得截断", () =>
   assert.ok(msg.includes("载体内聚"), "须说明为何不能截断：正文须逐字包含 summary");
 });
 
-// ---------------------------------------------------------------------------
-// 2. Spark：上限生效
-// ---------------------------------------------------------------------------
 
 test("Spark：create 路径 201 字被拒，200 字通过", () => {
   const over = validateSparkFrontmatter(sparkCase("甲".repeat(201)));
@@ -75,12 +56,9 @@ test("Spark：create 路径 201 字被拒，200 字通过", () => {
   assert.equal(atLimit.ok, true, `恰好 200 应通过，实际：${JSON.stringify(atLimit.issues)}`);
 });
 
-// ---------------------------------------------------------------------------
-// 3. B1：存量放行
-// ---------------------------------------------------------------------------
 
 test("Spark：skipSummaryLimit 时存量超限放行（B1 语义）", () => {
-  const stale = sparkCase("甲".repeat(3263)); // 本仓实测最长的一条
+  const stale = sparkCase("甲".repeat(3263));
   const strict = validateSparkFrontmatter(stale);
   assert.equal(strict.ok, false, "新写入同样内容必须被拒");
 
@@ -96,7 +74,3 @@ test("Spark：skip 只豁免长度，不豁免其它校验", () => {
   assert.ok(!r.issues.some((i) => i.includes("≤ 200")), "长度项应被豁免");
 });
 
-// ---------------------------------------------------------------------------
-// 4. 原 DevLog「不设上限」对照用例已于 2026-11-14 随该类型撤除移除。
-//    本文件不再 import devlog-writer.js；「上限只对 Spark 生效」由上面各节钉住。
-// ---------------------------------------------------------------------------

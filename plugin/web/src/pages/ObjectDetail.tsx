@@ -58,18 +58,13 @@ import {
   type RelatedContentEntry,
 } from '@/pages/object-detail/model';
 import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
-// DevLog 阅读布局已随 29 号类型于 2026-11-14 撤除。
 export { FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, SparkReadingLayout, SubGoalReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 
-// v5 Research（24 号薄索引）阅读布局消费的字段全集：固定 H2 正文（report_body）、
-// 概览与三态索引、退出语义；v4 study 遗留字段（research_intent/abstract/
-// recommendation_summary/report_kind/input_refs）不在此集合，落入 ContentField 兜底。
 const RESEARCH_READING_NODE_FIELDS = new Set([
   'research_question', 'research_purpose', 'stopping_reason',
   'confirmed_statements', 'uncertain', 'gaps', 'implications', 'clarification_log',
   'retirement_reason', 'retired_at',
   'report_body', 'change_log',
-  // yaml_source 已由底部 YamlDataNode 以完整 YAML 原文呈现，字段级不再重复落入 ContentField。
   'yaml_source',
 ]);
 const FORMAL_ASSOCIATION_FIELDS = new Set(['relations']);
@@ -89,8 +84,6 @@ export default function ObjectDetail() {
   const [error, setError] = useState<string | null>(null);
   const { t, locale } = useI18n();
 
-  // 保留上一次成功渲染的详情，仅当路由与缓存对象一致时复用（前进/后退/面板往返），
-  // 避免全屏空白闪烁；切到不同对象时不展示旧内容，改走骨架加载
   const lastDetailRef = useRef<{ key: string; value: ObjectDetail } | null>(null);
   useEffect(() => {
     if (detail) {
@@ -108,7 +101,6 @@ export default function ObjectDetail() {
   useEffect(() => {
     if (!type || !id) return;
     let cancelled = false;
-    // 不再 setDetail(null)：保留旧详情做占位，新数据到达再替换，消除全屏空白闪烁
     setError(null);
 
     fetchObjectDetail(type, id)
@@ -134,8 +126,6 @@ export default function ObjectDetail() {
     );
   }
 
-  // 仅当连缓存都没有（首次进入）才显示全屏 spinner；
-  // 路由切换加载期间沿用旧内容，由下方 isStale 轻提示代替
   if (!displayDetail) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -153,7 +143,6 @@ export default function ObjectDetail() {
     : undefined;
   const headerStatus = getObjectHeaderStatus(objType, objStatus, obj);
   const typeColor = CATEGORY_COLORS[objType] || CATEGORY_COLORS.other;
-  // v4 Study 遗留徽章：仅 v4 归档对象携带 report_kind 时出现；v5 Research 无此字段（24 §12）。
   const reportKind = typeof obj.report_kind === 'string' ? obj.report_kind : undefined;
   const reportKindColor = reportKind ? (CATEGORY_COLORS[reportKind] || CATEGORY_COLORS.other) : undefined;
   const reportKindBadge = reportKind && reportKindColor ? (
@@ -168,10 +157,6 @@ export default function ObjectDetail() {
   const listPath = `/objects/${objType}${listSearch ? `?${listSearch}` : ''}`;
   const currentPath = `${location.pathname}${location.search}`;
   const fromPath = getReturnPath(location.state, currentPath);
-  // 子目标的详情页**不再回列表**（Human 定案 2026-11-13）：侧栏的「子目标」入口
-  // 已撤除，子目标由聚焦页目标区承载，回一个没有入口的列表页是死路。故子目标
-  // 一律回聚焦页——项目态回 `/`，联邦态回 `/federation`（联邦上下文由来源
-  // 路径判定：联邦聚合列表跳详情时带 `from`）。
   const returnPath = objType === 'subgoal'
     ? (fromPath?.startsWith('/federation') ? '/federation' : '/')
     : (fromPath ?? listPath);
@@ -186,9 +171,9 @@ export default function ObjectDetail() {
 
   return (
     <div className="flex h-full">
-      {/* Main content area */}
+      { }
       <div className="flex-1 overflow-y-auto rounded-none transition-[margin] duration-300">
-        {/* 切换加载中的细进度条：保留旧内容时给出轻提示 */}
+        { }
         {isStale && (
           <div className="sticky top-0 z-30 h-0.5 w-full overflow-hidden bg-ldvh-border/40">
             <div className="h-full w-1/3 animate-pulse bg-ldvh-accent" />
@@ -196,7 +181,7 @@ export default function ObjectDetail() {
         )}
         <div className={`mx-auto max-w-4xl p-6 transition-opacity duration-150 ${isStale ? 'opacity-60' : 'opacity-100'}`}>
           <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-6 border-b border-ldvh-border bg-ldvh-bg/95 px-6 pb-4 pt-4 backdrop-blur">
-          {/* Header */}
+          { }
           <div>
             <button
               onClick={() => navigate(returnPath)}
@@ -250,15 +235,11 @@ export default function ObjectDetail() {
         </div>
       </div>
 
-      {/* Right reading panel */}
+      { }
     </div>
   );
 }
 
-/**
- * The fact-reading body is intentionally shared by the full detail page and
- * secondary reading.  Only navigation and surrounding reading chrome differ.
- */
 export function FactReadingContent({
   obj,
   objType,
@@ -318,18 +299,7 @@ export function FactReadingContent({
       <FieldIssuesSection value={obj.field_issues} />
       <UnparsedStructuresSection value={obj.unparsed_structures} />
 
-      {/* YAML 源节点（Human 2026-09-09 三次定案，截图红框标注要显示的区块；
-          2026-09-16 推广到全部事实类型）：research 展示时按 24 §7 规范阅读序
-          排序（内容保真——以原文解析的真实字段为界，不注入不过滤）；其余类型
-          一律以 yaml_source 逐字原文直显，原文不可得时才回退重建。
-          不再按 objType 白名单挑选：事实源现状为八类全 markdown 载体，读取层
-          （localFactReader 的 readable()）对 markdown 载体一律透传 frontmatter
-          原文，白名单已无存在依据。goal 是单例、不走事实对象读取层，其原文由
-          /api/cognition/goal 响应投影 yaml_source——
-          原先「goal 缺 yaml_source 故落重建兜底」的例外已消除，故此处不再需要
-          按类型分支：八类含 goal 一律原文直显（research 另按 24 §7 规范阅读序重排）。
-          frontmatter 机器索引的解释性呈现（启发节点）已按 Human 划线标注移除
-          ——机器索引只在此节点以原文形式呈现，不再被 web 解析渲染。 */}
+      { }
       <YamlDataNode
         yamlSource={objType === 'report'
           ? sortedResearchFrontmatterYaml(obj.yaml_source) ?? reconstructFactYaml(obj)
@@ -340,7 +310,6 @@ export function FactReadingContent({
   );
 }
 
-/** Use the same collapsible source node in full detail and secondary reading. */
 export function YamlDataNode({ yamlSource, title }: { yamlSource: string; title: string }) {
   const [showYaml, setShowYaml] = useState(false);
   return (
@@ -504,7 +473,6 @@ function FactReadFailurePage({
   );
 }
 
-/** Shared unavailable-fact body for full detail and secondary reading. */
 export function FactReadFailureContent({
   type,
   id,
@@ -551,7 +519,7 @@ type LocalizedTitleItem = {
   title_zh?: string;
 };
 
-// eslint-disable-next-line react-refresh/only-export-components -- PanelContent 与 GoalDetail 消费；契约测试按本文件路径读取该导出。
+// eslint-disable-next-line react-refresh/only-export-components
 export function getObjectHeaderStatus(
   objectType: string,
   status: string | undefined,
@@ -615,14 +583,9 @@ export function ObjectIdentityHeader({
   const { selectedProjectId } = useProjectScope();
   const TitleTag = compact ? 'h3' : 'h1';
   const titleClassName = compact ? 'ldvh-reading-title' : 'ldvh-page-title';
-  // Human 2026-09-09 二次定案：主标题与阅读面板标题均 18px；图标随字号同步。
   const titleFontSize = 18;
   const titleIconSize = Math.round(titleFontSize * 1.15);
   const activityCount = Array.isArray(source.change_log) ? source.change_log.length : 0;
-  // priority 不在 footer 元信息行呈现（它由 PriorityIcon 以图标形态承载）。
-  // `serves` 曾在此一并被滤掉（当时它由卡头的子目标徽章承载）；2026-11-01 撤除
-  // serves 的 Web 呈现后它已不在 `AUXILIARY_META_KEYS_BY_TYPE` 里，故这里不再
-  // 需要它——留着会让后来者以为它仍在被特殊处理。
   const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority');
   const hasFooterMeta = showDefaultDates
     || remainingAuxiliaryMetaEntries.length > 0
@@ -643,26 +606,11 @@ export function ObjectIdentityHeader({
                 {typeLabel}
               </span>
             )}
-            {/* Human 定案 2026-09-13：标签序与列表卡头一致——类型 → 优先级 →
-                修改次数（详情/面板/卡片/近期动态/健康度统一）。
-                2026-11-01（Human 定案）：`serves` 子目标 chip 已从此处撤除，
-                与列表卡头同步；`serves` 字段本身保留（四处非呈现消费方）。 */}
+            { }
             <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
-            {/* 26 §8 occurrence：与列表卡卡头、聚焦页**同位置同序**（类型 → 优先级 →
-                重复观察 → 修改次数）——经同一个共享组件渲染，三处不得各自手写。
-                （原此处紧随优先级的 impact 轻/中/重 chip 已于 2026-11-02 随摩擦
-                分级制度撤销，26 §8。） */}
+            { }
             {objectType === 'friction' && <FrictionOccurrenceBadge value={source.occurrence} />}
-            {/* 28 §8 `order`（显示次序）：与列表卡头**同一枚组件、同一位置**——Human
-                2026-11-02「详细页面里也要有顺序的那个 icon」。
-
-                为什么必须在这里补：`order` 此前只住在阅读面顶部的锚点块里，而那个块
-                本轮已收窄为「判法」一项（Human 同一句「这个地方只保留判法即可」）。
-                次序若不同时上移到身份头，这个字段就在详情面上彻底消失了——它不是装饰，
-                28 §8 把它列为可调整的显示次序，读者要在详情里确认「这条排第几」。
-
-                经 `SubGoalOrderBadge` 渲染而非手写 chip：卡头与详情头两处若各写一份，
-                缺失态（`·` + tooltip）与样式规格会分叉。 */}
+            { }
             {objectType === 'subgoal' && <SubGoalOrderBadge value={source.order} />}
             {extraBadges}
             {showActivityCount && (
@@ -739,7 +687,6 @@ export function ObjectIdentityHeader({
   );
 }
 
-/** Shared object-header update line for full details and secondary reading. */
 function HeaderDateMeta({ label, value, align = 'end' }: { label?: string; value: ReactNode; align?: 'start' | 'end' }) {
   const valueClassName = typeof value === 'string'
     ? 'ldvh-meta-muted min-w-0 truncate text-ldvh-text-secondary'
@@ -1057,7 +1004,7 @@ export function RelatedContentSection({
   );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components -- GoalDetail 与 PanelContent 等 4 处消费，另有契约测试断言。
+// eslint-disable-next-line react-refresh/only-export-components
 export function getAuxiliaryMetaEntries(obj: Record<string, unknown>, objType: string) {
   const keys = Array.from(new Set([...(AUXILIARY_META_KEYS_BY_TYPE[objType] || []), ...COMMON_AUXILIARY_META_KEYS]));
   return keys
@@ -1066,9 +1013,6 @@ export function getAuxiliaryMetaEntries(obj: Record<string, unknown>, objType: s
     .filter(([, value]) => value !== null && value !== undefined && value !== '' && (!Array.isArray(value) || value.length > 0));
 }
 
-/** 字段标签（本页包装 i18n 的 getFieldLabel）。`type` 透传：同名 frontmatter 字段
- * 在不同类型下语义不同时（如 disposition：spark 的终态去向 vs friction 的废弃
- * 去向说明），按类型取专属词条。省略时走通用表，与既有调用方兼容。 */
 function getFieldLabel(fieldKey: string, locale: string, type?: string) {
   return getLocalizedFieldLabel(fieldKey, locale, type);
 }
@@ -1152,7 +1096,7 @@ export function DetailSection({
   );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components -- 阅读布局消费；ntract 断言本文件含该符号。
+// eslint-disable-next-line react-refresh/only-export-components
 export function getReadingNodeNextState(state: ReadingNodeState): ReadingNodeState {
   return state === 'collapsed' ? 'expanded' : 'collapsed';
 }
@@ -1206,12 +1150,7 @@ export function DetailInlineField({ label, value }: { label: string; value: Reac
   return (
     <div className="grid grid-cols-[5.625rem_minmax(0,1fr)] gap-2 py-3 first:pt-0 last:pb-0">
       <div className="ldvh-caption-strong text-ldvh-text-secondary">{label}</div>
-      {/* 补 `ldvh-body`（2026-09-24 修）。
-       *
-       * 原为裸 `<div className="min-w-0">`——**无任何字号类**，故 value 回退到浏览器
-       * 默认 16px（`body` 未设 font-size）。后果：字段值比**节点标题**（14px）还大，
-       * 层级被反转；Human 观察到「字体大大小小」中最大的一档即来自此处。
-       * `docs/01 §1.4`：正文用 `ldvh-body` = 14px / 24px。 */}
+      { }
       <div className="ldvh-body min-w-0">{value}</div>
     </div>
   );
@@ -1262,17 +1201,14 @@ export function EmptyHint({ text }: { text: string }) {
   return <span className="ldvh-body-muted">{text}</span>;
 }
 
-// ===================== v5 Research 阅读布局（24 号规范薄索引结构） =====================
 
-/** 24 号规范 §7 的正文固定 H2 顺序（「调查阶段」探索型专属）。 */
 const RESEARCH_BODY_SECTION_ORDER = [
   '研究问题', '输入与边界', '调查阶段', '关键发现', '未证实与缺口', '建议', '后续分流',
 ] as const;
 
 type ResearchBodySection = { title: string; body: string };
 
-/** 正文按固定 H2 分节（前端解析，跟随 EvidenceReadingNodes 的既有先例）。 */
-// eslint-disable-next-line react-refresh/only-export-components -- research-reading-contract 逐字断言本文件含此导出签名，拆文件即失败。
+// eslint-disable-next-line react-refresh/only-export-components
 export function parseResearchBodySections(body: string): ResearchBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -1299,16 +1235,14 @@ export function parseResearchBodySections(body: string): ResearchBodySection[] {
     });
 }
 
-/** 判断正文节是否属于 24 号规范的固定 H2（未知节由布局以「补充内容」兜底呈现）。 */
-// eslint-disable-next-line react-refresh/only-export-components -- 同上：该契约测试按本文件路径断言此签名。
+// eslint-disable-next-line react-refresh/only-export-components
 export function isKnownResearchBodySection(title: string): boolean {
   return (RESEARCH_BODY_SECTION_ORDER as readonly string[]).includes(title);
 }
 
 type ResearchProvenance = { ref?: string; anchor?: string; body: string };
 
-/** 发现单元的溯源锚点行提取（24 §10 格式：`溯源：<ref>（<锚点>）`，锚点行从正文剥离单独回指）。 */
-// eslint-disable-next-line react-refresh/only-export-components -- 同上：该契约测试按本文件路径断言此签名。
+// eslint-disable-next-line react-refresh/only-export-components
 export function extractResearchProvenance(unitBody: string): ResearchProvenance {
   const match = unitBody.match(/^溯源：(https?:\/\/\S+?)（(.+?)）[。]?\s*$/m);
   if (!match) return { body: unitBody.trim() };
@@ -1318,8 +1252,7 @@ export function extractResearchProvenance(unitBody: string): ResearchProvenance 
 
 type ResearchFindingUnit = { title: string; body: string; provenanceRef?: string; provenanceAnchor?: string };
 
-/** 「关键发现」段按 H3 切分发现单元（每单元：声明标题 + 观察/价值判断正文 + 溯源锚点行）。 */
-// eslint-disable-next-line react-refresh/only-export-components -- 同上：该契约测试按本文件路径断言此签名。
+// eslint-disable-next-line react-refresh/only-export-components
 export function parseResearchFindingUnits(sectionBody: string): ResearchFindingUnit[] {
   const lines = sectionBody.split('\n');
   const units: Array<{ title: string; body: string[] }> = [];
@@ -1357,7 +1290,6 @@ function findResearchUrlTitle(urls: unknown, ref: string): string | undefined {
   return hit?.title;
 }
 
-/** 溯源锚点行：ref 回指 urls 条目（title 展示，可点击回查原文——F4 展开入口）。 */
 export function ResearchProvenanceLine({ provenanceRef, provenanceAnchor, urls }: {
   provenanceRef: string;
   provenanceAnchor?: string;
@@ -1383,8 +1315,6 @@ export function ResearchProvenanceLine({ provenanceRef, provenanceAnchor, urls }
   );
 }
 
-/** v5 Research 阅读布局：概览内联（正文固定 H2 分节）+ 发现单元 + 三态 + 溯源锚点回指。
- * 阅读语言与详情共享：ReadingNodeSection 折叠节点、ContentField 兜底、尾部固定序列。 */
 export function ResearchReadingLayout({
   obj,
   extraEntries,
@@ -1406,7 +1336,6 @@ export function ResearchReadingLayout({
     ([fieldKey]) => !RESEARCH_READING_NODE_FIELDS.has(fieldKey) && !FORMAL_ASSOCIATION_FIELDS.has(fieldKey),
   );
 
-  // 「研究问题」正文缺失时以 frontmatter 薄索引兜底（research_question + research_purpose）。
   const questionBody = sectionOf('研究问题')?.body ?? [
     typeof obj.research_question === 'string' && obj.research_question.trim() ? obj.research_question.trim() : null,
     typeof obj.research_purpose === 'string' && obj.research_purpose.trim() ? obj.research_purpose.trim() : null,
@@ -1421,7 +1350,7 @@ export function ResearchReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {/* 24 §12 消费边界：retired 对象不作为当前证据输入，显式提示避免被当作当前结论引用。 */}
+      { }
       {obj.status === 'retired' && (
         <p className="ldvh-caption rounded-md border border-zinc-400/25 bg-zinc-500/5 px-3.5 py-2.5 text-zinc-600/80 dark:text-zinc-300/80">
           {t('objectDetail.researchBody.retiredNotice')}
@@ -1461,10 +1390,7 @@ export function ResearchReadingLayout({
           <ResearchTextNodeContent value={section.body} />
         </ResearchBodyNode>
       ))}
-      {/* 启发节点（frontmatter implications 的解释性呈现）已移除——Human
-          2026-09-09 三次定案（截图划线标注）：机器索引不在 web 解析呈现；
-          implications 的内容判断已由发现单元的价值判断承载，机器索引只在
-          YAML 源节点以原文形式呈现。 */}
+      { }
       <ResearchClarificationLogNode obj={obj} locale={locale} />
       {extraPrimaryEntries.map(([fieldKey, value]) => (
         <ContentField
@@ -1483,7 +1409,6 @@ export function ResearchReadingLayout({
   );
 }
 
-/** 正文节的折叠承载（调查阶段等过程性内容默认 collapsed）。 */
 function ResearchBodyNode({
   title,
   initial = 'expanded',
@@ -1510,7 +1435,6 @@ function ResearchBodyNode({
   );
 }
 
-/** 「关键发现」：发现单元卡片列表（声明标题 + 观察/价值判断 + 溯源锚点行回指）。 */
 export function ResearchKeyFindingsNode({
   sectionBody,
   obj,
@@ -1563,8 +1487,6 @@ const RESEARCH_GAP_PRIORITY_CLASS: Record<string, string> = {
   low: 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary',
 };
 
-/** 「未证实与缺口」：frontmatter 三态（uncertain/gaps）结构化为主；
- * 正文叙述仅在无结构化数据时兜底呈现，避免同一批数据重复渲染。 */
 export function ResearchUncertainGapsNode({
   obj,
   locale,
@@ -1622,7 +1544,7 @@ export function ResearchUncertainGapsNode({
             })}
           </div>
         )}
-        {/* 叙述兜底：frontmatter 已结构化呈现时不再重复渲染正文（避免同一数据两遍）。 */}
+        { }
         {narrative && uncertain.length === 0 && gaps.length === 0 && (
           <ResearchTextNodeContent value={narrative} />
         )}
@@ -1631,7 +1553,6 @@ export function ResearchUncertainGapsNode({
   );
 }
 
-/** 「澄清记录」：clarification_log（只收改变方向的实质澄清，默认折叠）。 */
 export function ResearchClarificationLogNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
   const entries = Array.isArray(obj.clarification_log)
     ? obj.clarification_log.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
@@ -1661,13 +1582,6 @@ export function ResearchClarificationLogNode({ obj, locale }: { obj: Record<stri
   );
 }
 
-/**
- * 从 react-markdown 交给组件覆写的 children 中取出**纯文本**。
- *
- * `children` 是 ReactNode，**不保证是字符串**——含行内标记时（如 `做什么：**重点**`）
- * 会是数组，含元素节点时会有对象。直接 `String(children)` 会得到 "[object Object]"
- * 或带上元素类型，导致「标签行」识别忽真忽假。故按递归取其中所有字符串拼接。
- */
 function reactNodeText(node: unknown): string {
   if (typeof node === 'string') return node;
   if (typeof node === 'number') return String(node);
@@ -1678,17 +1592,6 @@ function reactNodeText(node: unknown): string {
   return '';
 }
 
-/**
- * 「标签行」判定：整段就是一条以 `：` 结尾的短行（如 `做什么：`／`明确不做什么：`）。
- *
- * 背景：21 §8 的 `scope` 由「两个标签行 + 各自条目」构成，但 Markdown 里标签行是
- * 普通段落（`<p>`），与正文段落**同标签**——CSS 无法只选中它。故在渲染层识别并
- * 附加 `ldvh-label-line` 类，使「标题须与正文可区分」这件事**在呈现层可实现**
- * （Human 裁定 2026-09-22；此前 `做什么：` 与正文同色同重，读者看不出层级）。
- *
- * 判据保守：全文 ≤ 20 字且以 `：`/`:` 结尾。正文句子不会既这么短又以冒号收尾并独占
- * 一段——这一点与 21 §8 书写结构的「标签行」语义一致（标签行只含标签本身）。
- */
 function isLabelLine(text: string): boolean {
   const t = text.trim();
   return t.length > 0 && t.length <= 20 && /[：:]$/.test(t);
@@ -1711,7 +1614,6 @@ export function ResearchTextNodeContent({
         <Markdown
           remarkPlugins={[remarkGfm]}
           components={{
-            // 标签行附加类名，使其可被样式区分为小标题（21 §8 的 `scope` 两标签行）。
             p: ({ children, ...rest }) => {
               const label = isLabelLine(reactNodeText(children));
               return (
@@ -1736,7 +1638,6 @@ export function ContentField({ fieldKey, value, locale }: { fieldKey: string; va
   if (value === null || value === undefined) return null;
   if (value === '') return null;
 
-  // 字段名国际化
   const label = getLocalizedFieldLabel(fieldKey, locale);
 
   return (
@@ -1764,12 +1665,9 @@ function FieldValue({ fieldKey, value, depth, locale }: { fieldKey: string; valu
     return <span className="ldvh-caption italic">{t('common.null')}</span>;
   }
 
-  // 字符串
   if (typeof value === 'string') {
-    // 空字符串不显示
     if (value === '') return null;
 
-    // acceptance 字段使用 ChecklistCard 组件
     if (fieldKey === 'acceptance') {
       return <ChecklistCard value={value} />;
     }
@@ -1790,26 +1688,21 @@ function FieldValue({ fieldKey, value, depth, locale }: { fieldKey: string; valu
       return <EvidenceBlock value={value} embedded />;
     }
 
-    // 长文本字段使用 SummaryText 组件
     if (SUMMARY_TEXT_FIELDS.includes(fieldKey)) {
       return <SummaryText value={value} />;
     }
 
-    // 单字符串引用字段使用 ReferenceCard
     if (REFERENCE_FIELDS.includes(fieldKey) && parseRefType(value)) {
       return <ReferenceCard refs={[value]} />;
     }
 
-    // 长文本（含换行）使用 SummaryText
     if (value.includes('\n') || value.length > 200) {
       return <SummaryText value={value} />;
     }
 
-    // 短文本
     return <span className="ldvh-body">{value}</span>;
   }
 
-  // 布尔值
   if (typeof value === 'boolean') {
     return (
       <span className={`ldvh-chip rounded px-1.5 py-0.5 ${value ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
@@ -1818,31 +1711,25 @@ function FieldValue({ fieldKey, value, depth, locale }: { fieldKey: string; valu
     );
   }
 
-  // 数字
   if (typeof value === 'number') {
     return <span className="ldvh-meta-primary text-ldvh-accent">{value}</span>;
   }
 
-  // 数组
   if (Array.isArray(value)) {
     if (value.length === 0) {
       return <span className="ldvh-caption italic">{t('common.empty')}</span>;
     }
 
-    // 字符串数组
     if (typeof value[0] === 'string') {
-      // related_docs 字段使用 DocPreviewLink 组件
       if (DOC_LINK_FIELDS.includes(fieldKey)) {
         return <DocumentOrTextList items={value as string[]} fieldKey={fieldKey} />;
       }
-      // 引用字段使用 ReferenceCard 组件
       if (REFERENCE_FIELDS.includes(fieldKey)) {
         return <ReferenceCard refs={value as string[]} />;
       }
       return <StringList items={value as string[]} />;
     }
 
-    // 对象数组
     return (
       <div className="flex flex-col gap-2">
         {value.map((item, i) => (
@@ -1854,7 +1741,6 @@ function FieldValue({ fieldKey, value, depth, locale }: { fieldKey: string; valu
     );
   }
 
-  // 对象
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
     return (
@@ -1879,7 +1765,6 @@ function FieldValue({ fieldKey, value, depth, locale }: { fieldKey: string; valu
   return <span className="ldvh-body">{String(value)}</span>;
 }
 
-/** 从引用 ID 解析对象类型（如 pitfall-0001 → pitfall） */
 function parseRefType(refId: string): string | null {
   if (!isObjectRef(refId)) return null;
   const m = refId.match(/^([a-z]+)-\d+$/);

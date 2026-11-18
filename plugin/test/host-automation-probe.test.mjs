@@ -1,27 +1,3 @@
-// 宿主能力探针的单元测试（2026-10-26）。
-//
-// ## 这个文件守什么
-//
-// `probeHostAutomation` 是**接线前的可行性验证**工具。它的价值在于「结论可信」——
-// 若它自己会把「接口不匹配」误报成「通过」，那它就变成了一张假的通行证，
-// 比没有它更糟。
-//
-// 故这里用**假宿主**覆盖几类真实世界会出现的失败形态：
-//   ① 服务未装配 → 必须报 `services-missing`，**不得**继续假装能跑；
-//   ② `schedule.create` 拒收 `timing: { kind: 'every' }` → 必须如实记录该步失败；
-//   ③ 宿主把 `kind` 存成别的形态 → 必须报「kind≠every」；
-//   ④ 新建会话的 `cwd` 与请求不符 → 必须报不一致（这是「只在本项目内创建」的机械证据）；
-//   ⑤ 清理指引必须给出**确切**的删除参数，否则「跑完留下一堆东西」。
-//
-// ## 0.2.2-rc.1 契约变更后本文件同步的三处
-//
-// 宿主把 `schedule` 重建为「独立任务 + 显式目标」形态：`create(request, actorSessionId?, signal?)`
-// （会话进 `request.target`、计时进 `request.timing`），`delete` 移除并入
-// `edit({ action: 'delete' })`。假宿主必须**按新签名**接收，否则测的是一份已不存在的接口，
-// 绿了也不代表能跑。⑥ 新增：探针若退回旧签名（把会话当第一个实参、计时放顶层），
-// 假宿主会因读不到 `request.timing` 而判失败——这条防止「改测试不改实现」的反向漂移。
-//
-// **真实宿主上的结论只能由真实宿主给出**——本文件不主张任何关于宿主行为的事实。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -29,7 +5,6 @@ import { probeHostAutomation, formatProbeReport } from "../lib/host-automation-p
 
 const PROJECT = "/Users/dev/projects/alpha";
 
-/** 造一个假宿主；`overrides` 可覆盖任一部分以模拟畸形宿主。 */
 function fakeHost(overrides = {}) {
   const state = {
     sessions: [{ sessionId: "session-existing", cwd: PROJECT, projections: { values: { title: "LDVH 经验审核 · 探针" } } }],
@@ -37,9 +12,6 @@ function fakeHost(overrides = {}) {
   };
   let seq = 0;
   const schedule = {
-    // 0.2.2-rc.1 签名：create(request, actorSessionId?, signal?)。
-    // 刻意**不**兼容旧签名：若探针退回旧形态，`request` 会是 sessionId 字符串，
-    // `request.timing` 读不到 → 下面抛错 → 用例红。
     create: async (request) => {
       if (typeof request !== "object" || request === null || typeof request.timing !== "object") {
         throw new Error("invalid_rule: schedule.create expects a request object carrying `timing`");
@@ -116,7 +88,6 @@ test("写模式：创建会话与周期任务，并给出**确切**的清理参�
   assert.equal(state.schedules[0].record.kind, "every", "周期任务须是 every 规则");
   assert.equal(state.schedules[0].record.everySeconds, 3600);
 
-  // 清理指引必须**精确到可执行**，否则跑完会留下东西。
   const kinds = result.cleanup.map((c) => c.kind);
   assert.ok(kinds.includes("schedule.edit"), "须给出任务删除指引（0.2.2-rc.1 无 schedule.delete，删除并入 edit）");
   assert.ok(kinds.includes("session.delete"), "须给出会话删除指引");
@@ -145,7 +116,6 @@ test("宿主拒收 every 选择器：如实记录失败，不伪造成功", asyn
 test("宿主把周期任务存成别的形态：报 kind≠every（判别式是判据，不是装饰）", async () => {
   const { ctx } = fakeHost({
     schedule: {
-      // 宿主「接受」了请求，但存下来的是 at 形态——这种静默降级最危险。
       create: async (request) => ({
         id: "sched-quiet",
         kind: "at",
@@ -166,7 +136,6 @@ test("宿主把周期任务存成别的形态：报 kind≠every（判别式是�
 test("新建会话的 cwd 与项目根不符：报不一致（「只在本项目内创建」的机械证据）", async () => {
   const { ctx } = fakeHost({
     sessionController: {
-      // 宿主忽略了 cwd，把会话建在别处。
       create: async () => ({ sessionId: "session-elsewhere" }),
       list: async () => ({
         items: [
@@ -202,7 +171,6 @@ test("formatProbeReport 可读，且把须清理项列出来", async () => {
   assert.match(text, /宿主能力探针/);
   assert.match(text, /须清理/);
   assert.match(text, /schedule\.edit/);
-  // 报告须能一眼看出成败：每一步都有 ✅ 或 ❌。
   for (const step of result.steps) {
     assert.ok(text.includes(step.name), `报告须包含步骤：${step.name}`);
   }

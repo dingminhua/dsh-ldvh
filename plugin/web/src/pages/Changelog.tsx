@@ -169,7 +169,7 @@ export default function Changelog() {
           getLabel={(value) => getCommitTypeLabel(value, locale)}
           getOptionColor={(value) => CATEGORY_COLORS[value] || CATEGORY_COLORS.other}
         />
-        {/* 范围的筛选已移除（2026-08-22） */}
+        { }
       </div>
 
       <div className="ldvh-section-grid">

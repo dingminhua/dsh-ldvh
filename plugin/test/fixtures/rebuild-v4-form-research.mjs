@@ -1,9 +1,3 @@
-/**
- * Rebuild the blueprint research per the v4-form spec (commit 77a562b):
- * thin frontmatter index + v4-style research body (findings with
- * observation + judgment + trace anchors; recommendations with
- * acceptance criteria; routing with signals).
- */
 import { createResearchObject, readResearchObject, updateResearchObject } from "../../lib/research-writer.js";
 import { shellAuthoritativeSignature } from "../../lib/session-signature.js";
 
@@ -110,7 +104,6 @@ console.log("New object:", result.value.object_uid);
 const readBack = await readResearchObject({ factSourceRoot: ROOT, objectUid: result.value.object_uid });
 console.log("Read-back ok:", readBack.ok, "| body_valid:", readBack.ok && readBack.value.body_valid);
 
-// Retire previous attempts
 for (const uid of [PREV_UID]) {
   const prev = await readResearchObject({ factSourceRoot: ROOT, objectUid: uid });
   if (prev.ok && prev.value.frontmatter.status === "active") {

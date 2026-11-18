@@ -1,17 +1,3 @@
-// Norm writer + tools: the mechanical slice of specs/27 §11 and §13.
-//
-// Coverage focus — the three uniqueness layers and the lifecycle lanes, plus
-// the schema↔writer field agreement that a prior defect (aa12604) showed can
-// drift silently:
-//   - layer 1 (pre-write refusal, ERR_DIRECTION_ALREADY_EXISTS)
-//   - the refusal must let the caller IDENTIFY the occupant, and the tool layer
-//     must render it into `gaps` (friction cccb379f: object-shaped details used
-//     to fall through `Array.isArray` and vanish, leaving a bare code)
-//   - layer 3 (consumption fail-closed on direction_collision)
-//   - active→active errata lane with direction_key held fixed
-//   - active→retired terminal transition + read-only afterwards
-//   - the tool-surface schema admits every field the writer's closed set
-//     accepts (the "no field is unreachable through the tool plane" guard)
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -68,9 +54,6 @@ function createArgs(root, overrides = {}) {
 	};
 }
 
-// ---------------------------------------------------------------------------
-// Frontmatter / body closed sets (27 §8)
-// ---------------------------------------------------------------------------
 
 test("frontmatter: closed set rejects unknown fields; direction_key uses the 01.Att.02 identifier pattern", () => {
 	const base = {
@@ -87,7 +70,6 @@ test("frontmatter: closed set rejects unknown fields; direction_key uses the 01.
 	assert.equal(unknown.ok, false);
 	assert.ok(unknown.issues.some((issue) => issue.includes("norm_source")));
 
-	// 27 §13.1 pins direction_key to the ID_PATTERN authority — not a copy.
 	assert.equal(ID_PATTERN.test("code-style"), true);
 	assert.equal(ID_PATTERN.test("Code_Style"), false);
 	const bad = validateNormFrontmatter({ ...base, direction_key: "Code_Style" });
@@ -95,7 +77,7 @@ test("frontmatter: closed set rejects unknown fields; direction_key uses the 01.
 	assert.ok(bad.issues.some((issue) => issue.includes("direction_key")));
 });
 
-test("frontmatter: title cap is 40 characters (27 §8)", () => {
+test("frontmatter: title cap is 40 characters (23 §8)", () => {
 	const base = {
 		object_uid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 		fact_type_key: "norm",
@@ -109,7 +91,7 @@ test("frontmatter: title cap is 40 characters (27 §8)", () => {
 	assert.ok(over.issues.some((issue) => issue.includes("≤ 40")));
 });
 
-test("frontmatter: status ⇔ terminal-field invariants (27 §8/§13.1)", () => {
+test("frontmatter: status ⇔ terminal-field invariants (23 §8/§13.1)", () => {
 	const base = {
 		object_uid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 		fact_type_key: "norm",
@@ -117,18 +99,15 @@ test("frontmatter: status ⇔ terminal-field invariants (27 §8/§13.1)", () => 
 		created_at: "2026-09-13T00:00:00.000Z",
 		direction_key: "code-style",
 	};
-	// active must not carry terminal fields
 	assert.equal(validateNormFrontmatter({ ...base, status: "active", retirement_reason: "outdated" }).ok, false);
 	assert.equal(validateNormFrontmatter({ ...base, status: "active", retired_at: "2026-09-13T00:00:00.000Z" }).ok, false);
-	// retired requires both, reason within the closed set
 	assert.equal(validateNormFrontmatter({ ...base, status: "retired" }).ok, false);
 	assert.equal(validateNormFrontmatter({ ...base, status: "retired", retirement_reason: "nonsense", retired_at: "2026-09-13T00:00:00.000Z" }).ok, false);
 	assert.equal(validateNormFrontmatter({ ...base, status: "retired", retirement_reason: "outdated", retired_at: "2026-09-13T00:00:00.000Z" }).ok, true);
-	// relations is not a Norm field (27 §9)
 	assert.equal(validateNormFrontmatter({ ...base, status: "active", relations: [] }).ok, false);
 });
 
-test("body: all four fixed H2 sections must exist and be non-empty (27 §8)", () => {
+test("body: all four fixed H2 sections must exist and be non-empty (23 §8)", () => {
 	const title = "代码风格";
 	const full = `# ${title}\n\n${BODY_H2}`;
 	assert.equal(validateNormBodyStructure(full, title).ok, true);
@@ -144,9 +123,6 @@ test("body: all four fixed H2 sections must exist and be non-empty (27 §8)", ()
 	assert.ok(emptyCheck.issues.some((issue) => issue.includes("non-empty")));
 });
 
-// ---------------------------------------------------------------------------
-// Create (27 §8.1 legal initial state + §11 uniqueness layer 1)
-// ---------------------------------------------------------------------------
 
 test("create: initialises as active with a signed change_log and Code-assigned identity", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
@@ -166,7 +142,7 @@ test("create: initialises as active with a signed change_log and Code-assigned i
 	});
 });
 
-test("create: refuses status=retired (27 §8.1 — the only legal initial state is active)", async () => {
+test("create: refuses status=retired (23 §8.1 — the only legal initial state is active)", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const created = await createNormObject(createArgs(root, { draft: { status: "retired" } }));
@@ -203,25 +179,22 @@ test("create: the refusal names the occupant and the tool layer renders it (fric
 		assert.equal(second.ok, false);
 		assert.equal(second.error.code, ERR_DIRECTION_ALREADY_EXISTS);
 
-		// 写入器一侧：载荷须让占用者可被识别（title/status），而不只是一个 uid。
 		const conflicts = second.error.details?.conflicts;
 		assert.ok(Array.isArray(conflicts) && conflicts.length === 1, "载荷必须携带占用者");
 		assert.equal(conflicts[0].title, "代码风格");
 		assert.equal(conflicts[0].status, "active");
 		assert.equal(conflicts[0].object_uid, first.value.object_uid);
 
-		// 工具层一侧：把**上面这个真实载荷**喂进映射器，两半由同一条测试锁住。
 		const rejected = writeRejected("norm-write-object", second, root, "create");
 		assert.equal(rejected.outcome, "rejected");
 		assert.ok(rejected.gaps.some((gap) => gap.includes("代码风格")), "占用者标题必须抵达调用方");
 		assert.ok(rejected.gaps.some((gap) => gap.includes(first.value.object_uid)), "占用者 object_uid 必须抵达调用方");
 		assert.ok(rejected.gaps.some((gap) => gap.includes("code-style")), "方向键必须出现在拒绝信息里");
-		// 回归：对象型 details 不再被 Array.isArray 判否而整体落空。
 		assert.ok(rejected.gaps.length >= 3, "除错误码外至少还要有占用者行");
 	});
 });
 
-test("create: layer 1 allows reusing a direction_key once the previous Norm is retired (27 §11)", async () => {
+test("create: layer 1 allows reusing a direction_key once the previous Norm is retired (23 §11)", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const first = await createNormObject(createArgs(root));
@@ -238,16 +211,12 @@ test("create: layer 1 allows reusing a direction_key once the previous Norm is r
 		});
 		assert.equal(retired.ok, true);
 
-		// Same direction_key, new object — the formula counts ACTIVE only.
 		const reused = await createNormObject(createArgs(root, { draft: { title: "代码风格（重启）" } }));
 		assert.equal(reused.ok, true);
 		assert.notEqual(reused.value.object_uid, first.value.object_uid);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Update lanes (27 §8.1)
-// ---------------------------------------------------------------------------
 
 async function createAndRead(root) {
 	const created = await createNormObject(createArgs(root));
@@ -256,7 +225,7 @@ async function createAndRead(root) {
 	return { uid: created.value.object_uid, fm, body: read.value.body, fingerprint: read.value.fingerprint };
 }
 
-test("update: active→active is errata; direction_key is held fixed mechanically (27 §13.2)", async () => {
+test("update: active→active is errata; direction_key is held fixed mechanically (23 §13.2)", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const { uid, fm, body, fingerprint } = await createAndRead(root);
@@ -274,7 +243,6 @@ test("update: active→active is errata; direction_key is held fixed mechanicall
 		assert.equal(updated.ok, true);
 		assert.equal(updated.value.transition, "errata");
 
-		// direction drift must be refused as an in-place update
 		const drift = await updateNormObject({
 			factSourceRoot: root,
 			objectUid: uid,
@@ -307,7 +275,7 @@ test("update: CAS baseline mismatch is refused (03 §9.5)", async () => {
 	});
 });
 
-test("update: active→retired is terminal and read-only afterwards (27 §8.1)", async () => {
+test("update: active→retired is terminal and read-only afterwards (23 §8.1)", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const { uid, fm, body, fingerprint } = await createAndRead(root);
@@ -343,11 +311,10 @@ test("update: active→retired is terminal and read-only afterwards (27 §8.1)",
 	});
 });
 
-test("update: superseded requires another resolvable active Norm (27 §8.1)", async () => {
+test("update: superseded requires another resolvable active Norm (23 §8.1)", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const { uid, fm, body, fingerprint } = await createAndRead(root);
-		// No other active Norm exists, so superseded cannot resolve a successor.
 		const bad = await updateNormObject({
 			factSourceRoot: root,
 			objectUid: uid,
@@ -360,7 +327,6 @@ test("update: superseded requires another resolvable active Norm (27 §8.1)", as
 		assert.equal(bad.ok, false);
 		assert.equal(bad.error.code, "norm/superseded_unresolvable");
 
-		// With a second active Norm present the same transition is accepted.
 		assert.equal((await createNormObject(createArgs(root, { draft: { title: "安全策略", direction_key: "security" } }))).ok, true);
 		const good = await updateNormObject({
 			factSourceRoot: root,
@@ -375,15 +341,10 @@ test("update: superseded requires another resolvable active Norm (27 §8.1)", as
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Layer 3 — consumption fail-closed (27 §11 item 3)
-// ---------------------------------------------------------------------------
 
 test("list: layer 3 withholds every colliding active Norm and reports direction_collision", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
-		// Hand-written carriers (the layer-1 writer is bypassed on purpose —
-		// that is exactly the situation layer 2/3 exist for).
 		for (const [uid, key] of [
 			["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "shared-key"],
 			["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "shared-key"],
@@ -415,7 +376,7 @@ test("list: unreadable carriers are reported, not silently dropped", async () =>
 	});
 });
 
-test("list: active-only by default; retired surfaces only with status=all (27 §10)", async () => {
+test("list: active-only by default; retired surfaces only with status=all (23 §10)", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const { uid, fm, body, fingerprint } = await createAndRead(root);
@@ -433,16 +394,9 @@ test("list: active-only by default; retired surfaces only with status=all (27 §
 	});
 });
 
-// 34 §8.1 适用识别：AI 仅凭标题无法判断哪份规范在管当次事项，故 list 投影
-// 须给出「方向定位与适用范围」段的确定性摘录，供其决定展开哪份（ldvh_norm_read）。
-// 该摘录是正文的派生视图、不是新增 frontmatter 字段（27 §7 载体内聚不破）。
-//
-// 2026-11-15 Human 决定：契约从「首句 60 字」改为**两句**（管什么 + 何时查阅），
-// 两句都要投影——注入面与 list 共用 `norm-positioning.js`（单一实现）。
 test("list: projections carry bounded, deterministic 方向定位 two-sentence excerpts", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
-		// 按 27 §8 两句契约：段内恰好两段，各以固定标签起首。
 		const body = `## 方向定位与适用范围
 
 **管什么**：本方向管示例事务的准入与边界，不回答其它方向的判定。
@@ -472,17 +426,13 @@ test("list: projections carry bounded, deterministic 方向定位 two-sentence e
 		assert.match(item.positioning, /本方向管示例事务的准入与边界/);
 		assert.ok(!item.positioning.includes("管什么"), "markdown 标签须剥除");
 		assert.ok(!item.positioning.includes("**"), "强调标记须剥除");
-		// 第二句：触发场景（what + when 的 when 侧）。
 		assert.equal(typeof item.when_to_read, "string");
 		assert.match(item.when_to_read, /改动示例事务的准入实现前查阅本规范/);
 		assert.ok(!item.when_to_read.includes("何时查阅"), "markdown 标签须剥除");
-		// 27 §8 契约：各 ≤60 字、无截断（超限即不合格、不外发）。断言具体长度而非
-		// 恒真的上界，使「实现把上限放宽」时本用例会红（06 §7 断言检测力）。
-		assert.ok(item.positioning.length <= 60, "管什么句须 ≤60 字（27 §8 书写契约）");
-		assert.ok(item.when_to_read.length <= 60, "何时查阅句须 ≤60 字（27 §8 书写契约）");
+		assert.ok(item.positioning.length <= 60, "管什么句须 ≤60 字（23 §8 书写契约）");
+		assert.ok(item.when_to_read.length <= 60, "何时查阅句须 ≤60 字（23 §8 书写契约）");
 		assert.ok(!item.positioning.endsWith("…"), "合契约时不得出现截断省略号");
 		assert.ok(!item.when_to_read.endsWith("…"), "合契约时不得出现截断省略号");
-		// 确定性：同一载体两次调用逐字相同（两句都要稳）。
 		const again = await listNormObjects({ factSourceRoot: root });
 		const second = again.value.items.find((i) => i.object_uid === uid);
 		assert.equal(second.positioning, item.positioning);
@@ -490,10 +440,6 @@ test("list: projections carry bounded, deterministic 方向定位 two-sentence e
 	});
 });
 
-// 27 §8 书写契约 / M1 防线：不合契约的定位段绝不外发成摘录，须显式标
-// unavailable 并指引读正文（34 §12 三态：不可导出 ≠ 没有定位）。
-// 旧「上游更新跟进规程」的整段首句是「…AI 无须另行请示即可按本规程跟进」，
-// 回退取首段会把一句脱离上下文的授权抛给 AI。
 test("list: 方向定位不合契约时不外发摘录、显式标 unavailable", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
@@ -523,9 +469,6 @@ test("list: 方向定位不合契约时不外发摘录、显式标 unavailable",
 	});
 });
 
-// 负向守卫：两句标签齐备、但「管什么」含 §8 第 2 条点名的授权措辞「可直接」
-// 时，须 unavailable（禁词判定的机械承载不得形同虚设）。
-// **须带齐两段**：否则用例会因「段数不合契约」提前返回，测不到授权措辞判定。
 test("list: 合规标签但含「可直接」授权措辞时须 unavailable", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
@@ -556,12 +499,10 @@ test("list: 合规标签但含「可直接」授权措辞时须 unavailable", as
 	});
 });
 
-// 负向守卫：两句标签齐备、但「管什么」>60 字时须 unavailable（长度判定的
-// 机械承载不得形同虚设；合契约用例只有 30 字，删掉上限也全绿）。
 test("list: 合规标签但「管什么」超 60 字时须 unavailable", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
-		const long = "本方向管".repeat(16) + "事项。";  // 67 字，>60
+		const long = "本方向管".repeat(16) + "事项。";
 		const body = `## 方向定位与适用范围
 
 **管什么**：${long}
@@ -588,10 +529,6 @@ test("list: 合规标签但「管什么」超 60 字时须 unavailable", async (
 	});
 });
 
-// 负向守卫（2026-11-15 独立复核 MINOR-5）：契约要求「每段一条语句」，而机械层
-// 原实现只取第一句、**其余静默丢弃**且仍报 ok——一个 150 字的第二句根本不会
-// 出现在注入面，机械层却看不出任何异常。改为：段内多句即判不合契约
-// （fail-closed），并点名判定项。
 test("list: 定位段内出现第二句时须 unavailable（不得静默丢弃）", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
@@ -622,9 +559,6 @@ test("list: 定位段内出现第二句时须 unavailable（不得静默丢弃�
 	});
 });
 
-// 负向守卫（2026-11-15 新增）：「何时查阅」句写成**适用性断言**（「适用于…」）
-// 时须 unavailable。该句的职责是描述行动场景（何时来读），不是宣告适用结论——
-// 后者会让注入面出现一句可被直接读成「已判定适用」的话（34 §13、34 §8.4 第 3 项）。
 test("list: 「何时查阅」写成适用性断言时须 unavailable", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
@@ -653,9 +587,6 @@ test("list: 「何时查阅」写成适用性断言时须 unavailable", async ()
 	});
 });
 
-// 负向守卫（2026-11-15 新增）：段内多出第三段（不管什么清单、双源声明、沿革等
-// 旧形态）时须 unavailable——本次精简的核心就是「段内恰好两段」。按「取前两段」
-// 宽容处理会让「段里还塞着别的东西」静默通过。
 test("list: 定位段多出第三段时须 unavailable（段内恰好两段）", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
@@ -686,7 +617,6 @@ test("list: 定位段多出第三段时须 unavailable（段内恰好两段）",
 	});
 });
 
-// 正控制（防判据写成恒假）：两句都缺标签时须 unavailable，且原因点名缺失的标签。
 test("list: 缺「何时查阅」标签时须 unavailable 并点名缺失项", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
@@ -715,16 +645,8 @@ test("list: 缺「何时查阅」标签时须 unavailable 并点名缺失项", a
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Tool-plane reachability (the aa12604 defect class)
-// ---------------------------------------------------------------------------
 
 test("tools: every writer-accepted AI field is reachable through the tool schema", () => {
-	// The writer's closed set minus Code-assigned fields is the set of fields AI
-	// supplies. The tool schema declares `additionalProperties: false`, so a
-	// field missing from the schema is UNREACHABLE through the tool plane even
-	// though the writer would accept it (this is exactly the aa12604 defect:
-	// priority existed in the writer but not in spark-tools' schema).
 	const AI_FIELDS = ["title", "status", "direction_key", "retirement_reason"];
 	const descriptor = toolDescriptorFor(
 		"norm-write-object",
@@ -743,9 +665,6 @@ test("tools: every writer-accepted AI field is reachable through the tool schema
 });
 
 test("tools: write is registered as write-shaped so the guard covers it", async () => {
-	// The coverage set is populated when the tools are REGISTERED (each module
-	// registers its own writer at that point, so the guard reflects what the
-	// build really exposes rather than a hardcoded list that can drift).
 	const { writeShapedTools } = await import("../lib/host-seams.js");
 	const { registerNormTools } = await import("../lib/norm-tools.js");
 	const registered = [];
@@ -762,11 +681,6 @@ test("tools: write is registered as write-shaped so the guard covers it", async 
 });
 
 test("tools: output.render returns an array of content blocks (never a bare string)", () => {
-	// Regression guard for the `content.some is not a function` incident: the
-	// DSH tool layer calls `result.content.some((block) => block.type ===
-	// "image")` on EVERY tool result, so a string return kills the whole batch
-	// before the model ever sees it. All three Norm tools are exercised, and
-	// both string and structured gaps must survive.
 	for (const operationKey of Object.keys(OPERATIONS)) {
 		const descriptor = toolDescriptorFor(operationKey, OPERATIONS[operationKey], () => {});
 		const blocks = descriptor.output.render({}, {
@@ -784,7 +698,6 @@ test("tools: output.render returns an array of content blocks (never a bare stri
 			assert.equal(typeof block.type, "string", `${operationKey}: each block needs a string type`);
 			assert.equal(typeof block.text, "string", `${operationKey}: each text block needs string text`);
 		}
-		// The exact call dsh-tools performs on the result.
 		assert.equal(blocks.some((block) => block.type === "image"), false);
 		assert.ok(!blocks[0].text.includes("[object Object]"), "structured gaps must not render as [object Object]");
 	}
@@ -797,11 +710,8 @@ test("tools: read/list are declared read-effect; write is may_change_state", () 
 	assert.equal(OPERATIONS["norm-write-object"].writeShaped, true);
 });
 
-// ---------------------------------------------------------------------------
-// Carrier shape
-// ---------------------------------------------------------------------------
 
-test("carrier: file name encodes the UID and the H1 mirrors the title (27 §7)", async () => {
+test("carrier: file name encodes the UID and the H1 mirrors the title (23 §7)", async () => {
 	await withTemp("ldvh-norm.", async (base) => {
 		const root = await factRoot(base);
 		const created = await createNormObject(createArgs(root));
@@ -812,9 +722,6 @@ test("carrier: file name encodes the UID and the H1 mirrors the title (27 §7)",
 	});
 });
 
-// ---------------------------------------------------------------------------
-// 02 §9.3 指称形态：工具的 JSON 输出不得留下裸 object_uid
-// ---------------------------------------------------------------------------
 
 test("render: norm read/list JSON output carries the typed reference, not a bare uid (02 §9.3)", () => {
 	const uid = "abf557e1-1111-2222-3333-444455556666";
@@ -857,16 +764,7 @@ test("render: an unattributable uid is left alone rather than given a guessed ty
 	assert.ok(rendered.includes("deadbeef"), "the uid must still be visible, not dropped");
 });
 
-// ---------------------------------------------------------------------------
-// 27 §15 Human Gate（2026-11-15）：create 与 retire 必须在落盘之前取得 Human 确认
-// ---------------------------------------------------------------------------
-//
-// 这个缺口此前**测试完全覆盖不到**：norm-writer 的机械层是对的，缺的是「谁在写
-// 之前问过」。而这一层在真实组合里不生效时，表现是「写入照常成功」——没有任何
-// 断言会红。故这几条用例钉的是**调用点的行为**，不是 writer 的内部。
-// 删掉 `requestNormGate` 的两处调用，本组全红；这不是靠读代码看出来的。
 
-/** 造一个受管辖的仓库 + 登记。与既有工具测试同一形态（不另造一套夹具）。 */
 async function governedFixture(base) {
 	const home = join(base, "home");
 	const repo = await initRepo(base);
@@ -875,10 +773,6 @@ async function governedFixture(base) {
 	return { home, repo, root: join(repo, "ldvh-base") };
 }
 
-/**
- * 造一个最小 hostSeams 替身：记录问了几次、并按 `answer` 给答复。
- * `null` = 人没答（须 fail-closed）。镜像既有接缝测试的替身。
- */
 function fakeSeams(answer = "确认") {
 	const calls = [];
 	return {
@@ -892,14 +786,6 @@ function fakeSeams(answer = "确认") {
 	};
 }
 
-/**
- * 捕获 `registerNormTools` 真正注册的描述符，并按 DSH 运行时的形态驱动它们。
- *
- * **这是既有工具测试的做法**（同目录工具测试的 `makeDescriptors`），不是我
- * 另造的通道。它比「直接调 handler」强：**参数 schema 与 descriptor 都在路径上**，
- * 于是「加了参数但 schema 不收」这类缺陷会被真实宿主校验挡住——独立审查 MINOR-1
- * 正是拿这一点反对我第一版的 test-only 导出。
- */
 function makeNormDescriptors(deps) {
 	const registered = [];
 	const ctx = { tools: { register: (descriptor) => { registered.push(descriptor); return () => {}; } } };
@@ -909,7 +795,6 @@ function makeNormDescriptors(deps) {
 	return byName;
 }
 
-/** 跑一次写入：注入 seams，cwd 决定管辖判定。 */
 async function runWrite(args, seams, fixture) {
 	const descriptors = makeNormDescriptors({
 		hostSeams: seams,
@@ -930,13 +815,10 @@ const CREATE_ARGS = {
 	dedup_result: "与既有 active 方向逐个比对：无同主题、无上下位重叠",
 };
 
-test("27 §15.2：create 的呈报取自正文「方向定位与适用范围」，不是不存在的 scope 字段", async () => {
-	// 独立审查 MAJOR-1 抓出：第一版照抄 ADR 读 `draft.scope`，而 Norm 的 frontmatter
-	// 闭集里**没有** scope（27 §8）——那行是死代码，Human 永远看不到「这份 Norm 管什么」。
-	// 这条用例钉住：报告里出现正文首段的实质内容，且**不含** scope 字段。
+test("23 §15.2：create 的呈报取自正文「方向定位与适用范围」，不是不存在的 scope 字段", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
-		const seams = fakeSeams(null);  // 人没答：只要问到就够，不落盘
+		const seams = fakeSeams(null);
 		await runWrite({
 			...CREATE_ARGS,
 			body_markdown: BODY_H2.replace("本规范管辖插件运行时的代码风格与可读性基线。", "本规范管辖插件运行时的代码风格与可读性基线，关键判据是缩进与命名。"),
@@ -945,13 +827,11 @@ test("27 §15.2：create 的呈报取自正文「方向定位与适用范围」�
 		const report = String(seams.calls[0].summary);
 		assert.ok(report.includes("关键判据是缩进与命名"), `呈报须含正文定位段的实质内容，实际：${report}`);
 		assert.ok(!report.includes("scope："), `呈报不得出现 Norm 没有的 scope 字段，实际：${report}`);
-		assert.ok(report.includes("查重结论"), "呈报须含查重结论（27 §15.2）");
+		assert.ok(report.includes("查重结论"), "呈报须含查重结论（23 §15.2）");
 	});
 });
 
-test("27 §15.2：create 缺查重结论即硬拒，且根本不发出提问", async () => {
-	// 独立审查 MAJOR-2 抓出：dedup_result 不 required 时，title+direction_key 就足以
-	// 让报告非空——「查重没做」在链条上完全不可见，create 会被**放过**而不是被拒。
+test("23 §15.2：create 缺查重结论即硬拒，且根本不发出提问", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const seams = fakeSeams("确认");
@@ -964,15 +844,10 @@ test("27 §15.2：create 缺查重结论即硬拒，且根本不发出提问", a
 	});
 });
 
-test("27 §15.2：create 的 body 缺「方向定位与适用范围」段 ⇒ 清晰拒绝，不是内部 TypeError", async () => {
-	// 独立复核 MAJOR-1 实测抓出：`sectionContent` 找不到该 H2 时**返回 null**，
-	// 我第一版直接 `.trim()`，于是把一条「缺段，请补」的可行动拒绝变成
-	// `Cannot read properties of null`。缺段是常规输入错误，必须走 gaps 报出来。
-	// 与 norm-tools.js 自己的「缺什么报什么」纪律、00 §4.6 据实声明同向。
+test("23 §15.2：create 的 body 缺「方向定位与适用范围」段 ⇒ 清晰拒绝，不是内部 TypeError", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const seams = fakeSeams("确认");
-		// 故意去掉该 H2（保留其余三段）
 		const noPositioning = BODY_H2.replace(/## 方向定位与适用范围\n\n[^#]*/, "");
 		assert.ok(!noPositioning.includes("## 方向定位与适用范围"), "夹具须真的缺该段");
 		const env = await runWrite({ ...CREATE_ARGS, body_markdown: noPositioning }, seams, f);
@@ -985,17 +860,10 @@ test("27 §15.2：create 的 body 缺「方向定位与适用范围」段 ⇒ �
 	});
 });
 
-test("27 §15.2：注定失败的 create 一律不先惊动 Human（建前只读预检）", async () => {
-	// 实测过的真实缺陷：Gate 原先排在 writer 的机械校验之前，于是四种**注定失败**
-	// 的输入每一种都会先弹出询问、拿到「确认」，再被 writer 拒掉——那道确认已经
-	// 发生、已经落进会话记录，读起来却像一次失败的决定，且让 Gate 沦为噪声。
-	// 预检复用 writer 自己的校验函数（01 §11.4：不新造第二规则源）。
+test("23 §15.2：注定失败的 create 一律不先惊动 Human（建前只读预检）", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const BODY = BODY_H2;
-		// **每条都钉住具体错误码与结论形态**（独立复核 MINOR-3）：只断言
-		// `outcome !== "completed"` 太弱——`unavailable` 也会通过，而「预检给出一个
-		// 错的理由」同样会通过。这正是上一轮 BLOCKER 能溜过测试的原因。
 		const cases = [
 			["direction_key 格式非法", { ...CREATE_ARGS, frontmatter_draft: { title: "坏键", direction_key: "BAD KEY!!", status: "active" } },
 				"rejected", "norm/frontmatter_invalid", "direction_key"],
@@ -1014,7 +882,6 @@ test("27 §15.2：注定失败的 create 一律不先惊动 Human（建前只读
 			assert.ok(gaps.includes(wantReason), `${name}：须点明 ${wantReason}，实际 ${gaps}`);
 			assert.ok(!gaps.includes("Cannot read"), `${name}：不得报内部错误`);
 		}
-		// 反向：合法输入仍必须真的问（预检不得误伤）
 		const ok = fakeSeams("确认");
 		const envOk = await runWrite({ ...CREATE_ARGS, body_markdown: BODY }, ok, f);
 		assert.equal(ok.calls.length, 1, "合法输入须照常提问——预检不能把一切都拦下");
@@ -1023,10 +890,6 @@ test("27 §15.2：注定失败的 create 一律不先惊动 Human（建前只读
 });
 
 test("建前预检必须与写入器同形：change_summary 是合法输入，不得误拒", async () => {
-	// 自查抓出的真缺陷：`frontmatter_draft.change_summary` 在 schema 里**合法**
-	// （writer 会把它剥出 draft 放进 change_log），而预检第一版原样喂给
-	// validateNormFrontmatter，于是把这份**合法**输入判成 `unexpected field
-	// "change_summary"` 闭集违规而拒。预检与写入不同源，就成了新的误判源。
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const seams = fakeSeams("确认");
@@ -1042,20 +905,17 @@ test("建前预检必须与写入器同形：change_summary 是合法输入，�
 test("建前预检必须与写入器同形：初态与终态伴随字段沿用 writer 的判定", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
-		// ① create 带 status=retired → initial_state_violation，且不问
 		{
 			const seams = fakeSeams("确认");
 			const env = await runWrite({
 				...CREATE_ARGS,
-				// retired_at 被宿主 schema 挡住（additionalProperties:false），故只用 status+retirement_reason
 				frontmatter_draft: { title: "初态非法", direction_key: "initial-bad", status: "retired", retirement_reason: "outdated" },
 			}, seams, f);
 			assert.equal(seams.calls.length, 0, "初态非法不得先问 Human");
 			assert.equal(env.outcome, "rejected", `须为 rejected，实际 ${env.outcome}`);
-			assert.ok(String(env.gaps).includes("initial_state_violation") || String(env.gaps).includes("27 §8.1"),
+			assert.ok(String(env.gaps).includes("initial_state_violation") || String(env.gaps).includes("23 §8.1"),
 				`须给出初态理由：${JSON.stringify(env.gaps)}`);
 		}
-		// ② create 带 retirement_reason 而 status=active → frontmatter_invalid，且不问
 		{
 			const seams = fakeSeams("确认");
 			const env = await runWrite({
@@ -1069,35 +929,30 @@ test("建前预检必须与写入器同形：初态与终态伴随字段沿用 w
 	});
 });
 
-test("27 §15.2：direction_key 已占用时不先问 Human（与 writer 同一拒绝码）", async () => {
+test("23 §15.2：direction_key 已占用时不先问 Human（与 writer 同一拒绝码）", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const first = fakeSeams("确认");
 		const env1 = await runWrite(CREATE_ARGS, first, f);
 		assert.equal(env1.outcome, "completed", "夹具须建立成功");
 		const seams = fakeSeams("确认");
-		const env2 = await runWrite(CREATE_ARGS, seams, f);   // 同一 direction_key
+		const env2 = await runWrite(CREATE_ARGS, seams, f);
 		assert.equal(seams.calls.length, 0, `占用冲突时不得先问 Human，实际问了 ${seams.calls.length} 次`);
 		assert.equal(env2.outcome, "rejected", `须为 rejected，实际 ${env2.outcome}`);
-		assert.ok(String(env2.gaps).includes("ERR_DIRECTION_ALREADY_EXISTS") || String(env2.gaps).includes("27 §11"), `须给出 27 §11 的唯一性理由：${JSON.stringify(env2.gaps)}`);
+		assert.ok(String(env2.gaps).includes("ERR_DIRECTION_ALREADY_EXISTS") || String(env2.gaps).includes("23 §11"), `须给出 23 §11 的唯一性理由：${JSON.stringify(env2.gaps)}`);
 	});
 });
 
-test("27 §15.2：seam 在、答题器不在 ⇒ rejected + 零写入（生产真正会走的路径）", async () => {
-	// 复核 MINOR-3：`requestNormGate` 的 `unavailable` 分支（deps.hostSeams 缺失）
-	// 在生产装配链上**不可达**——index.js 恒注入 hostSeams。生产真正会走到的是
-	// **接缝内部**的「无答题器」→ granted:false → rejected。上面那条用例钉的是
-	// 不可达分支，这条钉可达的那条。
+test("23 §15.2：seam 在、答题器不在 ⇒ rejected + 零写入（生产真正会走的路径）", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
-		// 真实的 createHostSeams()，但 ctx 里没有 userQuestions
 		const { createHostSeams } = await import("../lib/host-seams.js");
 		const seams = createHostSeams();
 		const install = seams.install({
 			get: (key) => ({
 				tools: { guard: () => () => {} },
 				invariants: { register: () => () => {} },
-				userQuestions: undefined,   // ← 无答题器
+				userQuestions: undefined,
 				fs: { resolve: async (p) => ({ targetKey: `tk:${p}`, displayPath: p }), stat: async () => ({ version: "v", type: "file" }) },
 			}[key]),
 			on: () => () => {},
@@ -1113,20 +968,20 @@ test("27 §15.2：seam 在、答题器不在 ⇒ rejected + 零写入（生产�
 	});
 });
 
-test("27 §15.2：create 未取得确认即零写入", async () => {
+test("23 §15.2：create 未取得确认即零写入", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const seams = fakeSeams(null);
 		const env = await runWrite(CREATE_ARGS, seams, f);
 		assert.equal(env.outcome, "rejected", `未取得确认必须拒绝，实际 ${env.outcome}: ${JSON.stringify(env.gaps)}`);
 		assert.equal(seams.calls.length, 1, "必须真的问过一次——不问就写等于没有 Gate");
-		assert.ok(String(seams.calls[0].summary).includes("无同主题"), "呈报须带查重结论（27 §15.2）");
+		assert.ok(String(seams.calls[0].summary).includes("无同主题"), "呈报须带查重结论（23 §15.2）");
 		const { readdir } = await import("node:fs/promises");
 		assert.deepEqual(await readdir(join(f.root, "norms")).catch(() => []), [], "被拒绝时不得落盘任何载体");
 	});
 });
 
-test("27 §15.2：create 取得确认后照常落盘（Gate 不是永久阻断）", async () => {
+test("23 §15.2：create 取得确认后照常落盘（Gate 不是永久阻断）", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const seams = fakeSeams("确认");
@@ -1137,22 +992,16 @@ test("27 §15.2：create 取得确认后照常落盘（Gate 不是永久阻断�
 	});
 });
 
-test("27 §15.2：宿主 schema 已挡住「呈报为空」这条路——故真实缺口只能是 dedup_result", async () => {
-	// 独立审查 MINOR-1 的反面收获：改用**真实注册描述符**驱动后暴露了一个事实——
-	// `frontmatter_draft.title`/`direction_key` 是 schema 必填，宿主在进 handler 之前
-	// 就拒了。所以我原来那条「呈报为空 → 不问」的用例测的是**生产不可达**的路径。
-	// 真实可达的缺口只有一个：title+direction_key 在场、而查重结论缺失。
+test("23 §15.2：宿主 schema 已挡住「呈报为空」这条路——故真实缺口只能是 dedup_result", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const seams = fakeSeams("确认");
-		// ① schema 自己就拒：title 缺失时 handler 根本不会被调用
 		await assert.rejects(
 			() => runWrite({ action: "create", frontmatter_draft: { status: "active" }, body_markdown: BODY_H2 }, seams, f),
 			(err) => String(err?.message ?? err).includes("frontmatter_draft.title"),
 			"宿主 schema 须在进 handler 前拒掉缺 title 的调用",
 		);
 		assert.equal(seams.calls.length, 0, "schema 拒绝时不得发出提问");
-		// ② 真实缺口：字段齐备但没做查重 —— 必须硬拒且不问
 		const { dedup_result: _omit, ...noDedup } = CREATE_ARGS;
 		const env = await runWrite(noDedup, seams, f);
 		assert.equal(env.outcome, "invalid_request", `缺查重须硬拒，实际 ${env.outcome}`);
@@ -1160,7 +1009,7 @@ test("27 §15.2：宿主 schema 已挡住「呈报为空」这条路——故真
 	});
 });
 
-test("27 §15.2：active → active 更新不问；active → retired 必须问且拒绝时不改状态", async () => {
+test("23 §15.2：active → active 更新不问；active → retired 必须问且拒绝时不改状态", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const created = await createNormObject({
@@ -1173,7 +1022,6 @@ test("27 §15.2：active → active 更新不问；active → retired 必须问�
 		const uid = created.value.object_uid;
 		const read = await readNormObject({ factSourceRoot: f.root, objectUid: uid });
 
-		// active → active：不问（27 §15 只覆盖终态决定）
 		const seamsA = fakeSeams("确认");
 		const envA = await runWrite({
 			action: "update",
@@ -1186,7 +1034,6 @@ test("27 §15.2：active → active 更新不问；active → retired 必须问�
 		assert.equal(envA.outcome, "completed", `勘误级更新须照常完成，实际 ${envA.outcome}`);
 		assert.equal(seamsA.calls.length, 0, "同状态更新不得提问——问了就是把 Gate 扩大到不该管的范围");
 
-		// active → retired：问；拒绝时不落盘
 		const read2 = await readNormObject({ factSourceRoot: f.root, objectUid: uid });
 		const seamsB = fakeSeams(null);
 		const envB = await runWrite({
@@ -1205,10 +1052,7 @@ test("27 §15.2：active → active 更新不问；active → retired 必须问�
 	});
 });
 
-test("27 §15.2：CAS 指纹过期时不去打扰 Human（不为注定失败的写入点头）", async () => {
-	// 独立复核 MINOR-2：Gate 若在 CAS 校验之前、且不读当前载体，Human 会被问、
-	// 会答「确认」，而写入随后因指纹不匹配被拒——那道确认已经发生、已经落进会话
-	// 记录，读起来却像一次失败的决定。既有类型的 retire 分支先读载体，这里同形。
+test("23 §15.2：CAS 指纹过期时不去打扰 Human（不为注定失败的写入点头）", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const created = await createNormObject({
@@ -1225,7 +1069,7 @@ test("27 §15.2：CAS 指纹过期时不去打扰 Human（不为注定失败的�
 		const env = await runWrite({
 			action: "update",
 			object_uid: uid,
-			expected_fingerprint: "deadbeef".repeat(8),   // ← 故意过期
+			expected_fingerprint: "deadbeef".repeat(8),
 			frontmatter_after: { status: "retired", retirement_reason: "outdated" },
 			body_markdown_after: read.value.body,
 			change_summary: "方向不再需要",
@@ -1237,11 +1081,10 @@ test("27 §15.2：CAS 指纹过期时不去打扰 Human（不为注定失败的�
 	});
 });
 
-test("27 §15.2：宿主无询问入口时 fail-closed（unavailable，不是静默跳过）", async () => {
+test("23 §15.2：宿主无询问入口时 fail-closed（unavailable，不是静默跳过）", async () => {
 	await withTemp("ldvh-norm-gate.", async (base) => {
 		const f = await governedFixture(base);
 		const descriptors = makeNormDescriptors({
-			// hostSeams **故意缺失**：真实组合里装配漏掉时的形态
 			dshHomePath: dshHome(f.home),
 			sessionPersistence: sessionPersistenceWithRoutingLog(f.repo),
 		});
@@ -1257,21 +1100,12 @@ test("27 §15.2：宿主无询问入口时 fail-closed（unavailable，不是静
 });
 
 test("ldvh_norm_write：awaitsHumanDecision 必须真的接线到 descriptor（不是死字段）", async () => {
-	// 2026-11-15 自查抓出：我第一版只加了 `awaitsHumanDecision: true`，而
-	// `toolDescriptorFor` 里仍是恒定 `timeoutMs: 30000`——**字段声明得好好的，
-	// 没有任何人读它**。本仓有过同一形态的先例（`review-ask-tool.js` 注释自述
-	// 该字段曾是死的）。故断言分两半，缺一半就等于没接线：
-	//
-	//   ① 声明为 true（语义：该工具会阻塞在人身上）；
-	//   ② descriptor **真的**因此不带 timeoutMs（否则 Human 的答复会被 30s 砍掉，
-	//      门禁在真实组合里等于不存在——写入被拒，而人以为自己答过）。
 	const { OPERATIONS, toolDescriptorFor } = await import("../lib/norm-tools.js");
 	assert.equal(OPERATIONS["norm-write-object"].awaitsHumanDecision, true,
 		"该工具在 create/retire 上阻塞在人身上，须声明 awaitsHumanDecision（与既有写入工具同一纪律）");
 	const descriptor = toolDescriptorFor("norm-write-object", OPERATIONS["norm-write-object"], async () => ({}));
 	assert.equal(descriptor.timeoutMs, undefined,
 		`descriptor 不得带墙钟上限（否则 30s 会丢弃迟到的答复）；实际 ${JSON.stringify(descriptor.timeoutMs)}`);
-	// 反向：不声明该字段的工具仍须保留 30s 上限——证明上面那条不是「全都没有」
 	const plain = toolDescriptorFor("norm-read-object", OPERATIONS["norm-read-object"], async () => ({}));
 	assert.equal(plain.timeoutMs, 30000, "不阻塞在人身上的工具须保留 30s 上限");
 });

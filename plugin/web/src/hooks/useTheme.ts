@@ -5,11 +5,6 @@ type ResolvedTheme = 'light' | 'dark';
 
 const STORAGE_KEY = 'ldvh-theme-mode';
 
-/**
- * 侧边栏 iframe（不透明源沙箱）兼容：better-sidebar 对与 GUI 同源的页面
- * 永不给 allow-same-origin，localStorage 访问会抛 SecurityError。降级为
- * 会话内存态（每次进入侧栏回默认 system 主题），正常模式行为不变。
- */
 function readStoredMode(): ThemeMode | null {
   try {
     const saved = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
@@ -20,7 +15,11 @@ function readStoredMode(): ThemeMode | null {
 }
 
 function persistMode(mode: ThemeMode): void {
-  try { localStorage.setItem(STORAGE_KEY, mode); } catch { /* 沙箱模式：内存态 */ }
+  try {
+    localStorage.setItem(STORAGE_KEY, mode);
+  } catch {
+    void 0;
+  }
 }
 
 function getSystemTheme(): ResolvedTheme {
@@ -37,13 +36,11 @@ function applyTheme(mode: ThemeMode) {
 export function useTheme() {
   const [mode, setMode] = useState<ThemeMode>(() => readStoredMode() ?? 'system');
 
-  // 初始化 + 同步 DOM
   useEffect(() => {
     applyTheme(mode);
     persistMode(mode);
   }, [mode]);
 
-  // 监听系统主题变化
   useEffect(() => {
     if (mode !== 'system') return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');

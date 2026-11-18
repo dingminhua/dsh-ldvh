@@ -1,28 +1,3 @@
-/**
- * 运行时诊断的数据聚合（只读）。
- *
- * ## 为什么读会话日志
- *
- * 「哪条规则最常拦人」这类问题，答案只存在于**工具调用的结果**里——而 LDVH 工具
- * 的每次调用结果都由宿主写进会话日志（`<dshHome>/sessions/<按 cwd 编码的目录>/
- * <sessionId>/session.v4.jsonl.zstd`）。插件自身不落这份账，别处也没有。
- *
- * 这是**有意跨出 LDVH 自身载体**的读取：会话日志属宿主，不属 LDVH 的事实源。
- * 因此本模块只读、只派生、不写回，且在响应里如实带上 `scope`（覆盖了什么、
- * 覆盖不到什么），让页面能把边界说清楚，而不是把局部数据呈现为全局结论。
- *
- * ## 为什么不用 zstd 依赖
- *
- * 会话日志以 zstd 压缩。Web API 子进程跑在宿主的 Node 里，引入原生压缩依赖会
- * 增加安装面与平台差异。这里改为**调用系统 zstd 可执行文件**；找不到时如实降级
- * （`available: false` + 原因），不假装没有数据。
- *
- * ## 数据边界（写进响应的 scope 字段）
- *
- * - 只覆盖**当前管辖项目的工作目录**对应的会话目录；
- * - 只覆盖 `ldvh_*` 前缀的工具；
- * - 会话日志会被宿主按策略清理，历史并不完整。
- */
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
@@ -32,31 +7,11 @@ import zlib from 'node:zlib'
 
 const execFileAsync = promisify(execFile)
 
-/**
- * 宿主会话目录名的编码规则：绝对路径的 `/` 与 `.` 各换成 `-`。
- *
- * 实测（2026-10-18，`~/.dsh/sessions/` 实目录名）：
- * `/Users/dmh2002/DshProject/dsh-ldvh` → `--Users-dmh2002-DshProject-dsh-ldvh--`。
- * 注意前导 `/` 换出的 `-` 与两侧包裹的 `--` **合并计数**，所以结果不是
- * `---...--`（按「包裹 + 替换」字面拼接会多出一个 `-`，`existsSync` 直接落空，
- * 页面表现为「没有数据」而不是「读不到」——这类静默落空正是本页要暴露的东西）。
- */
 export function sessionDirNameFor(workspaceRoot: string): string {
   const absolute = path.resolve(workspaceRoot)
-  // 分隔符换成 `-`、**盘符冒号直接删除**，再用 `--` 包裹；连续 `-` 折叠。
-  //
-  // **Windows 实测（2026-10-28，`~/.dsh/sessions/` 真实目录名逐个核对）**：
-  // `D:\DshProject\dsh-ldvh` → `--D-DshProject-dsh-ldvh--`（存在）；
-  // `D:\MinMax\ld-gpu-solver` → `--D-MinMax-ld-gpu-solver--`（存在）；
-  // `C:\Users\Administrator\WorkBuddy\...` → `--C-Users-Administrator-WorkBuddy-...--`（存在）。
-  // 冒号若换成短横会得到 `--D--DshProject...`（多一个短横、目录不存在）。
-  // 原实现只替换 `/` 与 `.`，反斜杠与冒号原样保留 → `--D:\DshProject\dsh-ldvh--`，
-  // `existsSync` 恒落空，页面把「读不到会话」显示成「没有数据」。
-  // 下划线、空格等字符不替换（实测 `--D-DshProject-GTOpen_ld5090_private--`）。
   return `--${absolute.replace(/[\\/]/g, '-').replace(/:/g, '')}--`.replace(/-{3,}/g, '--')
 }
 
-/** dsh 用户配置根：插件与 Web 子进程共用 `~/.dsh` 约定。 */
 export function dshHomeFromEnvironment(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.DSH_HOME
   if (configured) return path.resolve(configured)
@@ -66,13 +21,9 @@ export function dshHomeFromEnvironment(env: NodeJS.ProcessEnv = process.env): st
 
 export type ToolCallOutcome = {
   tool: string
-  /** `completed` / `rejected` / `invalid_request` / `unknown`。 */
   status: string
-  /** 命中的错误码（如 `validation/invalid`），无则为空数组。 */
   codes: string[]
-  /** 报错首句（已截断），供逐条记录展示。 */
   detail: string
-  /** 调用发生的工作目录，用于说明该条来自哪个项目。 */
   sessionId: string
   at: string | null
 }
@@ -82,16 +33,8 @@ export type DiagnosticsScope = {
   sessionDir: string
   sessionDirExists: boolean
   sessionsScanned: number
-  /** 会话日志可读所依赖的 zstd 是否可用。 */
   zstdAvailable: boolean
-  /** 覆盖不到的地方——如实列在响应里，避免局部数据被当成全局结论。 */
   limits: string[]
-  /**
-   * 命中缓存时，原始生成时刻（RFC3339）。
-   *
-   * 缺席 = 本次实时计算。读者据此区分「此刻的数字」与「几分钟前的数字」——
-   * 不标注会让缓存在界面上变成谎报。
-   */
   cachedAt?: string
 }
 
@@ -101,47 +44,15 @@ export type GateReport = {
   totals: {
     calls: number
     completed: number
-    /**
-     * 除 `completed` 外的调用数。历史上界面叫「被拒次数」，但它把这些结局
-     * 全算进来：`rejected` / `invalid_request` / `partial` / `unknown` /
-     * `unavailable` / `execution_error`。其中 `partial` 是如实披露的部分结果、
-     * `unknown` 多是无 LDVH 结果头而被宿主直接拦下的请求，二者都不是「被拒」。
-     * 字段名保留以兼容既有契约，语义以本注释与 `byStatus` 为准。
-     */
     failed: number
   }
   byTool: { tool: string; calls: number; completed: number; failed: number }[]
-  /**
-   * 全部调用按结果头里的 outcome 分布（含 `completed`）。它把上面那一个
-   * 「非 completed」数字拆回它实际包含的多种结局，读者才能分辨「真的被拒」
-   * 与「部分结果 / 宿主拦下 / 服务不可用」——不再把前者当成全部。
-   */
   byStatus: { status: string; count: number }[]
   byCategory: { category: string; count: number }[]
   byCode: { code: string; count: number }[]
   recentFailures: ToolCallOutcome[]
 }
 
-/**
- * 未完成调用按**性质**归类——比逐个错误码更能回答「该修哪一类」。
- *
- * ## 2026-11-16 补类（不是新增判据，是补覆盖）
- *
- * 原表只认 5 类，实测 500 份会话里 100 次非 completed 调用有 66 次落进
- * `other`——它们不是「说不清的毛病」，而是分类表没覆盖住的几种高频且**性质
- * 清楚**的形态。逐条 dump 全部明细复核后补了下面 5 类，并把几条边缘形态并入
- * 既有类别。判据是逐字报错文本（正则），不是相似度；`other` 只留给真正未被
- * 识别的文本。
- *
- * 两类最容易误读的形态在此显式分开：
- * - `spec_lookup_miss`：规范/能力**取址失配**，全为只读调用，fail-closed 正确
- *   拒绝，不是数据损坏（如 `content/heading_not_found`）；
- * - `partial_result`：**部分结果**而非失败（分页截断、Human 未决策、坏行如实
- *   披露），它们只是 outcome 不是 `completed`，不该被当成「被拒」。
- *
- * 顺序有意义：`classifyFailure` 取第一个命中的类别。新类放在既有类之前，
- * 但每条正则都按逐字文本设计，不与既有类别的已命中项争抢。
- */
 const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
   {
     category: 'spec_lookup_miss',
@@ -217,7 +128,6 @@ const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
       /body_invalid/,
       /frontmatter_invalid/,
       /stopping consistency/i,
-      // 书写结构/正文形态：性质同属「正文与载体校验未过」，不是新类。
       /must NOT carry the generated H1/i,
       /must open with a fixed head/i,
       /block #\d+ starts with/i,
@@ -232,7 +142,6 @@ const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
       /cannot read object file/,
       /not a subagent registered/i,
       /no candidate carries/i,
-      // 短 id / 类型键查不到：同一性质（查不到对象或键）。
       /no carrier in this project matches/i,
       /not a registered fact_type_key/i,
     ],
@@ -249,7 +158,6 @@ const FAILURE_CATEGORIES: { category: string; patterns: RegExp[] }[] = [
   },
 ]
 
-/** 报错文本里出现的错误码。只认带命名空间的形态，避免把普通单词当错误码。 */
 const ERROR_CODE_PATTERN = /\b(validation\/[a-z_]+|research\/[a-z_]+|pitfall\/[a-z_]+|friction\/[a-z_]+|discovery\/[a-z_]+|pending_queue\/[a-z_]+|watermark\/[a-z_]+|session\/[a-z_]+)\b/g
 
 function classifyFailure(text: string): string {
@@ -259,7 +167,6 @@ function classifyFailure(text: string): string {
   return 'other'
 }
 
-/** 从 `LDVH <name>: <status>` 头里取状态；取不到记 `unknown`（不假装成功）。 */
 function statusOf(resultText: string): string {
   const match = /^\s*LDVH [\w-]+: (\S+)/.exec(resultText)
   return match ? match[1] : 'unknown'
@@ -279,21 +186,6 @@ function eventTime(event: RawEvent): string | null {
   return null
 }
 
-/**
- * 从一条会话日志里抽出 LDVH 工具的成对 (调用, 结果)。
- *
- * **先粗筛再 parse（2026-11-16）**：实测 94,202 行会话日志里只有 29,169 行
- * （31.0%）是 `tool/call` / `tool/result`；全量逐行 `JSON.parse` 耗时 1250ms，
- * 是冷路径 2.4s 的最大单项。粗筛 `indexOf` 把明显无关的行挡在 parse 之前，
- * 实测降到 773ms（省约 480ms）。
- *
- * **粗筛只做「不可能命中则跳过」，宁可多留不漏**：判据是「整行不含
- * `tool/call` 且不含 `tool/result` 字面」才跳过。它不看 `type` 字段的具体
- * 位置或引号空格形态——`{"type":"tool/call"}`、`{"type": "tool/call"}`、
- * 乃至嵌套对象里出现该字面都会保留。因此任何可能的目标行都会照常进入
- * 下面的 `JSON.parse` 与 `event.type` 精确判定，**统计口径逐字不变**。
- * 反过来，某条无关行恰好含这两个字面之一时也只是多 parse 一行，不误伤。
- */
 function extractToolOutcomes(raw: string, sessionId: string): ToolCallOutcome[] {
   const pending = new Map<string, ToolCallEvent>()
   const outcomes: ToolCallOutcome[] = []
@@ -318,8 +210,6 @@ function extractToolOutcomes(raw: string, sessionId: string): ToolCallOutcome[] 
     }
     if (event.type !== 'tool/result') continue
     const message = (record.message ?? {}) as Record<string, unknown>
-    // 真实结构（2026-10-18 实测）：callId 在 `data.message.source.callId`，
-    // `data.message.toolCallId` 通常同值；`data.toolCallId` 是旧形态的兼容位。
     const source = (message.source ?? {}) as Record<string, unknown>
     const callId = typeof record.toolCallId === 'string'
       ? record.toolCallId
@@ -336,7 +226,6 @@ function extractToolOutcomes(raw: string, sessionId: string): ToolCallOutcome[] 
       .join('\n')
     const status = statusOf(text)
     const codes = Array.from(new Set(text.match(ERROR_CODE_PATTERN) ?? []))
-    // 报错首句：优先 `gap:` 之后那段（各工具的报错都以此承载原因），否则取开头。
     const gapIndex = text.indexOf('gap:')
     const detailSource = gapIndex >= 0 ? text.slice(gapIndex + 4) : text
     outcomes.push({
@@ -352,13 +241,6 @@ function extractToolOutcomes(raw: string, sessionId: string): ToolCallOutcome[] 
 }
 
 async function zstdAvailable(): Promise<boolean> {
-  // **优先看 Node 内置 zstd，CLI 只是回退**（2026-10-28 修）。
-  //
-  // 原实现只探测系统 `zstd` 命令行：本机未装 CLI，于是 `hasZstd` 为 false，
-  // 整段会话扫描被 `hasZstd &&` 跳过——诊断页把「能读的日志」显示成
-  // 「没有数据」，而 Node ≥22.15 自带的 `zlib.zstdDecompressSync` 明明可用。
-  // 这与「打包产物文本检索缺席被当作服务不存在」是同一类误判：
-  // 用一条探针的缺席推断能力不存在。
   if (typeof (zlib as typeof zlib & { zstdDecompressSync?: unknown }).zstdDecompressSync === 'function') {
     return true
   }
@@ -370,16 +252,9 @@ async function zstdAvailable(): Promise<boolean> {
   }
 }
 
-/** zstd 帧起始魔数（RFC 8878 §3.1.1），十进制 0xFD2FB528 的小端字节序。 */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 文档化的帧魔数，供后续解压实现使用
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ZSTD_FRAME_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
 
-/**
- * 找出 buffer 中所有 zstd 帧的起始偏移。
- *
- * **为什么需要这个**：宿主的会话日志是**逐次追加、每次独立压一帧**的，一份日志
- * 因此是多帧 zstd（实测 2026-11-04 某会话 2.7MB / **1409 帧**）。
- */
 function zstdFrameOffsets(buffer: Buffer): number[] {
   const offsets: number[] = []
   for (let i = 0; i + 4 <= buffer.length; i += 1) {
@@ -391,46 +266,27 @@ function zstdFrameOffsets(buffer: Buffer): number[] {
 }
 
 async function decompress(filePath: string): Promise<string> {
-  // **优先用 Node 内置 zstd，CLI 只作回退**：与 zstdAvailable 同一取舍，
-  // 否则「探测可用」与「实际怎么解」会分叉（本机无 CLI 时前者为真、后者抛错）。
   const native = (zlib as typeof zlib & {
     zstdDecompressSync?: (input: Buffer) => Buffer
   }).zstdDecompressSync
   if (typeof native === 'function') {
     const buffer = await readFile(filePath)
-    // **逐帧解，不能整份喂**（2026-11-04 修）。
-    //
-    // `zlib.zstdDecompressSync(wholeFile)` 在多帧输入上**只解第一帧就返回**，
-    // 且不报错——实测 2.7MB 日志只解出 212 字节（正好是 `{"type":"session",...}`
-    // 那一行），没有任何 `tool/call` / `tool/result` 事件。于是诊断页把 500 个
-    // 会话全扫一遍、每份都只拿到一行，最终得到「调用 0、失败 0」——一个看起来
-    // 像「扫过了、很健康」的假零。
-    //
-    // 这与本模块 2026-10-28 修的「CLI 缺席被当作能力不存在」是**同一判据的
-    // 两次违反**：那次把能读的日志显示成没有数据，这次把「读不全」显示成没有
-    // 数据。故此处不再假设「内置 API 能解整份文件」，而是显式按帧切分。
     const offsets = zstdFrameOffsets(buffer)
     if (offsets.length <= 1) {
-      // 单帧（或没有帧）时整份喂即可，避开逐帧的额外开销。
       return native(buffer).toString('utf8')
     }
     const chunks: Buffer[] = []
     for (let k = 0; k < offsets.length; k += 1) {
       const start = offsets[k]
       const end = k + 1 < offsets.length ? offsets[k + 1] : buffer.length
-      // 单帧解不开不拖垮整份：登记后继续，末尾按已解出的部分返回。
       try {
         chunks.push(native(buffer.subarray(start, end)))
       } catch {
-        // 静默跳过会在「少统计」时不吭声，故由调用方以 sessionsScanned 之外的
-        // 计数体现；此处只保证不让一份坏帧毁掉整份日志。
+        void 0;
       }
     }
     return Buffer.concat(chunks).toString('utf8')
   }
-  // `-dc` 解压到 stdout；`--no-progress` 避免把进度写进 stderr 干扰诊断。
-  // CLI **本身支持多帧**（实测同一份日志输出 9.4MB 而非 212 字节），故回退路径
-  // 无须按帧切分。
   const { stdout } = await execFileAsync('zstd', ['-dc', '--no-progress', filePath], {
     timeout: 60_000,
     maxBuffer: 256 * 1024 * 1024,
@@ -439,14 +295,6 @@ async function decompress(filePath: string): Promise<string> {
   return stdout.toString('utf8')
 }
 
-/**
- * 会话日志的文件名。宿主用 v4 命名；其余候选只为版本迁移后不静默读不到。
- *
- * 注意顺序与判定：`.zstd` 必须先于同名 `.jsonl`，且是否解压只看**选中的那一个**
- * 文件后缀——按「候选名」判定会让明文分支拿到 `.zstd` 路径（读成二进制垃圾），
- * 按目录探针顺序写反则会让压缩日志整份被跳过。两种写法都表现为「本页没有数据」，
- * 而本页存在的意义正是消灭这类静默落空。
- */
 const SESSION_LOG_CANDIDATES = [
   'session.v4.jsonl.zstd',
   'session.v5.jsonl.zstd',
@@ -456,55 +304,19 @@ const SESSION_LOG_CANDIDATES = [
   'session.jsonl',
 ]
 
-/** 判定候选是否压缩态（只看实际选中的文件名）。 */
 function isCompressedLog(fileName: string): boolean {
   return fileName.endsWith('.zstd')
 }
 
-/**
- * `/gate` 报告的 TTL 缓存。
- *
- * **为什么加**：进一次页面就全量扫 725 个会话 / 158MB，实测 5.8 秒。而诊断页是
- * 「看一眼现状」的用途——旧几分钟的数字与此刻没有区别，因为它回答的是「机制在
- * 实际使用中哪里在失效」，不是实时行情。
- *
- * **为什么 2026-11-16 由 5 分钟改为 30 分钟**：实测冷路径 2.4 秒（523 个会话
- * 目录 / 119MB / 38432 帧），而 5 分钟 TTL 使「隔一段时间再打开」（Human 反馈
- * 「打开比较慢」）几乎必然落在冷路径上。诊断页不是实时行情，30 分钟内的旧数字
- * 不改变任何判断。
- *
- * **TTL 延长的前提是新鲜度可见**：命中缓存时响应带 `scope.cachedAt`（生成时刻），
- * 前端 scope 框须显示「实时计算 / 命中缓存 + 生成时刻」——否则延长 TTL 会把旧
- * 数字变成谎报。这两处是同一项改动的两半，不得只改 TTL 不补披露。
- *
- * **为什么必须可主动失效**：清理日志之后如果还显示清理前的数字，页面会自相矛盾。
- * 故 `invalidateGateReportCache()` 由清理路径调用（见 logsCleanup service）。
- *
- * **为什么键里带 sessionDir**：不同项目根对应不同会话目录，缓存不能跨项目串。
- */
 const GATE_CACHE_TTL_MS = 30 * 60 * 1000
 const gateReportCache = new Map<string, { at: number; value: GateReport }>()
 
-/** 清空 `/gate` 缓存（清理日志后必须调用，否则页面会显示旧数字）。 */
 export function invalidateGateReportCache(): void {
   gateReportCache.clear()
 }
 
-/**
- * 会话扫描的并发度。
- *
- * 取 8：每个任务都是一次 `zstd` 子进程（IO 与 CPU 各占一半），8 路足以吃满常见
- * 笔记本的核心数而不把机器拖死。设成 `sessions.length` 会把 725 个进程一次性
- * 拉起——那会让整台机器卡顿，比慢更糟。
- */
 const SESSION_SCAN_CONCURRENCY = 8
 
-/**
- * 有界并发 map，保持**结果顺序与输入顺序一致**（不靠「谁先完成谁先排」）。
- *
- * 顺序必须稳定：统计结果虽与顺序无关，但 `scope` 与 limits 的文本会进报告，
- * 顺序漂移会让同一份数据两次呈现不同，读者会以为数据变了。
- */
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -537,7 +349,6 @@ async function readSessionLog(sessionDir: string): Promise<string | null> {
 export async function buildGateReport(options: {
   workspaceRoot: string
   dshHome?: string
-  /** 为 true 时跳过缓存（清理后首次读取、或用户显式要求刷新）。 */
   noCache?: boolean
 }): Promise<GateReport> {
   const dshHome = options.dshHome ?? dshHomeFromEnvironment()
@@ -549,8 +360,6 @@ export async function buildGateReport(options: {
     if (cached && Date.now() - cached.at < GATE_CACHE_TTL_MS) {
       return {
         ...cached.value,
-        // 命中缓存须**如实标注**：否则读者会把缓存生成时刻的数字当成此刻的。
-        // TTL 已延长到 30 分钟，这一行是「延长不谎报」的唯一保障。
         scope: { ...cached.value.scope, cachedAt: new Date(cached.at).toISOString() },
       }
     }
@@ -572,36 +381,8 @@ export async function buildGateReport(options: {
   }
   if (!hasZstd) limits.push('未找到 zstd 可执行文件，压缩的会话日志无法读取——本页数据为空不代表没有调用。')
 
-  // ── 为什么改成并发 + 缓存（2026-10-26 实测慢）────────────────────────────
-  //
-  // 用户反馈「诊断页进去很慢」。实测：本仓 725 个会话目录、共 158MB，原实现**串行**
-  // 逐个 `zstd -dc`，buildGateReport 耗时 **5847ms**，而产出的调用记录只有 579 条。
-  //
-  // 三处浪费，逐条对应下面的三个修法：
-  //   ① **串行** —— 每个会话都要起一个 zstd 子进程，725 次串行排队。改成有界并发。
-  //   ② **每次都全量重扫** —— 进一次页面扫一遍。加 TTL 缓存（2026-11-16 由
-  //      5 分钟延长到 30 分钟，配套 cachedAt 披露）：诊断页是「看一眼现状」的
-  //      用途，旧几十分钟的数据不改变任何判断。
-  //   ③ **（已放弃）按体积预筛** —— 曾想「小于 8KB 的会话直接跳过」，但实测会
-  //      误伤：小会话也可能含 LDVH 调用（既有测试造的就是几行事件）。体积不是
-  //      「有无调用」的可靠判据，跳过它会**静默少统计**——那比慢更糟，故撤回。
-  //      留下这条记录，免得下次又想起来试一遍。
-  //
-  // 边界：剩下两项都**不改统计口径**——并发只改调度顺序，缓存只改复用。
   const outcomes: ToolCallOutcome[] = []
   if (hasZstd && sessionDirExists) {
-    // ── 空目录预筛（2026-11-16）──────────────────────────────────────────
-    //
-    // 实测 523 个会话目录里 275 个（52.6%）**没有任何日志文件**。原实现把它们
-    // 全部送进并发队列，每个都要走一遍 6 个候选文件名的 existsSync。
-    //
-    // 与上面「按体积预筛已放弃」不是同一件事：那条放弃的是「文件小于 8KB 就
-    // 跳过」——体积不是「有无调用」的可靠判据，会**静默少统计**。本处判的是
-    // 「目录里是否存在任一候选日志文件」，不存在的目录本来就贡献 0 条调用；
-    // `sessionsScanned` 仍报 `sessions.length`（目录总数），故统计口径不变。
-    //
-    // 不计入扫描结果 ≠ 不告知：`sessionsScanned` 与 limits 已把覆盖范围说清，
-    // 空目录不产生任何 outcomes，不属「少统计」。
     const sessionsWithLog = sessions.filter((session) => {
       const dir = path.join(sessionDir, session)
       return SESSION_LOG_CANDIDATES.some((name) => existsSync(path.join(dir, name)))
@@ -613,7 +394,6 @@ export async function buildGateReport(options: {
         if (!raw) return { skipped: false, outcomes: [] }
         return { skipped: false, outcomes: extractToolOutcomes(raw, session) }
       } catch {
-        // 单个会话读不动不影响其余：降级为「少统计一个会话」，并在 scope 里如实计数。
         return { skipped: false, outcomes: [] }
       }
     })
@@ -626,8 +406,6 @@ export async function buildGateReport(options: {
   const completed = outcomes.filter((item) => item.status === 'completed')
   const failed = outcomes.filter((item) => item.status !== 'completed')
 
-  // 所有调用按 outcome 分布（含 completed）：把「非 completed」这一个数字拆回它
-  // 实际包含的多种结局，读者才不会把 partial / unknown 也当成「被拒」。
   const statusCounts = new Map<string, number>()
   for (const item of outcomes) {
     statusCounts.set(item.status, (statusCounts.get(item.status) ?? 0) + 1)
@@ -680,43 +458,19 @@ export async function buildGateReport(options: {
   return report
 }
 
-// ---------------------------------------------------------------------------
-// 摩擦观察缓冲（11 §12bis.1）的只读投影
-// ---------------------------------------------------------------------------
-//
-// ## 为什么放在诊断页而不是事实对象列表
-//
-// 摩擦观察缓冲里的条目**不是事实对象**（11 §12bis.1：非事实、不进事实源、无对象
-// 身份）。把它们混进「事实对象」的列表页会立刻造成误读——读者会以为它们是账目。
-// 诊断页承载的是「本机运行状态」，缓冲正属同一类地方（与待处置队列、
-// 运行记录同层，同在 ~/.dsh/ldvh 下）。
-//
-// ## 呈现口径由规范钉死，本函数**不是**自由设计
-//
-// 11 §12bis.1 第 2 条（Human 决定 2026-10）明写：**只可展示其存在与数量、以及
-// 现象/时间/来源/状态四项**，**不得展示 `evidence` 全文**，**不得使其可被点击进入
-// 事实对象详情**（它没有对象身份）。故本投影**刻意不返回** `evidence`、`session`、
-// `promoted_to` 等字段——不是遗漏，是规范要求的最小面。
-//
-// 超出这四项的信息若要呈现在别处，须先改规范，不能在读取层顺手放开。
 
-/** 缓冲条目在「四项可呈现字段」内的投影（11 §12bis.1 第 2 条）。 */
 export type ObservationProjection = {
   at: string | null
-  /** 「来源」——用 anchor（材料位置）而非 session（会话 id），前者才是读者要的出处。 */
   anchor: string | null
   phenomenon: string | null
   status: string | null
-  /** 所属观察组：**仅用于让读者看出「同一阻碍被看过几次」**，不是对象标识。 */
   group: string | null
 }
 
 export type ObservationGroupRow = {
   group: string
-  /** 该组当前 pending 条目数——与阈值 N 并列呈现，读者才看得出「攒到几分」。 */
   pendingCount: number
   promotionReady: boolean
-  /** 组内最早/最新一次观察时刻（现象取最新一条）。 */
   firstAt: string | null
   lastAt: string | null
   latestPhenomenon: string | null
@@ -742,34 +496,18 @@ export type FrictionObservationReport = {
   recent: ObservationProjection[]
 }
 
-/** 缓冲条目的字段闭集（11 §12bis.1）。读取时不认表外字段——与写入侧同口径。 */
 const OBSERVATION_STATUSES = new Set(['pending', 'promoted', 'discarded', 'evicted'])
 
-/** 阈值 N=3 由 11 §9 内嵌固定，不可配置（§12bis.1 亦引用此值）。 */
 const OBSERVATION_THRESHOLD = 3
 
-/**
- * 读取摩擦观察缓冲并作出**只含四项**的投影。
- *
- * 破损行跳过而不中断：缓冲是追加型流水，一行坏掉不该让整页空白（与本站
- * `readJsonLines` 对队列的处理同一纪律）。但**跳过数须如实计数**，否则
- * 「解析失败」会伪装成「条目较少」。
- */
-// 2026-11-17：`EXPERIENCE_BUFFER_STATUSES` 已删除——经验留观缓冲随审核层
-// 取消（2026-11-16），该闭集在 web 侧无任何消费方（grep 确认仅定义处一行）。
 
-/** 经验留观区条目的投影（**只四项**，11 §12bis 读取纪律第 2 条）。 */
 export type ExperienceBufferProjection = {
   at: string | null
-  /** 「来源」——用 anchor（材料位置）而非 session（会话 id）。 */
   anchor: string | null
   phenomenon: string | null
   status: string | null
 }
 
-// **2026-11-16**：`ExperienceBufferReport` 与 `buildExperienceBufferReport` 已删除——
-// 经验留观缓冲（11 §12bis）随审核层整层取消，该载体与页面均不存在。
-// 摩擦观察报告（`buildFrictionObservationReport`）不受影响。
 
 export async function buildFrictionObservationReport(options: {
   dshHome?: string
@@ -779,8 +517,8 @@ export async function buildFrictionObservationReport(options: {
   const bufferDir = path.join(ldvhHome, 'friction-observations')
 
   const limits: string[] = [
-    '摩擦观察是**非事实对象**的本地运行状态（11 §12bis.1）：不进事实源、无对象身份，故本页不提供「点击进入详情」。',
-    '按规范只呈现现象/时间/来源/状态四项；`evidence` 全文与 `promoted_to` 不在呈现面内（11 §12bis.1 第 2 条）。',
+    '摩擦观察是**非事实对象**的本地运行状态（36 §8.8）：不进事实源、无对象身份，故本页不提供「点击进入详情」。',
+    '按规范只呈现现象/时间/来源/状态四项；`evidence` 全文与 `promoted_to` 不在呈现面内（36 §8.8 第 2 条）。',
     `阈值 N=${OBSERVATION_THRESHOLD} 固定不可配置；「攒到几分」= 同组 pending 条目数。`,
     '观察材料按管辖项目分文件；本页汇总全部项目。条目保留期 pending 90 天、终态 90 天，容量 200/项目。',
     '本页只读：不写观察载体、不改账本。',
@@ -793,8 +531,6 @@ export async function buildFrictionObservationReport(options: {
     files = names.filter((name) => name.endsWith('.jsonl')).sort()
     bufferDirExists = true
   } catch {
-    // 目录不存在是**正常初态**（还没有任何观察落地），不是错误——故只用
-    // bufferDirExists=false 如实标注，不抛异常、不伪造空数据。
     bufferDirExists = false
   }
 
@@ -821,7 +557,6 @@ export async function buildFrictionObservationReport(options: {
       if (trimmed === '') continue
       try {
         const parsed = JSON.parse(trimmed) as Row
-        // 状态不在闭集内即**不投影**（不把闭集外的值当合法状态呈现）。
         if (typeof parsed.status === 'string' && !OBSERVATION_STATUSES.has(parsed.status)) {
           skippedLines += 1
           continue
@@ -839,8 +574,6 @@ export async function buildFrictionObservationReport(options: {
     statusCounts.set(status, (statusCounts.get(status) ?? 0) + 1)
   }
 
-  // 分组：只为让读者看出「同一阻碍被看过几次」，故只对 pending 建组——
-  // 终态条目（promoted/discarded/evicted）已不属于「正在攒」的那一批。
   const groupMap = new Map<string, Row[]>()
   for (const row of rows) {
     if (row.status !== 'pending') continue
@@ -867,7 +600,6 @@ export async function buildFrictionObservationReport(options: {
     }
   }).sort((a, b) => b.pendingCount - a.pendingCount || a.group.localeCompare(b.group))
 
-  // 最近若干条（按时间倒序），只投影四项 + group。
   const recent: ObservationProjection[] = rows
     .slice()
     .sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')))

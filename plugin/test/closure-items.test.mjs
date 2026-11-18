@@ -1,14 +1,3 @@
-// Tests for the four closure items implemented on 2026-09-12 (see
-// docs/audit/closure-10d-round.md §五 items 1, 4, 5, 6):
-//
-//   item 5  07 §5.3 linked-worktree judgement via the Git common-dir
-//   item 4  07 §5.4 AI registration entry + the five unavailable codes
-//   item 6  08 §6 host seam consumption (guard / invariants / fs-observed /
-//           userQuestions)
-//   item 1  01 §9.2 items 8/9/11/12 mechanically checkable sub-parts
-//
-// Every test uses throwaway temp directories; no test writes outside its own
-// temporary area.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
@@ -31,30 +20,6 @@ import { git, initRepo, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
-/**
- * 07 §5.6 Windows clause: the AI registration entry (`registerProjectFromEntry`)
- * fails closed on win32 because this implementation has no ACL verifier — the
- * carrier's permission state cannot be confirmed, and the spec forbids a silent
- * pass. That is the CORRECT product behaviour (norm-a1b559a6 red line 4), so
- * these tests must not weaken it. What they need is a way to REACH a registered
- * project on win32 so the surrounding mechanism (governance scope, discovery,
- * the Human Gate routes) can still be exercised.
- *
- * `registerProject` is the unguarded registration primitive — the same one
- * `installProject` (a Human-click-initiated transaction, 08 §6) uses as its
- * registration step. Using it here is not a bypass of 07 §5.6 in the same
- * sense the entry is: the entry exists to gate an AI-initiated write, and this
- * call is fixture setup, not an entry point under test.
- *
- * Tests that are ABOUT the entry itself (its five unavailable codes, its
- * idempotency) assert the win32 fail-closed outcome explicitly instead of
- * pretending the entry succeeded.
- */
-// **2026-11-10 修订**：原名 `WINDOWS_ACL_UNVERIFIED = platform === "win32"`，把
-// 「Windows 上登记入口必然不可用」当成了平台事实。该前提已被推翻——入口现在真的
-// 核验 ACL（`icacls`），普通目录可放行。故改为**运行时实测**：在临时 home 上调一次
-// 入口，看它是否真的报 `permission_unverified`。这样无论核验器是否可用，本文件
-// 的分支都跟着实测走，而不是跟着平台名猜。
 const WINDOWS_ACL_UNVERIFIED = await (async () => {
 	if (process.platform !== "win32") return false;
 	try {
@@ -65,33 +30,24 @@ const WINDOWS_ACL_UNVERIFIED = await (async () => {
 		try {
 			await ensureRegistrationCarrier((...s) => join(probe, ...s));
 			const r = await evaluateRegistrationEntry((...s) => join(probe, ...s));
-			// **判据放宽为「入口是否可用」**（独立审核指出）：原版只看是否报
-			// `permission_unverified`，若环境实际返回别的码（例如真实根 ACL 与
-			// %TEMP% 不同导致越界判定不同），探针会说「可用」而后续用例却拿到别的
-			// 结果，分支与实测脱钩。这里只问「干净目录上入口能不能走通」——
-			// 走不通就按不可用处理（保守），不预设具体错误码。
 			return r.ok !== true;
 		} finally {
 			await rm(probe, { recursive: true, force: true }).catch(() => {});
 		}
 	} catch {
-		return true; // 探针自身失败时按「不可核验」处理（保守）
+		return true;
 	}
 })();
 
-/** Register a project for fixture setup; on win32 fall back to the primitive. */
 async function registerForSetup(home, input) {
 	if (!WINDOWS_ACL_UNVERIFIED) return registerProjectFromEntry(dshHome(home), input);
 	return registerProject(dshHome(home), input);
 }
 
-/** Absolute path of a repo file as a REAL filesystem path (not `URL.pathname`). */
 const repoFile = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 
-/** Minimal ToolExecution-shaped object for guard tests: only `name` + agent cwd. */
 const agentAt = (cwd) => ({ session: { header: { cwd } } });
 
-/** Create a well-formed empty v5 carrier at home/ldvh/governed-projects.yaml. */
 async function writeCarrier(home, body = null) {
 	const dir = join(home, "ldvh");
 	await mkdir(dir, { recursive: true });
@@ -109,9 +65,6 @@ async function writeCarrier(home, body = null) {
 	return file;
 }
 
-// ---------------------------------------------------------------------------
-// item 5 — 07 §5.3 linked worktree via Git common-dir
-// ---------------------------------------------------------------------------
 
 test("item5: a linked worktree of a registered project is judged governed (07 §5.3 common-dir)", async () => {
 	await withTemp("ldvh-wt.", async (base) => {
@@ -121,8 +74,6 @@ test("item5: a linked worktree of a registered project is judged governed (07 §
 		const linked = join(base, "linked");
 		await git(main, ["worktree", "add", "-q", linked]);
 
-		// The main and linked worktrees have DIFFERENT toplevels but the SAME
-		// common-dir — that equality is what the spec makes the identity test.
 		const mainCommon = await resolveGitCommonDir(main);
 		const linkedCommon = await resolveGitCommonDir(linked);
 		assert.equal(mainCommon, linkedCommon);
@@ -179,17 +130,12 @@ test("item5: containment inside the registered root still short-circuits (no git
 		await registerForSetup(home, { id: "p1", path: main });
 
 		const scope = await resolveGovernanceScope(dshHome(home), join(main, "sub", "deeper"));
-		// `sub/deeper` does not exist; realpath fails → unavailable is correct
-		// (07 fail-closed), NOT a guess.
 		assert.equal(scope.state, "unavailable");
 		const scope2 = await resolveGovernanceScope(dshHome(home), main);
 		assert.equal(scope2.state, "governed");
 	});
 });
 
-// ---------------------------------------------------------------------------
-// item 4 — 07 §5.4 AI registration entry + the five error codes
-// ---------------------------------------------------------------------------
 
 test("item4: registerProjectFromEntry registers a Git project and reads back", async () => {
 	await withTemp("ldvh-entry.", async (base) => {
@@ -200,15 +146,9 @@ test("item4: registerProjectFromEntry registers a Git project and reads back", a
 
 		const result = await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo, name: "Demo" });
 		if (WINDOWS_ACL_UNVERIFIED) {
-			// 07 §5.6 Windows clause: no ACL verifier ⇒ the high-risk write fails
-			// closed. Assert the refusal is the DOCUMENTED one and that it wrote
-			// nothing — never that the entry "succeeded" by weakening the check.
 			assert.equal(result.ok, false, JSON.stringify(result));
 			assert.equal(result.unavailable, true);
 			assert.equal(result.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
-			// The refusal must not have registered anything: the fixture carrier
-			// stays at zero projects (the ACL refusal is evaluated before any
-			// registration work).
 			const { readFile: rf } = await import("node:fs/promises");
 			const carrier = await rf(join(home, "ldvh", "governed-projects.yaml"), "utf8");
 			assert.match(carrier, /projects: \[\]/, "a refused entry must not register a project");
@@ -229,11 +169,6 @@ test("item4: a second registration of the same project writes nothing (07 §5.4 
 		await writeCarrier(home);
 
 		if (WINDOWS_ACL_UNVERIFIED) {
-			// The entry cannot complete at all on win32, so the idempotency half
-			// has no reachable path there. What is pinned instead is that repeated
-			// entry attempts keep refusing and never half-register (the carrier
-			// stays at zero projects). The primitive's own idempotency is covered
-			// by governed-projects.test.mjs.
 			await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo });
 			const second = await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo });
 			assert.equal(second.ok, false, "the entry keeps refusing on win32");
@@ -248,12 +183,10 @@ test("item4: a second registration of the same project writes nothing (07 §5.4 
 		assert.equal(second.ok, true);
 		assert.equal(second.value.changed, false);
 		assert.equal(second.value.reason, "already_registered");
-		// The carrier must not have been rewritten.
 		assert.equal(second.value.registration.fingerprint, first.value.registration.fingerprint);
 	});
 });
 
-// The five codes of 07 §5.4, each reached by a real precondition failure.
 test("item4: user_config_root_unavailable when the DSH home resolver is absent", async () => {
 	const result = await evaluateRegistrationEntry(null);
 	assert.equal(result.ok, false);
@@ -275,11 +208,6 @@ test("item4: registration_schema_invalid when the carrier violates the v5 schema
 		await writeCarrier(home, "schema_version: 99\n");
 		const result = await evaluateRegistrationEntry(dshHome(home));
 		if (WINDOWS_ACL_UNVERIFIED) {
-			// On win32 the ACL precondition is evaluated BEFORE the schema read,
-			// so this code is unreachable through `evaluateRegistrationEntry`
-			// there (the ACL code wins). The schema half stays covered on Unix;
-			// pinning the documented ACL refusal here is the honest win32
-			// expectation rather than an assertion the platform denies.
 			assert.equal(result.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
 			return;
 		}
@@ -300,7 +228,7 @@ test("item4: registration_permission_unverified when the carrier is wider than 0
 
 test("item4: registration_access_denied when the carrier directory is not writable", async () => {
 	if (process.platform === "win32") return;
-	if (typeof process.getuid === "function" && process.getuid() === 0) return; // root bypasses mode bits
+	if (typeof process.getuid === "function" && process.getuid() === 0) return;
 	await withTemp("ldvh-entry-deny.", async (base) => {
 		const home = join(base, "home");
 		await writeCarrier(home);
@@ -321,28 +249,18 @@ test("item4: the entry refuses a non-Git directory (07 §5.5)", async () => {
 		await mkdir(plain);
 		await writeCarrier(home);
 		if (WINDOWS_ACL_UNVERIFIED) {
-			// On win32 the entry refuses at the ACL precondition before it ever
-			// inspects the candidate, so 07 §5.5 is unreachable THROUGH the entry
-			// there. Assert the 07 §5.5 substance directly instead of dropping it:
-			// the same identity resolution the entry performs must reject a
-			// non-Git directory on every platform.
 			const entry = await registerProjectFromEntry(dshHome(home), { id: "p1", path: plain });
 			assert.equal(entry.ok, false);
 			assert.equal(entry.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
-			// `resolveGitRoot` THROWS for a non-Git directory (it is the internal
-			// helper; the entry converts the throw into `candidate_invalid`).
 			await assert.rejects(resolveGitRoot(plain), /Git|repository|root/i);
 			return;
 		}
 		const result = await registerProjectFromEntry(dshHome(home), { id: "p1", path: plain });
 		assert.equal(result.ok, false);
-		assert.equal(result.unavailable, undefined); // rejected, not unavailable
+		assert.equal(result.unavailable, undefined);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// item 6 — 08 §6 host seam consumption
-// ---------------------------------------------------------------------------
 
 function fullComposition() {
 	const seen = { guard: 0, invariants: 0, on: [], userQuestions: 0 };
@@ -352,8 +270,6 @@ function fullComposition() {
 			tools: { guard: (fn) => { seen.guard += 1; seen.guardFn = fn; return () => {}; } },
 			invariants: { register: (name, factory) => { seen.invariants += 1; seen.invariantFactory = factory; seen.invariantName = name; return () => {}; } },
 			userQuestions,
-			// The host fs service is what supplies a REAL FsVersion (stat →
-			// {version, type}); without it LDVH cannot observe at all.
 			fs: {
 				resolve: async (path) => ({ targetKey: `tk:${path}`, displayPath: path }),
 				stat: async () => ({ version: "v-real", type: "file" }),
@@ -373,8 +289,6 @@ test("item6: every seam whose requirement is met reports consumed (08 §6)", asy
 
 	assert.equal(seen.guard, 1, "ctx.tools.guard must receive exactly one monotonic guard");
 	assert.equal(seen.invariants, 1, "ctx.invariants.register must receive one installer");
-	// Both halves of fs/observed: the read-observation listener AND the write
-	// version-guard waterfalls (08 §6 requires both).
 	assert.deepEqual(seen.on.slice().sort(), ["edit-intent", "fs/observed", "fs/write-intent"].map((e) => (e === "edit-intent" ? "fs/edit-intent" : e)).sort());
 
 	const status = Object.fromEntries(seams.snapshot().map((s) => [s.seam, s]));
@@ -393,7 +307,6 @@ test("item6: fs/observed read half obtains a REAL version from the host fs servi
 	seams.install(ctx, { dshHomePath: () => "/tmp/none" });
 	resetObservations();
 
-	// The version must come from the host (fs.stat), never be invented.
 	const result = await seams.observePath("/some/carrier.yaml");
 	assert.equal(result.observed, true);
 	assert.equal(result.kind, "present");
@@ -401,14 +314,12 @@ test("item6: fs/observed read half obtains a REAL version from the host fs servi
 	assert.equal(observedVersionFor({ targetKey: "tk:/some/carrier.yaml", displayPath: "/some/carrier.yaml" }), "v-real");
 	assert.ok(seen.emitted?.some(([e]) => e === "fs/observed"), "the observation must be emitted");
 
-	// With no fs service, observation must FAIL rather than fabricate a version.
 	const bareCtx = { get: () => undefined, on: () => () => {}, logger: { info() {} } };
 	const bareSeams = createHostSeams();
 	const bareInstall = bareSeams.install(bareCtx, { dshHomePath: () => "/tmp/none" });
 	const failed = await bareSeams.observePath("/some/carrier.yaml");
 	assert.equal(failed.observed, false);
 	assert.match(failed.reason, /fs service is unavailable/);
-	// …and the seam must not claim full consumption without the fs service.
 	assert.notEqual(bareSeams.snapshot().find((s) => s.seam === "fs/observed").state, "consumed");
 	bareInstall.dispose();
 	resetObservations();
@@ -421,17 +332,13 @@ test("item6: the write guard keys to the observed version and never invents one"
 	resetObservations();
 
 	const observed = await seams.observePath("/some/carrier.yaml");
-	// An observed target gets a version-guarded intent.
 	const guarded = await seen.listeners["fs/write-intent"](observed.target, undefined, () => undefined);
 	assert.deepEqual(guarded, { kind: "replaceIfVersion", version: "v-real" });
-	// An unobserved target yields no LDVH intent (falls through to host policy).
 	const untouched = await seen.listeners["fs/write-intent"]({ targetKey: "tk:other", displayPath: "/x" }, undefined, () => ({ kind: "createIfAbsent" }));
 	assert.deepEqual(untouched, { kind: "createIfAbsent" });
-	// edit-intent is guarded the same way.
 	const edited = await seen.listeners["fs/edit-intent"](observed.target, undefined, () => undefined);
 	assert.deepEqual(edited, { kind: "replaceIfVersion", version: "v-real" });
 
-	// An absent observation clears the recorded version.
 	seen.listeners["fs/observed"](observed.target, { kind: "absent" }, undefined);
 	assert.equal(observedVersionFor(observed.target), undefined);
 	install.dispose();
@@ -443,13 +350,11 @@ test("item6: the 07 §5.6 Human Gate routes consent through ctx.userQuestions.as
 	const seams = createHostSeams();
 	seams.install(ctx, { dshHomePath: () => "/tmp/none" });
 
-	// An affirmative answer grants.
 	const granted = await seams.requestRegistrationConsent({ action: "register", projectId: "p1", projectPath: "/p" });
 	assert.equal(granted.granted, true);
 	assert.equal(seen.userQuestions, 1, "consent must actually go through the host answerer");
 	assert.ok(seen.lastAsk, "the request must be a real one");
 
-	// No seam registry / no answerer ⇒ NOT granted (07 §5.6: silence is not intent).
 	const bare = createHostSeams();
 	bare.install({ get: () => undefined, logger: { info() {} } }, { dshHomePath: () => "/tmp/none" });
 	const denied = await bare.requestRegistrationConsent({ action: "register", projectId: "p1", projectPath: "/p" });
@@ -458,7 +363,6 @@ test("item6: the 07 §5.6 Human Gate routes consent through ctx.userQuestions.as
 });
 
 test("item6: a non-affirmative or failed answer never grants consent", async () => {
-	// Explicit decline.
 	const declineCtx = {
 		get: (k) => k === "userQuestions" ? { ask: async () => ({ answers: [{ id: "ldvh-registration-consent", selected: "取消" }] }) } : undefined,
 		on: () => () => {}, logger: { info() {} }
@@ -467,7 +371,6 @@ test("item6: a non-affirmative or failed answer never grants consent", async () 
 	s1.install(declineCtx, { dshHomePath: () => "/tmp/none" });
 	assert.equal((await s1.requestRegistrationConsent({ action: "register", projectId: "p", projectPath: "/p" })).granted, false);
 
-	// The answerer throws.
 	const throwCtx = {
 		get: (k) => k === "userQuestions" ? { ask: async () => { throw new Error("answerer down"); } } : undefined,
 		on: () => () => {}, logger: { info() {} }
@@ -496,32 +399,19 @@ test("item6: the guard covers write-shaped ldvh_ tools and denies by returning a
 	seams.install(ctx, { dshHomePath: () => "/tmp/none" });
 	const guard = seen.guardFn;
 
-	// Coverage is derived from declarations, not hardcoded: the two 07
-	// registration entries are covered from the start, and a fact-type writer
-	// joins the set when its module registers. Register spark's here so the
-	// test exercises a real shipped name rather than a phantom one.
 	assert.deepEqual(writeShapedTools(), ["ldvh_register_governed_project", "ldvh_unregister_governed_project"]);
 	registerWriteShapedTool("ldvh_spark_write");
 	assert.ok(writeShapedTools().includes("ldvh_spark_write"));
 
-	// Authoritative contract (cordis Inspect, Service `tools`):
-	//   type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
-	// The call name is `execution.name`; there is no `tool` / `scopeState`.
-	// An unrelated host tool is never touched.
 	assert.equal(guard({ name: "bash", agent: agentAt("/p") }), undefined);
-	// A read-shaped LDVH tool is not write-shaped.
 	assert.equal(guard({ name: "ldvh_read_specification_content", agent: agentAt("/p") }), undefined);
-	// With no recorded judgement the guard stays silent — it only ADDS refusals.
 	assert.equal(guard({ name: "ldvh_spark_write", agent: agentAt("/p") }), undefined);
 
-	// Once the judgement for that cwd is unavailable, the write is refused…
 	recordJudgementForGuard("/p", "unavailable");
 	const denial = guard({ name: "ldvh_spark_write", agent: agentAt("/p") });
 	assert.equal(typeof denial, "string", "a guard denies by returning a string, not an object");
 	assert.match(denial, /unavailable/);
 
-	// …read-shaped operations stay allowed, and a not_governed cwd is left
-	// alone (registering is how such a cwd becomes governed).
 	assert.equal(guard({ name: "ldvh_spark_write", agent: agentAt("/other") }), undefined);
 	recordJudgementForGuard("/p", "not_governed");
 	assert.equal(guard({ name: "ldvh_spark_write", agent: agentAt("/p") }), undefined);
@@ -535,32 +425,18 @@ test("item6: the invariant installer asserts the carrier schema at install time"
 		const { ctx, seen } = fullComposition();
 		createHostSeams().install(ctx, { dshHomePath: dshHome(home) });
 
-		// Authoritative contract (cordis Inspect, Service `invariants`):
-		//   interface InvariantInstaller { (ctx, fail): void | Promise<void> }
-		//   type InvariantFailure = (message: string) => never
-		// `fail` is CALLED to report a violation; there is no returned descriptor.
 		assert.equal(typeof seen.invariantFactory, "function");
 		assert.equal(seen.invariantName, "dsh-ldvh");
 
-		// Absent carrier → a legitimate "unavailable" state, NOT a violation:
-		// `fail` must not be called.
 		let failed = null;
 		const fail = (message) => { failed = message; throw new Error(message); };
 		await seen.invariantFactory({}, fail);
 		assert.equal(failed, null, "an absent carrier is not a schema violation");
 
-		// A schema violation IS reported through `fail`.
 		await writeCarrier(home, "schema_version: 99\n");
 		let violation = null;
 		await seen.invariantFactory({}, (message) => { violation = message; throw new Error(message); }).catch(() => {});
 		if (WINDOWS_ACL_UNVERIFIED) {
-			// On win32 the installer sees `registration_permission_unverified`
-			// BEFORE the schema is read, and the implementation deliberately
-			// treats that code as a legitimate runtime state rather than an
-			// assertion failure (host-seams.js: only registration_schema_invalid
-			// calls `fail`). So the correct win32 expectation is "no violation
-			// reported" — asserting a schema label here would demand an order the
-			// platform denies. The schema label itself stays covered on Unix.
 			assert.equal(violation, null, "an unverifiable ACL is a runtime state, not an assertion failure");
 			return;
 		}
@@ -568,9 +444,6 @@ test("item6: the invariant installer asserts the carrier schema at install time"
 	});
 });
 
-// ---------------------------------------------------------------------------
-// item 1 — 01 §9.2 items 8/9/11/12 mechanically checkable sub-parts
-// ---------------------------------------------------------------------------
 
 async function fixtureMember(base) {
 	const root = await initRepo(base, { name: "specs-repo" });
@@ -593,9 +466,6 @@ async function fixtureMember(base) {
 	].join("\n");
 	await writeFile(join(specsDir, "99-Demo.md"), markdown);
 	await git(root, ["add", "-A"]);
-	// Commit WITH the controlled-commit signature: item 11 checks signature
-	// presence, so a fixture without trailers would fail that sub-part for a
-	// reason unrelated to what these tests are about.
 	await git(root, ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qm", "seed\n\nLDVH-Provider: test\nLDVH-Model: test"]);
 	return { root, markdown, repoPath: "specs/99-Demo.md" };
 }
@@ -614,7 +484,6 @@ test("item1: a fully evidenced carrier satisfies all four mechanical sub-parts b
 		for (const item of ["8", "9", "11", "12"]) {
 			assert.equal(carrier.items[item].satisfied, true, `item ${item}: ${JSON.stringify(carrier.items[item])}`);
 		}
-		// The whole point: mechanical satisfaction is NOT membership.
 		assert.equal(carrier.membership_proven, false);
 		assert.equal(report.gaps.length, 0);
 		assert.match(report.guarantee, /NOT mechanically decidable/);
@@ -629,11 +498,8 @@ test("item1: absent evidence produces gaps, never a silent pass", async () => {
 		const carrier = report.carriers[0];
 		assert.equal(carrier.items["8"].satisfied, false);
 		assert.equal(carrier.items["9"].satisfied, false);
-		// No recorded binding at all → item 12 must NOT be concluded as a pass.
 		assert.equal(carrier.items["12"].concluded, false);
 		assert.equal(carrier.membership_proven, false);
-		// Item 11 passes (the fixture commit carries the signature); items 8/9
-		// fail for absence of records and 12 is unconcluded — all three gap.
 		assert.deepEqual(report.gaps.map((g) => g.item).sort(), ["12", "8", "9"]);
 	});
 });
@@ -672,7 +538,6 @@ test("item1: item 11 requires the controlled-commit signature, not merely a comm
 		const repoPath = "specs/99-Demo.md";
 		await writeFile(join(root, repoPath), markdown);
 		await git(root, ["add", "-A"]);
-		// A plain commit: formed, but WITHOUT the controlled-commit trailers.
 		await git(root, ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qm", "plain seed"]);
 		const identity = { spec_key: "demo-spec" };
 
@@ -680,18 +545,13 @@ test("item1: item 11 requires the controlled-commit signature, not merely a comm
 		assert.equal(withoutSig.carriers[0].items["11"].concluded, true, "a commit exists, so the item IS concluded");
 		assert.equal(withoutSig.carriers[0].items["11"].satisfied, false, "but it carries no signature");
 
-		// Now amend it into a signed commit and re-check.
 		await git(root, ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "--amend", "-m", "signed\n\nLDVH-Provider: p\nLDVH-Model: m"]);
 		const withSig = await bindMembershipEvidence(root, [{ identity, markdownText: markdown, repoPath }], {});
 		assert.equal(withSig.carriers[0].items["11"].satisfied, true);
-		// Signature presence is explicitly NOT authorisation (01 §9.2).
 		assert.match(withSig.carriers[0].items["11"].semantic_remainder, /does not prove the commit was authorised/);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// item 4 (cont.) — 05 §6.1 mechanical declaration parsing
-// ---------------------------------------------------------------------------
 
 test("item4: operation declarations are PARSED from the source, not hardcoded (05 §6.1)", async () => {
 	const { readFile } = await import("node:fs/promises");
@@ -699,8 +559,6 @@ test("item4: operation declarations are PARSED from the source, not hardcoded (0
 	const specPath = new URL("../../specs/08-管辖范围规范.md", import.meta.url);
 	const md = await readFile(specPath, "utf8");
 	const rows = parseOperationDeclarations(md, (headingPath) => resolveHeadingPath(md, headingPath).ok);
-	// Both 08 §5.4/§5.7 entries must be found, with their contract anchors
-	// resolving — 05 §6.1 treats an unresolvable anchor as undeclared.
 	assert.equal(rows.size, 2);
 	for (const key of ["register-governed-project", "unregister-governed-project"]) {
 		const row = rows.get(key);
@@ -718,10 +576,9 @@ test("item4: an unresolvable contract anchor is reported, never accepted (05 §6
 		"| fake-op | does a thing | may_change_state | `99-Nope::1. Missing/9.9 Absent` | `99-Nope::1. Missing/9.8 Absent` |",
 		"",
 	].join("\n");
-	const rows = parseOperationDeclarations(md, () => false); // nothing resolves
+	const rows = parseOperationDeclarations(md, () => false);
 	const row = rows.get("fake-op");
 	assert.equal(row.anchor_errors.length, 2);
-	// A bad effect value is outside the closed set and must also be reported.
 	const badEffect = parseOperationDeclarations(
 		[
 			"| operation_key | summary | effect | arguments_contract | result_contract |",
@@ -736,7 +593,6 @@ test("item4: an unresolvable contract anchor is reported, never accepted (05 §6
 
 test("item4: discovery ACTUALLY parses declarations — the integration path, not just the parser (05 §6.1)", async () => {
 	await withTemp("ldvh-disc-int.", async (base) => {
-		// A governed project whose specs/ carries a real 05 §6.1 declaration.
 		const repo = await initRepo(base, { name: "gov" });
 		const specsDir = join(repo, "specs");
 		await mkdir(specsDir, { recursive: true });
@@ -775,7 +631,6 @@ test("item4: discovery ACTUALLY parses declarations — the integration path, no
 
 		const home = join(base, "home");
 		await writeCarrier(home);
-		// The session must actually be governed for a project root to exist.
 		const registered = await registerForSetup(home, { id: "gov", path: repo });
 		assert.equal(registered.ok, true, JSON.stringify(registered));
 		const { handlers } = makeExecute({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
@@ -783,13 +638,9 @@ test("item4: discovery ACTUALLY parses declarations — the integration path, no
 		const envelope = await handlers["discover-ldvh-capabilities"]({}, exec);
 
 		const op = envelope.result.operations.find((o) => o.operation_key === "resolve-governance-scope");
-		// The declaration must be found by the REAL call path (a path fed where
-		// spec text is required would yield declaration: null here).
 		assert.ok(op.declaration, "discovery must resolve the declaration from the spec carrier text");
 		assert.equal(op.declaration.source_path, "specs/05-Demo.md");
 		assert.equal(op.availability, "当次可调用");
-		// The `<...>` template row must NOT become a phantom operation, and the
-		// operations this fixture does NOT declare must be reported as such.
 		const reported = (envelope.result.undeclared_or_unresolvable ?? []).map((e) => e.operation_key);
 		assert.ok(!reported.includes("resolve-governance-scope"), "a declared operation must not be reported undeclared");
 		assert.ok(!reported.some((k) => k.includes("placeholder")), "the <...> template must not become an operation");
@@ -799,7 +650,6 @@ test("item4: discovery ACTUALLY parses declarations — the integration path, no
 
 test("item4: an undeclared operation is reported as unavailable + diagnostic, never as declared (05 §6.1)", async () => {
 	await withTemp("ldvh-disc-gap.", async (base) => {
-		// A governed project with NO declaration tables anywhere.
 		const repo = await initRepo(base, { name: "bare" });
 		await mkdir(join(repo, "specs"), { recursive: true });
 		await writeFile(join(repo, "specs", "01-Bare.md"), [
@@ -815,8 +665,6 @@ test("item4: an undeclared operation is reported as unavailable + diagnostic, ne
 		const { handlers } = makeExecute({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
 		const envelope = await handlers["discover-ldvh-capabilities"]({}, { agent: { session: { header: { cwd: repo } } } });
 
-		// Every operation is undeclared: availability must NOT be the positive
-		// "已声明" label, and the diagnostics must be SURFACED (not dropped).
 		for (const op of envelope.result.operations) {
 			assert.notEqual(op.availability, "已声明", `${op.operation_key} must not claim declared`);
 			assert.equal(op.availability, "不可用");
@@ -828,9 +676,6 @@ test("item4: an undeclared operation is reported as unavailable + diagnostic, ne
 	});
 });
 
-// ---------------------------------------------------------------------------
-// item 6 (cont.) — 07 §5.6 Human Gate is not bypassable by any entry point
-// ---------------------------------------------------------------------------
 
 test("item6: the CLI register/unregister entries refuse without explicit Human intent (07 §5.6)", async () => {
 	await withTemp("ldvh-gate-cli.", async (base) => {
@@ -851,20 +696,14 @@ test("item6: the CLI register/unregister entries refuse without explicit Human i
 			}
 		};
 
-		// Without the explicit-intent carrier: refused, nothing written.
 		const refused = await runCli(["register", "--project", repo, "--id", "p1"]);
 		assert.equal(refused.code, 1);
 		assert.equal(JSON.parse(refused.stdout).error.code, "human_intent_required");
 		const listed = await runCli(["list"]);
 		assert.equal(JSON.parse(listed.stdout).value.projects.length, 0, "a refused registration must not write");
 
-		// With it: the Human's explicit intent is recorded and the write proceeds.
 		const granted = await runCli(["register", "--project", repo, "--id", "p1", "--human-confirmed"]);
 		if (WINDOWS_ACL_UNVERIFIED) {
-			// The intent carrier is accepted (it is no longer a
-			// human_intent_required refusal) but the registration itself fails
-			// closed at the ACL precondition. That distinction is the whole point
-			// of this test: intent was granted and the gate still refused.
 			assert.equal(granted.code, 1, granted.stdout);
 			const payload = JSON.parse(granted.stdout);
 			assert.equal(payload.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
@@ -891,19 +730,15 @@ test("item6: the Web unregister route requires an explicit human_confirmed flag 
 			let payload = null;
 			const res = { statusCode: 0, headers: {}, setHeader(k, v) { this.headers[k] = v; }, writeHead() {}, end(text) { payload = JSON.parse(text); } };
 			const handled = await handler(req, res);
-			// The handler signals "not handled" with `false`; a matched route
-			// writes a JSON payload instead.
 			assert.notEqual(handled, false, "the route must be matched");
 			assert.ok(payload !== null, "the route must produce a JSON payload");
 			return payload;
 		};
 
-		// No explicit intent ⇒ refused, project still registered.
 		const refused = await call({ id: "p1", path: repo });
 		assert.equal(refused.ok, false);
 		assert.equal(refused.error.code, "human_intent_required");
 
-		// Explicit intent ⇒ proceeds.
 		const granted = await call({ id: "p1", path: repo, human_confirmed: true });
 		assert.equal(granted.ok, true);
 	});
@@ -928,17 +763,12 @@ test("item6: the CLI install entry is gated too — it registers the project (07
 			}
 		};
 
-		// `install` performs a registration write, so a bare invocation must be
-		// refused exactly like `register` — otherwise the whole gate is
-		// bypassable by picking the other command.
 		const refused = await runCli(["install", "--project", repo, "--id", "p1"]);
 		assert.equal(refused.code, 1);
 		assert.equal(JSON.parse(refused.stdout).error.code, "human_intent_required");
-		// Nothing may be written by a refused install.
 		const listed = await runCli(["list"]);
 		assert.equal(JSON.parse(listed.stdout).value.projects.length, 0, "a refused install must not register");
 
-		// Removing the managed hook weakens a live protection: also gated.
 		const hookRefused = await runCli(["uninstall-hook", "--project", repo]);
 		assert.equal(hookRefused.code, 1);
 		assert.equal(JSON.parse(hookRefused.stdout).error.code, "human_intent_required");
@@ -962,7 +792,6 @@ test("item6: the Web install and uninstall-hook routes require explicit intent (
 		};
 
 		for (const route of ["/governed-projects/install", "/governed-projects/uninstall-hook"]) {
-			// Bare request ⇒ no intent ⇒ refused.
 			const refused = await call(route, { path: repo, id: "p1" });
 			assert.equal(refused.ok, false, `${route} must refuse without intent`);
 			assert.equal(refused.error.code, "human_intent_required");
@@ -970,11 +799,6 @@ test("item6: the Web install and uninstall-hook routes require explicit intent (
 	});
 });
 
-// ---------------------------------------------------------------------------
-// 署名落章：工具层的 update 路径必须与 create 路径同样带品牌载体
-// (bug found 2026-09-12: sig.value was passed unbranded, silently writing an
-//  unsigned change_log entry while the envelope still reported sig.ok === true)
-// ---------------------------------------------------------------------------
 
 test("signature: updates land a signed change_log entry through the real writer", async () => {
 	await withTemp("ldvh-sign.", async (base) => {
@@ -987,7 +811,6 @@ test("signature: updates land a signed change_log entry through the real writer"
 
 		const branded = authoritativeSignature({ provider: "workbuddy", model: "deepseek-v4.1-flash" });
 		const q = "这个字段该叫什么？", sb = "定名后即停", sm = "当前理解快照";
-		// 20 §13: create must carry the precheck's candidate fingerprint.
 		const draftT = { title: "T", question: q, scope_boundary: sb, intent: "I", summary: sm, change_summary: "init" };
 		const bodyT = `## 当前理解\n\n${sm}\n\n## 调查问题\n\n${q}\n\n## 调查边界\n\n${sb}\n`;
 		const created = await createSparkObject({
@@ -999,14 +822,11 @@ test("signature: updates land a signed change_log entry through the real writer"
 		});
 		assert.equal(created.ok, true, JSON.stringify(created.error));
 
-		// Update through the same branded carrier the tools layer now supplies.
 		const { readFile } = await import("node:fs/promises");
 		const cur = await readSparkObject({ factSourceRoot: root, objectUid: created.value.object_uid });
 		const text = await readFile(cur.value.file, "utf8");
 		const fm = parseYaml(text.match(/^---\n([\s\S]*?)\n---\n/)[1]);
 		const body = text.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/)[1];
-		// The writer generates the H1 from `title` (20 §8), so the body passed
-		// back in must start at H2 — re-feeding the stored H1 would produce two.
 		const bodyNoH1 = body.replace(/^\s*#\s.*\n/, "");
 		const updated = await updateSparkObject({
 			factSourceRoot: root,
@@ -1025,11 +845,6 @@ test("signature: updates land a signed change_log entry through the real writer"
 		assert.equal(last.provider, "workbuddy", "the update entry must carry the authoritative provider");
 		assert.equal(last.model, "deepseek-v4.1-flash");
 
-		// The defect was in the TOOLS layer, not the writer: `sig.value` was
-		// passed unbranded, so the writer dropped it while the envelope still
-		// reported sig.ok === true. Assert the structural fix directly — the
-		// tools layer's signatureFor must hand out a BRANDED carrier, so no
-		// caller can pass a shape the writer silently ignores.
 		const { authoritativeSignature: brand, resolveAuthoritativeSignature: resolve } = await import("../lib/signature-channel.js");
 		const { readFile: rf } = await import("node:fs/promises");
 		for (const mod of ["spark-tools", "friction-tools", "pitfall-tools", "report-tools"]) {
@@ -1039,7 +854,6 @@ test("signature: updates land a signed change_log entry through the real writer"
 				/return \{ ok: true, value: authoritativeSignature\(\{ provider: route\.value\.provider, model: route\.value\.model \}\) \};/,
 				`${mod}: signatureFor must return the BRANDED carrier (an unbranded one is silently dropped by the writer)`
 			);
-			// And no call site may pass the raw route object shape.
 			assert.doesNotMatch(src, /sessionSignature: sig\.ok \? \{ provider:/, `${mod}: callers must not construct a plain signature`);
 		}
 	});
@@ -1047,18 +861,12 @@ test("signature: updates land a signed change_log entry through the real writer"
 
 test("signature: an UNBRANDED carrier is refused by the writer (branding is the gate)", async () => {
 	const { authoritativeSignature, resolveAuthoritativeSignature } = await import("../lib/signature-channel.js");
-	// Branding at the source is what makes the tools layer incapable of passing
-	// the wrong shape; double-branding must NOT silently degrade to a signed-
-	// looking value either.
 	const branded = authoritativeSignature({ provider: "p", model: "m" });
 	assert.deepEqual(resolveAuthoritativeSignature(branded), { provider: "p", model: "m" });
 	assert.equal(resolveAuthoritativeSignature({ provider: "p", model: "m" }), null, "a plain object must resolve to null");
 	assert.equal(resolveAuthoritativeSignature(branded && authoritativeSignature(branded)), null, "branding an already-branded carrier must not pass");
 });
 
-// ---------------------------------------------------------------------------
-// Human 要求 2026-09-12：changelog 与提交都要机械署名，不能署名的要报告 Human
-// ---------------------------------------------------------------------------
 
 test("signature: the writers REFUSE an unsigned change_log write (03 §6.1 / 09)", async () => {
 	await withTemp("ldvh-siggate.", async (base) => {
@@ -1069,19 +877,15 @@ test("signature: the writers REFUSE an unsigned change_log write (03 §6.1 / 09)
 		const draft = { title: "T", question: "Q?", scope_boundary: "S", intent: "I", summary: "M", change_summary: "x" };
 		const body = "## 当前理解\n\nM\n\n## 调查问题\n\nQ?\n\n## 调查边界\n\nS\n";
 
-		// No signature at all → refused, and the reason names Human handling.
 		const unsigned = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
 		assert.equal(unsigned.ok, false);
 		assert.equal(unsigned.error.code, "signature_unavailable");
 		assert.match(unsigned.error.message, /REPORT TO HUMAN/);
 
-		// A forged/plain object is NOT a signature → also refused (09 forbids
-		// AI self-filling or a caller overriding the value).
 		const forged = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body, sessionSignature: { provider: "forged", model: "self-filled" } });
 		assert.equal(forged.ok, false);
 		assert.equal(forged.error.code, "signature_unavailable");
 
-		// Nothing was written by either refusal.
 		const { readdir } = await import("node:fs/promises");
 		const entries = await readdir(root).catch(() => []);
 		assert.deepEqual(entries, [], "a refused write must not create a fact source");
@@ -1102,9 +906,6 @@ test("signature: the commit layer keeps rejecting an unsigned commit message (06
 
 test("signature: the tools layer refuses and reports Human when the route is unavailable", async () => {
 	await withTemp("ldvh-sigroute.", async (base) => {
-		// `spark-tools` registers its own tool batch; drive it through the same
-		// registry the plugin uses, with sessionPersistence absent so the
-		// authoritative route cannot be read.
 		const repo = await initRepo(base, { name: "p" });
 		await git(repo, ["commit", "-qm", "init"]);
 		const home = join(base, "home");
@@ -1131,7 +932,6 @@ test("signature: the tools layer refuses and reports Human when the route is una
 		assert.ok(envelope.gaps.some((g) => /signature_unavailable/.test(g)), JSON.stringify(envelope.gaps));
 		assert.ok(envelope.gaps.some((g) => /REPORT TO HUMAN/.test(g)), "the report must name Human handling");
 
-		// Nothing may have been written.
 		const { readdir } = await import("node:fs/promises");
 		const base2 = join(repo, "ldvh-base", "sparks");
 		const sparks = await readdir(base2).catch(() => []);

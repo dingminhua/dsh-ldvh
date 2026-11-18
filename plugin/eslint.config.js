@@ -1,42 +1,12 @@
-// ESLint flat config (plugin lint surface).
-//
-// Scope: the plugin's own runtime code (lib/), tests (test/) and the bin
-// entry — the surfaces the 09 §5 test baseline covers. The web/ frontend is
-// a separate TypeScript/Vite app with its own toolchain and is linted there;
-// fixtures are test inputs, not product code.
-//
-// Rule posture (2026-09 hygiene batch):
-//  - lib/: recommended + no-unused-vars (underscore strip pattern ignored,
-//    deliberate catch-ignores allowed). Clean on adoption.
-//  - test/: no-unused-vars off — fixtures keep unused destructures by
-//    convention (assertion helpers, arity mirrors).
-//  - preserve-caught-error / no-useless-assignment: adopted as OFF for now
-//    (they flag pre-existing code outside this batch's scope); enable after
-//    a dedicated triage. Everything else stays on.
 import js from "@eslint/js";
 import globals from "globals";
 
 export default [
   {
-    // `lib-old/` 是 v4 归档目录（从不被 git 跟踪），只作旧实现对照用，不是插件
-    // 源码面的一部分。它落在 `plugin/` 下时会被 `eslint .` 扫到，按当前规则报出
-    // 一批**旧代码对新规则**的 error——那不是待修的缺陷，是归档物的本来面目。
-    //
-    // 它一旦留在 lint 面内，后果不只 noisy：`installHook` 的 preflight 会真跑一遍
-    // 全仓 eslint（09 §5.1 靠它证明 Hook 确实拦得住坏提交），于是归档目录的
-    // 一批旧 error 会把**所有**安装／hook 生命周期测试与每一次受控提交一起挡住
-    // ——守卫本身没错，但被与它无关的归档物触发。
-    //
-    // 故把归档目录排除出 lint 面（与 `node_modules/**`、`web/**` 同类处理）：
-    // 数据一个字节不动，只是「归档物不参与源码 lint」。
     ignores: ["node_modules/**", "web/**", "lib-old/**", "test/fixtures/**", "eslint.config.js"],
   },
   js.configs.recommended,
   {
-    // `scripts/` is Node tooling (bench + test runner) and needs the Node
-    // globals for the same reason lib/ and test/ do. It was absent from this
-    // list, so `process`/`console`/`URL` read as undefined there — which is why
-    // backfill-spark-priority.mjs carried 14 pre-existing no-undef errors.
     files: ["lib/**/*.js", "test/**/*.mjs", "lib/bin.js", "scripts/**/*.mjs"],
     languageOptions: {
       ecmaVersion: 2024,
@@ -47,9 +17,6 @@ export default [
       },
     },
     rules: {
-      // The `const { change_summary: _stripped, ...rest }` carrier-strip
-      // pattern is deliberate; caught-error bindings are the "already
-      // removed" disposer idiom.
       "no-unused-vars": ["error", { caughtErrors: "none", args: "none", varsIgnorePattern: "^_" }],
       "no-empty": ["error", { allowEmptyCatch: true }],
       "preserve-caught-error": "off",

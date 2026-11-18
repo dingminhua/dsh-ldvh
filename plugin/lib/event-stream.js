@@ -1,15 +1,4 @@
-// dsh-ldvh — session event-stream consumption (mnemon openAgentTurn /
-// recordTurnMessages shape; SKELETON, content for the reflection batch).
-//
-// mnemon treats the durable session event log as a data SOURCE: it scans
-// turn/start→turn/end to find the open turn, archives messages per turn, and
-// counts tool calls from tool/call events. LDVH's reflection sub-mechanism of the memory system
-// will need exactly these primitives ("user corrected the AI"
-// is a message-pattern recognition over turn events). The primitives are
-// mounted now so the reflection batch reads from here instead of re-learning
-// the event shapes.
 
-/** The currently open turn id, or undefined (mnemon openAgentTurn shape). */
 export function openTurn(events) {
   let open;
   for (const event of events ?? []) {
@@ -20,7 +9,6 @@ export function openTurn(events) {
   return open;
 }
 
-/** Count tool/call events within one turn (reflection signal input). */
 export function turnToolCalls(events, turn) {
   let count = 0;
   const names = new Set();
@@ -34,7 +22,6 @@ export function turnToolCalls(events, turn) {
   return { count, names: [...names] };
 }
 
-/** Extract plain text of user messages within one turn (reflection signal). */
 export function turnUserTexts(events, turn) {
   const texts = [];
   for (const event of events ?? []) {

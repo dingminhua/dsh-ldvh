@@ -4,18 +4,8 @@ import { useI18n } from '@/i18n/context';
 import { getFieldValueLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 
-/**
- * 【v5 已下线】v4 Study 的 report_kind 筛选器——v5 Research（24 号薄索引）无此字段。
- * 组件保留为空实现以防外部引用悬空；列表页已不再挂载。
- *
- * 与 ObjectStatusFilter 同构：ldvh-tab-list 按钮 + 计数。
- * 选项来自当前事实列表（按 report_kind 聚合计数），不新增后端契约；在启用状态下
- * 直接对列表项做内存过滤。未出现在列表中的闭集成员不渲染（如实投影，不出现 0 计数幽灵项）。
- */
 export type StudyReportKind = ObjectItem['report_kind'];
 
-// v4 遗留类型修正：report_kind 为可选字段，StudyReportKind 因此携带 undefined；
-// 顺序表元素为非可选闭集成员（迁移适配，零运行时行为变化）。
 const REPORT_KIND_ORDER: NonNullable<StudyReportKind>[] = [
   'external_research',
   'internal_audit',
@@ -24,13 +14,11 @@ const REPORT_KIND_ORDER: NonNullable<StudyReportKind>[] = [
 ];
 
 interface ObjectReportKindFilterProps {
-  /** 候选列表（用于聚合计数与过滤）。 */
   sourceItems: ObjectItem[];
 
   activeReportKind: StudyReportKind | null;
   onChange: (reportKind: StudyReportKind | null) => void;
 
-  /** 原始列表，仅用于计数显示（与筛选状态无关）。 */
   allItemsCount: number;
   loading?: boolean;
   coverageStatus?: FactCoverageStatus;

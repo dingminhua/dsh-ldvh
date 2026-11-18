@@ -1,11 +1,3 @@
-// Tests for plugin/lib/pitfall-tools.js — the runtime wiring of the Pitfall
-// mechanical layer (specs/23 §13 受控操作 + specs/03 §9) into the governed
-// ldvh_* tool surface.
-//
-// Coverage follows the spark-tools.test.mjs pattern: handlers are driven
-// through registerPitfallTools's descriptors with a mock ctx.tools registry,
-// a real governed-project fixture (tmp repo + registration), and the full
-// 05 §8 envelope shape is asserted, not just the result.
 import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -17,13 +9,8 @@ import { initRepo, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
-// `header` 允许测试注入身份字段（origin / parentSession / id / isSeeded /
-// delegationDepth）——分身能力收窄的用例必须有这条路，否则只能测到根会话形态。
 const exec = (cwd, header = {}) => ({ agent: { session: { header: { cwd, ...header } } } });
 
-// Mock registry: capture the descriptors registerPitfallTools registers, then
-// drive them exactly as the DSH runtime would (descriptor.execute wraps the
-// handler result in { envelope }).
 function makeDescriptors(deps, { surface = "root" } = {}) {
   const registered = [];
   const ctx = {
@@ -45,9 +32,6 @@ async function run(descriptors, toolName, args, cwd, header = {}) {
     const out = await descriptors[toolName].execute(args, exec(cwd, header));
     return out.envelope ?? out;
   } catch (error) {
-    // 参数层（DSH defineTool）在 handler 之前拒绝时抛 ToolArgsError。这些用例多数要证
-    // 「非法输入被拒」，而参数层拦下是比 handler 拦下更强的结果，故归一成一个可断言的
-    // 形态，并在 gaps 里标明层次，避免测试把「哪一层拒的」当成「有没有拒」。
     if (error?.name === "ToolArgsError" || Array.isArray(error?.violations)) {
       return {
         outcome: "rejected",
@@ -63,13 +47,7 @@ async function run(descriptors, toolName, args, cwd, header = {}) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
-// `status` 是 create 的**必填**字段（2026-10-20 起省略即 pitfall/status_required）。
-// 夹具取 `active` 作缺省，与旧行为等价（旧实现省略时默认落 active），使各既有
-// 用例保持原意；断言「省略被拒」的用例显式删掉它再传。
 function validFrontmatterDraft(overrides = {}) {
   return {
     title: "SG-4 落地后重复采坑（工具）",
@@ -113,17 +91,7 @@ function makeDeps(home, base) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Registration surface
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Registration surfaces (23 §13 代理记录通道, Human 决定 2026-11-16)
-//
-// 两面各自断言，而不是只断言根面：child 面少一个工具就是分身能给自己记授权，
-// 多一个工具就是权限外溢。这两件事都必须被用例打到（pitfall-b79dc397：新增
-// 防护没有直打用例时，变异零检出）。
-// ---------------------------------------------------------------------------
 
 const ROOT_SURFACE = ["ldvh_pitfall_arm_delegate", "ldvh_pitfall_list", "ldvh_pitfall_read", "ldvh_pitfall_write"];
 const CHILD_SURFACE = ["ldvh_pitfall_list", "ldvh_pitfall_read", "ldvh_pitfall_write"];
@@ -162,9 +130,6 @@ test("pitfall descriptors return text blocks from render and an object schema", 
   }
 });
 
-// ---------------------------------------------------------------------------
-// 未管辖会话 (governance-scope check failed → unavailable)
-// ---------------------------------------------------------------------------
 
 test("read/list/write are unavailable outside governed sessions", async () => {
   await withTemp("pitfall-tools.", async (base) => {
@@ -187,9 +152,6 @@ test("read/list/write are unavailable outside governed sessions", async () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// create 正向 (governed fixture)
-// ---------------------------------------------------------------------------
 
 test("create: completed envelope, object_uid assigned, read-back ok, file on disk", async () => {
   await withTemp("pitfall-tools.", async (base) => {
@@ -208,23 +170,18 @@ test("create: completed envelope, object_uid assigned, read-back ok, file on dis
     assert.ok(created.result.changes.some((c) => c.change === "created"));
     assert.ok(created.verification.checks.includes("read-back"));
 
-    // file really landed inside the governed repo's fact source
     const raw = await readFile(join(repo, "ldvh-base", "pitfalls", `pitfall-${created.result.object_uid}.md`), "utf8");
     assert.ok(raw.includes("fact_type_key"));
     assert.ok(raw.includes("# SG-4 落地后重复采坑（工具）"));
   });
 });
 
-// ---------------------------------------------------------------------------
-// create 机械拒绝 (zero write)
-// ---------------------------------------------------------------------------
 
 test("create: mechanical rejection is outcome=rejected with zero writes", async () => {
   await withTemp("pitfall-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    // urls non-empty but body lacks 证据 section → body-structure check fails (23 §8 条件出现)
     const draft = validFrontmatterDraft({
       urls: [{ ref: "https://example.com/evidence", title: "证据来源" }],
     });
@@ -243,9 +200,6 @@ test("create: mechanical rejection is outcome=rejected with zero writes", async 
   });
 });
 
-// ---------------------------------------------------------------------------
-// read
-// ---------------------------------------------------------------------------
 
 test("read: created object returns completed with active status and matching fingerprint; missing uid rejected", async () => {
   await withTemp("pitfall-tools.", async (base) => {
@@ -272,9 +226,6 @@ test("read: created object returns completed with active status and matching fin
   });
 });
 
-// ---------------------------------------------------------------------------
-// list (active 默认过滤; status=all 含 discarded)
-// ---------------------------------------------------------------------------
 
 test("list: active-only by default; status=all includes discarded", async () => {
   await withTemp("pitfall-tools.", async (base) => {
@@ -302,7 +253,6 @@ test("list: active-only by default; status=all includes discarded", async () => 
       body_markdown: validBodyMarkdown(mkDraft("丙坑位（工具清单）")),
     }, repo);
     assert.equal(terminal.outcome, "completed", JSON.stringify(terminal));
-    // active → discarded via CAS update
     const readTerminal = await run(descriptors, "ldvh_pitfall_read", { object_uid: terminal.result.object_uid }, repo);
     assert.equal(readTerminal.outcome, "completed");
     const toDiscarded = {
@@ -320,7 +270,6 @@ test("list: active-only by default; status=all includes discarded", async () => 
     }, repo);
     assert.equal(discarded.outcome, "completed", JSON.stringify(discarded));
 
-    // default (active-only): exactly the two active Pitfalls
     const activeOnly = await run(descriptors, "ldvh_pitfall_list", {}, repo);
     assert.equal(activeOnly.outcome, "completed", JSON.stringify(activeOnly));
     assert.equal(activeOnly.result.count, 2);
@@ -337,7 +286,6 @@ test("list: active-only by default; status=all includes discarded", async () => 
     }
     assert.equal(activeOnly.result.items.find((i) => i.object_uid === terminal.result.object_uid), undefined, "discarded Pitfall must not appear in the active-only list (23 §12)");
 
-    // status=all: all three
     const all = await run(descriptors, "ldvh_pitfall_list", { status: "all" }, repo);
     assert.equal(all.outcome, "completed", JSON.stringify(all));
     assert.equal(all.result.count, 3);
@@ -350,9 +298,6 @@ test("list: active-only by default; status=all includes discarded", async () => 
   });
 });
 
-// ---------------------------------------------------------------------------
-// update (CAS 正常流 + CAS 冲突)
-// ---------------------------------------------------------------------------
 
 test("update: CAS normal flow completed with new fingerprint; CAS conflict rejected with file unchanged", async () => {
   await withTemp("pitfall-tools.", async (base) => {
@@ -371,7 +316,6 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
     const read1 = await run(descriptors, "ldvh_pitfall_read", { object_uid: uid }, repo);
     assert.equal(read1.outcome, "completed");
 
-    // CAS normal flow: body-only errata (scope unchanged), keep the rest verbatim
     const bodyAfter = [
       `## 症状\n升级后出现重复的解析失败（勘误后表述），报错指向同一异常签名。`,
       `## 触发条件\n升级 SG-4 到新大版本后首次运行归档读取流程时触发。`,
@@ -396,12 +340,11 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
     assert.ok(updated.result.changes.some((c) => c.change === "updated"));
     assert.ok(updated.verification.checks.includes("cas-baseline"));
 
-    // CAS conflict: stale fingerprint → rejected, file content unchanged
     const rawBefore = await readFile(join(repo, "ldvh-base", "pitfalls", `pitfall-${uid}.md`), "utf8");
     const conflicted = await run(descriptors, "ldvh_pitfall_write", {
       action: "update",
       object_uid: uid,
-      expected_fingerprint: fp1, // stale
+      expected_fingerprint: fp1,
       frontmatter_after: read1.result.frontmatter,
       body_markdown_after: bodyAfter,
       change_summary: "过期指纹重试",
@@ -413,15 +356,11 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
     const rawAfter = await readFile(join(repo, "ldvh-base", "pitfalls", `pitfall-${uid}.md`), "utf8");
     assert.equal(rawAfter, rawBefore);
 
-    // a fresh read still reports the post-update fingerprint
     const read2 = await run(descriptors, "ldvh_pitfall_read", { object_uid: uid }, repo);
     assert.equal(read2.result.fingerprint, updated.result.fingerprint);
   });
 });
 
-// ---------------------------------------------------------------------------
-// renderEnvelope: full fingerprint + rich semantic lines (spark 修复批次的教训)
-// ---------------------------------------------------------------------------
 
 test("render: pitfall read output carries the FULL 64-char fingerprint and semantic lines (no ellipsis truncation)", async () => {
   await withTemp("pitfall-tools.", async (base) => {
@@ -471,10 +410,6 @@ test("render: create output carries the full fingerprint and read_back without t
     const text = blocks.map((b) => b.text).join("\n");
     assert.ok(text.includes(`fingerprint: ${created.result.fingerprint}`), `render must carry the complete fingerprint:\n${text}`);
     assert.ok(text.includes("read_back: ok"), `render must carry read_back:\n${text}`);
-    // 02 §9.1 F0–F4「发现」层 + object-reference.js：工具响应对事实对象的指称是
-    // `type-<8hex>` 形态，不是裸 uid。此处原断言要求完整 uid，与指称形态条款以及
-    // 同文件 test/object-reference.test.mjs 的 12 项断言直接冲突——**两条测试钉住
-    // 了互相排斥的形态**，而前者一直是绿的。按形态条款统一为带类型前缀的短标识。
     assert.ok(
       text.includes(`object: pitfall-${created.result.object_uid.slice(0, 8)}`),
       `render must carry the type-prefixed reference:\n${text}`,
@@ -524,9 +459,6 @@ test("render: discarded read output carries disposition (23 §9 terminal fields 
   });
 });
 
-// ---------------------------------------------------------------------------
-// execution_error (handler throw → execution_error envelope)
-// ---------------------------------------------------------------------------
 
 test("execution_error: a throwing dshHomePath surfaces execution_error with the message in gaps", async () => {
   await withTemp("pitfall-tools.", async (base) => {
@@ -567,15 +499,10 @@ test("execution_error: a throwing sessionPersistence surfaces execution_error on
   });
 });
 
-// ---------------------------------------------------------------------------
-// Schema layer (parameter schemas reject mis-shapes before the handler)
-// ---------------------------------------------------------------------------
 
 test("schema: pitfall-read-object requires object_uid", async () => {
   const { toolDescriptorFor, OPERATIONS } = await import("../lib/pitfall-tools.js");
   const desc = toolDescriptorFor("pitfall-read-object", OPERATIONS["pitfall-read-object"], async () => ({}));
-  // 必填由 handler 的 invalid_request 信封承担（保留 gaps + follow_up 可操作提示），
-  // 不在参数层强制；参数层负责类型/枚举/嵌套形状。故此处断言参数表**声明了** object_uid。
   assert.ok(
     desc.parameters.properties?.object_uid !== undefined,
     "object_uid must be a declared parameter",
@@ -590,8 +517,6 @@ test("schema: pitfall-list-objects status is a closed set", async () => {
   assert.ok(bad.some((v) => v.includes('must be one of ["active","all"]')), JSON.stringify(bad));
   assert.equal(validateJsonSchemaValue(desc.parameters, { status: "active" }, "args").length, 0);
   assert.equal(validateJsonSchemaValue(desc.parameters, { status: "all", limit: 5 }, "args").length, 0);
-  // 23 §12 / 2026-11-03：Pitfall 取消 `draft` 待确认态后不再有「待确认队列」，
-  // 原先承载它的 status=pending 查询随该档一并移除——枚举外的值须被拒绝。
   const pending = validateJsonSchemaValue(desc.parameters, { status: "pending" }, "args");
   assert.ok(pending.some((v) => v.includes('must be one of ["active","all"]')), JSON.stringify(pending));
 });
@@ -606,19 +531,10 @@ test("schema: pitfall-write-object enforces the frontmatter_draft shape", async 
   const unknownField = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { ...validFrontmatterDraft(), bogus: 1 } }, "args");
   assert.ok(unknownField.some((v) => v.includes("frontmatter_draft.bogus") && v.includes("not a declared property")), JSON.stringify(unknownField));
 });
-// ---------------------------------------------------------------------------
-// 代理记录通道的能力收窄（23 §13, Human 决定 2026-11-16）
-//
-// 为什么这批用例必须存在：写入器本身**不区分调用者**——把 ldvh_pitfall_write 交给
-// 分身，若不在此处拦，它同时就拿到了「废止任意 active 经验」与「改写任意既有对象」
-// 两项能力（独立审核 B4）。条文写「不得」而机械零拦截，正是本批要消除的形态。
-// 每条都直接触发对应分支（pitfall-b79dc397：无直打用例的新增防护变异零检出）。
-// ---------------------------------------------------------------------------
 
 const { createExperienceArming } = await import("../lib/experience-arming.js");
 const { realpath } = await import("node:fs/promises");
 
-/** 分身子会话的 header 形态：origin 与 parentSession 任一为真即判为分身。 */
 const childHeader = (childId, parentId) => ({
   id: childId,
   origin: "subagent",
@@ -694,7 +610,7 @@ test("授权过期后写入被拒（arming_expired）——一次性与存活期
     const projectPath = await realpath(repo);
     await arming.arm({ parentSessionId: "p1", projectPath, purpose: "短时授权", ttlMs: 1000 });
     arming.bindForChild({ parentSessionId: "p1", childSessionId: "c1", projectPath });
-    clock += 5000; // 越过 1 秒存活期
+    clock += 5000;
     const deps = { ...makeDeps(home, base), experienceArming: arming };
     const descriptors = makeDescriptors(deps, { surface: "child" });
     const out = await run(descriptors, "ldvh_pitfall_write", {
@@ -710,8 +626,6 @@ test("授权过期后写入被拒（arming_expired）——一次性与存活期
 test("项目错位被拒（审核 B5）——分身不得把经验写进另一个受辖项目", async () => {
   await withTemp("pitfall-arm.", async (base) => {
     const { home, deps, childId, parentId } = await armedFixture(base);
-    // 第二个仓库**也注册为受辖项目**：否则治理判定更早一步就拒绝（unavailable），
-    // 这条用例就测不到「项目对齐」那一道闸——两道闸都在，但断言必须打到对的那道。
     const otherRepo = await initRepo(base, { name: "other" });
     await registerProject(dshHome(home), { id: "other", path: otherRepo });
     const descriptors = makeDescriptors(deps, { surface: "child" });
@@ -729,7 +643,6 @@ test("项目错位被拒（审核 B5）——分身不得把经验写进另一�
 test("分身调用开工授权入口被拒（root_session_only）——授权不可自我繁殖", async () => {
   await withTemp("pitfall-arm.", async (base) => {
     const { repo, deps, childId, parentId } = await armedFixture(base);
-    // 注意：即便错误地把根面注册给了分身，handler 仍独立拒绝——两面防护不互相替代。
     const descriptors = makeDescriptors(deps, { surface: "root" });
     const out = await run(descriptors, "ldvh_pitfall_arm_delegate", {
       purpose: "再开一个分身"
@@ -752,7 +665,6 @@ test("根会话授权：purpose 缺失即拒，且授权账落盘可回读", asy
     assert.ok(good.result.arming_id);
     assert.ok(good.result.grants.includes("仅") || good.result.grants.includes("only"),
       "授权范围须回给调用方，含「只能新建」这条最易被忽略的边界");
-    // 落盘可回读：重建实例后仍能看到这条授权（插件热重建不丢能力）
     const reloaded = createExperienceArming({ dshHomePath: dshHome(home) });
     await reloaded.load();
     assert.equal(reloaded.list().some((e) => e.arming_id === good.result.arming_id), true);

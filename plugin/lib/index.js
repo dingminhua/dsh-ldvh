@@ -1,31 +1,3 @@
-// dsh-ldvh — LD Vibe Harness host-plane plugin (assembly layer).
-//
-// This module only ASSEMBLES: settings section, registration-carrier
-// startup self-check, the per-agent lifecycle registry (framework doc §4
-// points 1–2, 4–5), and the web surface mounted through a soft
-// ctx.inject(["webServer"]) callback (point 3) so headless compositions
-// still get the full core (governance judgement, guidance, tools).
-//
-// Web routes (only when a webServer exists):
-//   /ldvh/api   — backend API (health + governed-project lifecycle ops)
-//   /ldvh       — frontend SPA (placeholder until the v4 web migration)
-//   /ldvh/state — always-on governance-state endpoint (independent of the
-//                 webEnabled presentation switch). Client-mark consumers were
-//                 removed with the UI marks (Human 2026-09-04: context-
-//                 injection row supersedes them); the endpoint remains as the
-//                 machine-checkable state surface (E2 backfill: 稳态可查),
-//                 and the ldvh_resolve_governance_scope tool path shares the
-//                 same judgement source.
-//
-// What deliberately does NOT live here anymore (batch-1 rewrite):
-//   - the global systemPrompt.section guidance channel (removed by Human
-//     decision 2026-09-03 — the per-agent assemble waterfall in
-//     guidance.js is the single injection path);
-//   - governance judgement caches (removed by Human decision 2026-09-03 —
-//     07 §5.3: every judgement reads the registration carrier for real);
-//   - host-level agent/session-start tool registration and the manual
-//     agent Map (replaced by lifecycle.js: agent/created + per-agent
-//     fiber effects + roots-only gate + adoption of already-live agents).
 
 import z from "@deepseek-ai/schemastery";
 import { dirname, join } from "node:path";
@@ -49,19 +21,6 @@ const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.meta.url));
 const WEB_DIST_DIR = join(PACKAGE_ROOT, "web", "dist");
 const WEB_API_PORT = Number(process.env.LDVH_WEB_API_PORT ?? 3299);
-/**
- * ⚠️ 临时桥接（原迁移声明同款，该声明已随临时文档目录移除，ec19ba6）：Web 的 Express API 事实
- * 读取依赖 v4 归档的 Python Helper 与 v4 工作区配置。DSH Helper 集成落地后
- * 这里改指 v5 登记载体。与 plugin/web/restart.sh 保持同一数据源。
- */
-/**
- * Web API 子进程的 v5 登记模式环境：LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体
- * （dshHomePath 下 ldvh/governed-projects.yaml，由本插件的安装事务拥有）——读取链
- * 不再经过 v4 Python Helper，治理验证由 Express 侧 Node git 解析完成（与插件
- * resolveGitRoot 同语义）。已知限制（README-MIGRATION.md）：v5 的调研对象在
- * ldvh-base/researches/（research 读取引擎属后续接线），study 类型列表在 v5
- * 项目上为空是如实呈现。
- */
 function webApiBridgeEnv(dshHomePath) {
   const env = {
     LDVH_WORKSPACE_ROOT: dirname(PACKAGE_ROOT),
@@ -70,354 +29,57 @@ function webApiBridgeEnv(dshHomePath) {
     env.LDVH_GOVERNED_PROJECTS_CONFIG = dshHomePath("ldvh", "governed-projects.yaml");
     env.LDVH_WEB_PREFERENCES = dshHomePath("ldvh", "web-preferences.yaml");
   } catch {
-    // DSH 用户配置根不可用时保持环境不含载体路径——Web 侧如实报配置不可读。
   }
   return env;
 }
 
 export const name = "dsh-ldvh";
-// 不再声明 "settings"：0.1.7 起设置值由本插件自己的 Cordis Config 承载，
-// 宿主把 Config 的 volatile 字段投影成表单；插件不再注册 settings 命名空间，
-// 也不再消费 ctx.settings 服务（依据：0.1.5-rc2→0.1.7-rc1 升级调研 §3.2；原存于临时文档目录，已移除，ec19ba6）。
 export const inject = ["tools", "systemPrompt"];
 
-/**
- * LDVH 的可配置面（DSH 0.1.7+ 设置模型：插件自己的 Config 即设置）。
- *
- * 与旧模型的差别（调研 §3.2「设置模型整体重建」）：
- *   - 旧：installSettingsSection(ctx, ns, schema, …) 注册独立命名空间，值存
- *     $DSH_HOME/settings.yaml，经 setSource / onChange 回调通知变更；
- *   - 新：以下字段就是 Loader 条目（id = `dsh-ldvh`）的 Config；宿主把带
- *     `.volatile()` 的字段投影成设置表单，写回 profile 的 cordis.patch.yml。
- *
- * volatile 字段的读法：解析结果是 cosmokit 的 Volatile 引用 —— 只有 get()，
- * 没有订阅；宿主热改时把新值写进同一引用。所以每次现读即可（readSwitch），
- * 既不需要也拿不到变更通知。`.volatile()` 必须链在字段表达式最后。
- */
-/**
- * 声明一个可热改字段（schemastery 的 `.volatile()`）。
- *
- * `.volatile()` 自 schemastery 3.18.4 起提供：宿主 0.1.7-rc.1 用它把字段投影成
- * 「改设置实时生效、不重挂插件」的表单字段（解析结果是只有 get() 的引用）。旧版
- * schemastery（如 3.18.2）没有该方法，直接链式调用会在**模块加载期**抛 TypeError，
- * 让整个插件起不来——所以先探测再调用：缺失时退化为普通字段（设置照旧可读可写，
- * 只是不享受热改语义），由消费点如实呈现，而不是让插件整体消失。
- *
- * @param {object} schema - schemastery 字段。
- * @returns {object} 标记为 volatile 的字段（不支持时原样返回）。
- */
 function volatileField(schema) {
   return typeof schema?.volatile === "function" ? schema.volatile() : schema;
 }
 
 export const Config = z.object({
-  /**
-   * 是否挂载 /ldvh + /ldvh/api 前缀路由（宿主 webServer 本身始终运行）。
-   *
-   * **2026-11-13 起设置面不再提供这个开关**（Human：「这2个开关去掉」）：它与
-   * 下面两个投放项叠成三层，同一件事有三种关法。字段本身**保留**——存量配置里
-   * 写着 `webEnabled: false` 的机器仍须据此不挂路由（`gated()` 的 404 契约不变），
-   * 故这不是死字段，只是编辑入口从设置面挪到了配置文件。客户端在值为 false 时
-   * 把两个投放项显示为禁用，并在卡体里给出「去哪儿改回来」的说明。
-   */
   webEnabled: volatileField(z.boolean().default(true)),
-  /** 对话 Tab 投放面（conversation.view 插槽）；仅在 webEnabled 开启时生效。 */
   showInConversationTab: volatileField(z.boolean().default(true)),
-  /** 侧边栏投放面（betterSidebar 的 LDVH tab）；仅在 webEnabled 开启时生效。 */
   showInSidebarTab: volatileField(z.boolean().default(true)),
 
-  // ── 闲时辅助（04 §8.1 空闲维护与反思；32 §10 空闲维护与记忆健康）──────
-  //
-  // 形态参照 dsh-mnemon 的 idleReview 设置面，但**不照抄其总开关**：2026-11-13
-  // 起设置面只留两个子项 + 数值参数，子项恒展开（原「一个总开关 + 启用后才展开」
-  // 的形态已撤除，理由见下方 `idleAssistEnabled` 的字段注释）。
-  //
-  // **规范地位分层**（不得混同，见 lib/idle-settings.js 的模块注释）：
-  //   · 三个 `*Enabled` 是「让 32 §10.2 已定义的三任务可被选择性停用」——
-  //     不新增任务、不改职责、不改**派发律**（32 §10.2 已于 2026-10-11 改定为
-  //     「不设任务轮换」：勾选即全做，一次派发遂行全部已启用任务）；
-  //   · 闲时辅助的**安静时长**（`idleSilenceMs`）：其规范依据已于 2026-10-14 取得
-  //     ——11 §6.1（进入契约的判据）。其数值明文「属实现侧承接」，故本处只登记
-  //     数值、不主张规范已规定具体取值。
-  //   · **2026-10-14 取消的三类准入约束**：11 §6.2 原含三类，均经 Human Gate 取消
-  //     （理由见 idle-settings.js 的模块注释），故本 schema 依次删除
-  //     `idleMinContentChars` / `idleMinContentTurns` / `idleMinIntervalMs` 三键
-  //     （当轮），以及本轮删除的 `idleQuotaMax` / `idleQuotaWindowMs` 两键
-  //     ——**§6.2 现为空集，故本 schema 亦无任何节流配置键**。
-  /**
-   * @deprecated 已改名 `proxyAssistEnabled`（2026-11-17，机制由「闲时辅助」改为
-   * 「代理辅助」）。
-   *
-   * **保留在 schema 里的唯一理由**：使存量配置的「关」不静默变成「开」。读侧按
-   * `proxyAssistEnabled ?? idleAssistEnabled ?? true` 回落（见 `idle-settings.js`）。
-   *
-   * **不得**带 `default()`：带默认值的键会被宿主填进 config，使回落永远走不到
-   * 旧键——这与 `frictionDiscoveryEnabled` 的注释是同一个教训。
-   */
   idleAssistEnabled: volatileField(z.boolean()),
-  /**
-   * **代理辅助总开关**（2026-11-17 改名，原 `idleAssistEnabled`）。
-   *
-   * 关闭后主控不再交派任何「代理辅助任务」（00 §4.5）：既不积累经验，也不发现
-   * 摩擦。**缺省开**——两类动作都是既有行为，缺省关会使升级即静默停用。
-   *
-   * 与旧名的关系：`idleAssistEnabled` 保留在 schema 里（见上），读侧按
-   * `proxyAssistEnabled ?? idleAssistEnabled ?? 默认` 回落，使存量配置的「关」
-   * 不会静默变成「开」。
-   */
   proxyAssistEnabled: volatileField(z.boolean().default(true)),
-  /**
-   * **积累经验**（00 §4.5 代理辅助任务之一）：主控发现已查明验证的失败机制时，
-   * 派一个继承了当次对话上下文的代理起草 Pitfall，由主控受控写入（23 §13）。
-   *
-   * **缺省开**：这是 Human 2026-11-16 定下的既有行为。
-   *
-   * 注意它与 `idleCaptureEnabled` **不是同一层**：本键控制经验侧，后者控制摩擦侧。
-   * 两者产物落点完全不同（Pitfall 事实源 vs 摩擦观察缓冲），故各自可停用。
-   */
   experienceAccumulationEnabled: volatileField(z.boolean().default(true)),
-  /**
-   * **发现摩擦**（00 §4.5 代理辅助任务之一）：主控在当次行动中发现阻碍时，派代理
-   * 把观察写进缓冲（11 §12bis.1）；同源攒够 N=3 即在同一次派发内晋升为待修账目。
-   *
-   * **缺省开**：摩擦发现是既有行为，改成缺省关会使升级即静默停用（行为突变）。
-   */
   idleCaptureEnabled: volatileField(z.boolean().default(true)),
-  // **2026-11-16**：`auxReviewEnabled` 已删除——审核层整层取消，不再有审核开关。
-  // 摩擦的阈值晋升已并入捕获派发（随 `idleCaptureEnabled`）；经验侧不再由宿主承担。
-  /**
-   * @deprecated 已被 `idleCaptureEnabled` 取代（2026-10-30 配置面合并）。
-   *
-   * **保留在 schema 里的唯一理由**：使存量配置项不被判为未知字段。它**不出现在
-   * 设置面**，读侧按 `idleCaptureEnabled ?? 旧键们` 回落（见 `idle-settings.js`）。
-   *
-   * 注意：本键**没有** `default()`——这是刻意的。带默认值的键会被宿主填进 config，
-   * 使回落逻辑永远走不到旧键，「Human 曾显式关掉」的设定会静默退回默认值
-   * （该失效形态本仓已踩过，见 `idle-settings.js` 的注释）。
-   */
   frictionDiscoveryEnabled: volatileField(z.boolean()),
-  /** @deprecated 见 `frictionDiscoveryEnabled`（同属捕获层，已被 `idleCaptureEnabled` 取代）。 */
   experienceCaptureEnabled: volatileField(z.boolean()),
-  /**
-   * @deprecated 审核层已整层取消（2026-11-16），本键不再有任何语义。
-   * 保留仅为使存量配置项不被判为未知字段；无 default，理由同上。
-   */
   experienceReviewEnabled: volatileField(z.boolean()),
-  /** @deprecated 审核层已整层取消（2026-11-16）。保留仅为兼容存量配置。 */
   idleReviewEnabled: volatileField(z.boolean()),
-  /**
-   * @deprecated 已不再是独立开关（2026-10-30 配置面合并）。
-   *
-   * 容量维护与记忆健康体检在 §8 里仍是**登记在册但未实现**的职责，故不再有独立
-   * 开关；§8.5「已启用但未实现须如实登记」由 `aux-task-registry` 的
-   * `unimplemented` 投影继续承载（它们仍在登记表里，只是不由配置面开关控制）。
-   */
   capacityMaintenanceEnabled: volatileField(z.boolean()),
-  /** @deprecated 见 `capacityMaintenanceEnabled`。 */
   memoryHealthEnabled: volatileField(z.boolean()),
-  /**
-   * 安静时长（毫秒）——11 §6.1 进入契约的判据：**距最后一次会话活动**持续不短于
-   * 该时长，才算「会话确已空闲」并可派发。
-   *
-   * **须为正值**（`.min(1)`）：取 0 会使「已空闲」恒成立，等价于取消该判据——
-   * 11 §6.1 明文要求该取值在**写入时被拒绝并提示**，不得静默回落。
-   *
-   * **为什么是 `.min(1)` 而不是 `.positive()`**：宿主用的**不是真 zod**，而是
-   * `@deepseek-ai/schemastery` 的受限子集（其 number 只有 `min`/`max`/`step`/`default`
-   * 等，**无** `int`/`positive`）。调用不存在的方法会在装载期抛 TypeError 使整插件
-   * 起不来（实测如此），故这里只用该子集确认支持的方法。
-   * 非整数另有拦处：设置面按分钟读写并做往返无损检查（client.js），故毫秒值恒为整数。
-   *
-   * **2026-11-17：本字段已删除。** 它承载的是 11 §6.1 原「安静时长」这一进入契约
-   * 判据的取值；触发锚改为主控发起后该判据整体删除（11 §6.1「触发锚是主控发起」），
-   * 字段的取值不再有任何读者。
-   *
-   * **不得保留字段只为兼容存量配置**：zod 缺字段时 `config.idleSilenceMs` 为
-   * undefined，而 `idle-settings.js` 已不再读它——保留一个恒被忽略的 schema 字段，
-   * 会让「配置里还能设安静时长」成为表面事实（设置面已无该输入框，改了也不生效）。
-   */
-  // （idleSilenceMs 已删除，见上）
 
-  // ── 注入上下文总预算（Human 决定 2026-10-25）──────────────────────────
-  //
-  // **为何可配置**：此前两块注入面（引导面 / 召回面）各有一个写死在代码里的
-  // 魔法数字（1500 字符 / 2400 字节），互相不知道对方用了多少，且单位不同
-  // （字符 vs 字节）——于是同一回合里一块宽裕、一块紧张，Human 无法调。
-  //
-  // **为何是档位而非任意数**：`10 §5.3`「体量以固定常量承载，变更走受控提交」
-  // 要求预算有可核对的基准；任意可填数值会让审计无法确定「当时生效的是哪一版」。
-  // 档位把可调性交给 Human、把数值留在受控代码里。
-  //
-  // **规范依据**：`10 §5.3`（预算归属）、`10 §9.1` 第 2 项（改变注入形式或预算
-  // 边界须 Human 决定）、`34 §15.1` 第 5 项（提高召回的字节预算常量须 Human 决定）。
-  // 本字段的引入即经 Human 决定（2026-10-25 会话内：档位取 10/20/30/40/50 K）。
-  //
-  // 未登记档位不静默回落——见 `resolveInjectionBudget` 的如实拒绝。
-  // **枚举约束**（第四十一次审核 Major-1）：此前只有 `z.number()`，Human 在
-  // 设置里填 15 会「保存成功」而运行时不生效——与本仓既有纪律相悖
-  // （`idleSilenceMs` 的注释明写「11 §6.1 要求该取值在写入时被拒绝并提示，
-  // 不得静默回落」，客户端也确实做了保存时拦截）。
-  // 这里用 schemastery 受限子集能表达的最强约束（min/max 圈定合法区间），
-  // 精确的档位成员校验由 `resolveInjectionBudget` 在消费点完成并**如实报错**。
   injectionBudgetTier: volatileField(z.number().min(10).max(50).step(10).default(10)),
 
-  // ── 两处把关询问（2026-11-13 Human 决定：改问要不要安排代理）──────
-  //
-  // **规范依据**：`specs/04 §6.1` 的方案收敛自查明文写着「当工作指向『怎么做』
-  // 层面的方案——建立或修改结构性事物、存在多个可选路径的选型、或方向可能与
-  // 既定决策冲突——主控在把方案提交 Human 确认或落档处置前自查……（隔离视角
-  // 可用宿主子代理，**按需不强制**）」。这两个开关改的正是那个括号：
-  //
-  //   - 关（默认）：维持「按需不强制」——主控自己按 §6.1 的判据判断要不要
-  //     隔离视角，与现行行为一致；
-  //   - 开：把「按需不强制」改成「复杂任务一律先问 Human 要不要安排」。
-  //
-  // 它**不新增检查机制**（仍是 04 §6.2 的代理审核，只是把发起权从 AI 判断
-  // 换成一次 Human 询问），也**不新增第四种形态**（00 §2.5 的三形态不变）。
-  //
-  // **为什么这两个键不带类型前缀**：开关的语义是「这次行动要不要安排代理看
-  // 一遍」，与任何事实类型无关；键名若带类型前缀就成了名不副实的历史包袱（本仓已踩过
-  // `experienceCaptureEnabled` 一类改名遗留）。
-  //
-  // **为什么默认关**：与 `auxReviewEnabled` 同一纪律——会向 Human 发起询问、
-  // 会派生子代理，属于新增行为；默认打开会在 Human 尚未知情时改变每一轮对话的
-  // 节奏。缺省关更诚实，也符合 Human 本次「打开才有」的原话。
-  //
-  // **读取方式**：消费点**每次现读**（volatile 字段没有逐字段变更通知），
-  // 故 Human 在设置页改动后，下一次判断即生效，无需重载插件。
-  /**
-   * 行动前审查的询问开关：开启后，主控判定当次任务属「复杂任务」**且方案已有
-   * 候选**时，在动手改动之前询问 Human「是否安排代理审查」。
-   *
-   * **时点不是「任务的第一个动作之前」**（2026-11-14 修）：`32 §6.1` 的进入信号
-   * 是「尚未开始产生副作用」——读规范、查事实、收敛方案都不产生副作用。而
-   * `32 §7.2` 把「方案关键主张」列为该处可选输入、`§8.1` 说问的是「对候选的
-   * 独立核对」，故没有候选就没有可核对的对象，此时发问是空问（`32 §6.4` 明禁）。
-   * **答复也不构成动手前提**：`00 §2.5` 原文「请示本身不是行动放行的前提，也不使
-   * 行动在取得答复前暂停」，`32 §3.4` 明禁把「未取得答复」处置为「必须暂停」。
-   *
-   * 「复杂任务」的判据**不新造**：第一步直接取 `specs/04 §6.1` 的三个条件
-   * （建立或修改结构性事物／存在多个可选路径的选型／方向可能与既定决策冲突），
-   * 与 `specs/04 §6.1` 的排除清单（取反）合并使用。
-   * 第二步是 `specs/32 §4.2` 的**点位排除**（Human 2026-11-14 决定；2026-11-15 随 ADR 事实
-   * 类型撤除删除第 4 类）：判为复杂之后，当次工作整件属纯调研取证与报告／纯受控提交与推送／
-   * 纯 LDVH 受控工具面对既有事实对象的操作之一时，该处不请示。
-   * 它由 32 号规定、不属 04 号判据，本开关也不据它改变自身语义。
-   * 判据留在规范里，本开关只决定「判为复杂且未命中排除后是否询问」。
-   */
   preActionReviewAskEnabled: volatileField(z.boolean().default(false)),
-  /**
-   * 行动后复核的询问开关：开启后，主控在完成一件复杂任务、准备收口时，
-   * 询问 Human「是否安排代理复核」。
-   *
-   * 点位排除（`specs/32 §4.2`）对这一处**同样生效**，且与行动前那处共用同一份
-   * `GATE_POINT_EXCLUSIONS`：判为复杂但整件属那三类时，这一处不问也不派发。
-   * 两处是**两个独立开关**，而点位排除是**一处规则管两处**——不要把它读成
-   * 「第二个开关自己带一套排除」。
-   *
-   * 与上一个是**两个独立开关**（Human 明示「这2个提请做成开关」）：只想要
-   * 事前审查的人可以只开第一个。两者语义不同、时点不同，合并不产生任何
-   * 「只开一半就废掉另一半」的问题——不像 `idleCaptureEnabled` 那次合并
-   * （两个开关管同一次派发，拆开会产生半套材料）。
-   */
   postWorkReviewAskEnabled: volatileField(z.boolean().default(false)),
-  /**
-   * **静默执行**开关（Human 2026-11-13 决定，2026-11-13 晚确认语义为 A1）：
-   * 打开后，主控在判定当次属「复杂任务」之后**跳过两处询问**，改为**直接
-   * 自动安排**那一次核对（行动前派审查、收口前派复核），事后如实报告。
-   *
-   * ## 它与上面两枚开关的关系（**不是第三处把关，是那两处的执行档位**）
-   *
-   * **判定按点位分别进行**（`reviewAskMode`），不是按「两处一起」：
-   * 每一处都是「该处的询问开关 × 静默」两个布尔量，各自得一个执行档位。
-   * 两枚询问开关本就相互独立（只开一处是常见配置），故不存在「两处合一」的行。
-   *
-   * | 该处询问开关 | 静默 | 该处行为 |
-   * |---|---|---|
-   * | 关 | 任意 | 不问，也不安排——静默没有作用对象（静默不越过询问开关） |
-   * | 开 | 关 | 到点问 Human「要不要安排」——即原有行为 |
-   * | 开 | 开 | 到点**不问**，直接派零上下文子代理做那次核对（A1） |
-   * | 开 | 未配置 | 取不到就**保守退回询问**，并在 `gaps` 里如实报告这不是 Human 的决定 |
-   *
-   * 两处分别套用上表：pre 开、post 关且静默开时，行动前静默执行、收口前不动作。
-   *
-   * **A1 而不是 A2（不问也不做）的理由**：A2 与「把两枚开关都关掉」几乎等价
-   * ——32 §16 已明说「关着只保证不问，不禁止 AI 自行安排核对」。选 A2，这枚
-   * 开关的价值就只剩「显式声明」，无法回答 00 §5.1 的「服务哪项核心价值、
-   * 以什么证据核对」，会成为装饰开关。A1 免除的是**询问**，不是**核对**。
-   *
-   * ## 它不碰任何真闸门（这是本条最要紧的边界）
-   *
-   * 静默**只作用于把关请示系统的两处征询**。以下依次照旧请示、不受本开关影响：
-   * Spark 创建与终态的 Human Gate（20 §16）、受保护内容修改
-   * （00 §3.3）、管辖项目登记与取消（07 §5.4/§5.7）、SubGoal 与 Norm 的创建。
-   * **理由**：那几处不是「征询要不要多一双眼睛」，而是「这件事能不能做」——
-   * 00 §3.4 的暂停义务在那里成立，一个配置开关不能把它抹平。本条只允许
-   * 削弱**征询**，不允许削弱**授权**。
-   *
-   * ## 缺省关闭、每次现读
-   *
-   * 与两枚询问开关同一纪律：默认打开会在 Human 尚未知情时改变每一轮对话的
-   * 节奏（不经询问就派生代理）。volatile 字段无逐字段变更通知，故消费点
-   * **每次现读**，Human 改完即生效。
-   *
-   * ## 如实边界（00 §4.6）
-   *
-   * 本开关**不构成机械保障**：它不判定「算不算复杂」（那是 AI 判断），也不
-   * 检查主控是否真的派了代理。它保障的只有：读到了就照办、照办了就留痕。
-   * 「静默」不等于「无痕」——每次静默执行须在交付说明里留一行，见
-   * `review-ask.js` 的 `silentRunNotice`（渲染入口见 `ldvh-tools.js` 的 review-ask 分支）。
-   */
   reviewAskSilentRunEnabled: volatileField(z.boolean().default(false)),
 
-  // ── 经验审核的开关已并入 `auxReviewEnabled`（2026-10-30 配置面合并）────
-  // 该键本身作为 deprecated 保留在 schema 前部（仅为兼容存量配置），此处不再重复
-  // 声明。`experienceReviewIntervalMs` 已于 2026-10-27 删除（审核随静置触发，
-  // 不存在时间间隔）。
   });
 
-/**
- * 读一个可热改开关的当前值，两代宿主通吃。
- *
- * 0.1.7+ 的 volatile 字段是 `{ get() }` 引用；更早的宿主（或未经 volatile
- * 包装的普通值）直接就是布尔。缺省一律按「开」处理，与旧实现的 webEnabled()
- * 语义一致（section 缺失 = 默认启用）。
- *
- * @param {{get?: () => unknown}|unknown} value - Config 字段的解析结果。
- * @param {boolean} fallback - 值为 undefined / null 时的答案。
- * @returns {boolean} 开关当前值。
- */
 function readSwitch(value, fallback = true) {
   if (value === undefined || value === null) return fallback;
   if (typeof value.get === "function") return value.get() !== false;
   return value !== false;
 }
 
-/**
- * 读一个可热改**数值**字段的当前值（volatile 引用或普通值两代通吃）。
- *
- * 与 `readSwitch` 同形，但返回数值或 `undefined`——**不用默认值兜底**：
- * 未登记档位要由 `resolveInjectionBudget` 如实拒绝，静默回落会让 Human
- * 以为自己选了 30K 而实际生效 10K（`10 §9.1` 精神：非法配置须可见）。
- *
- * @param {{get?: () => unknown}|unknown} value - Config 字段的解析结果。
- * @returns {number|undefined}
- */
 function readVolatileNumber(value) {
   if (value === undefined || value === null) return undefined;
   const raw = typeof value.get === "function" ? value.get() : value;
   const num = typeof raw === "string" ? Number(raw) : raw;
   if (typeof num === "number" && Number.isFinite(num)) return num;
-  // **非数值不得兜底成 undefined**（第四十一次审核 Major-1/D3）：undefined 会被
-  // `resolveInjectionBudget` 当作「未配置」而静默取默认档，于是 `"abc"` 这种
-  // 非法值**完全无声**。返回 NaN 使其走「未登记档位」分支并如实报错。
   return Number.NaN;
 }
 
 const API_PREFIX = "/ldvh/api";
 const SPA_PREFIX = "/ldvh";
-// Always-on governance-state endpoint for the Client indicator. Separate from
-// /ldvh/api so the indicator survives the Web-presentation switch.
 const STATE_PREFIX = "/ldvh/state";
 
 function json(res, statusCode, body) {
@@ -426,12 +88,6 @@ function json(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
-/**
- * LDVH API handler: health plus governed-project lifecycle operations, then a
- * fall-through proxy to the migrated Web Express child process. Local routes
- * (health + /governed-projects* governance endpoints) keep priority; every
- * other /ldvh/api path belongs to the Web API surface and is proxied.
- */
 function createApiHandler(dshHomePath, webApiProxy) {
   const governance = createGovernanceHandler({ dshHomePath, runnerPath: GATE_RUNNER_PATH, workspaceRoot: PACKAGE_ROOT });
   return async function apiHandler(req, res) {
@@ -439,8 +95,6 @@ function createApiHandler(dshHomePath, webApiProxy) {
     const rawPath = url.pathname;
     const path = rawPath === API_PREFIX ? "/" : (rawPath.startsWith(`${API_PREFIX}/`) ? rawPath.slice(API_PREFIX.length) : rawPath);
     if ((path === "/health" || path === "/health/") && (req.method === "GET" || req.method === "HEAD")) {
-      // `webPort` 供客户端 iframe 拼绝对地址（见 lib/client.js 的 ldvhWebOrigin）。
-      // 客户端不能硬编码端口——宿主侧端口可被 LDVH_WEB_API_PORT 覆盖，硬编码会漂移。
       json(res, 200, { ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX, webPort: WEB_API_PORT });
       return;
     }
@@ -459,27 +113,10 @@ function createApiHandler(dshHomePath, webApiProxy) {
   };
 }
 
-/**
- * 读「是否挂载 LDVH Web 路由」的当前值（缺省视为启用）。
- *
- * 新模型没有设置变更通知（volatile 只有 get()），所以开关不再触发重挂路由，
- * 而是由 gated() 在每次请求时现判 —— 关闭后立即生效，不依赖任何回调。
- */
 function webEnabled(config) {
   return readSwitch(config?.webEnabled, true);
 }
 
-/**
- * 把「是否挂载」开关挪进请求路径。
- *
- * 旧实现靠设置变更回调真正摘掉路由；新模型拿不到变更通知，于是改为
- * 「注册一次、请求时现判」：关闭后 /ldvh 与 /ldvh/api 立即不可用，且不会
- * 因缺通知而停在旧状态。/ldvh/state 不经此包装（always-on 治理状态面）。
- *
- * @param {(req: object, res: object, ...rest: unknown[]) => unknown} handler - 真正的前缀处理器。
- * @param {object} config - 本插件的 Cordis Config。
- * @returns {(req: object, res: object, ...rest: unknown[]) => unknown} 带开关判断的处理器。
- */
 function gated(handler, config) {
   return (req, res, ...rest) => {
     if (!webEnabled(config)) {
@@ -490,17 +127,6 @@ function gated(handler, config) {
   };
 }
 
-/**
- * Register both web routes; returns a single disposer removing both. The Web
- * API child process is owned by the caller (created once per webServer mount,
- * outliving webEnabled toggles but disposed with the fiber) — route
- * registration and process lifetime are deliberately decoupled: toggling the
- * presentation switch must not kill a possibly in-flight child restart.
- *
- * 0.1.7 起开关不再是「挂/卸路由」，而是由 gated() 在请求路径上现判（config
- * 的 volatile 字段没有变更通知）。因此本函数注册一次即长期有效，关闭开关
- * 只改变请求结果，不改路由账本。
- */
 function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger, config) {
   const webApiProxy = createProxyHandler(webApiProcess, logger);
   const apiHandler = typeof dshHomePath === "function" ? createApiHandler(dshHomePath, webApiProxy) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); }, webApiProxy);
@@ -515,29 +141,11 @@ function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger, config
     handler: gated(createSpaHandler(WEB_DIST_DIR, logger), config)
   });
   return () => {
-    try { apiDisposer(); } catch { /* already removed */ }
-    try { spaDisposer(); } catch { /* already removed */ }
+    try { apiDisposer(); } catch {   }
+    try { spaDisposer(); } catch {   }
   };
 }
 
-/**
- * Register the always-on governance-state endpoint for the Client indicator.
- *
- * Deliberately separate from `registerWebRoutes`: /ldvh/api is gated on the
- * `webEnabled` setting, but "is this session governed?" is a governance
- * signal, not a Web-panel feature — the indicator must keep working when the
- * Web mount is switched off.
- *
- * Two query forms, in priority order:
- *   1. `?sessionId=` — answered from the session-scopes table populated by
- *      the per-agent lifecycle (session-start and assemble). An unknown
- *      sessionId is NOT guessed: it answers `unknown`, and the Client
- *      renders nothing (fail-closed — no mark is safer than a false green).
- *   2. `?cwd=` — a direct judgement call, kept for callers that know the cwd.
- *
- * Only identity is returned: no paths, no settings — this is a status
- * indicator, not a settings surface.
- */
 function registerStateRoute(webServer, sessionScopes, dshHomePath) {
   return webServer.register({
     kind: "prefix",
@@ -550,8 +158,6 @@ function registerStateRoute(webServer, sessionScopes, dshHomePath) {
         if (typeof sessionId === "string" && sessionId.length > 0) {
           const known = sessionScopes.get(sessionId);
           if (known === undefined) {
-            // Not yet resolved (or not an LDVH-tracked session): report
-            // unknown rather than guessing governed/not_governed.
             json(res, 200, { ok: true, state: "unknown", project: null });
             return;
           }
@@ -588,40 +194,17 @@ export function apply(ctx, config) {
   const sessionScopes = createSessionScopes();
   const dshHomePath = ctx.get("dshHomePath");
 
-  // Per-agent lifecycle: agent/created install + adoption of already-live
-  // specs/08 §6: consume the host seams this composition provides. Installed
-  // BEFORE the lifecycle, because the lifecycle hands the registry to the tool
-  // batch so the 07 §5.6 Human Gate can route through ctx.userQuestions.ask.
-  // Each seam is registered on this plugin's own fiber, so nothing survives
-  // stop/update. Unconsumed seams are reported in snapshot() rather than
-  // hidden (08 §6 forbids claiming protection a seam's absence did not deliver).
   const hostSeams = createHostSeams();
   const seamsInstall = hostSeams.install(ctx, { dshHomePath });
   ctx.effect(() => () => {
-    try { seamsInstall.dispose(); } catch { /* already removed */ }
-    // Detach the read observer too: without this, a stopped plugin would keep
-    // recording observations into the module map, contradicting the "nothing
-    // leaks past plugin stop" discipline.
-    try { setCarrierObserver(null); } catch { /* already detached */ }
+    try { seamsInstall.dispose(); } catch {   }
+    try { setCarrierObserver(null); } catch {   }
   }, "dsh-ldvh: host seam consumption");
   for (const seam of hostSeams.snapshot()) {
     ctx.logger.info("[dsh-ldvh] host seam %s: %s (%s)", seam.state, seam.seam, seam.detail);
   }
-  // 08 §6 read half, wired to the real read path: every LDVH read of the
-  // registration carrier records an authoritative observation, so the
-  // fs/write-intent guard below keys writes to a host-reported version.
   setCarrierObserver((carrierPath) => hostSeams.observePath(carrierPath));
 
-  // **称呼机械前置器**（2026-11-16，Human 决定「两条都按你推进」之决策二 A）：
-  // 挂 `llm/stream` 瀑布，对受辖根会话（sessionScopes 只登记根会话）且项目承载
-  // ai-human-collaboration 规范者，保证最终 assistant 消息以称呼起首。
-  //
-  // **保证面而非阻断面**：它改写输出、不拒绝/暂停/退回，按 04 §6.3 不计入覆盖；
-  // 27 §6.1 的「保证面」类别待 Human 决定 R2 落盘。失效面逐条登记在模块头注释
-  // （fail-open、abort 放行、无可见文本不适用、子会话不适用、它项目不适用）。
-  //
-  // **项目匹配**（审查 MAJOR-7）：scope.project.path 下须真实存在 active 的
-  // ai-human-collaboration 方向规范才前置——多受辖项目时不把本项目称呼强加给它项目。
   const greetingEnforcer = createGreetingEnforcer({
     sessionScopes,
     projectCarriesNorm: async (projectPath) => {
@@ -634,26 +217,16 @@ export function apply(ctx, config) {
     logger: ctx.logger,
   });
   const greetingStop = greetingEnforcer.install(ctx);
-  ctx.effect(() => () => { try { greetingStop(); } catch { /* already removed */ } }, "dsh-ldvh: greeting enforcer");
+  ctx.effect(() => () => { try { greetingStop(); } catch {   } }, "dsh-ldvh: greeting enforcer");
   ctx.logger.info("[dsh-ldvh] greeting enforcer mounted: %s", JSON.stringify(greetingEnforcer.snapshot()));
 
-  // Per-agent lifecycle: agent/created install + adoption of already-live
-  // agents; guidance injection, tools guard and the pre-step skeleton all
-  // live behind this registry (framework doc §4 points 1–2, 4–5).
   const lifecycle = createLifecycleRegistry(ctx, {
     dshHomePath,
     workspaceRoot: PACKAGE_ROOT,
     sessionScopes,
     hostSeams,
-    // 闲时辅助的设置**每次现读**（volatile 字段无变更通知，只在同一引用里换值
-    // ——见上文 readSwitch 的说明）。故传一个取值函数而非快照：Human 在设置页
-    // 改动后，下一次检查点即看到新值，无需重载插件。
     getIdleSettings: () => resolveIdleSettings(config),
-    // 两处把关询问的开关**每次现读**（volatile 字段无变更通知，只在同一引用里
-    // 换值）。Human 在设置页改动后，下一回合的注入行即看到新值，无需重载插件。
     getReviewAskSettings: () => resolveReviewAskSettings(config),
-    // 注入上下文总预算：同样是**每次现读**（volatile 字段无变更通知）。
-    // 返回解析结果而非字节数——未登记档位要能被如实拒绝，不能悄悄回落。
     getInjectionBudget: () => {
       const raw = readVolatileNumber(config?.injectionBudgetTier);
       return resolveInjectionBudget(raw);
@@ -661,103 +234,44 @@ export function apply(ctx, config) {
   });
   const stopLifecycle = lifecycle.start();
 
-  // ── 设置变更 → 当场重新协调审核周期任务（2026-10-26）────────────────────
-  //
-  // **这是一个实测出来的缺陷的修复**。第一版把武装写在 `agent/created` 里，而改设置
-  // 不会创建 agent——于是 Human 打开「自动审核经验」并把间隔改成 2 分钟后，配置确实
-  // 落盘（`cordis.patch.yml` 里 `experienceReviewEnabled: true`、
-  // `experienceReviewIntervalMs: 120000`），但系统里既没有专属会话也没有周期任务。
-  // 界面上勾了、实际没跑——比没有这个开关更糟。
-  //
-  // 宿主有这个能力：`app-boot/config-reload`（「Profile patches 已协调进运行中的
-  // Loader 树」，**不携带 diff，监听者自行重读**）。此前本插件从没订阅它。
-  //
-  // 顺带纠正上方那句旧注释：`volatile` 字段确实没有逐字段的变更通知，但**整份配置
-  // 重协调是有事件的**——「无变更通知」只对「字段级订阅」成立，不对「配置重载」成立。
-  // ── 审核触发（2026-10-27 重做，Human 方案）──────────────────────────────
-  //
-  // **旧机制已整体移除**：宿主周期任务 + 绑定「专属会话」+ 归档过滤 + 协调自愈。
-  // 移除理由（实测）：那个「专属会话」是一个普通对话，会被人当工作对话使用——
-  // `session-2827e177` 03:22:51 被本插件创建，03:29:49 Human 就在里面提问。于是
-  // 审核提醒直接投进 Human 正在工作的对话，而 Human 的内容也被当成审核上下文。
-  // 只要落点是可用对话，这个占用就必然发生，改投递路由治不了。
-  //
-  // 现行做法：审核挂在**静置触发**上，派发前判「是否已有审核在跑」（进程内互斥）。
-  // 不再需要任何专属会话，因此 `schedule` / `workspaceController` 也不再是依赖。
-  //
-  // 与设置的连接方式：不再需要「协调」——没有需要创建/维护的宿主对象了。审核开关
-  // 与间隔在每次静置检查点**现读**（`getIdleSettings()`），改动下一检查点即生效。
-  // 这同时消掉了此前两个真实缺陷的成因：「装载时不协调」与「apply 当场服务未装配」。
 
-  // Soft web mount (framework doc §4 point 3): the webServer service is NOT a
-  // hard injection anymore. In compositions that provide one, this child
-  // fiber mounts the routes; headless compositions simply never run the
-  // callback and the core (judgement/guidance/tools) is unaffected. The
-  // child fiber is disposed with the plugin, so every route registered here
-  // is cleaned up automatically on stop/update (audit D confirmed).
   ctx.inject(["webServer"], (webCtx) => {
     const webServer = webCtx.webServer;
     if (webServer === undefined) return;
     const disposeStateRoute = registerStateRoute(webServer, sessionScopes, dshHomePath);
     webCtx.logger.info("[dsh-ldvh] governance-state route registered under %s", STATE_PREFIX);
-    // Web API 子进程：随 webServer 注入块创建/销毁（与 webEnabled 切换解耦——
-    // 切换只挂/卸路由，不杀进程；插件停止/更新时统一处置）。懒启动：只有真的
-    // 有 /ldvh/api 代理请求才会 spawn，测试与纯治理会话零开销。
     const webApiProcess = createWebApiProcess({
       webRoot: join(PACKAGE_ROOT, "web"),
       port: WEB_API_PORT,
       env: webApiBridgeEnv(dshHomePath),
       logger: webCtx.logger,
     });
-    // 预热：挂载即启动子进程（懒启动省的是空闲会话的一次 ~0.3s，代价却是
-    // 每次 DSH 重启后首次打开 Web 的整段冷启动等待——Human 反馈"比之前卡"的主因之一）。
     void webApiProcess.ensureReady().then(() => {
       webCtx.logger.info("[dsh-ldvh] web api child warmed up on port %s", WEB_API_PORT);
     }).catch((error) => {
       webCtx.logger.warn("[dsh-ldvh] web api warm-up failed (will retry on first request): %s", error?.message ?? error);
     });
-    // 路由注册一次即长期有效：开关由 gated() 在请求路径上现判（见 registerWebRoutes）。
-    // Web API 子进程与路由账本解耦——切换开关不杀可能正在重启的子进程。
     const disposeRoutes = registerWebRoutes(webServer, dshHomePath, webApiProcess, webCtx.logger, config);
     webCtx.logger.info("[dsh-ldvh] web routes registered under %s / %s (webEnabled=%s)", SPA_PREFIX, API_PREFIX, webEnabled(config));
     webCtx.effect(() => () => {
-      try { disposeRoutes(); } catch { /* already removed */ }
-      try { webApiProcess.dispose(); } catch { /* best effort */ }
-      try { disposeStateRoute(); } catch { /* already removed */ }
+      try { disposeRoutes(); } catch {   }
+      try { webApiProcess.dispose(); } catch {   }
+      try { disposeStateRoute(); } catch {   }
     }, "dsh-ldvh: web routes and state route");
   });
 
-  // RPC + slash-command surface (mnemon parity, SKELETON): only in Web
-  // compositions (connection service present). The lifecycle snapshot
-  // channel is real and read-only; commands are placeholders.
   ctx.inject(["connection"], (connectionCtx) => {
     const connection = connectionCtx.connection;
     if (connection === undefined) return;
     const disposeRpc = registerLdvhRpc(connection, { lifecycle });
     const disposeCommands = registerLdvhCommands(connectionCtx.get?.("commands") ?? ctx.get("commands"));
     connectionCtx.effect(() => () => {
-      try { disposeRpc(); } catch { /* already removed */ }
-      try { disposeCommands(); } catch { /* already removed */ }
+      try { disposeRpc(); } catch {   }
+      try { disposeCommands(); } catch {   }
     }, "dsh-ldvh: rpc and commands");
   });
 
-  // 设置面：三个开关由本插件 Cordis Config 的 volatile 字段承载（见文件头的
-  // Config 声明），宿主把它们投影成设置表单并写进 profile patch。这里不再注册
-  // 任何 settings 命名空间，也没有 setSource / onChange 回调可挂——新模型没有
-  // 变更通知，开关一律由消费点现读（webEnabled(config) / 客户端 configForms）。
 
-  // Startup carrier lifecycle (Human-confirmed design): plugin load ensures
-  // an empty registration carrier exists — installing the plugin puts the
-  // empty file in place, adding a governed project updates it. Only a
-  // missing file is created; existing carriers are never rewritten here and
-  // corrupt or unreadable ones stay fail-closed (logged, not overwritten).
-  //
-  // The follow-up inspection is no longer read-only: it repairs absent/outdated
-  // Git Hooks (Human decision, m01853 — "机械修复", conflict untouched). The
-  // reason is in hook-repair.js: installing a project installs its Hooks exactly
-  // once, so without a startup pass a project registered two releases ago would
-  // keep running a Hook body nobody maintains. A conflict is REPORTED, never
-  // overwritten — that Hook belongs to someone else.
   if (typeof dshHomePath === "function") {
     Promise.resolve(ensureRegistrationCarrier(dshHomePath))
       .then((ensured) => {
@@ -778,8 +292,6 @@ export function apply(ctx, config) {
       .catch((error) => ctx.logger.warn(error));
   }
 
-  // Await this plugin's own per-agent effects before the plugin fiber finishes
-  // unloading; the agent fibers and other plugins' registrations stay alive.
   ctx.effect(() => async () => {
     try {
       await stopLifecycle();

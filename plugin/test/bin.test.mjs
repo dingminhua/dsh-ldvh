@@ -1,7 +1,3 @@
-// Tests for plugin/lib/bin.js — the `dsh-ldvh governed-project` CLI.
-//
-// The CLI is spawned as a child process with DSH_HOME pointed at a throwaway
-// directory so registration never touches the real harness home.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile, realpath, writeFile } from "node:fs/promises";
@@ -45,7 +41,6 @@ test("inspect prints a JSON result with hook and fact source state", async () =>
 		assert.equal(result.code, 0, result.stderr);
 		const parsed = JSON.parse(result.stdout);
 		assert.equal(parsed.ok, true);
-		// resolveGitRoot canonicalizes symlinked path components (e.g. /var -> /private/var)
 		assert.equal(parsed.value.projectRoot, await realpath(root));
 		assert.equal(parsed.value.factSource.state, "absent");
 		assert.equal(parsed.value.hook.state, "absent");
@@ -78,7 +73,7 @@ test("list reports an uninitialized registration on a fresh home", async () => {
 
 test("install, list, and uninstall-hook round-trip through the CLI", async () => {
 	await withTemp("ldvh-bin.", async (base) => {
-		const root = await initRepo(base); // staged -> gate preflight passes
+		const root = await initRepo(base);
 		const home = join(base, "home");
 
 		const install = await runBin(
@@ -142,9 +137,6 @@ test("a legal commit passes through the installed CLI Hook (end-to-end)", async 
 		const install = await runBin(["governed-project", "install", "--project", root, "--id", "e2e", "--human-confirmed"], home);
 		assert.equal(install.code, 0, install.stderr);
 
-		// The staged README is a 规范载体 (09 §5.3 item 5), so this commit is a
-		// governed one: the Hook checks the trailers' value source. Run it with a
-		// controlled route, or "who ran the suite" becomes part of the assertion.
 		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE], { env: gateEnv(signatureEnv()) });
 		assert.equal(passed.ok, true, passed.stderr);
 	});
@@ -167,8 +159,6 @@ test("unregister removes the project and clears the default through the CLI", as
 		const install = await runBin(["governed-project", "install", "--project", root, "--id", "cli-proj", "--human-confirmed"], home);
 		assert.equal(install.code, 0, install.stderr);
 
-		// 07 §5.6: cancellation requires explicit Human intent. A bare
-		// invocation is not consent, so the CLI must refuse it.
 		const refused = await runBin(["governed-project", "unregister", "--project", root, "--id", "cli-proj"], home);
 		assert.equal(refused.code, 1);
 		assert.equal(JSON.parse(refused.stdout).error.code, "human_intent_required");

@@ -1,6 +1,3 @@
-// Tests for plugin/lib/idle-runlog.js —
-// 空闲检查点的运行痕迹：固定容量环形（**上界**）、只追加不修改、
-// 并发读-改-写串行化、载体损坏 fail-closed、不进入事实源。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -53,7 +50,6 @@ test("容量上界：超过 MAX_ENTRIES 即丢最旧（这是用户关切的直�
     }
     const r = await readRuns(home);
     assert.equal(r.value.total, MAX_ENTRIES, "文件条目数须有硬上界，不得随运行次数无限增长");
-    // 保留的是**最近**的，最旧的已丢
     assert.equal(r.value.runs[r.value.runs.length - 1].note, `run-${MAX_ENTRIES + 19}`);
     assert.equal(r.value.runs[0].note, "run-20");
   });
@@ -66,7 +62,6 @@ test("容量上界：文件字节数同样有界（不得只限条数而单条�
       await recordRun(home, { task: "friction-discovery", stage: "landed", note: "x".repeat(5000) });
     }
     const raw = await readFile(carrierIn(dir), "utf8");
-    // 单条 note 被截断到 300 字 + 省略号，故总量约 MAX_ENTRIES × 数百字节
     assert.ok(raw.length < MAX_ENTRIES * 1200, `载体不得膨胀：实测 ${raw.length} 字节`);
   });
 });
@@ -180,7 +175,6 @@ test("不写项目仓库：载体只在 DSH home 之下", async () => {
 test("stage 字段承载「落到哪一步」——这是本模块存在的理由", async () => {
   await withTemp("ldvh-runlog-", async (dir) => {
     const home = homeOf(dir);
-    // 五种结局都能被区分——「跑了但没发现」与「根本没跑」不再无从分辩
     for (const stage of ["skipped", "not-implemented", "stopped", "landed", "land-failed"]) {
       await recordRun(home, { task: "friction-discovery", stage });
     }
@@ -189,10 +183,6 @@ test("stage 字段承载「落到哪一步」——这是本模块存在的理�
   });
 });
 
-// ---------------------------------------------------------------------------
-// 「诊断不得反过来弄坏机制」——本模块是诊断旁路，不是 §8.4 闭集里的机械校验。
-// 它若抛错会打断检查点路径：为了可观测性反而让机制变脆，与目的相反。
-// ---------------------------------------------------------------------------
 
 test("形态异常一律不抛错（dshHomePath 非函数）", async () => {
   for (const bad of ["not-a-function", undefined, null, 42]) {
@@ -220,7 +210,6 @@ test("dshHomePath 返回非字符串时不抛", async () => {
 
 test("载体不可写时不抛（只读目录等环境问题）", async () => {
   await withTemp("ldvh-runlog-", async (dir) => {
-    // 用一个必然失败的 home：把它指向一个文件而非目录
     const { writeFile } = await import("node:fs/promises");
     const filePath = join(dir, "not-a-dir");
     await writeFile(filePath, "x", "utf8");

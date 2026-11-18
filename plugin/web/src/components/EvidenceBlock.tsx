@@ -3,7 +3,6 @@ import remarkGfm from 'remark-gfm';
 
 interface EvidenceBlockProps {
   value: string;
-  /** 是否在结构化卡片内部（减少嵌套样式） */
   embedded?: boolean;
 }
 
@@ -71,7 +70,6 @@ const markdownComponents: Components = {
 export default function EvidenceBlock({ value, embedded = false }: EvidenceBlockProps) {
   const structured = parseEvidenceSections(value);
 
-  // 嵌入模式：不额外包裹边框和背景，因为外层已有容器
   if (embedded) {
     return (
       <div className="ldvh-inline-markdown max-w-none">
@@ -80,7 +78,6 @@ export default function EvidenceBlock({ value, embedded = false }: EvidenceBlock
     );
   }
 
-  // 独立模式：带边框和背景
   return (
     <div className="rounded-lg border border-ldvh-accent/20 bg-ldvh-accent/5 p-3">
       <div className="ldvh-inline-markdown max-w-none">

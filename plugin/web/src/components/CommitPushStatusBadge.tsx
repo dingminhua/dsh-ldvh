@@ -17,8 +17,6 @@ export default function CommitPushStatusBadge({
 
   const label = t(status === 'incoming' ? 'changelog.incoming' : `changelog.${status}`);
 
-  // Shared commits do not need per-row decoration. Only surface commits that
-  // require a push or a synchronization action.
   if (status === 'pushed') return null;
 
   const isIncoming = status === 'incoming';

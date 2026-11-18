@@ -17,9 +17,7 @@ export default function PriorityIcon({
   if (!priority) return null;
 
   const label = getPriorityLabel(priority, locale) ?? priority;
-  // xs 挡用紧凑 chip（10px）；其余用标准 chip（12px）。
   const compact = size === 'xs';
-  // compact 走 `ldvh-chip-sm`：高度/行高已由该语义类给出，不重复手写。
   const sizeClassName = compact
     ? ''
     : size === 'lg'

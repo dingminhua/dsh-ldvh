@@ -1,18 +1,3 @@
-/**
- * LocalFactReader 的字段契约判定：`expected: 'object'` 必须真的核对象形态
- * （独立复核发现 3）。
- *
- * 缺陷形态：`matchesExpectation` 对 `'object'` 只做 `isRecord(value)`——任何
- * 非数组的普通对象都算通过，于是 `{ garbage_key: 1 }` 与 `{}` 都能被当作
- * attribution_ref 的合法承载**原样投影**，`field_issues` 全空。与 CLI 侧
- * `normalizeAttributionRef`（坏对象 → undefined，即不投影）形成同一载体两套
- * 读法。
- *
- * 这里钉住 web 侧的行为：`friction.attribution_ref` 登记了 `object_uid` 这个
- * 必备身份键，故缺 key / 非字符串 / 空串都必须如实报 field issue，而不是
- * 静默进投影。注意这是**能力发现**——契约若只写 `expected: 'object'`，读侧
- * 无从知道「什么样的对象才算数」，正是本条要补的那一层。
- */
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

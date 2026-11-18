@@ -6,14 +6,6 @@ import { test } from 'node:test';
 import { showObject } from '../../api/services/facts.ts';
 import { type LocalFactScope } from '../../api/services/localFactReader.ts';
 
-/**
- * 02 §8.1「commit 形态」在读取层的回归。
- *
- * 缺陷形态：解药是一次受控提交（target 直接取 commit、无对象身份）时，
- * `projectFactAssociationTarget` 返回 null → 整条被判 available:false →
- * 列表卡片与详情页都显示「关联信息不可用」。提交明明可用（写侧已用
- * `git cat-file -e` 核过），却被读成了「不可用」，这是两件不同的事。
- */
 
 const FRICTION_UID = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
 const COMMIT = 'e4e178fd7e3293f47003ed0150ab1128cc6ae0ef';
@@ -68,14 +60,9 @@ test('commit-form target projects as an AVAILABLE association (02 §8.1)', async
   assert.equal(associations[0].relationKey, 'informs');
   assert.deepEqual(associations[0].target, { commit: COMMIT });
   assert.equal(associations[0].shortHash, COMMIT.slice(0, 7));
-  // 标题不在裸仓夹具里（临时目录不是 Git 仓），故此处只钉住「不因标题缺失而
-  // 降级」——提交可用性与标题可得性是两件事。真实标题由 git show 读出，
-  // 见 facts.ts 的 readCommitSubject（读失败退回短 hash）。
 });
 
 test('malformed commit targets stay unavailable rather than rendering as commits', async () => {
-  // 短 hash / 非 hex / ref 名 / 混带 object_uid —— 形状纪律在读取层同样成立：
-  // 不得被渲染成一个「像 commit」的目标（写侧已拒，读取侧不得放宽）。
   const cases: Array<[string, string]> = [
     ['short hash', '      commit: abc1234'],
     ['non-hex', '      commit: ' + 'z'.repeat(40)],
@@ -85,10 +72,6 @@ test('malformed commit targets stay unavailable rather than rendering as commits
   for (const [label, targetYaml] of cases) {
     const data = await readFriction(targetYaml);
     const associations = (data.factAssociations ?? []) as Array<Record<string, unknown>>;
-    // 既有关闭设计：解析失败的关系**保留**但标 available:false（可见性优先，
-    // 让读者知道存在一条指不出处的关联）。故此处不断言条目消失，只断言它
-    // **不得被当成一个 commit 目标**——否则界面上会出现一个点不开或跳错
-    // 地方的「像提交」的目标。
     for (const association of associations) {
       assert.notEqual(association.available, true, `${label} must not read as an available commit association`);
       assert.ok(

@@ -13,7 +13,6 @@ type SegmentedControlProps<T extends string> = {
   value: T;
 };
 
-/** A compact, single-choice control for mutually exclusive toolbar options. */
 export default function SegmentedControl<T extends string>({
   ariaLabel,
   items,

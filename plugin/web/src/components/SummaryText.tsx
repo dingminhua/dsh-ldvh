@@ -9,21 +9,11 @@ interface SummaryTextProps {
   collapseThreshold?: number;
   previewLines?: number;
   className?: string;
-  /**
-   * 正文色（CSS 属性，不是类串）。
-   *
-   * 为什么需要：Markdown 渲染出来的 `<p>` 由 `github-markdown-css` 着色
-   * （`--fgColor-default`），**不继承**外层元素的 `color`。故「给外层上类型色」对
-   * SummaryText 无效——2026-11-02 实测：外层 `style={{ color }}` 生效，块内正文仍是
-   * 近黑，色相面与正文分家。故本组件必须显式把色传到 `.ldvh-inline-markdown` 上，
-   * 由它经继承传给 `<p>`。
-   */
   bodyStyle?: CSSProperties;
 }
 
 const COLLAPSE_THRESHOLD = 150;
 
-/** 按段落/行截断 Markdown 文本，避免一个长段落或长列表吞掉预览区。 */
 function truncateByParagraph(text: string, maxChars: number, maxLines?: number): string {
   const linePreview = truncateByLines(text, maxChars, maxLines);
   if (linePreview) return linePreview;

@@ -13,11 +13,6 @@ type DiffState = {
   error: string | null;
 };
 
-/**
- * `externalReloadKey`：全局刷新计数器（`useReadingRefresh`）的当前档位。该值进入
- * 重取 effect 的依赖，使侧栏刷新图标能让当前工作区重新读取 Git 状态；不传时保持
- * 原有「仅随 projectId」的行为。
- */
 export function useWorkspaceChanges(projectId: string, externalReloadKey = 0) {
   const [entries, setEntries] = useState<ProjectGitStatusEntry[]>([]);
   const [entriesLoading, setEntriesLoading] = useState(false);

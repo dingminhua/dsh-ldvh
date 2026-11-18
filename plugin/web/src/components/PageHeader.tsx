@@ -7,7 +7,6 @@ interface PageHeaderProps {
   compact?: boolean;
 }
 
-/** Unified page header for all middle-area pages. */
 export default function PageHeader({ title, subtitle, children, compact = false }: PageHeaderProps) {
   return (
     <div className={compact ? 'min-w-0' : 'mb-6'}>

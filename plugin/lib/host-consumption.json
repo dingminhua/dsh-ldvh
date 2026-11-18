@@ -101,9 +101,7 @@
       "plane": "host-service",
       "consumedVia": "ctx.get",
       "callSites": [
-        "lib/child-session-record.js",
-        "lib/lifecycle.js",
-        "lib/session-signature.js"
+        "lib/lifecycle.js"
       ],
       "note": "sessionPersistence.open"
     },
@@ -130,8 +128,7 @@
       "plane": "host-service",
       "consumedVia": "ctx.inject",
       "callSites": [
-        "lib/index.js",
-        "lib/rpc.js"
+        "lib/index.js"
       ],
       "note": "Web RPC 通道"
     }
@@ -241,8 +238,7 @@
       "key": "dshHomePath",
       "consumedVia": "ctx.get",
       "callSites": [
-        "lib/index.js",
-        "lib/idle-runlog.js"
+        "lib/index.js"
       ],
       "note": "ctx.provide 值服务，不在 SERVICE_API（research-21ea3e9f 已证）；差分通道 uncheckable，升级时人工核 boot 源码"
     },

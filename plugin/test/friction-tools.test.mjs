@@ -1,12 +1,3 @@
-// Tests for plugin/lib/friction-tools.js — the runtime wiring of the Friction
-// mechanical layer (specs/23 §13 受控操作 + specs/03 §9) into the governed
-// ldvh_* tool surface.
-//
-// Coverage follows the spark-tools.test.mjs pattern:
-// handlers are driven through registerFrictionTools's descriptors with a
-// mock ctx.tools registry, a real governed-project fixture, the full envelope
-// shape is asserted, and the friction-writer.create* / update* are used to
-// seed scenario data that the tools then consume.
 import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -21,11 +12,6 @@ const dshHome = (home) => (...segments) => join(home, ...segments);
 
 const exec = (cwd) => ({ agent: { session: { header: { cwd } } } });
 
-// ---------------------------------------------------------------------------
-// Mock registry: capture the descriptors registerFrictionTools registers, then
-// drive them exactly as the DSH runtime would (descriptor.execute wraps the
-// handler result in { envelope }).
-// ---------------------------------------------------------------------------
 
 function makeDescriptors(deps) {
   const registered = [];
@@ -48,9 +34,6 @@ async function run(descriptors, toolName, args, cwd) {
     const out = await descriptors[toolName].execute(args, exec(cwd));
     return out.envelope ?? out;
   } catch (error) {
-    // 参数层（DSH defineTool）在 handler 之前拒绝时抛 ToolArgsError。这些用例多数要证
-    // 「非法输入被拒」，而参数层拦下是比 handler 拦下更强的结果，故归一成一个可断言的
-    // 形态，并在 gaps 里标明层次，避免测试把「哪一层拒的」当成「有没有拒」。
     if (error?.name === "ToolArgsError" || Array.isArray(error?.violations)) {
       return {
         outcome: "rejected",
@@ -66,15 +49,11 @@ async function run(descriptors, toolName, args, cwd) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
 function validFrontmatterDraft(overrides = {}) {
   return {
     title: "CI 构建缓慢",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
-    // 26 §8 必填（d925ad6 起）：创建时 count=1、first_at=last_at。
     occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
     change_summary: "受控创建（工具测试）",
     ...overrides,
@@ -113,8 +92,6 @@ async function governedFixture(base) {
   const home = join(base, "home");
   const repo = await initRepo(base);
   await mkdir(join(repo, "ldvh-base", "frictions"), { recursive: true });
-  // goal.md lives at the fact-source root (ldvh-base/) — the writer resolves
-  // serves anchors from factSourceRoot, not the repo root.
   await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
   await registerProject(dshHome(home), { id: "demo", path: repo });
   return { home, repo };
@@ -160,8 +137,6 @@ async function seedResolvedFriction(root, informsTargetUid) {
   return { draft, created, read, updated };
 }
 
-// 26 §9（2026-10 修订）：观察态已退出闭集，**创建初态就是 open**——故「open 账目」
-// 无需任何流转即可得到。此 helper 保留原名（调用方多），但不再做状态流转。
 async function seedOpenFriction(root, overrides = {}) {
   const { draft, created } = await seedFriction(root, overrides);
   const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -191,9 +166,6 @@ async function createInformsTargetFixture(root, uid) {
   return uid;
 }
 
-// ---------------------------------------------------------------------------
-// Registration surface
-// ---------------------------------------------------------------------------
 
 test("registerFrictionTools registers exactly the three friction tools", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -211,9 +183,6 @@ test("registerFrictionTools registers exactly the three friction tools", async (
   });
 });
 
-// ---------------------------------------------------------------------------
-// Un-governed sessions return unavailable (all three tools)
-// ---------------------------------------------------------------------------
 
 test("friction-read-object outside governed project returns unavailable", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -239,8 +208,6 @@ test("friction-write-object outside governed project returns unavailable", async
   await withTemp("friction-tools.", async (base) => {
     const deps = makeDeps(join(base, "home"), base);
     const desc = makeDescriptors(deps);
-    // 参数补全到形状合法：本用例要证的是「非管辖项目 → unavailable」，让治理检查成为
-    // 第一个触发点；否则嵌套必填会在参数层先拒，测到的就不是治理态了。
     const env = await run(desc, "ldvh_friction_write", {
       action: "create",
       frontmatter_draft: validFrontmatterDraft(),
@@ -251,9 +218,6 @@ test("friction-write-object outside governed project returns unavailable", async
   });
 });
 
-// ---------------------------------------------------------------------------
-// friction-read-object
-// ---------------------------------------------------------------------------
 
 test("friction-read-object: read-back full envelope for an existing friction", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -314,9 +278,6 @@ test("friction-read-object: object_uid omitted → invalid_request envelope", as
   });
 });
 
-// ---------------------------------------------------------------------------
-// friction-list-objects
-// ---------------------------------------------------------------------------
 
 test("friction-list-objects: default (open only) filter and full projection", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -324,8 +285,6 @@ test("friction-list-objects: default (open only) filter and full projection", as
     const deps = makeDeps(home, base);
     const desc = makeDescriptors(deps);
 
-    // 2026-10 修订后账本只有 open/resolved/voided——没有 observing 可做样本，
-    // 故两条活账都用 open（它们是同一个状态，只是建了两条）。
     const first = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦甲" });
     const second = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦乙" });
     const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -394,9 +353,6 @@ test("friction-list-objects: limit truncates to partial with the true total (03 
   });
 });
 
-// ---------------------------------------------------------------------------
-// friction-write-object create (05 §8 envelope, zero-write on rejection)
-// ---------------------------------------------------------------------------
 
 test("friction-write-object create: completed envelope with read-back", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -476,9 +432,6 @@ test("friction-write-object create: mechanical rejection preserves follow_up hin
   });
 });
 
-// ---------------------------------------------------------------------------
-// friction-write-object update (05 §8 envelope, CAS, read-back)
-// ---------------------------------------------------------------------------
 
 test("friction-write-object update: normal transition and read-back", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -488,7 +441,6 @@ test("friction-write-object update: normal transition and read-back", async () =
 
     const { draft, created } = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦甲" });
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
-    // 26 §9（2026-10 修订）：创建初态即 open——观察态已退出闭集。
     assert.equal(read1.value.frontmatter.status, "open");
 
     const env = await run(
@@ -498,7 +450,6 @@ test("friction-write-object update: normal transition and read-back", async () =
         action: "update",
         object_uid: created.value.object_uid,
         expected_fingerprint: read1.value.fingerprint,
-        // 补充级更新：改标题、status 逐字保持 open。
         frontmatter_after: { ...read1.value.frontmatter, title: "摩擦甲（修订）", status: "open" },
         body_markdown_after: validBodyMarkdown(draft),
         change_summary: "标题精化",
@@ -527,7 +478,7 @@ test("friction-write-object update: CAS conflict → rejected with retry follow-
 
     const { draft, created } = await seedFriction(join(repo, "ldvh-base"));
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
-    const staleFp = read1.value.fingerprint.slice(0, -8) + "00000000"; // mutated stale baseline
+    const staleFp = read1.value.fingerprint.slice(0, -8) + "00000000";
 
     const env = await run(
       desc,
@@ -536,8 +487,6 @@ test("friction-write-object update: CAS conflict → rejected with retry follow-
         action: "update",
         object_uid: created.value.object_uid,
         expected_fingerprint: staleFp,
-        // status 必须落在 §9.2 闭集内：本用例证的是 CAS 冲突（指纹过期），若用闭集外状态，
-        // 参数层会先以 enum 拒绝，测到的就不是 CAS 了。
         frontmatter_after: { ...read1.value.frontmatter, status: "resolved" },
         body_markdown_after: validBodyMarkdown(draft) + "\n\n## 处置\n先改。",
         change_summary: "CAS 冲突",
@@ -552,9 +501,6 @@ test("friction-write-object update: CAS conflict → rejected with retry follow-
   });
 });
 
-// ---------------------------------------------------------------------------
-// friction-write-object update: resolved transition with informs (26 §9.2/§11)
-// ---------------------------------------------------------------------------
 
 test("friction-write-object update: resolve with informs to Norm → completed with read-back", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -619,9 +565,6 @@ test("friction-write-object update: resolve without informs → rejected (26 §9
   });
 });
 
-// ---------------------------------------------------------------------------
-// friction-write-object update: 旧「放回留观」流转已被删除（26 §9.2，2026-10 修订）
-// ---------------------------------------------------------------------------
 
 test("friction-write-object update: open→observing 已被删除——目标状态不在闭集即拒（26 §9.2）", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -633,8 +576,6 @@ test("friction-write-object update: open→observing 已被删除——目标状
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
     assert.equal(read1.value.frontmatter.status, "open", "创建初态即 open（26 §9 三值闭集）");
 
-    // Human 决定：「open 的都是累积到达 3 次观察到的，不存在放回去的说法，要么就是废弃。」
-    // 故 `observing` 不再是合法目标状态——即便调用方照旧写法也一律被拒。
     const attempt = await run(
       desc,
       "ldvh_friction_write",
@@ -650,8 +591,6 @@ test("friction-write-object update: open→observing 已被删除——目标状
     );
     assert.equal(attempt.outcome, "rejected", "observing 已不在闭集，不放行");
     const reason = JSON.stringify(attempt.gaps ?? []) + JSON.stringify(attempt.result ?? {});
-    // 两条合法路径：writer 以 status_transition_invalid 拒绝；或参数层按 §9.2 的 enum
-    // 直接拒（observing 已不在闭集，故 enum 不含它）。后者更早、更强，同样是「不得落盘」。
     assert.ok(
       reason.includes("closed set")
       || reason.includes("status_transition_invalid")
@@ -660,7 +599,6 @@ test("friction-write-object update: open→observing 已被删除——目标状
       `拒绝理由须指向状态闭集（或由参数层 enum 拒绝）；实际=${reason.slice(0, 400)}`,
     );
 
-    // 载体不得被改动（拒绝即零写）。
     const read2 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
     assert.equal(read2.value.frontmatter.status, "open", "拒绝后载体逐字不变");
     assert.equal(read2.value.fingerprint, read1.value.fingerprint, "零写：指纹不变");
@@ -676,9 +614,6 @@ test("friction-write-object update: occurrence 携带已删除的 human_return_a
     const { created } = await seedFriction(join(repo, "ldvh-base"));
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
 
-    // §8 的 occurrence 成员闭集是 { count, first_at, last_at }。多出任何字段即越界
-    // ——包括 2026-10 修订中删除的 human_return_at。这是本次修订堵住的一个 fail-open：
-    // 此前 create/update 只查「有没有 occurrence」，成员不校验，已删字段一路落盘。
     const attempt = await run(
       desc,
       "ldvh_friction_write",
@@ -699,9 +634,6 @@ test("friction-write-object update: occurrence 携带已删除的 human_return_a
   });
 });
 
-// ---------------------------------------------------------------------------
-// friction-write-object update: resolved object returns status_terminal
-// ---------------------------------------------------------------------------
 
 test("friction-write-object update: updating a resolved friction → rejected status_terminal (26 §9.2)", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -714,7 +646,6 @@ test("friction-write-object update: updating a resolved friction → rejected st
     const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createInformsTargetFixture(join(repo, "ldvh-base"), informsTargetUid);
 
-    // open→resolved
     const envResolve = await run(
       desc,
       "ldvh_friction_write",
@@ -734,7 +665,6 @@ test("friction-write-object update: updating a resolved friction → rejected st
     );
     assert.equal(envResolve.outcome, "completed");
 
-    // Now try to update the resolved object
     const read2 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
     const envRetry = await run(
       desc,
@@ -757,20 +687,13 @@ test("friction-write-object update: updating a resolved friction → rejected st
   });
 });
 
-// ---------------------------------------------------------------------------
-// Execution error path
-// ---------------------------------------------------------------------------
 
 test("toolDescriptor.execute: unexpected exception → execution_error envelope (05 §8)", async () => {
   await withTemp("friction-tools.", async (base) => {
     const deps = { dshHomePath: () => "x", workspaceRoot: base, sessionPersistence: () => undefined };
     const byName = makeDescriptors(deps);
-    // Force an exception by calling execute directly with a descriptor whose handler
-    // throws due to an unexpected failure path. We use the read-object with
-    // a malformed non-object exec to trigger the thrown path.
     const read = byName["ldvh_friction_read"];
     assert.ok(read);
-    // Write an invalid friction object to trigger a thrown path during parse
     const fmBad = {
       object_uid: "123e4567-e89b-42d3-a456-426614174000",
       fact_type_key: "friction",
@@ -784,16 +707,10 @@ test("toolDescriptor.execute: unexpected exception → execution_error envelope 
     await writeFile(join(base, "frictions", "friction-123e4567-e89b-42d3-a456-426614174000.md"), "---\nnot a valid yaml frontmatter block\n---\n", "utf8");
     const out = await read.execute({ object_uid: "123e4567-e89b-42d3-a456-426614174000" }, { agent: { session: { header: { cwd: base } } } });
     const env = out.envelope ?? out;
-    // The read handler should produce rejected (invalid uid) or unavailable (ENOENT)
-    // not an execution_error for this input — we verify the execute wrapper doesn't
-    // swallow parse errors as execution_error for normal tools:
     assert.notEqual(env.outcome, "execution_error", "normal read input should not produce execution_error");
   });
 });
 
-// ---------------------------------------------------------------------------
-// Schema layer tests (26 §8 field contract in tool schema)
-// ---------------------------------------------------------------------------
 
 test("tool schema: friction-read-object 的通道外字段由 writer 承担（参数层不拒）", async () => {
   await withTemp("friction-tools.", async (base) => {
@@ -802,12 +719,6 @@ test("tool schema: friction-read-object 的通道外字段由 writer 承担（�
     const desc = byName["ldvh_friction_read"];
     assert.ok(desc);
 
-    // object_uid is the ONLY accepted parameter.
-    //
-    // 参数表已改为 defineTool 编译产物：`type` 仍是 "object"，但参数根是**隐式开放对象**
-    // ——宿主不输出 `additionalProperties`，也不允许关闭它。因此「顶层多余字段」在参数层
-    // 不会产生违规；读工具的 handler 只取它认识的键，多余键无人过问也不会落盘。
-    // 本用例据实断言这一分层，不再维持一个已不成立的「参数层封闭」假设。
     const bad = { object_uid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", bogus: 1 };
     assert.equal(desc.parameters.type, "object");
     assert.equal(
@@ -843,9 +754,6 @@ test("tool schema: friction-write-object create requires action+frontmatter_draf
     assert.ok(missingTitle.length > 0, "title is required in frontmatter_draft");
     assert.ok(missingTitle.some((v) => v.includes("title")), JSON.stringify(missingTitle));
 
-    // 2026-11-02：impact 已退出 26 §8 闭集——工具面 schema 不再收该字段。
-    // 原用例断言「impact 必须落在 light/medium/heavy」，现改向钉住「impact 根本不被接受」，
-    // 防的是有人把分级悄悄加回 schema。
     const retiredImpact = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { title: "t", phenomenon: "p", occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" }, change_summary: "x", impact: "heavy" } }, "args");
     assert.ok(retiredImpact.length > 0, "impact 已退出闭集，frontmatter_draft 不得再接受它（26 §8 2026-11-02）");
 
@@ -875,18 +783,12 @@ test("tool schema: frontmatter_after update schema omits required, carries type 
 
     const schema = desc.parameters.properties.frontmatter_after;
     assert.ok(typeof schema === "object", "frontmatter_after must be an object schema");
-    // The update schema must not require all fields (handler does CAS + writer validation)
     assert.ok(schema.required === undefined || Array.isArray(schema.required), "frontmatter_after schema should carry the relaxed required");
     assert.ok(typeof schema.description === "string" && schema.description.length > 0, "must carry description");
     assert.ok(typeof schema.properties === "object", "must carry properties");
   });
 });
 
-// ---------------------------------------------------------------------------
-// attribution_ref 可解析性（26 §8/§11 锚点型）：新失败码必须进 mechanicalCodes，
-// 否则会被 enevelope 层的 availability 判定吞掉、报成 unavailable——
-// 漏登记关系键曾造成同类缺陷。
-// ---------------------------------------------------------------------------
 test("friction-write-object create: unresolvable attribution_ref is a mechanical rejection carrying the code (26 §8/§11)", async () => {
   await withTemp("friction-tools-attr.", async (base) => {
     const { home, repo } = await governedFixture(base);
@@ -915,31 +817,22 @@ test("friction-write-object create: unresolvable attribution_ref is a mechanical
   });
 });
 
-// ---------------------------------------------------------------------------
-// relations schema (26 §11 — 2026-10-28)
-// ---------------------------------------------------------------------------
 
 test("write tool schema admits paired-with alongside informs — the tool plane must not lag the writer", async () => {
   const deps = { dshHomePath: () => "x", workspaceRoot: "/tmp/x", sessionPersistence: () => undefined };
   const desc = makeDescriptors(deps)["ldvh_friction_write"];
   assert.ok(desc);
-  // relations lives inside the create branch's frontmatter_draft (the only place
-  // a caller can declare it at creation); update carries it via relations_after.
   const fmDraft = desc.parameters.properties.frontmatter_draft;
   const relSchema = fmDraft.properties.relations;
   assert.ok(relSchema, "frontmatter_draft must expose relations");
   assert.deepEqual([...relSchema.items.properties.relation_key.enum].sort(), ["informs", "paired-with"]);
   assert.match(relSchema.description, /paired-with/i);
-  // The writer accepts the key; a tool plane that omits it makes the capability
-  // unreachable (schema/writer agreement — the same guard shape as 06 §6.2).
 });
 
 test("write tool schema describes SINGLE-SIDED pairing — must not instruct the counterpart to mirror (23 §11)", async () => {
   const deps = { dshHomePath: () => "x", workspaceRoot: "/tmp/x", sessionPersistence: () => undefined };
   const desc = makeDescriptors(deps)["ldvh_friction_write"];
   const relDesc = desc.parameters.properties.frontmatter_draft.properties.relations.description;
-  // First-round defect: the description told the model the counterpart must carry a
-  // mirrored edge, while 23 §11 (single-sided) and the Pitfall writer both refuse it.
   assert.doesNotMatch(relDesc, /mirrored edge/i);
   assert.doesNotMatch(relDesc, /symmetry is AI review/i);
   assert.match(relDesc, /single-sided/i);
@@ -947,9 +840,6 @@ test("write tool schema describes SINGLE-SIDED pairing — must not instruct the
 });
 
 test("list tool follow-up states the CURRENT dedup anchor, not title/phenomenon (26 §6.2)", async () => {
-  // The follow_up line is where the old anchor lived (it told the model dedup compares
-  // title/phenomenon). That text is read as spec, so a stale anchor re-introduces the
-  // replaced rule. Drive the real handler with an empty fact source to read it.
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const desc = makeDescriptors(makeDeps(home, base));
@@ -961,13 +851,9 @@ test("list tool follow-up states the CURRENT dedup anchor, not title/phenomenon 
 });
 
 test("list output line renders paired_with — the §12 reverse-lookup entry point must be visible to the model", async () => {
-  // 26 §12 names ldvh_friction_list(status=all) as the agent-reachable reverse
-  // lookup. The projection carrying `paired_with` is not enough: the rendered text
-  // is what the model reads. Without this the entry point silently returns nothing.
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
-    // a Pitfall carrier so the pairing resolves
     const { mkdir, writeFile } = await import("node:fs/promises");
     await mkdir(join(repo, "ldvh-base", "pitfalls"), { recursive: true });
     await writeFile(
@@ -987,7 +873,6 @@ test("list output line renders paired_with — the §12 reverse-lookup entry poi
     }, repo);
     assert.equal(created.outcome, "completed", `create failed: ${JSON.stringify({ outcome: created.outcome, gaps: created.gaps })}`);
 
-    // render 取的是**未拆封**的 { envelope }（run helper 会拆，故此处直接调 execute）
     const rawListed = await desc.ldvh_friction_list.execute({ status: "all" }, exec(repo));
     const blocks = desc.ldvh_friction_list.output.render({ status: "all" }, rawListed);
     const rendered = (Array.isArray(blocks) ? blocks.map((b) => b.text ?? "").join("\n") : String(blocks));

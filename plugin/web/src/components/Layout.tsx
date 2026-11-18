@@ -7,18 +7,15 @@ import { useProjectScope } from '@/utils/projectContext';
 import { RefreshScopeProvider, useRefreshKey } from '@/hooks/useReadingRefresh';
 
 const SIDEBAR_STORAGE_KEY = 'ldvh-sidebar-collapsed';
-// Default: expanded. Only collapse when user has explicitly chosen to.
 const SIDEBAR_DEFAULT_EXPANDED = false;
 
 interface LayoutProps {
   children: ReactNode;
 }
 
-/** Inner layout that consumes panel context */
 function LayoutInner({ children }: LayoutProps) {
   const { isOpen: panelOpen, closePanel, openPanel } = usePanel();
   const { selectedProjectId, selectedWorktreePath } = useProjectScope();
-  // 侧栏刷新档位：与「切换项目」共用同一条重挂路径（见下方 key）。
   const refreshKey = useRefreshKey();
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -31,7 +28,6 @@ function LayoutInner({ children }: LayoutProps) {
     }
   });
 
-  // Listen for Escape to close right panel
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && panelOpen) {
@@ -43,8 +39,6 @@ function LayoutInner({ children }: LayoutProps) {
   }, [panelOpen, closePanel]);
 
   useEffect(() => {
-    // Entering a list starts with a closed reader, but opening a relation from
-    // that list must not immediately close the reader again.
     if (/^\/objects\/[^/]+\/?$/.test(location.pathname)) closePanel();
   }, [location.pathname, closePanel]);
 
@@ -88,7 +82,7 @@ function LayoutInner({ children }: LayoutProps) {
 
   return (
     <div className="flex h-screen min-w-[375px] overflow-hidden bg-ldvh-bg">
-      {/* 左侧导航 — 可折叠 */}
+      { }
       <div className="flex flex-shrink-0 lg:hidden">
         <Sidebar collapsed compact />
       </div>
@@ -96,13 +90,13 @@ function LayoutInner({ children }: LayoutProps) {
         <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
       </div>
 
-      {/* 中间主内容 */}
+      { }
       <main className="ldvh-main-scroll min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain">
-        {/* 项目切换或侧栏刷新时重建当前路由页，触发数据重取；contents 保证不引入额外布局盒 */}
+        { }
         <div key={`page-${selectedProjectId}-${selectedWorktreePath}-${refreshKey}`} className="contents">{children}</div>
       </main>
 
-      {/* 右侧扩展阅读区随项目切换重建。 */}
+      { }
       <ReadingPanel key={`panel-${selectedProjectId}-${selectedWorktreePath}`} />
     </div>
   );

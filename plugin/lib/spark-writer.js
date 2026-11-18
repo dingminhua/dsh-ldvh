@@ -1,43 +1,3 @@
-/**
- * dsh-ldvh — Spark fact-object writer (minimal controlled writer).
- *
- * Implements the mechanical slice of specs/20 §13 (受控操作) and the
- * shared read-back/CAS contract from specs/03 §9:
- *
- *  - create:  flat single-file carrier
- *             (ldvh-base/sparks/spark-<uid>.md) with YAML frontmatter +
- *             markdown body. Code assigns object_uid + created_at and
- *             generates the H1 from title; creation validates the
- *             type-specific mechanical checks (closed sets, question
- *             single-sentence, scope_boundary presence, fixed H2 sections,
- *             serves ↔ goal.md SG-n, carrier coherence).
- *  - read:    returns frontmatter + body + file-level content
- *             fingerprint (SHA-256).
- *  - update:  CAS — the caller must supply the fingerprint observed at
- *             the last read; the whole file is replaced atomically;
- *             a change_log entry is appended. Terminal states
- *             (implemented/discarded) do NOT change status (20 §9.2: 终态不可重开),
- *             but their CONTENT remains correctable — a wrong or over-long
- *             terminal record is fixed in place, never by faking a transition.
- *
- *             （2026-09-27 更正：本行原写「Terminal states are read-only」，
- *             与 20 §9.2「终态不可重开，但内容可更正」（Human 决定 2026-09-13）
- *             及本文件的实现都不一致——`updateSparkObject` 只在 status 被改动时
- *             拒绝，其余字段照常可更正。原文是 §9.2 修订前的旧语义残留。）
- *
- * Status model (20 §9): open → implemented | discarded only; create
- * always initialises open. disposition ⇔ terminal status. Relations
- * (merged-into / split-into) only on discarded, targets must resolve to
- * existing *open* sparks (20 §11).
- *
- * Carrier coherence (writer-level convention, 24 §8 invariant-10
- * precedent): frontmatter question / scope_boundary / summary are the
- * single authoritative texts — the 调查问题 / 调查边界 / 当前理解 body
- * sections must contain them verbatim and expand around them.
- *
- * Red lines honoured (20 §18): no second fact authority, no spark
- * index/copy — change_log lives inside the file's frontmatter.
- */
 
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
@@ -53,97 +13,46 @@ import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
 import { summaryLimitIssue } from "./summary-limit.js";
 
-// ---------------------------------------------------------------------------
-// Constants (specs/20 §7, §8, §9, §11)
-// ---------------------------------------------------------------------------
 
 const SPARK_TYPE_KEY = "spark";
 
-/** Directory under the fact-source root that carries Spark objects. */
 export const SPARK_DIRECTORY = "sparks";
 
-/** Fixed body H2 sections (20 §8); 演变 is conditional on evolution. */
 const BODY_H2_REQUIRED = ["当前理解", "调查问题", "调查边界"];
 const BODY_H2_EVOLUTION = "演变";
 
 const STATUSES = new Set(["open", "implemented", "discarded"]);
 
-/** Relation keys allowed for Spark (20 §11 — closed set of exactly two). */
 const SPARK_RELATION_KEYS = new Set(["merged-into", "split-into"]);
 
-/**
- * refs entry cap (20 §8). Bounds the F1 card projection — the field exists so
- * a Human can scan "what is this spark related to" on the list card, so an
- * unbounded list would defeat its own purpose (03 §15 item 9: no value
- * self-declaration through association volume).
- */
 const MAX_REFS_ENTRIES = 10;
 
-/** object_uid shape accepted in refs targets (03 §6.1: canonical UUIDv4). */
 const OBJECT_UID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-/** Closed set of frontmatter keys (20 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "question", "scope_boundary", "intent", "summary",
   "evolution", "serves", "refs", "priority", "disposition", "relations", "change_log",
 ]);
 
-/** priority closed set (20 §8: P0–P3; AI 出初值，Human 可调整). */
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3"]);
 
-/**
- * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
- *
- * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
- * 终态伴随字段（disposition/relations）在 update 路径不可达（终态只读），故不列。
- * `priority` 是 open 专属、open→implemented/discarded 时须清（20 §8 :133），
- * 因而是本类型唯一真正需要顶层删除能力的字段。
- */
 export const SPARK_REMOVABLE_FIELDS = new Set(["priority", "refs", "serves"]);
 
-/** Evolution cap (20 §8: 上限 20 项). */
 const MAX_EVOLUTION_ENTRIES = 20;
 
-/** Title cap (20 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
 
-/** Terminal-reason cap (20 §8/§9.1: disposition ≤ 200 字符). */
 const MAX_DISPOSITION_LENGTH = 200;
 
-/** UUID format check (03 §6.1 canonical UUIDv4, version nibble 4). Since
- *  2026-11-01 it also guards `serves`: that field carries a SubGoal
- *  `object_uid` instead of an `SG-n` anchor (28 §12.3), so one pattern covers
- *  both the object identity and the reference to it. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// ---------------------------------------------------------------------------
-// Result helpers
-// ---------------------------------------------------------------------------
 
 function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
 }
 
-/**
- * 把若干互不依赖的校验结果合并成**一个** failure（spark-729491f6，2026-11-11）。
- *
- * 为什么需要：更新路径此前是「首错即返」——字段校验不过就 return，修好之后
- * 才进入 serves 解析，再之后才是 refs 解析。调用方每次只看到最外层的那个错，
- * 改完再撞下一个，重试因此像剥洋葱。实测（738 个会话、313 次失败）：
- *  `rejected` 类重试后仅 60.1% 成功、33.9% 再次失败，且第二次失败的原因
- *  **恰是第一次被掩盖的下一层错误**（例：先报 refs 格式错→改成裸 uuid→
- *  才报 refs 不可解析；先报 priority 状态错→删掉→才报 serves 指向已 retired）。
- *
- * 合并的边界（**不是所有检查都能合并**）：只有彼此无数据依赖的检查才可同时
- * 求值——字段形状、关系闭集、serves 解析、refs 解析都不改动彼此的前置条件。
- * CAS 与状态机迁移必须先于它们成立（否则后续校验跑在错误的基线上），故仍
- * 保持首错即返。合并的 `code` 取第一个失败的 code（调用方按 code 分类的既有
- * 行为不变），`issues` 汇总全部层的问题并按产生顺序排列。
- *
- * 这不改变任何一个检查的判据，只改变「一次拒绝能报出多少条」。
- */
 function failureFromChecks(checks) {
   const failed = checks.filter((check) => check !== null && check.ok === false);
   if (failed.length === 0) return null;
@@ -151,8 +60,6 @@ function failureFromChecks(checks) {
   if (failed.length === 1) return first;
   const issues = failed.flatMap((check) => {
     const own = Array.isArray(check.error.details?.issues) ? check.error.details.issues : [];
-    // 没有分层 issues 的失败（如 serves/refs 解析）把它自己的 message 作为
-    // 一条 issue 交还，避免合并后丢失原因。
     return own.length > 0 ? own : [`${check.error.code}: ${check.error.message}`];
   });
   return {
@@ -171,15 +78,7 @@ function success(value) {
   return { ok: true, value };
 }
 
-// ---------------------------------------------------------------------------
-// Validation (the mechanical slice of specs/20 §8, §13, §14.1)
-// ---------------------------------------------------------------------------
 
-/**
- * question 单句可读 (20 §8/§13): at most one sentence-terminal character
- * (。？！) and, when present, it must end the string. Purely mechanical —
- * semantic readability stays in AI/Human review scope.
- */
 export function isSingleSentence(text) {
   if (typeof text !== "string" || text.length === 0) return false;
   const terminals = text.match(/[。？！]/g) ?? [];
@@ -194,7 +93,6 @@ export function isSingleSentence(text) {
 export function validateSparkFrontmatter(frontmatter, options = {}) {
   const issues = [];
 
-  // Closed-set check (20 §8): unknown fields reject the object
   for (const k of Object.keys(frontmatter)) {
     if (!VALID_FM_KEYS.has(k)) {
       issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 20 §8)`);
@@ -228,28 +126,17 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     }
   }
 
-  // summary 200 字符上限（Human 2026-11-04 裁定 B1）：
-  // 与 disposition 同一判定单位与拒绝纪律。update 路径由调用方按「本次是否改动
-  // summary」决定是否跳过（B1：存量放行，不锁死 66 条现存超限对象）。
   if (typeof frontmatter.summary === "string" && frontmatter.summary.length > 0) {
     const limitIssue = summaryLimitIssue(frontmatter.summary, { clause: "20 §8" });
     if (limitIssue !== null && options?.skipSummaryLimit !== true) issues.push(limitIssue);
   }
 
-  // serves shape; target resolution happens in the create/update flows (needs
-  // the fact source root). 20 §13: 若声明，须解析到存在的 SubGoal 对象。
-  // 2026-11-01：取值由 `SG-n` 改为 SubGoal 的 `object_uid`（28 §12.3）。
   if (frontmatter.serves !== undefined) {
     if (typeof frontmatter.serves !== "string" || !UUID_PATTERN.test(frontmatter.serves)) {
       issues.push(`serves: must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(frontmatter.serves)}`);
     }
   }
 
-  // refs (20 §8, 03 §7.2 关联引用型): array of {object_uid} targets. Shape is
-  // checked here; target *resolution* (exists / readable / same project)
-  // needs the fact-source root and happens in the create/update flows, same
-  // split as serves ↔ goal.md. 03 §6.1: an empty array fabricates a
-  // conditional field and is rejected.
   if (frontmatter.refs !== undefined) {
     if (!Array.isArray(frontmatter.refs)) {
       issues.push("refs: must be an array of {object_uid}");
@@ -265,7 +152,6 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
           issues.push("refs[]: members must be objects of shape {object_uid}");
           continue;
         }
-        // 03 §7.2 minimal shape: target reference only. No title copies.
         const extra = Object.keys(entry).filter((k) => k !== "object_uid");
         if (extra.length > 0) {
           issues.push(`refs[]: entry carries fields beyond object_uid (${extra.join(", ")}) — 03 §7.2 keeps target title/explanation out of the carrier`);
@@ -283,16 +169,11 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     }
   }
 
-  // refs is state-neutral (20 §8): terminal sparks keep their historical
-  // references — an association is a fact about the past and does not expire
-  // when the spark closes. No status gate is applied here.
 
   if (!STATUSES.has(frontmatter.status)) {
     issues.push(`status: must be one of ${[...STATUSES].join("/")}`);
   }
 
-  // priority closed set + state exclusivity (20 §8 字段间不变量):
-  //   闭集 P0–P3；仅 status=open 时允许出现，终态必须省略；允许缺失（未分档）。
   if (frontmatter.priority !== undefined) {
     if (
       typeof frontmatter.priority !== "string" ||
@@ -309,8 +190,6 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     }
   }
 
-  // evolution (20 §8): array of {at, summary}, cap 20. 03 §6.1: a conditional
-  // field must be omitted when not applicable — an empty array is rejected.
   if (frontmatter.evolution !== undefined) {
     if (!Array.isArray(frontmatter.evolution)) {
       issues.push("evolution: must be an array of {at, summary}");
@@ -334,7 +213,6 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     }
   }
 
-  // disposition ⇔ terminal status (20 §8 invariant, §14.1 终态处置完整性)
   if (frontmatter.status === "open") {
     if (frontmatter.disposition !== undefined) {
       issues.push("disposition: must not be present when status=open (20 §8: 出现 ⇔ 终态)");
@@ -343,14 +221,10 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     if (typeof frontmatter.disposition !== "string" || frontmatter.disposition.length === 0) {
       issues.push("disposition: required non-empty when status is implemented/discarded (20 §8/§14.1)");
     } else if (frontmatter.disposition.length > MAX_DISPOSITION_LENGTH) {
-      // 20 §9.1: the terminal reason is a scannable locator, not the full
-      // disposal record. Reject rather than truncate.
       issues.push(`disposition: must be ≤ ${MAX_DISPOSITION_LENGTH} characters (20 §9.1), got ${frontmatter.disposition.length}`);
     }
   }
 
-  // change_log (02 §10.5): 每条必含能据实说明变化的摘要——缺失或为空时写入不成立。
-  // 只核已存在的条目，不要求 change_log 本身存在（存量载体的该字段由写入方保证）。
   if (Array.isArray(frontmatter.change_log)) {
     for (const [i, entry] of frontmatter.change_log.entries()) {
       if (typeof entry !== "object" || entry === null) continue;
@@ -363,15 +237,6 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * Validate the relations contract (20 §11 + 03 §7.2).
- *
- * Mechanical scope (20 §14.1): key closed set, minimal entry/target shape,
- * status gating (only discarded), merged-into cardinality exactly 1,
- * split-into cardinality 1..n, no key mixing, no duplicates, no
- * self-reference. Target *resolvability and open-ness* are checked by the
- * create/update flows (they need the fact source root).
- */
 export function validateSparkRelations(frontmatter, selfUid = null) {
   const issues = [];
   const relations = frontmatter.relations;
@@ -385,7 +250,6 @@ export function validateSparkRelations(frontmatter, selfUid = null) {
     return { ok: false, issues };
   }
 
-  // Status gating (20 §11): merge/split relations only on discarded sparks
   if (frontmatter.status !== "discarded") {
     issues.push(`relations: merged-into/split-into may only appear on status=discarded, got status=${JSON.stringify(frontmatter.status)} (20 §11)`);
   }
@@ -398,7 +262,6 @@ export function validateSparkRelations(frontmatter, selfUid = null) {
       issues.push("relations[]: members must be objects");
       continue;
     }
-    // 03 §7.2 minimal shape: relation_key + target only
     const relExtra = Object.keys(rel).filter((k) => k !== "relation_key" && k !== "target");
     if (relExtra.length > 0) {
       issues.push(`relations[]: entry carries fields beyond relation_key/target (${relExtra.join(", ")}) — 03 §7.2 minimal shape`);
@@ -432,7 +295,6 @@ export function validateSparkRelations(frontmatter, selfUid = null) {
     seen.add(dedupe);
   }
 
-  // Cardinality (20 §11): merged-into 1, split-into 1..n; never mixed
   if (keysSeen.has("merged-into") && keysSeen.has("split-into")) {
     issues.push("relations[]: merged-into and split-into must not be mixed on one object (20 §9.3 — a spark is either merged or split)");
   }
@@ -443,7 +305,6 @@ export function validateSparkRelations(frontmatter, selfUid = null) {
   return { ok: issues.length === 0, issues };
 }
 
-/** Extract the relation target uids (for flow-level resolvability checks). */
 function relationTargetUids(frontmatter, selfUid) {
   const uids = [];
   for (const rel of frontmatter.relations ?? []) {
@@ -453,53 +314,16 @@ function relationTargetUids(frontmatter, selfUid) {
   return uids;
 }
 
-// ---------------------------------------------------------------------------
-// SubGoal anchor reading (28 §12.3: serves 必须解析到 status ∈ {active, achieved})
-// ---------------------------------------------------------------------------
 
-/**
- * Read the SubGoals that are valid `serves` targets in the governed project.
- *
- * Returns { ok, subGoals:[{object_uid,title,order,status}] } or { ok:false, reason }.
- *
- * 2026-11-01: renamed from `readGoalAnchors` and retargeted — there are no
- * anchors any more, `serves` carries an `object_uid` (28 §12.3). The return
- * shape is deliberately a list of OBJECTS, not a Set of strings: a caller that
- * wants "does this serve target exist" reads `object_uid`, and there is no way
- * to keep treating a human-readable label as the identity.
- */
 export async function readServableSubGoals(factSourceRoot) {
   const listed = await listResolvableSubGoals(factSourceRoot);
   if (!listed.ok) return { ok: false, reason: listed.error?.message ?? "cannot read subgoal carriers" };
   return { ok: true, subGoals: listed.value.items };
 }
 
-/**
- * Resolve `refs` targets against the fact source (03 §7.2 关联引用型, 20 §8).
- *
- * Mechanical boundary (03 §7.2): only existence, readability and same-project
- * membership are checked. Semantic relevance, target status and association
- * value stay in AI/Human judgement and are explicitly NOT decided here.
- *
- * Returns { ok:true, resolved:Map<uid,{type,title}> } or
- *         { ok:false, missing:[uid], reason }.
- *
- * Note the deliberate asymmetry with `relations`: a missing refs target is a
- * *zero-write rejection* (03 §7.2 mechanical boundary), not a silent drop —
- * dropping would make the carrier claim fewer associations than were declared.
- */
 export async function resolveRefsTargets(factSourceRoot, refs) {
   if (!Array.isArray(refs) || refs.length === 0) return { ok: true, resolved: new Map() };
 
-  // `subgoals` 必须在此表内：03 §7.2 的 refs 目标是「任意同项目事实对象」，
-  // 而 28 号在运行期是活跃类型。早先的目录表只有七类，于是指向 SubGoal 的
-  // refs 一律被判 `refs_unresolvable`——载体明明可读，写入却被拒，且拒绝理由
-  // 把「本函数的目录表没覆盖」说成「目标不存在」（00 §4.6）。
-  //
-  // 2026-11-14：29 号 DevLog 已撤除，`devlogs` 随之从本表移除；实测事实源
-  // 中无任何活引用指向那 21 条存量对象，故不会造成既有 refs 不可解析。
-  // 2026-11-16：22 号 ADR 已撤除，`adrs` 随之从本表移除（先例同上：撤除时
-  // 一并核过活引用，不留下指向空气的条目）。
   const dirs = [
     ["spark", SPARK_DIRECTORY],
     ["pitfall", "pitfalls"],
@@ -509,9 +333,6 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
     ["subgoal", "subgoals"],
   ];
 
-  // Build an index of uid -> {type, title} by scanning the same-project fact
-  // directories once. Files are small and this runs only on write paths that
-  // already touch the fact source.
   const index = new Map();
   for (const [type, dir] of dirs) {
     const abs = join(factSourceRoot, dir);
@@ -519,7 +340,7 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
     try {
       entries = await readdir(abs, { withFileTypes: true });
     } catch {
-      continue; // directory absent = type not integrated in this project
+      continue;
     }
     for (const entry of entries) {
       if (!entry.isFile()) continue;
@@ -539,10 +360,6 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
   const resolved = new Map();
   const missing = [];
   for (const entry of refs) {
-    // 两种形态都要认：`refs` 条目把 uid 放在自身（03 §7.2 关联引用型），
-    // `relations` 条目把 uid 放在 `target` 下（03 §7.2 生命周期关系型）。
-    // 只认前者会让 relations 条目被**静默跳过**——resolved 为空、missing 也为空，
-    // 调用方拿到一个「成功但什么都没解析到」的结果（第九轮复核实测定性）。
     const uid = typeof entry === "string"
       ? entry
       : (entry?.object_uid ?? entry?.target?.object_uid);
@@ -562,20 +379,8 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
   return { ok: true, resolved };
 }
 
-// ---------------------------------------------------------------------------
-// Body structure + carrier coherence
-// ---------------------------------------------------------------------------
 
-// h2Titles / countAtxHeadings / sectionContent 已收敛到 markdown-structure.js
-// （单一权威实现）。收敛动因：同一结构判定曾在 6 个 writer 中各自实现且语义
-// 分叉——围栏内的「## 假标题」在部分实现中被当成真 H2（pitfall e8cadde1 的
-// 同构复发）。各 writer 不得再各自实现结构解析。
 
-/**
- * Validate the assembled body structure. The body passed here is the full
- * file body starting with the generated `# ${title}` H1 (20 §8 template).
- * Returns { ok, issues }.
- */
 export function validateSparkBodyStructure(body, title, evolutionCount) {
   const issues = [];
   const expectedH2 = [...BODY_H2_REQUIRED];
@@ -584,17 +389,9 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
 
   const lines = body.replace(/\r\n?/g, "\n").split("\n");
   const firstNonEmpty = lines.find((l) => l.trim().length > 0) ?? "";
-  // Compare against the generated heading tolerating the CommonMark-legal
-  // spellings of the same ATX heading (indentation, tab separator, trailing
-  // spaces) — otherwise a valid carrier with trailing spaces is rejected.
   if (firstNonEmpty.trimEnd().replace(/^ {0,3}/, "").replace(/(?<=^#+)[ \t]+/, " ") !== `# ${title}`) {
     issues.push(`body: first heading must be "# ${title}" (H1 generated from title, 20 §8)`);
   }
-  // Exactly one H1: the title heading is the only level-1 heading, and the body
-  // starts at H2. Checking the first line alone would let an extra `# <title>`
-  // further down slip through. The scan follows CommonMark ATX semantics
-  // (≤3 leading spaces, space/tab after the hashes, trailing spaces allowed)
-  // and skips fenced code blocks, where a `#` is literal text, not a heading.
   const h1Count = countAtxHeadings(body, 1);
   if (h1Count !== 1) {
     issues.push(`body: expected exactly 1 H1 heading, found ${h1Count} (20 §8: H1 由 Code 从 title 生成，正文自 H2 起)`);
@@ -611,7 +408,6 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
     }
   }
 
-  // Non-empty check for every H2 section
   const sections = body.split(/^## /m).slice(1);
   for (const sec of sections) {
     const secTitle = sec.split("\n")[0].trim();
@@ -619,7 +415,6 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
     if (content.length === 0) issues.push(`body: section "${secTitle}" is empty`);
   }
 
-  // 演变 H2 presence ⇔ non-empty evolution (20 §8: 条件出现)
   const hasEvolutionH2 = h2.includes(BODY_H2_EVOLUTION);
   if (hasEvolutionH2 !== expectEvolution) {
     issues.push(`body: "## 演变" section presence (${hasEvolutionH2}) must match a non-empty evolution array (${expectEvolution}) — 20 §8 条件出现`);
@@ -628,15 +423,7 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * Carrier coherence (writer-level convention, 24 §8 invariant-10 precedent):
- * frontmatter question / scope_boundary / summary are the single
- * authoritative texts — their body sections must contain them verbatim.
- */
 export function validateCarrierCoherence(frontmatter, body) {
-  // Human 2026-11-10（`spark-f0ba9997`）：字段是索引与摘要、正文是展开，
-  // 二者**不需逐字一致**——故差异一律进 `warnings`，不进 `issues`，
-  // 更不阻断写入。保留本函数是为了差异仍可被如实报告（不是静默当作一致）。
   const warnings = [];
   const pairs = [
     ["question", "调查问题"],
@@ -645,9 +432,9 @@ export function validateCarrierCoherence(frontmatter, body) {
   ];
   for (const [field, section] of pairs) {
     const text = typeof frontmatter[field] === "string" ? frontmatter[field].trim() : "";
-    if (text.length === 0) continue; // presence checked in validateSparkFrontmatter
+    if (text.length === 0) continue;
     const content = sectionContent(body, section);
-    if (content === null) continue; // section presence checked in body structure
+    if (content === null) continue;
     if (!content.includes(text)) {
       warnings.push(carrierCoherenceMessage({
         section, field, declared: text, actual: content, clause: "20 §14.1",
@@ -657,9 +444,6 @@ export function validateCarrierCoherence(frontmatter, body) {
   return { ok: true, issues: [], warnings };
 }
 
-// ---------------------------------------------------------------------------
-// File helpers
-// ---------------------------------------------------------------------------
 
 export function sparkFileName(uid) { return `spark-${uid}.md`; }
 
@@ -675,12 +459,6 @@ function buildFileContent(frontmatter, body) {
   return `---\n${stringifyYaml(orderFrontmatterFields(frontmatter), { lineWidth: 0 })}---\n\n${body.trim()}\n`;
 }
 
-/**
- * 展示层输出序（同 research-writer FRONTMATTER_FIELD_ORDER 约定）：语义块
- * 在前（标题/状态/悬置四要素/演变/归属/终态去向），引用与身份居后，
- * change_log 沉底。规范不强制书写顺序——本函数只是参考写入端的确定性
- * 输出格式：只重排键序，不新增、不删除、不改值。
- */
 const FRONTMATTER_FIELD_ORDER = [
   "title", "status",
   "question", "scope_boundary", "intent", "summary",
@@ -695,8 +473,6 @@ function orderFrontmatterFields(frontmatter) {
   for (const key of FRONTMATTER_FIELD_ORDER) {
     if (key in frontmatter) ordered[key] = frontmatter[key];
   }
-  // 闭集校验已保证无表外字段；防御性保留任何遗漏键（原序跟在表后），
-  // 避免未来字段准入与书写序登记不同步时静默丢字段。
   for (const key of Object.keys(frontmatter)) {
     if (!(key in ordered)) ordered[key] = frontmatter[key];
   }
@@ -704,12 +480,8 @@ function orderFrontmatterFields(frontmatter) {
 }
 
 async function atomicWriteFile(filePath, content) {
-  // Random tmp suffix (F8): a deterministic `${filePath}.tmp` would let two
-  // concurrent writers on the same path clobber each other's staging file.
   const tmp = `${filePath}.${randomUUID().slice(0, 8)}.tmp`;
   await writeFile(tmp, content, "utf8");
-  // Write verification: read back and compare before rename —
-  // catches partial writes (disk-full at flush time, etc.)
   const written = await readFile(tmp, "utf8");
   if (written !== content) {
     await unlink(tmp).catch(() => {});
@@ -718,37 +490,18 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-/** Validate objectUid format (path-injection guard). */
 function assertValidUid(objectUid) {
   return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
 }
 
-/** Assemble the file body: generated H1 + caller-provided markdown. */
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
 
-// ---------------------------------------------------------------------------
-// Create (specs/03 §9.4 + specs/20 §13)
-// ---------------------------------------------------------------------------
 
 
-/** 预检用的占位身份：只用来满足闭集校验，绝不落盘、也不回给调用方。 */
 const PRECHECK_PLACEHOLDER_UID = "00000000-0000-4000-8000-000000000000";
 
-/**
- * 本类型的**指纹覆盖范围**（20 §13 逐字登记）：
- *
- * - 覆盖 `frontmatter_draft` 与 `body_markdown` 两个入参；
- * - **剥离 `status`**——create 通道由 Code 钉死为 `open`，显式值只允许 `open`；
- * - **`change_summary` 计入指纹、不剥离**——它是 `frontmatter_draft` 内的可选键，
- *   其值经 Code 写入 `change_log[0].summary`、随对象落盘，故取值变化即内容变化；
- * - **Code 托管字段**（`object_uid`／`fact_type_key`／`created_at`）不参与比较。
- *
- * 20 §13 明确：显式 `change_summary` 恰等于 Code 默认摘要串时与省略产出同一对象，
- * 该重合造成的伪拒绝由本类型接受（重跑预检即可）——这里**不做**归一，正是为了
- * 不把「省略」与「显式默认值」这两种本该各自成立的写法合成一份候选。
- */
 export function computeSparkCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
   const { status: _statusStripped, ...draftFields } = frontmatterDraft ?? {};
   const candidate = {
@@ -758,7 +511,6 @@ export function computeSparkCreateCandidateFingerprint(frontmatterDraft, bodyMar
   return createHash("sha256").update(stableStringify(candidate), "utf8").digest("hex");
 }
 
-/** 稳定序列化：键序无关，使同一份候选恒得同一指纹。 */
 function stableStringify(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -766,21 +518,9 @@ function stableStringify(value) {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
 }
 
-/**
- * 只读机械预检一份 Spark 创建候选（20 §13「本类型**须设**只读预检入口」）。
- *
- * **只读、不落盘、不生成对象标识**（20 §13 / 02 §10.3）：不 mkdir、不写临时文件、
- * 不回带任何 uid。跑的是与受控创建**完全相同**的求值函数，故同一候选不会从两个
- * 入口得到不同结论。
- *
- * 20 §13 还要求预检**包含 create 入口对 `dedup_result` 的必填检查**——该检查在
- * 入口层而非 writer 层，故由调用方把 `dedupResult` 传进来，这里照同一判据核。
- */
 export async function precheckSparkCreate({ factSourceRoot, frontmatterDraft, bodyMarkdown, dedupResult }) {
   const candidateFingerprint = computeSparkCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown);
   if (typeof dedupResult !== "string" || dedupResult.trim().length === 0) {
-    // 与 create 入口同一判据、同一措辞，但归为「不可判定」：缺的是入口必填项，
-    // 不是候选内容有可修的缺陷（02 §10.1：预检不可判定按未通过处理）。
     return success({
       mechanical_outcome: "unverifiable",
       candidate_fingerprint: candidateFingerprint,
@@ -802,7 +542,6 @@ export async function precheckSparkCreate({ factSourceRoot, frontmatterDraft, bo
     factSourceRoot,
     frontmatterDraft,
     bodyMarkdown,
-    // 预检不盖真署名：署名不是候选内容，也不该由一次只读检查产生。
     signature: { provider: "(precheck)", model: "(precheck)" },
     objectUid: PRECHECK_PLACEHOLDER_UID,
     createdAt: new Date(0).toISOString(),
@@ -811,8 +550,6 @@ export async function precheckSparkCreate({ factSourceRoot, frontmatterDraft, bo
     const code = evaluated.error.code;
     const issues = Array.isArray(evaluated.error.details?.issues) ? evaluated.error.details.issues : [];
     return success({
-      // `invalid_request` 表示「这项检查没能完成」，不是「候选有可修的缺陷」——
-      // 两者混同会让环境问题被读成格式提示。
       mechanical_outcome: code === "invalid_request" ? "unverifiable" : "failed",
       candidate_fingerprint: candidateFingerprint,
       error_code: code,
@@ -824,39 +561,22 @@ export async function precheckSparkCreate({ factSourceRoot, frontmatterDraft, bo
     mechanical_outcome: "passed",
     candidate_fingerprint: candidateFingerprint,
     issues: [],
-    // 不回来任何身份：预检不生成对象标识（20 §13）。
     object_uid: null,
   });
 }
 
-/**
- * 一次 **CREATE 候选求值**：组装 + 全部机械校验，返回将要写入的
- * `frontmatter`/`body`，或与写入路径**完全相同**的失败。
- *
- * 两个入口共用它（20 §13「与受控创建执行同一组机械校验，双入口一致性」）：
- *   - `precheckSparkCreate` 传入占位 uid 与占位署名，**不落盘、不生成对象标识**；
- *   - `createSparkObject` 传入 Code 铸造的真实 uid 与权威署名。
- *
- * 唯一不同的是 Code 托管字段（`object_uid`／`created_at`）与 `change_log` 署名，
- * 三者都不是调用方内容，故同一候选不可能从两个入口得到不同结论。若这里改成
- * 两套规则，就会出现「预检通过、写入被拒」这种最坏的组合。
- */
 async function evaluateSparkCreateCandidate({
   factSourceRoot, frontmatterDraft, bodyMarkdown, signature, objectUid, createdAt,
 }) {
-  // Strip caller-only params (change_summary is a call argument, not object metadata)
   const { change_summary: _stripped, ...draftFields } = frontmatterDraft;
   const frontmatter = { ...draftFields };
   frontmatter.object_uid = objectUid;
   frontmatter.fact_type_key = SPARK_TYPE_KEY;
   frontmatter.created_at = createdAt;
-  // 20 §9: 初态 open — create must never enter a terminal state
   if (frontmatter.status !== undefined && frontmatter.status !== "open") {
     return failure("spark/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (20 §9)`);
   }
   frontmatter.status = "open";
-  // 20 §8/§11: merge/split relations and disposition cannot exist at creation
-  // (they only attach to a terminal transition, which create never performs)
   if (frontmatter.disposition !== undefined) {
     return failure("spark/frontmatter_invalid", "create must not carry disposition (20 §8: disposition ⇔ terminal status; create is always open)");
   }
@@ -869,7 +589,6 @@ async function evaluateSparkCreateCandidate({
     summary: frontmatterDraft.change_summary ?? "受控创建 Spark 对象",
   }];
 
-  // Validate
   const fmCheck = validateSparkFrontmatter(frontmatter);
   if (!fmCheck.ok) {
     return failure("spark/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
@@ -879,8 +598,6 @@ async function evaluateSparkCreateCandidate({
     return failure("spark/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // serves resolution (20 §13 + 28 §12.3): declared → must resolve to a
-  // SubGoal object in status active|achieved.
   if (frontmatter.serves !== undefined) {
     const resolved = await resolveSubGoal(factSourceRoot, frontmatter.serves);
     if (!resolved.ok) {
@@ -888,8 +605,6 @@ async function evaluateSparkCreateCandidate({
     }
   }
 
-  // refs target resolution (03 §7.2, 20 §8): declared → every target must be
-  // an existing, readable, same-project fact object. Zero-write rejection.
   if (frontmatter.refs !== undefined) {
     const refsCheck = await resolveRefsTargets(factSourceRoot, frontmatter.refs);
     if (!refsCheck.ok) {
@@ -897,41 +612,19 @@ async function evaluateSparkCreateCandidate({
     }
   }
 
-  // Body structure + carrier coherence
   const body = assembleBody(frontmatter.title, bodyMarkdown);
   const evolutionCount = Array.isArray(frontmatter.evolution) ? frontmatter.evolution.length : 0;
   const bodyCheck = validateSparkBodyStructure(body, frontmatter.title, evolutionCount);
   if (!bodyCheck.ok) {
     return failure("spark/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
-  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
   return success({ frontmatter, body });
 }
 
-/**
- * `dryRun` runs EVERY mechanical check (closed sets, single-sentence question,
- * carrier coherence, body structure, serves/refs resolution) and returns the
- * same failures, but stops before touching the filesystem.
- *
- * It exists so a caller can prove a write is mechanically possible BEFORE
- * asking the Human to authorise it. Asking first would spend the Human's
- * attention on a candidate the writer is certain to refuse (20 §16 requires an
- * explicit confirmation, and a confirmation for a doomed write is a wasted
- * one).
- *
- * A dry run allocates no file, leaves no trace, and **returns no identity**
- * (20 §13: 预检只读、不落盘、且不生成对象标识). It runs the same evaluator on a
- * placeholder uid, so every mechanical check sees the same content a real write
- * would.
- */
 export async function createSparkObject(args) {
   const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, dryRun = false,
     expectedCandidateFingerprint = null } = args;
-  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
-  // signed BY CODE and may not be written unsigned. Without a branded carrier the
-  // write is REFUSED; the caller reports it for Human handling (09 requires a
-  // definite unavailable outcome for blank/historical sessions).
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
@@ -941,25 +634,8 @@ export async function createSparkObject(args) {
     return failure("invalid_request", "bodyMarkdown is required (the markdown body starting with '## 当前理解'; the H1 is generated from title)");
   }
 
-  // Code-assigned identity (03 §6.2). **干跑不铸标识**（20 §13：预检只读、不落盘、
-  // 且不生成对象标识）——它用占位身份走同一套机械校验，占位值既不落盘、也不回给
-  // 调用方。实测缺陷（2026-11-14 复核）：上一版 dryRun 仍 `randomUUID()`，只是把
-  // 结果藏进 `frontmatter.object_uid`，两次干跑得到两个不同 uuid，与 20 §13 相反。
   const uid = dryRun === true ? PRECHECK_PLACEHOLDER_UID : randomUUID();
   const now = dryRun === true ? new Date(0).toISOString() : new Date().toISOString();
-  // 20 §13：**候选同一性**——预检结论所依据的候选内容指纹须与写入请求携带的
-  // 指纹逐字一致；**不一致或未携带时零写入**。
-  //
-  // 20 §13 还有一句「本类型的写入路径**不做内部候选指纹比对或补位**」。本实现的
-  // 读法（须如实说明，因为原文有歧义）：它禁的是**用自己的记录替代调用方携带的
-  // 指纹**（即拿上一次预检自己存的值来「补位」），不是禁止在收到调用方指纹后
-  // 核对它与本次内容是否一致——后者若不发生，「同一性已确认」就无从成立。
-  // 等值比对**同时**在入口层（spark-tools 的 create 分支，早于 Human Gate）执行，
-  // 那里是为了不把一次必然失败的写入浪费成一次人问；这里的比对是写入路径自身的
-  // 最后一道核，两者用同一函数、同一判据。
-  //
-  // `dryRun` 是写入前的内部干跑（20 §16 的确认前检查），不构成跨调用同一性
-  // 证据（20 §13 原话），故它豁免本项；真实写入一律要求携带。
   if (dryRun !== true) {
     if (typeof expectedCandidateFingerprint !== "string" || expectedCandidateFingerprint.length === 0) {
       return failure(
@@ -990,14 +666,10 @@ export async function createSparkObject(args) {
 
   const { frontmatter, body } = evaluated.value;
 
-  // Dry run stops here: every mechanical check ran on exactly the content a real
-  // create would write. It carries the **placeholder** identity, never a real one,
-  // and returns no uid/file to the caller.
   if (dryRun === true) {
     return success({ dry_run: true, body });
   }
 
-  // Write (single flat file, atomic)
   const typeDir = join(factSourceRoot, SPARK_DIRECTORY);
   await mkdir(typeDir, { recursive: true });
   const filePath = objectFilePath(factSourceRoot, uid);
@@ -1008,24 +680,13 @@ export async function createSparkObject(args) {
   return success({ object_uid: uid, file: filePath, fingerprint });
 }
 
-// ---------------------------------------------------------------------------
-// Read (specs/03 §9.2 precise read-back)
-// ---------------------------------------------------------------------------
 
-/**
- * 把模型面可能给出的四种书写形态归一为 canonical `object_uid`。
- *
- * 纯形态解析不读文件；只有短标识形态才触发载体反查。失败时按 `spark/invalid_uid`
- * 报告具体原因——「形态写错」「类型未登记」「短标识不存在／碰撞」「项目前缀不是
- * 本项目」「类型前缀与本入口不符」五种要分开，否则调用方不知道该怎么改。
- */
 async function resolveSparkObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("spark/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
   }
   const { objectUid, shortId, declaredType, projectId } = parsed.value;
-  // 项目前缀只在本层能判：解析器不知道当前会话属于哪个项目，故由调用方传入。
   if (projectId !== undefined && currentProjectId !== null && projectId !== currentProjectId) {
     return { ok: false, error: failure("spark/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
   }
@@ -1088,68 +749,7 @@ export async function readSparkObject(args) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// List / F0–F1 discovery (specs/03 §8, specs/20 §12)
-// ---------------------------------------------------------------------------
-//
-// Merge/split sequencing memo (gap 2 of the 2026-09 review).
-//
-// 2026-09-27 更正（据 Human 决定 D-7 复核本段）：
-//  原先写作「Human-ratified deferral…the safe order is SOURCE-FIRST」，两处失准——
-//   ① 「deferral（延期）」不准确：被延期的**不是规则**。20 §9.4 已由 Human 决定
-//      D-7（2026-09-12，Human 决定分段落，原存于临时文档目录，已随该目录移除，ec19ba6）
-//      定义**三情形**次序：既存目标 SOURCE-FIRST、新建目标 CREATE-FIRST、混合
-//      目标先建后结。规则齐备，缺的是**实现**。
-//   ② 「the safe order is SOURCE-FIRST」把三情形之一说成了唯一次序。
-//  故本段的准确状态是：**实现只覆盖三情形中的一种（情形一 SOURCE-FIRST）；
-//  情形二（CREATE-FIRST）与情形三（先建后结）尚未实装**——本模块的受控原语
-//  只有 create/update 两个单对象操作，不承载跨对象的次序编排，该编排由
-//  调用方按 §9.4 执行。
-//
-//  2026-11-04 Human 决定（方案 B）：**不实现组合级机械编排**。上述「尚未实装」
-//  不再是待补缺口，而是本类型的既定设计——20 §16 已从「在组合级载体具备之前」
-//  改记为「已由 Human 判定为即定形态」；20 §14.1 亦把「三情形是否按序执行完毕」
-//  「既存目标流水是否补齐」「失败后是否按恢复路径处置」三项从机械校验降为语义
-//  核对项（单对象校验照旧，清单见该节机械层五项）。
-//  故此处**不要**再期待本模块长出编排入口；要收束的语义证据在 §15 与 Human 判断。
-//
-// 已实装的那一种（情形一）仍是安全的：先写源对象（discarded + relations），
-// 再往目标 change_log 追加合并来源备注。失败时至多留下「目标缺一条 additive
-// 流水」（可幂等重补），**不会**出现「目标已声明来源而原对象仍为 open」这一假陈述。
-//
-// 该缺口的完整来历与裁定见 Spark `46bf4c66-cd2a-4e45-ac88-53f9065ed876`
-// （「Spark 合并拆分次序实现缺口」；本注释不复制其内容）。
 
-/**
- * Enumerate Spark objects (F0/F1: deterministic filter + minimal projection).
- *
- * - Reads every `spark-<uid>.md` in the sparks directory and projects the
- *   dedup-relevant fields (title + question are the semantic comparison
- *   inputs per 20 §6.2).
- * - Default status filter: open only (20 §12: implemented/discarded stay out
- *   of ordinary unresolved candidates); `includeTerminal: true` includes all.
- * - `limit` caps the returned items (03 §8.1: no silent truncation — a cap
- *   hit returns `complete: false` plus the unfiltered total).
- * - Files that fail to parse are reported in `invalid` — never skipped
- *   silently (03 §8.1 F0 includes the invalid/unavailable object list).
- * - A missing sparks directory is a valid empty state, not an error.
- *
- * 收窄参数 `keyword` / `priorities` / `serves`（2026-10-27 新增）：
- *
- * 为什么加：`31 §10` 2026-10-27 修订后，方向线**不再进入宿主自动注入路径**——
- * 召回侧不再把未决方向送到对话里（见 `recall-injection.js` 的 `INJECTION_EXCLUDED_TYPES`
- * 与 `31 §10`「召回入口」段）。取而代之的是「AI 主动查」，因此本查询工具的**可查性**
- * 就是这条路径成立的前提：只能按状态全量列举时，open 数十条只能整页读出人肉比对，
- * 实际等于「查不到」。三个参数各自对应 `20 §12` 已登记的消费维度（`priority`、
- * `serves`）与查重所需的语义输入（`title`/`question`，`20 §6.2`）。
- *
- * 边界（刻意不做的）：
- * - `keyword` 是**字面子串**匹配，不是语义相似度——`03 §8.2` 禁止机械裁决「是否同题」，
- *   本参数只用来把候选缩小到可读范围，同题与否仍由 AI 在 projection 上判断。
- * - 不提供排序参数：`created_at` 倒序是查重与续接的自然序（见下方 sort 注释）。
- * - 过滤与 `limit` 的顺序：先过滤后截断——`total` 始终是**过滤后**的命中总数，
- *   否则「按 priority 查 P1」会得到「全库前 200 条里的 P1」这种无法解释的结果。
- */
 export async function listSparkObjects(args) {
   const { factSourceRoot, includeTerminal = false, limit = 200, keyword = null, priorities = null, serves = null } = args;
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
@@ -1158,8 +758,6 @@ export async function listSparkObjects(args) {
   if (!Number.isInteger(limit) || limit < 1) {
     return failure("invalid_request", "limit must be a positive integer");
   }
-  // 收窄参数的校验一律 fail-closed：拼错一个档位若被静默忽略，调用方会拿到一份
-  // 「看起来是筛过的」全集，比直接报错危险得多（`02 §9.2` 禁把零结果当无约束）。
   if (keyword !== null && (typeof keyword !== "string" || keyword.trim().length === 0)) {
     return failure("invalid_request", "keyword must be a non-empty string when provided");
   }
@@ -1181,10 +779,6 @@ export async function listSparkObjects(args) {
   const servesNeedle = serves === null ? null : serves.trim();
 
   const typeDir = join(factSourceRoot, SPARK_DIRECTORY);
-  // 载体枚举与「哪些文件无法使用」的判定下沉到 `carrier-scan.js`（单点）。
-  // 此前的 `if (!nameMatch) continue` 静默吞掉两类文件：读者接受而写者拒绝的
-  // 命名形态（工具查不到、Web 报得出），以及文件名与 `object_uid` 声明不符的
-  // 载体。依据与实测记录见该模块头注。
   let scanned;
   try {
     scanned = await scanCarrierDirectory(typeDir, "spark");
@@ -1192,10 +786,6 @@ export async function listSparkObjects(args) {
     return failure("spark/directory_unavailable", `cannot read sparks directory: ${error.message}`);
   }
   if (scanned.missing) {
-    // 空态也要回带 filters：调用方按同一形状读取，缺字段会在「目录不存在」
-    // 这条路径上抛 TypeError——而空态恰恰是最常见的首次使用场景。
-    // 形状须与正常返回**逐键一致**：调用方按同一形状读取，缺键会在
-    // 「目录不存在」这条路径上抛 TypeError——而空态恰恰是首次使用的常见场景。
     return success({
       items: [],
       total: 0,
@@ -1213,8 +803,6 @@ export async function listSparkObjects(args) {
   const invalid = [...scanned.invalid];
   const items = [];
   for (const carrier of scanned.carriers) {
-    // 身份取**载体自己声明的** object_uid（02 §7.1），不再取文件名——二者
-    // 不符时 carrier-scan 已把差异写进 invalid，此处仍按声明列出。
     const uid = carrier.uid;
     const content = carrier.content;
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
@@ -1235,14 +823,6 @@ export async function listSparkObjects(args) {
       continue;
     }
     if (!includeTerminal && status !== "open") continue;
-    // 收窄过滤放在**解析 refs 之前**：refs 解析要对每个条目做一次跨类型查找，
-    // 把不相干的候选挡在后面就省掉了这部分开销——这是本函数里唯一的异步步骤。
-    //
-    // **命中依据逐条记录**（`34 §8.2` 第 1 项「命中依据须可复算」）：一旦按
-    // keyword／priorities／serves 收窄，返回集就不再是「全量枚举」而是「按字段
-    // 命中的匹配集」——那时读者必须能看出**每条为什么在**，否则一个短列表与
-    // 「库里只有这些」无法区分（`02 §9.2` 禁把零结果当无约束的同一道理）。
-    // 未收窄时不产生 `hitReason`：纯枚举没有「命中」可言，编一个反而是假信息。
     const hitParts = [];
     if (prioritySet !== null) {
       if (!prioritySet.has(frontmatter.priority)) continue;
@@ -1253,21 +833,11 @@ export async function listSparkObjects(args) {
       hitParts.push(`serves=${servesNeedle}`);
     }
     if (needle !== null) {
-      // **匹配面：title 与 question 两项**（Human 2026-11-11）。
-      //
-      // `recall_digest` 已从事实源退场，故本入口不再读它。剩下的两项正是
-      // `20 §6.2` 指定的查重语义输入——它们本来就是这个类型自己的字段，
-      // 不需要再加一层跨类型统一的关键词面（那正是被删掉的那层）。
-      // 仍不碰 body（body 是 F3 全文，见 20 §12 分层）。
       const title = typeof frontmatter.title === "string" ? frontmatter.title : "";
       const question = typeof frontmatter.question === "string" ? frontmatter.question : "";
       const inTitle = title.toLowerCase().includes(needle);
       const inQuestion = question.toLowerCase().includes(needle);
       if (!inTitle && !inQuestion) continue;
-      // 说清**命中在哪个字段**——只报「命中了 keyword」不足以复算，读者还要知道
-      // 去哪个字段上核对（`34 §8.2` 要求「命中了哪个字段、什么词」）。
-      // 两个字段同时命中时全部列出（`+` 连接），
-      // 不挑一个报：读者按报出的字段去核对，漏报的字段就查不回来。
       const where = [
         inTitle ? "title" : null,
         inQuestion ? "question" : null,
@@ -1275,8 +845,6 @@ export async function listSparkObjects(args) {
       hitParts.push(`keyword=${JSON.stringify(keyword.trim())}@${where}`);
     }
     const hitReason = hitParts.length > 0 ? hitParts.join(" · ") : undefined;
-    // refs 目标的类型必须在此解析（见下方注释）：逐条时目标是别的类型，渲染层
-    // 无从推断。解析失败的保留裸 uid —— 丢弃会让读者以为没有关联。
     const refsProjection = Array.isArray(frontmatter.refs) && frontmatter.refs.length > 0
       ? await (async () => {
         const check = await resolveRefsTargets(factSourceRoot, frontmatter.refs);
@@ -1292,41 +860,21 @@ export async function listSparkObjects(args) {
       : undefined;
     items.push({
       object_uid: uid,
-      // 02 §8 / §9 F1：`fact_type_key` 是跨类型公共身份字段，F1 卡片须自证类型——
-      // 否则渲染层只能按「当前在列哪个页面」硬编码类型短名，换个消费面就错。
-      // 两处列表投影（spark/pitfall）此前都漏了它（object-reference 测试
-      // 早已断言却一直红着）。取落盘值而非常量：承载被改成别的类型时如实暴露。
       fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : SPARK_TYPE_KEY,
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
       status,
       question: typeof frontmatter.question === "string" ? frontmatter.question : "",
       serves: typeof frontmatter.serves === "string" ? frontmatter.serves : undefined,
-      // refs (20 §8/§12): carried into F1 so the Human list card can show what
-      // this spark is related to. Targets are enriched with type/title for
-      // readability only — this is a derived projection, never written back
-      // (03 §7.2 invariant 4: no second authority).
-      //
-      // 此处的注释一直声称「enriched with type/title」，实现却只保留了
-      // `object_uid` —— 于是读路径渲染 `spark-2074408b`、F1 列表行渲染裸
-      // `2074408b`，**同一目标在两条消费路径上指称不同**（第 7 轮复核发现 1）。
-      // 类型必须在这里解析出来：渲染层无从得知目标属于哪一类（它可能与本行
-      // 的宿主对象不同类）。解析不到的保留裸 uid，绝不猜造类型。
       refs: refsProjection,
       priority: typeof frontmatter.priority === "string" ? frontmatter.priority : undefined,
-      // **命中依据**（`34 §8.2` 第 1 项）：仅在被收窄时出现，未收窄时为 undefined
-      // ——纯枚举没有「命中」可言，凭空给一个反而让读者以为它是筛出来的。
       hitReason,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
   }
 
-  // Newest first — the natural order for dedup scans and resumption.
   items.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
   const complete = items.length <= limit;
   const projected = complete ? items : items.slice(0, limit);
-  // `filters` 回传被真正施加的条件：调用方（与 Human 读到的卡面）据此知道自己看的是
-  // 全集还是一份筛选结果。`{{none}}` 而非省略——「没筛」本身是要报告的事实
-  // （03 §8.1：不静默收窄，也不静默声称完整）。
   return success({
     items: projected,
     total: items.length,
@@ -1341,30 +889,13 @@ export async function listSparkObjects(args) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Update via CAS (specs/02 §10.5 — 完整目标 after + content_fingerprint 绑定，:333；+ specs/20 §13)
-// ---------------------------------------------------------------------------
 
-/**
- * `dryRun`（2026-09-26，来自 26be321 独立复核的 P1）跑完全部机械校验并返回同样的
- * 失败，但在触盘之前返回——与 `createSparkObject` 的 dry run 对称。
- *
- * 为什么需要它：20 §16 的终态转换 Gate 由工具层提问，而**提问一旦发出就无法收回**。
- * 没有本选项时，一个注定失败的终态更新（非法 relation_key、disposition 超长、
- * serves 无法解析）仍会先消耗一次 Human 提问，然后才被 writer 拒绝——实测三种
- * 情形各烧掉恰好一次提问。创建路径本已把「便宜的拒绝」排在提问之前，本项使更新
- * 路径与之一致。
- */
 export async function updateSparkObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
     frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null,
     dryRun = false,
   } = args;
-  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
-  // signed BY CODE and may not be written unsigned. Without a branded carrier the
-  // write is REFUSED; the caller reports it for Human handling (09 requires a
-  // definite unavailable outcome for blank/historical sessions).
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
 
@@ -1386,10 +917,6 @@ export async function updateSparkObject(args) {
     return failure("spark/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
 
-  // 20 §9.2: a terminal state must NOT be reopened (status may not change),
-  // but the object's content stays correctable — a terminal record that is
-  // wrong, over-long or stale is fixed in place with a change_log entry,
-  // never by faking a status transition.
   const prevStatus = current.value.frontmatter.status;
   const prevTerminal = prevStatus === "implemented" || prevStatus === "discarded";
   if (prevTerminal) {
@@ -1399,9 +926,6 @@ export async function updateSparkObject(args) {
     }
   }
 
-  // Build updated frontmatter — 「磁盘基线 + 显式声明变更 + 显式删除通道」
-  // （specs/02 §10.5 实现对齐）：漏传的字段**继承磁盘**，不再被静默删除。
-  // 需要删除必须经 frontmatter_removals 声明（限 SPARK_REMOVABLE_FIELDS）。
   const built = buildUpdateFrontmatter({
     currentFrontmatter: current.value.frontmatter,
     frontmatterAfter,
@@ -1412,7 +936,6 @@ export async function updateSparkObject(args) {
   });
   if (!built.ok) return failure(built.error.code, built.error.message);
   const fm = built.value;
-  // ④ Code 重设托管字段
   fm.object_uid = objectUid;
   fm.fact_type_key = SPARK_TYPE_KEY;
   fm.created_at = current.value.frontmatter.created_at;
@@ -1421,8 +944,6 @@ export async function updateSparkObject(args) {
   if (nextStatus === undefined || !STATUSES.has(nextStatus)) {
     return failure("spark/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (open/implemented/discarded, 20 §9)`);
   }
-  // open → {open, implemented, discarded} are the only legal transitions from
-  // the only non-terminal state, so no further transition check is needed.
 
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
   fm.change_log = [...prevLog, {
@@ -1431,48 +952,23 @@ export async function updateSparkObject(args) {
     summary: changeSummary,
   }];
 
-  // Validate
-  //
-  // 200 字符上限的**适用范围**（Human 2026-11-04 裁定 B1 + 乙）：
-  // 只校验本次**改动**了 summary 的写入，逐字未改的既有 summary 放行。这是
-  // 21 §15.1 已确立的先例（「只校验相对基线新增或改动的字段，逐字未改的既有
-  // 字段放行——否则……将使受影响对象永久无法关闭」），照搬到本类型同理：
-  // 实测有 66 条现存 Spark 的 summary 超过 200 字，若对存量无条件生效，
-  // 它们会立即变成只读（任何一次 update 都会校验该字段）。
   const summaryUnchanged = typeof fm.summary === "string"
     && typeof current.value.frontmatter.summary === "string"
     && fm.summary === current.value.frontmatter.summary;
   const fmCheck = validateSparkFrontmatter(fm, { skipSummaryLimit: summaryUnchanged });
   const relCheck = validateSparkRelations(fm, objectUid);
 
-  // serves resolution on the updated object (20 §13 + 28 §12.3)
-  //
-  // **只在 `serves` 新增或改动时重新解析**（28 §12.3 第 3 条，Human 2026-11-10）：
-  // 该条明文规定 "`retired` 不构成有效解析目标……**既有 `serves` 保留原值不改写
-  // 历史引用**"。据此，「解析」是**写入那一刻**的准入条件，不是每次更新的持续不变量
-  // ——与已撤除类型曾登记的同一形态（`0b08523c`「关系目标的 open 约束为写入前置条件」）。
-  //
-  // 实测（2026-11-10）：全库 112 个采用 `serves` 的对象有 98 个指向已 `retired` 的
-  // SubGoal（87.5%），旧实现使它们**任何内容更新都被拒绝**——连改一个与 serves
-  // 毫无关系的字段都不行。历史引用被原位作废的子目标拖死，这既非规范意图，也让
-  // 存量对象实质上不可维护。
   const servesCheck = (fm.serves !== undefined && fm.serves !== current.value.frontmatter.serves)
     ? await resolveSubGoal(factSourceRoot, fm.serves).then((resolved) => (resolved.ok
       ? null
       : failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${fm.serves} cannot be resolved (28 §12.3)`)))
     : null;
 
-  // refs target resolution on the updated object (03 §7.2, 20 §8)
   const refsCheck = fm.refs !== undefined
     ? await resolveRefsTargets(factSourceRoot, fm.refs)
       .then((checked) => (checked.ok ? null : failure("spark/refs_unresolvable", checked.reason, { missing: checked.missing })))
     : null;
 
-  // **四类互不依赖的检查一次性报出**（spark-729491f6，2026-11-11）：字段形状、
-  // 关系闭集、serves 解析、refs 解析彼此不改动对方的前置条件，故可同时求值并
-  // 合并成一个 rejection。此前是首错即返，调用方每轮只看到最外层那一个错，
-  // 改完再撞下一个——实测 rejected 类重试后 33.9% 再次失败，且第二次失败的原因
-  // 恰是第一次被掩盖的下一层错误。判据本身一条未改，只改「一次能报出多少条」。
   const validationFailure = failureFromChecks([
     fmCheck.ok ? null : failure("spark/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues }),
     relCheck.ok ? null : failure("spark/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues }),
@@ -1481,21 +977,9 @@ export async function updateSparkObject(args) {
   ]);
   if (validationFailure !== null) return validationFailure;
 
-  // Relation targets must resolve to existing sparks, and must be OPEN *at
-  // write time* (20 §11 / §14.1 — 合并/拆分去向校验).
-  //
-  // Human 裁定 2026-10-05（解法 C）：`open` 是**写入前置条件**，不是持久不变量。
-  // 目标 Spark 日后依法走到终态（§9.2）不溯及既往地使既有关系失效——那是正常
-  // 生命周期内必然发生的事（§11 已相应移除对应的 Stop Condition）。故本校验只
-  // 作用于**本次写入新引入**的关系目标；既有的、目标已事后转终态的关系不
-  // 在此重新裁决。
-  //
-  // 若不加此区分（每次写入都复查全部关系），任何子议题已终态的父对象都会被永久
-  // 锁死：§13 禁止删除该关系、§9.2 禁止把子对象改回 open，于是此后每一次更新
-  // ——连同与之无关的内容更正——都将被无限期拒绝。本次裁定正是消除该死锁。
   const prevRelUids = new Set(relationTargetUids(current.value.frontmatter, objectUid));
   for (const targetUid of relationTargetUids(fm, objectUid)) {
-    if (prevRelUids.has(targetUid)) continue; // 未被本次写入触及的既有关系
+    if (prevRelUids.has(targetUid)) continue;
     const targetRead = await readSparkObject({ factSourceRoot, objectUid: targetUid });
     if (!targetRead.ok) {
       return failure("spark/relation_target_unresolvable", `${targetUid} does not resolve to an existing Spark object: ${targetRead.error.message}`);
@@ -1505,32 +989,22 @@ export async function updateSparkObject(args) {
     }
   }
 
-  // Body structure + carrier coherence on the updated object
   const body = assembleBody(fm.title, bodyMarkdownAfter);
   const evolutionCount = Array.isArray(fm.evolution) ? fm.evolution.length : 0;
   const bodyCheck = validateSparkBodyStructure(body, fm.title, evolutionCount);
   if (!bodyCheck.ok) {
     return failure("spark/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }
-  // 载体内聚已降为警告层（Human 2026-11-10，`spark-f0ba9997`）：不计算、不阻断。
 
-  // Dry run stops here: every mechanical check above has passed, so the caller
-  // can ask the Human knowing the write would land. Nothing was written.
   if (dryRun === true) {
     return success({ object_uid: objectUid, dry_run: true });
   }
 
-  // Atomic single-file write
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(fm, body);
   await atomicWriteFile(filePath, content);
 
-  // `recall_digest` 退场后不再有陈旧提示：该提示本身只为那一个字段存在
-  // （02 §7.1 的维护义务），字段没了，提示也没有对象（Human 2026-11-11）。
   return success({ fingerprint: fileFingerprint(content) });
 }
 
-// Exported for the schema/writer agreement guard (test/schema-writer-agreement.test.mjs):
-// the tool-plane JSON Schema must admit every field this closed set accepts, and a
-// field added here without a matching schema entry is unreachable via the tools.
 export { VALID_FM_KEYS };

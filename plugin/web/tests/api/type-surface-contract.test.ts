@@ -9,38 +9,6 @@ function read(relativePath: string): Promise<string> {
   return readFile(path.join(webRoot, relativePath), 'utf8');
 }
 
-/**
- * 类型色语义面的呈现契约（Human 定案 2026-11-02）。
- *
- * ## 立此契约的由来
- *
- * Human 指着两张截图里被圈出的卡体主块说：「圈出来的要和类型的颜色对上，也就是
- * 同一个色系的」。
- *
- * - 子目标卡：卡头类型 chip 与次序 icon 是 lime `#84cc16`，被圈的主块却是**蓝面**
- *   （判据面样式常量）；
- * - 开发日志卡：卡头类型 chip 是 magenta `#ca21a0`（该类型色 2026-11-03 已改为青绿
- *   `#2c9e43`，这里留的是定案当时的事实），被圈的主块**同样是蓝面**。
- *
- * 同一个蓝被贴到两个不同类型上，说明当时被当成「判据面通用色」的其实是**某个类型
- * 自己的类型色**。起因可查：2026-11-02 早先的定案是「子目标判据框样式对齐判据面
- * 的」，照抄时把整面（含蓝）抄了过来，而那次定案要的是**几何**对齐。
- *
- * ## 本契约守什么
- *
- * 1. 类型色语义面有**单一来源**（`utils/typeSurface.ts` 的 `getTypeSurfaceTint`），
- *    色相从 `CATEGORY_COLORS` 取——即与卡头 chip 同一张色表，不存在第二张。
- * 2. 消费方**面和正文成对**取用：只贴面会让正文沿用中性近黑，色相面与正文分家
- *    （`docs/01` §1.6 要求同色相）。
- * 3. 消费方**不得**再整面复用判据面样式常量——那会把那个类型的
- *    类型色当成通用色，正是本次要修的病。几何仍可复用
- *    几何常量（2026-11-02「对齐判据面」的几何对齐继续成立）。
- *
- * ## 不保证什么（如实声明）
- *
- * - 不保证真机视觉与对比度：混合比例各类型色逐一实测属未覆盖项（登记在 `docs/11`）。
- * - 不保证 `color-mix()` 在旧浏览器的降级形态——本契约只锁源码形态。
- */
 
 test('类型色语义面有单一来源，色相取自类型色而非另立色表', async () => {
   const source = await read('src/utils/typeSurface.ts');
@@ -48,23 +16,16 @@ test('类型色语义面有单一来源，色相取自类型色而非另立色�
   assert.match(source, /export function getTypeSurfaceTint/, '须导出 getTypeSurfaceTint');
   assert.match(source, /function typeColorOf\(type: string\): string \{[\s\S]{0,160}getCategoryColor\(type\)/,
     '类型色必须经 getCategoryColor 取——那是卡头 chip 用的同一张表，不得另立第二张');
-  // 三个比例常量必须导出：它们是调档入口，散在消费方里就等于把「多深」拆成多份答案。
   for (const name of ['TYPE_SURFACE_BORDER_MIX', 'TYPE_SURFACE_BACKGROUND_MIX', 'TYPE_SURFACE_TEXT_MIX']) {
     assert.match(source, new RegExp(`export const ${name} = \\d+`), `${name} 须导出为常量`);
   }
-  // 正文色必须与 text-primary 混合：只混类型色会得到浅色/暗色下都读不清的中间调。
   assert.match(source, /color: `color-mix\(in oklab, \$\{color\} \$\{TYPE_SURFACE_TEXT_MIX\}%, rgb\(var\(--ldvh-text-primary\)\)\)`/,
     '正文色须与 --ldvh-text-primary 混合，才能在两主题下各自读得清');
 });
 
 test('子目标判据面按本类型色上色，且面与正文成对', async () => {
-  // 2026-11-03：子目标卡的判据面渲染下沉到 `components/SubGoalCardParts.tsx`
-  // （与聚焦页目标区同源），色相断言读那里。
-  // 2026-11-14：原「两张卡」的另一张（DevLog 卡体）已随 29 号类型撤除，
-  // 本用例收窄为子目标一张；面/正文成对与不复用蓝面的判据不变。
   const subGoalParts = await read('src/components/SubGoalCardParts.tsx');
 
-  // 子目标判据面（渲染在共享组件里；列表卡调用它）
   const subGoalCard = subGoalParts.slice(
     subGoalParts.indexOf('export function SubGoalCriterionSurface'),
     subGoalParts.indexOf('export function SubGoalDisclosureButton'),
@@ -75,35 +36,16 @@ test('子目标判据面按本类型色上色，且面与正文成对', async ()
   assert.match(subGoalCard, /style=\{tint\.body\}/);
   assert.doesNotMatch(subGoalCard, /border-blue-400\/20 bg-blue-500/,
     '子目标判据面不得整面复用另一类型的判据面色');
-  // 几何仍取全站统一形态（四边同宽 1px、rounded-lg、px-3 py-2），
-  // 本契约只改色相，不允许顺手把几何另写一份。
   assert.match(subGoalCard, /min-w-0 rounded-lg border px-3 py-2/,
     '几何仍取统一形态，不得自写一套');
 });
 
 test('类型色语义面不与左色条家族混用（几何四边同宽、无 border-l）', async () => {
   const source = await read('src/utils/typeSurface.ts');
-  // 本模块只产出 CSS 属性，不产出 Tailwind 类串——故它不可能引入 `border-l-2`。
-  // 这条断言防的是将来有人把它改成「返回 class 串」的实现，顺手带上左色条。
   assert.doesNotMatch(source, /border-l-/, '类型色语义面不得引入左色条（四边同宽是既有定案）');
   assert.doesNotMatch(source, /className/, '本模块只给 CSS 属性，不拼 class 串');
 });
 
-/**
- * ## 对比度：九类类型色 × 两主题都必须过正文可读线
- *
- * 与设计语言契约里那两条色相断言同一套算法
- * （oklab 混合 → 相对亮度 → WCAG 对比度），但**基准不同**：那里比的是页面底色
- * `--ldvh-bg`，这里必须比**卡片底色 + 5% 类型色叠加后的实际背景**——正文就压在
- * 那个面上。用页面底色当基准会算出偏高的值（实测：卡片是 `--ldvh-panel`，浅色下
- * 是纯白而非 `#f8f9fb`）。
- *
- * 阈值取 **4.5:1**：判据正文是 12px（`ldvh-card-decision-body`），属小字号正文，
- * 不能按 3:1 的大字号/非正文线放宽。
- *
- * 这条断言的意义：混合比例（30/5/58）是**实现自选值**，不是人类定案——它必须由
- * 这个可复算的判据来兜住，否则下一次「把正文调深一点」就可能让某一类读不清。
- */
 function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 }
@@ -139,7 +81,6 @@ function contrastRatio(a: [number, number, number], b: [number, number, number])
   const lb = relativeLuminance(b);
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
-/** oklab 空间线性混合（与 CSS `color-mix(in oklab, …)` 同算法）。 */
 function mixOklab(
   first: [number, number, number],
   second: [number, number, number],
@@ -162,12 +103,8 @@ test('八类类型色 × 两主题的正文都过 4.5:1（混合比例由本判�
   const backgroundMix = readMix('TYPE_SURFACE_BACKGROUND_MIX');
   const textMix = readMix('TYPE_SURFACE_TEXT_MIX');
 
-  // 背景取**本仓库真实的**卡片底色与正文主色（`index.css` 的 --ldvh-panel /
-  // --ldvh-text-primary 两档），不用白/黑这类仓库外假设。
   const css = await read('src/index.css');
 
-  // 事实类型八类（CATEGORY_COLORS 里还混着 conventional commit scope 色，不属于事实对象；
-  // 29 号 DevLog 已于 2026-11-14 撤除）。
   const factTypes = ['pitfall', 'spark', 'report', 'friction', 'norm', 'subgoal'];
 
   const failures: string[] = [];
@@ -188,9 +125,7 @@ test('八类类型色 × 两主题的正文都过 4.5:1（混合比例由本判�
       const hex = CATEGORY_COLORS[type];
       assert.match(hex ?? '', /^#[0-9a-f]{6}$/, `CATEGORY_COLORS.${type} 须为 6 位 hex`);
       const color = hexToLinear(hex);
-      // 背景 = 卡片底色 + backgroundMix 的类型色叠加。
       const background = color.map((c, i) => c * backgroundMix + panel[i] * (1 - backgroundMix)) as [number, number, number];
-      // 正文 = 类型色与 text-primary 在 oklab 混合。
       const body = mixOklab(linearToOklab(color), linearToOklab(textPrimary), textMix);
       const ratio = contrastRatio(body, background);
       if (ratio < 4.5) failures.push(`${mode}/${type} = ${ratio.toFixed(2)}:1`);

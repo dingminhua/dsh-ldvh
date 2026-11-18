@@ -4,33 +4,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-/**
- * 横切语义色单源契约（批次 B 的机械守卫）。
- *
- * 根因登记：docs/01「色彩和状态」（行 303-311）规则齐全，但错误/警告/信息/
- * 达成四族横切语义色此前在 16 个文件各写一份且带微漂移——「有文档、无守卫」。
- * 本契约锁三件事：
- * 1. semanticColors.ts 原子存在且值精确（canonical 不得静默漂移）；
- * 2. 每个原子确实被多处使用（否则不配叫「横切」）；
- * 3. 批次 B 收敛掉的漂移变体不得回潮。
- *
- * 豁免边界（与 semanticColors.ts 头注一致）：
- * - diff 语法高亮（project-files/model.ts 等）——代码高亮豁免；
- * - 域内单源表（objectSignals）——域内 600 系强 chip 档；
- * - 文件内一次性映射（状态图标 map、Friction 决策面板、布尔对偶等）。
- *
- * 范围外登记（2026-10-04 逐处实测后确认，非漏网——勿机械「清干净」）：
- * - 色相不在四族内：CommitPushStatusBadge（violet/rose 状态图标）。四族横切色
- *   只覆盖错误/警告/信息/达成；violet、rose 属别的语义，硬并入会造出语义错误的
- *   单源。（原登记中的 ServesSgBadge 已随 2026-11-01 撤除 serves 呈现而删除，
- *   文件不复存在，故不再需要这条豁免。）
- * - 装饰性图标取色：GoalDetail 的 `text-amber-500`、FactAssociationsSection 的
- *   `text-amber-400`（lucide icon 色，非面/非文字语义色）。
- * - 弱注记档：FieldReadNotes 的 `UNPARSED_NOTE_TEXT_CLASS`（600 档，刻意弱于
- *   WARN_TITLE 的 700 档；该文件注释已声明「是否并入待 Human 裁决」）。
- * - 域内自定档：能力状态徽标的 `border-amber-400/35
- *   bg-amber-500/[0.07] text-amber-800 dark:text-amber-100`。
- */
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(testDir, '../..');
@@ -68,7 +41,6 @@ test('semanticColors 导出全部横切语义色原子，且值为 canonical 定
       `${name} 应存在且含 canonical 值「${value}」`,
     );
   }
-  // WARN_CHIP 由 STRONG 面组合而来（同一色相对只写一次）。
   assert.match(source, /LDVH_WARN_CHIP_HUE_CLASS = `\$\{LDVH_WARN_SURFACE_STRONG_CLASS\}[^`]*`/);
 });
 
@@ -76,7 +48,6 @@ test('每个横切原子被足量文件使用（单源必须真的被共用）',
   const files = await collectSourceFiles(srcRoot);
   const consumers = files.filter((f) => !f.includes('semanticColors'));
   const bodies = await Promise.all(consumers.map((f) => readFile(f, 'utf8')));
-  // SUCCESS_CHIP 目前仅一处消费（详情徽标）；其余原子都应跨 ≥2 文件。
   const thresholds: Record<string, number> = { LDVH_SUCCESS_CHIP_HUE_CLASS: 1 };
   for (const name of Object.keys(EXPECTED_ATOMS)) {
     const count = bodies.filter((b) => b.includes(name)).length;
@@ -91,22 +62,15 @@ test('每个横切原子被足量文件使用（单源必须真的被共用）',
 test('批次 B 收敛掉的漂移变体不得回潮（src 内禁止再写）', async () => {
   const files = await collectSourceFiles(srcRoot);
   const driftVariants = [
-    // error 面边框曾漂移为 /20（canonical /30）
     'border-red-500/20',
-    // error 面底色曾漂移为 [0.07]（canonical /10）
     'bg-red-500/[0.07]',
-    // 警示列表文字曾带 /90 降档后缀（canonical 无后缀）
     'text-amber-700 dark:text-amber-300/90',
-    // 布尔达成曾用 green 家族（canonical emerald）
     'bg-green-500/10 text-green-400',
-    // 达成 / 未达成 chip 曾漏写 dark: 档并降一级文字色
-    // （canonical 为 LDVH_SUCCESS_CHIP_HUE_CLASS 的 text-emerald-600 dark:text-emerald-400）
     'bg-emerald-500/10 text-emerald-400',
-    // 布尔未达成曾与之同构地漏写 dark: 档（canonical text-red-600 dark:text-red-400）
     'bg-red-500/10 text-red-400',
   ];
   for (const f of files) {
-    if (f.includes('semanticColors')) continue; // 头注里的漂移史记载不算回潮
+    if (f.includes('semanticColors')) continue;
     const body = await readFile(f, 'utf8');
     for (const variant of driftVariants) {
       assert.ok(
@@ -117,22 +81,7 @@ test('批次 B 收敛掉的漂移变体不得回潮（src 内禁止再写）', a
   }
 });
 
-/**
- * 域内单源表**自身的消费方守卫**。
- *
- * 本契约头注把若干「域内单源表」（objectSignals 等）列为豁免——它们不归横切原子管，这没问题。
- * 但**豁免不等于无人守卫**：表被豁免了，表的值却仍会被消费方手抄。
- * 实测缺口（2026-10-03）：能力状态标签样式常量的 satisfied / partial /
- * unsatisfied 三个值在执行流与阅读布局两处
- * 共被手抄 4 处（其中一处是 4 分支 mark switch），**既不在豁免明示清单的
- * 「值级」禁令内、也不被任何守卫读取**——表在、没人用，正是「假单源」。
- *
- * 故此处对每个域内单源表做同一件事：取其 canonical 值，断言除载体自身外
- * **src 内无第二处逐字复现**。这是把「表被豁免」与「表的消费方无人管」
- * 区分开的最小守卫。
- */
 const DOMAIN_SINGLE_SOURCE_TABLES: Array<[string, string[]]> = [
-  // 当前无登记项：原登记的域内单源表已随其事实类型撤除。
 ];
 
 test('域内单源表的值不得被消费方手抄（表在、且真的只有一个源）', async () => {

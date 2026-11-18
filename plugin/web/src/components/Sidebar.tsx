@@ -22,14 +22,7 @@ type NavIcon = ElementType<LucideProps>;
 
 const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
-  // 28 号 SubGoal：**侧栏不设子目标入口**（Human 定案 2026-11-13）。
-  // 此前（2026-11-01）子目标紧接「聚焦」单列一个入口；此后聚焦页目标区已能直接
-  // 呈现子目标（2026-11-03 改版，点击标题展开/收起，2026-11-15 起不再下钻进详情），
-  // 单列入口是同一条信息的第二个入口——删的是**导航入口**，不是子目标这个事实类型
-  // （28 号载体、详情页、列表/联邦/帮助页入口都在）。
   { to: '/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
-  // ADR 事实类型已于 2026-11-15 撤除（Human 根决定）；决策侧栏入口随之删除。
-  // 现行次序：规范 → 报告（规范定规则，报告承载取证与结论）。
   { to: '/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
   { to: '/objects/report', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.report },
   { to: '/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
@@ -37,23 +30,13 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: NAV_ICONS.projectFiles },
   { to: '/changes', labelKey: 'nav.changes', icon: NAV_ICONS.changes },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
-  // 帮助=带钉地图（导览/漫游指南；Human 定案 2026-09-12 终选——历经
-  // CircleHelp→MapPinned→单独问号→回到 MapPinned）。
   { to: '/help', labelKey: 'nav.help', icon: NAV_ICONS.help },
-  // 运行时诊断（2026-10-18 Human 定案）：末位入口，只读观察机制本身。
   { to: '/diagnostics', labelKey: 'nav.diagnostics', icon: NAV_ICONS.diagnostics },
 ];
 
-/** 联邦作用域导航（全部管辖计划 Step 4）：
- * 聚焦→联邦聚焦页；六类对象→联邦聚合列表（**子目标不设联邦入口**，
- * 与项目态同一条理由：它由聚焦页目标区承载（标题展开/收起，不再下钻），
- * 2026-11-13 撤除；DevLog
- * 已于 2026-11-14 随类型撤除退出联邦）；目录/变更/提交是
- * 单项目专属页，联邦态灰显。 */
 const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [
   { to: '/federation', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
   { to: '/federation/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
-  // 次序与项目态一致（规范 → 报告，见 NAV_ITEMS 处说明）。
   { to: '/federation/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
   { to: '/federation/objects/report', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.report },
   { to: '/federation/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
@@ -62,7 +45,6 @@ const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; di
   { to: '/changes', labelKey: 'nav.changes', icon: NAV_ICONS.changes, disabled: true },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },
   { to: '/help', labelKey: 'nav.help', icon: NAV_ICONS.help },
-  // 诊断数据是「本机这次运行」的账，跨项目聚合会把不同机器的运行混成一页——联邦态灰显。
   { to: '/diagnostics', labelKey: 'nav.diagnostics', icon: NAV_ICONS.diagnostics, disabled: true },
 ];
 
@@ -125,37 +107,11 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
     const rect = element.getBoundingClientRect();
     setVisibleTooltip({ key, position: { top: rect.top + rect.height / 2, left: rect.right + 8 } });
   };
-  /**
-   * 在浏览器中打开当前页面。
-   *
-   * 取当前文档的 origin + pathname（含 vite base，如 `/ldvh/`）+ search 拼出地址：
-   * 与用户在地址栏看到的同一页，深链接参数与原页面一致。`noopener,noreferrer` 是
-   * 必需的——DSH 侧栏 iframe 处于不透明源沙箱，新窗口不应回指 opener。
-   */
   const openInBrowser = () => {
     setVisibleTooltip(null);
     const { origin, pathname, search } = window.location;
     window.open(`${origin}${pathname}${search}`, '_blank', 'noopener,noreferrer');
   };
-  /**
-   * 整页重载（Human 2026-10-17 指令：点刷新要能看到「改了代码」的变化）。
-   *
-   * 为什么不能只重取数据：`useReadingRefresh` 的档位只让各读取方重发 /api 请求，
-   * 不重新下载 JS。而 bundle 的文件名带内容 hash，新 hash 只存在于**新的
-   * index.html** 里；旧文档永远不会自己换 bundle——这正是「改码后必须关掉重开
-   * 侧栏才生效」的成因。
-   *
-   * 为什么不能只调 `location.reload()`：重载文档时浏览器可对 index.html 做条件
-   * 重验证（304），拿回的可能仍是缓存副本。故改用 `location.replace()` 导航到
-   * 带时间戳的同一地址：查询串唯一 ⇒ 文档必然重新请求 ⇒ 拿到新 HTML 与新 hash。
-   *
-   * `replace()` 而非 `assign()`：不往历史里堆一条假记录，后退不会在两份同一页
-   * 之间来回横跳。时间戳参数对应用无意义（路由只读 pathname/search 之外的部分
-   * 不受影响），重载后随即被下次导航冲掉。
-   *
-   * 已知边界：重载会丢失页内滚动位置与展开态等非持久状态——这是「看到新代码」
-   * 的必要代价，已在 Human 侧确认。
-   */
   const hardReload = () => {
     setVisibleTooltip(null);
     const { origin, pathname, search } = window.location;
@@ -241,9 +197,7 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
         </ul>
       </nav>
       <div className={`border-t border-ldvh-border ${isCollapsed ? 'px-2 py-3' : 'px-3 py-3'}`}>
-        {/* 底部工具区两行：语言独占一行（名称需完整可读，不与图标抢宽）；其余图标独
-            占一行。展开态两行都靠左，与上方导航条目同一基线（Human 2026-09-19：三个
-            图标左对齐）；收起态两行都退化为居中的图标 rail。 */}
+        { }
         <div className={isCollapsed ? 'flex flex-col items-center gap-1' : 'flex flex-col gap-1.5'}>
           <div className={`flex min-w-0 ${isCollapsed ? 'justify-center' : 'w-full'}`}>
             <button

@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/**
- * 从**宿主**的主题样式里解析出浅色/暗色两套 token 的真值，写进
- * plugin/web/fixtures/host-theme-tokens.json。
- *
- * 为什么要它：预览器（preview-settings.mjs）自带一套 token 表——那份是**副本**，
- * 宿主改 token 时它不会自己跟���，于是「浅色出图 = 真实观感」这个前提会悄悄
- * 失效（2026-11-13 独立复核就抓到一次：预览写 brand-primary=#4176e6（蓝），
- * 而宿主浅色真值是 #0f1115（近黑）——出图里的开关是蓝轨，真实宿主是黑轨）。
- *
- * 宿主真值来源：dsh-client-ui-theme/src/styles/design-platform.css
- *   - 第一个 body{} 块：静态色板 --dsw-static-*
- *   - 第二个 body{} 块：浅色 alias --dsw-alias-* → var(--dsw-static-*)
- *   - body[data-ds-dark-theme]{} 块：暗色 alias
- *
- * 用法：
- *   node scripts/read-host-tokens.mjs                 # 用默认的宿主 app.asar
- *   node scripts/read-host-tokens.mjs --asar <路径>     # 指定别的 asar
- *   node scripts/read-host-tokens.mjs --check          # 只比对，不写盘（有差异则退出码 1）
- */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,12 +9,6 @@ const fixturePath = path.join(here, '../fixtures/host-theme-tokens.json');
 const DEFAULT_ASAR = '/Applications/DeepSeek Harness.app/Contents/Resources/app.asar';
 const THEME_CSS = 'dsh-client-ui-theme/src/styles/design-platform.css';
 
-/** 读 asar 里的一个文件（asar = 头部 JSON + 顺序拼接的文件内容）。
- *
- * 头部结构：8 字节前缀（4 / headerPickleSize），随后是一个嵌套 pickle
- * ——再 4 字节长度前缀、再 4 字节 JSON 长度、然后是 JSON；文件内容从
- * 8 + headerPickleSize 处开始按 offset 排布。
- */
 function readAsarFile(asarPath, target) {
 	const fd = fs.openSync(asarPath, 'r');
 	try {
@@ -45,7 +20,6 @@ function readAsarFile(asarPath, target) {
 		const headerStringSize = headerBuf.readUInt32LE(4);
 		const header = JSON.parse(headerBuf.slice(8, 8 + headerStringSize).toString('utf8'));
 		const base = 8 + headerSize;
-		// 按路径后缀找文件（宿主包里的前缀随打包结构变，如 dsh/node_modules/@deepseek-ai/…）。
 		let hit = null;
 		const walk = (filesMap, prefix) => {
 			if (hit || !filesMap) return;
@@ -69,7 +43,6 @@ function readAsarFile(asarPath, target) {
 	}
 }
 
-/** 把样式表切成三个块：静态色板 / 浅色 alias / 暗色 alias。 */
 function splitBlocks(css) {
 	const staticTokens = {};
 	const light = {};
@@ -91,7 +64,6 @@ function splitBlocks(css) {
 	return { staticTokens, light, dark };
 }
 
-/** 解析 var(--x) 链，直到落到具体颜色。 */
 function resolve(value, tables, depth = 0) {
 	const trimmed = String(value).trim();
 	const match = trimmed.match(/^var\(\s*(--dsw-[a-z0-9-]+)\s*\)$/);
@@ -123,8 +95,6 @@ const WANT = [
 	'--dsw-alias-brand-primary', '--dsw-alias-brand-primary-new-colorprimary-new-color',
 	'--dsw-alias-state-business-primary', '--dsw-alias-state-success-primary',
 	'--dsw-alias-state-error-primary', '--dsw-alias-switch-thumb',
-	// 「色上文字色」：白钮要用的就是它——两套主题都是纯白（bluish-00），
-	// 而 label-primary-foreground 在暗色下是近黑，不能拿来当钮。
 	'--dsw-alias-label-on-color',
 	'--dsw-specific-sidebar-nav-item-active'
 ];

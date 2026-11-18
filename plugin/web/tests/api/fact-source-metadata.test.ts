@@ -7,12 +7,10 @@ import { listObjects, showObject } from '../../api/services/facts.ts';
 import { type LocalFactScope } from '../../api/services/localFactReader.ts';
 
 const fixtures = [
-  // 23 §7：v5 Pitfall 为 markdown 载体（frontmatter + 正文）；文件名编码 UID。
   {
     type: 'pitfall', id: 'pitfall-4f6c1d2e-9a3b-4c8d-8e7f-2b1c3d4e5f6a', directory: 'pitfalls', carrier: 'markdown',
     body: '---\nfact_type_key: pitfall\ntitle: Pitfall fixture\nstatus: active\nscope: Applies to this fixture\ncreated_at: "2026-01-01"\n---\n\n# Pitfall fixture\n\n## 症状\n\nSymptom text\n',
   },
-  // 23 §7：v5 Pitfall 为 markdown 载体（frontmatter + 正文）；文件名编码 UID。
   {
     type: 'pitfall', id: 'pitfall-7f4a5c2e-9d31-4b6f-8a07-3e0f5c91b2d4', directory: 'pitfalls', carrier: 'markdown',
     body: '---\nfact_type_key: pitfall\ntitle: Pitfall fixture\nstatus: active\nscope: Applies to this fixture\ncreated_at: "2026-01-01"\n---\n\n# Pitfall fixture\n\n## 影响与适用范围\n\nApplies to this fixture\n',
@@ -68,7 +66,6 @@ test('fact list projections preserve full UID authority without derived identity
   try {
     await mkdir(path.join(root, 'ldvh-base', 'norms'), { recursive: true });
     await mkdir(path.join(root, 'ldvh-base', 'pitfalls'), { recursive: true });
-    // 23/27 §7：markdown 载体，文件名编码 UID。ADR 类型撤除后以 Norm + Pitfall 两类验证同型能力。
     await writeFile(
       path.join(root, 'ldvh-base', 'norms', `norm-${normUid}.md`),
       `---\nobject_uid: ${normUid}\nfact_type_key: norm\ntitle: UID Norm\nstatus: active\ndirection_key: uid-authority\ncreated_at: "2026-01-01"\n---\n\n# UID Norm\n`,
@@ -102,8 +99,6 @@ test('UID-native object ids open through the exact-read detail path', async () =
   const objectUid = '019ffb52-ebb5-424c-881f-4f0f7d97038f';
   try {
     await mkdir(path.join(root, 'ldvh-base', 'sparks'), { recursive: true });
-    // v5 Spark 载体（20 §7）：.md + frontmatter + 正文；ULID 定位符与 UUID 形态
-    // 的文件名都在预期载体名闭集内。
     await writeFile(
       path.join(root, 'ldvh-base', 'sparks', `${objectId}.md`),
       [
@@ -153,10 +148,6 @@ test('identity and required-field problems remain readable field-level results',
     assert.equal(readable.data.fact_read_failure, undefined);
     assert.equal(readable.data.status, 'active');
     const issues = readable.data.field_issues as Array<Record<string, unknown>>;
-    // 03 §6.1 明文不保留公共 updated_at（变更时间由 change_log[].at 承担），
-    // 故它不再属必填、不出现在缺失清单中。
-    // 本夹具补了 created_at 与 report_form（24 §8 形态判定必填），故这两项不再
-    // 报缺失；其余仍按契约必填面如实报出（object_id 与文件名身份不符、title 缺）。
     assert.deepEqual(issues.map((issue) => [issue.path, issue.reason]).sort(), [
       ['object_id', 'identity_mismatch'],
       ['title', 'missing'],
@@ -179,7 +170,6 @@ test('list responses keep per-object read failures and collection coverage in th
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   const pitfallDir = path.join(root, 'ldvh-base', 'pitfalls');
   await mkdir(pitfallDir, { recursive: true });
-  // 23 §7：Pitfall markdown 载体——未闭合 frontmatter 是 unreadable 形态。
   await writeFile(path.join(pitfallDir, 'pitfall-0001.md'), '---\nobject_id: [unterminated\n', 'utf8');
   try {
     const listed = await listObjects('pitfall', undefined, undefined, scope);
@@ -190,15 +180,6 @@ test('list responses keep per-object read failures and collection coverage in th
     assert.deepEqual((candidate?.read_issues as Array<Record<string, unknown>>).map((issue) => issue.code), ['frontmatter_unclosed']);
     assert.deepEqual(listed.issues.map((issue) => issue.code), ['frontmatter_unclosed']);
 
-    // 2026-11-02（Human 定案）：**对象目录不存在 = 零对象**，不再是「类型未接入」。
-    //
-    // 旧断言在此处要求 `coverage_status === 'type_not_integrated'`——它把「目录没建」
-    // 这个实现细节钉成了契约。实测反证：临时 mkdir 一个空目录，同一请求立刻变
-    // `complete` + `items: []`；也就是说这条断言守的不是类型接入，而是**目录存在性**。
-    // 判据见 `api/services/localFactReader.ts` 的 `emptyTypeDirectory` 注释。
-    //
-    // 本用例的 report 目录根本没建，故正确结果就是「完整的空列表」：没有覆盖问题，
-    // 也没有把「零对象」误报成阻塞级结论。
     const emptyType = await listObjects('report', undefined, undefined, scope);
     if (!emptyType.ok) throw new Error(emptyType.error);
     assert.equal(emptyType.data.coverage_status, 'complete', '目录缺失按零对象处理，不再报 type_not_integrated');

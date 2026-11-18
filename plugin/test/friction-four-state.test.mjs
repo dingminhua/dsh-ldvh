@@ -1,29 +1,3 @@
-// 26 §9/§12 四值状态闭集的受控行为契约（2026-11 观察态退出闭集；2026-10 新增 accepted）。
-//
-// 为什么独立成文件：本文件只钉住「状态闭集收缩」这一件事的行为契约，用自带的
-// 最小脚手架（withTemp + mkdtemp），不依赖 writer/tools 那两个测试文件的夹具。
-// 好处是闭集断言不会被夹具的无关改动牵连——那两个文件各自覆盖自己的入口，
-// 本文件负责**跨入口**地证明同一闭集在创建、流转、读取三处一致。
-// （2026-11 补注：那两个文件曾停留在 `serves` 字段时代，现已随本次修订一并更新。）
-//
-// 本文件原职责是「四值闭集（observing/open/resolved/voided）」，2026-11 修订后
-// 改为「三值闭集 + 观察态确实不在账本里」，2026-10 再扩为「四值闭集（含 accepted）」。核心不是把断言改个名字，而是要证明
-// **闭集真的收缩了**：observing 在创建入口、流转入口、读取/召回入口三处都被拒，
-// 而观察材料改由 `friction-observation-buffer.js`（11 §12bis.1，非事实对象）承载。
-//
-// 覆盖：
-//   1. 状态闭集四值 open/resolved/voided/accepted；observing 与 deferred 均已退出（26 §9）
-//   2. 创建初态为 open，且 occurrence 必带（26 §8/§9）
-//   3. observing 写不进账本：创建/流转被拒（写入侧）、载体被拒收（读取侧）
-//   4. 默认召回只含 open；includeResolved 展开 resolved/voided（26 §12）
-//   5. 终态冻结：voided 停止计数、不可重开（26 §8/§9.2）
-//   6. 补填/删除通道的字段白名单（26 §13）
-//   7. 摩擦观察缓冲：同 group 3 条 pending 达阈值就绪、晋升结算后不再就绪，
-//      且观察材料在任何时刻都不进事实源（11 §12bis.1 / 26 §9/§10）
-//
-// 隔离：所有用例经 `withTemp`（内部 `mkdtemp`，见 test/helpers.mjs）在 OS 临时
-// 目录建立全新根，**绝不**触碰真实账本 `ldvh-base/frictions/`；观察缓冲的
-// dsh home 也落在这个临时根内的 `dsh-home/` 子目录，与事实源根互不重叠。
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -56,7 +30,6 @@ import { withTemp, testSignature } from "./helpers.mjs";
 
 const TEST_SIGNATURE = testSignature();
 
-/** 26 §8 必填字段的最小合法草稿（含 occurrence）。 */
 function draft(overrides = {}) {
   return {
     title: "CI 构建缓慢",
@@ -67,7 +40,6 @@ function draft(overrides = {}) {
   };
 }
 
-/** 现象段须逐字含 phenomenon（§8 载体内聚）。 */
 function body(d, { disposition = null } = {}) {
   const sections = [
     `## 现象\n${d.phenomenon}\n\n首次观察来源：2026-11-01 的构建流水线日志。`,
@@ -77,9 +49,6 @@ function body(d, { disposition = null } = {}) {
   return sections.join("\n\n");
 }
 
-// ---------------------------------------------------------------------------
-// §9 状态闭集：四值
-// ---------------------------------------------------------------------------
 
 test("26 §9：状态闭集为四值（含 accepted），observing 与 deferred 均已退出", () => {
   assert.deepEqual(
@@ -89,7 +58,7 @@ test("26 §9：状态闭集为四值（含 accepted），observing 与 deferred 
   );
   assert.ok(
     !STATUSES_EXPORT_FOR_TEST.has("observing"),
-    "26 §9/§10（2026-11 修订）：observing 不在闭集内——观察材料由摩擦观察缓冲承载（11 §12bis.1），它不是账目状态",
+    "26 §9/§10（2026-11 修订）：observing 不在闭集内——观察材料由摩擦观察缓冲承载（36 §8.8），它不是账目状态",
   );
   assert.ok(
     !STATUSES_EXPORT_FOR_TEST.has("deferred"),
@@ -146,7 +115,6 @@ test("26 §9：observing 写不进账本——open 账目改判 observing 被拒
     const before = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
     assert.equal(before.value.frontmatter.status, "open");
 
-    // 闭集收缩的证明点：目标状态不在闭集内即拒绝——这不是「文档里删了、代码里还在」。
     const observed = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: created.value.object_uid,
@@ -173,13 +141,6 @@ test("26 §12：账本里出现 observing 载体时按闭集外拒收，不被�
     });
     assert.ok(created.ok, JSON.stringify(created.error));
 
-    // 夹具：把同一份载体的 status 改成闭集外的 observing，冒充「存量留观载体」。
-    //
-    // 身份必须一并改写：复制体换了文件名（legacyUid），若仍声明源对象的
-    // object_uid，造出的就不是「一条留观载体」，而是**两条载体声明同一身份**
-    // （02 §5 第 6 项禁止的身份冲突）——那是另一件事，会让本用例在
-    // carrier-scan 的「文件名/声明一致性」上再次命中，从而无法单独验证
-    // 「闭集外 status 被拒收」这一个行为。
     const realFile = join(root, "frictions", `friction-${created.value.object_uid}.md`);
     const text = await readFile(realFile, "utf8");
     const legacyUid = randomUUID();
@@ -221,13 +182,9 @@ test("26 §8：occurrence 必填——缺失即拒绝创建", async () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §12 召回分层
-// ---------------------------------------------------------------------------
 
 test("26 §12：默认召回只含 open，resolved/voided 仅在 includeResolved 时展开", async () => {
   await withTemp("friction-four-state.", async (root) => {
-    // 造两条：一条 open（默认候选）、一条 voided（终态）。
     const keep = draft({ title: "仍待修的摩擦" });
     const k = await createFrictionObject({
       factSourceRoot: root, frontmatterDraft: keep, bodyMarkdown: body(keep), sessionSignature: TEST_SIGNATURE,
@@ -240,7 +197,6 @@ test("26 §12：默认召回只含 open，resolved/voided 仅在 includeResolved
     });
     assert.ok(v.ok, JSON.stringify(v.error));
 
-    // 作废它：open → voided（Human Gate；须写作废理由）
     const voided = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: v.value.object_uid,
@@ -252,13 +208,11 @@ test("26 §12：默认召回只含 open，resolved/voided 仅在 includeResolved
     });
     assert.ok(voided.ok, JSON.stringify(voided.error));
 
-    // 默认召回：只应看到那一条 open；voided 不出现。
     const def = await listFrictionObjects({ factSourceRoot: root });
     assert.ok(def.ok, JSON.stringify(def.error));
     const statuses = def.value.items.map((item) => item.status);
     assert.deepEqual(statuses, ["open"], `默认候选须排除终态；实际得到 ${JSON.stringify(statuses)}`);
 
-    // includeResolved（语义：含全部终态）时两条都在。
     const all = await listFrictionObjects({ factSourceRoot: root, includeResolved: true });
     assert.ok(all.ok, JSON.stringify(all.error));
     assert.deepEqual(
@@ -269,9 +223,6 @@ test("26 §12：默认召回只含 open，resolved/voided 仅在 includeResolved
   });
 });
 
-// ---------------------------------------------------------------------------
-// §9.2 终态冻结
-// ---------------------------------------------------------------------------
 
 test("26 §9.2：voided 为终态——停止计数且不可重开", async () => {
   await withTemp("friction-four-state.", async (root) => {
@@ -291,7 +242,6 @@ test("26 §9.2：voided 为终态——停止计数且不可重开", async () =>
     });
     assert.ok(voided.ok, JSON.stringify(voided.error));
 
-    // 补充级计数递增（§9.3）在终态上不可达：终态只读。
     const reopen = await updateFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
       expectedFingerprint: voided.value.fingerprint,
@@ -315,7 +265,6 @@ test("26 §9.2：accepted 为终态——需 disposition 与处置段，informs 
     });
     assert.ok(created.ok, JSON.stringify(created.error));
 
-    // ① 缺 disposition 的接受流转被拒（26 §8：出现 ⇔ status ∈ {voided, accepted}）。
     const noDisposition = await updateFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
       expectedFingerprint: created.value.fingerprint,
@@ -325,7 +274,6 @@ test("26 §9.2：accepted 为终态——需 disposition 与处置段，informs 
     });
     assert.ok(!noDisposition.ok, "accepted 必须带 disposition（26 §8）");
 
-    // ② 缺处置段的接受流转被拒（26 §8：处置段条件出现）。
     const noSection = await updateFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
       expectedFingerprint: created.value.fingerprint,
@@ -335,7 +283,6 @@ test("26 §9.2：accepted 为终态——需 disposition 与处置段，informs 
     });
     assert.ok(!noSection.ok, "accepted 必须有处置段（26 §8）");
 
-    // ③ 合法接受：disposition + 处置段（含复审触发）。
     const disposition = "消除途径不存在：宿主不提供热重载，本仓无法消除该中断（测试）。复审触发：宿主版本升级时重审。";
     const accepted = await updateFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
@@ -346,7 +293,6 @@ test("26 §9.2：accepted 为终态——需 disposition 与处置段，informs 
     });
     assert.ok(accepted.ok, JSON.stringify(accepted.error));
 
-    // ④ 终态只读：不得重开、不得继续计数。
     const reopen = await updateFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
       expectedFingerprint: accepted.value.fingerprint,
@@ -391,9 +337,6 @@ test("26 §12：accepted 不进默认召回，仅 includeResolved 时展开（�
   });
 });
 
-// ---------------------------------------------------------------------------
-// §13 终态事实更正（补填/删除通道）
-// ---------------------------------------------------------------------------
 
 test("26 §13：补填与删除通道都只接受登记过的字段", () => {
   assert.deepEqual(
@@ -406,8 +349,6 @@ test("26 §13：补填与删除通道都只接受登记过的字段", () => {
     ["impact", "occurrence", "serves"],
     "可删两类：已退出闭集者（serves 于 2026-10、impact 于 2026-11-02）、存在即违反 §8 条件约束者（occurrence——§14.2 豁免的 voided 对象携带它即违规）。impact 入本通道是 68 份存量终态对象的清除前提（26 §14.2）。",
   );
-  // human_return_at 是 occurrence 的成员字段而非顶层字段——它随「放回留观」删除后
-  // 只剩 count/first_at/last_at 三个成员；此处钉住「没有任何以它命名的顶层字段通道」。
   assert.ok(
     !CORRECT_ADDABLE_FIELDS_FOR_TEST.has("human_return_at") && !CORRECT_REMOVABLE_FIELDS_FOR_TEST.has("human_return_at"),
     "26 §8：human_return_at 已删除，不得经任何更正通道回流",
@@ -416,8 +357,6 @@ test("26 §13：补填与删除通道都只接受登记过的字段", () => {
 
 test("26 §13：correct 可用于终态对象补填 occurrence（对称于 frontmatter_removals）", async () => {
   await withTemp("friction-four-state.", async (root) => {
-    // 模拟存量对象：它创建于 occurrence 进入 §8 之前，故落盘对象上没有该字段。
-    // writer 现在强制创建时必带，所以先创建再抹掉，得到「缺该字段」的目标形态。
     const d = draft({ title: "将被废弃并补填的摩擦" });
     const created = await createFrictionObject({
       factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: body(d), sessionSignature: TEST_SIGNATURE,
@@ -430,7 +369,6 @@ test("26 §13：correct 可用于终态对象补填 occurrence（对称于 front
       const out = [];
       for (let i = 0; i < lines.length; i += 1) {
         if (lines[i] === "occurrence:") {
-          // 跳过该字段及其缩进成员行
           while (i + 1 < lines.length && /^\s{2,}\S/.test(lines[i + 1])) i += 1;
           continue;
         }
@@ -452,7 +390,6 @@ test("26 §13：correct 可用于终态对象补填 occurrence（对称于 front
     });
     assert.ok(voided.ok, JSON.stringify(voided.error));
 
-    // 终态只读：受控更新再也触及不到它——这正是补填通道存在的理由。
     const viaUpdate = await updateFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
       expectedFingerprint: voided.value.fingerprint,
@@ -466,7 +403,6 @@ test("26 §13：correct 可用于终态对象补填 occurrence（对称于 front
     assert.ok(!viaUpdate.ok, "终态只读：受控更新不得触及");
     assert.equal(viaUpdate.error?.code, "friction/status_terminal", "拒绝理由须是终态只读");
 
-    // 经 correct 的补填通道：成功（occurrence 现只有 count/first_at/last_at 三个成员）
     const voidedRead = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
     const filled = await correctFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
@@ -489,20 +425,14 @@ test("26 §13：correct 可用于终态对象补填 occurrence（对称于 front
   });
 });
 
-// ---------------------------------------------------------------------------
-// 11 §12bis.1 摩擦观察缓冲（替代原 observing 账目）
-// ---------------------------------------------------------------------------
 
-/** 观察缓冲的 dsh home：临时根内的独立子目录，与事实源根互不重叠。 */
 function bufferHome(root) {
   const home = (...segments) => join(root, "dsh-home", ...segments);
   return home;
 }
 
-/** 缓冲载体所属的管辖项目 id（也是载体文件名的来源）。 */
 const PROJECT_ID = "dsh-ldvh-friction";
 
-/** 一条合法缓冲条目（`at` 取相对现在，避免 90 天保留期把夹具判成过期）。 */
 function bufferEntry({ minutesAgo, group, index }) {
   return {
     project: PROJECT_ID,
@@ -511,7 +441,6 @@ function bufferEntry({ minutesAgo, group, index }) {
     phenomenon: "重建索引后必须手工重跑一次依赖安装。",
     evidence: `同一份依赖在 8 分钟内被重装 5 次，耗时 4 分 12 秒。—— 来源：sess-2026-11-02-ci turn-00${index}`,
     group,
-    // 2026-10-30：审核层跨运行晋升所需的承载（§12bis.1 字段闭集）。
     title: "依赖安装被重复执行",
     basis: "重复出现；归因：索引重建流程未复用已安装依赖；修了会改善。",
     attribution: "索引重建流程",
@@ -519,13 +448,12 @@ function bufferEntry({ minutesAgo, group, index }) {
   };
 }
 
-test("11 §12bis.1 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋升结算后不再就绪", async () => {
+test("36 §8.8 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋升结算后不再就绪", async () => {
   await withTemp("friction-four-state.", async (root) => {
     const factSourceRoot = join(root, "fact-source");
     const home = bufferHome(root);
     const group = "ci-slow-dependency-install";
 
-    // ① 缓冲是账本之外的第二类留观：写入不产生 object_uid、不进事实源。
     const ids = [];
     for (let index = 1; index <= FRICTION_OBSERVATION_THRESHOLD_N; index += 1) {
       const appended = await appendFrictionObservation(home, bufferEntry({ minutesAgo: (4 - index) * 3, group, index }));
@@ -535,22 +463,19 @@ test("11 §12bis.1 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋�
       assert.equal(
         appended.value.promotion_ready,
         index >= FRICTION_OBSERVATION_THRESHOLD_N,
-        "只有达阈值（pending ≥ 3）的那条才报告就绪（11 §9 第 3 项）",
+        "只有达阈值（pending ≥ 3）的那条才报告就绪（36 §8.7 第 3 项）",
       );
       ids.push(appended.value.entry_id);
     }
 
-    // 载体位置：在 dsh home 下按项目分文件，**不在**事实源根内。
     const carrierPath = frictionObservationPath(home, PROJECT_ID);
     assert.ok(carrierPath.startsWith(join(root, "dsh-home")), "缓冲载体须落在 dsh home 下");
     assert.ok(!carrierPath.startsWith(factSourceRoot), "缓冲载体不得落在事实源内（02 §6.1：中间产物不进事实源）");
 
-    // 观察材料在任何时刻都不进事实源：账本仍是空的（含终态枚举）。
     const emptyLedger = await listFrictionObjects({ factSourceRoot, includeResolved: true });
     assert.ok(emptyLedger.ok, JSON.stringify(emptyLedger.error));
     assert.equal(emptyLedger.value.total, 0, "26 §9/§10：缓冲条目不是账目，不得出现在召回里");
 
-    // ② 达阈值：该组被 readPromotionReadyGroups 报告为就绪。
     const ready = await readPromotionReadyGroups(home, PROJECT_ID);
     assert.ok(ready.ok, JSON.stringify(ready.error));
     assert.equal(ready.value.ready.length, 1, "只有一个 group 达阈值");
@@ -568,7 +493,6 @@ test("11 §12bis.1 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋�
       "就绪组条目按观察时间升序给出（first_at/last_at 的直接来源）",
     );
 
-    // ③ 晋升：先建账目（26 §9 初态 open，occurrence.count 取该组真实条目数），再结算缓冲。
     const entries = ready.value.ready[0].entries;
     const phenomenon = "CI 每次构建平均 8 分钟，其中 5 分钟花在重复依赖安装上。";
     const evidenceLines = entries
@@ -597,7 +521,6 @@ test("11 §12bis.1 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋�
     assert.deepEqual([...settled.value.settled].sort(), [...ids].sort(), "该组全部条目须结算为 promoted");
     assert.equal(settled.value.promoted_to, created.value.object_uid);
 
-    // ④ 结算后该组不再就绪（幂等的证明点）。
     const readyAfter = await readPromotionReadyGroups(home, PROJECT_ID);
     assert.ok(readyAfter.ok, JSON.stringify(readyAfter.error));
     assert.deepEqual(readyAfter.value.ready, [], "晋升结算后该组不得再次就绪（否则会重复入账）");
@@ -610,10 +533,9 @@ test("11 §12bis.1 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋�
     assert.ok(promotedAfter.ok, JSON.stringify(promotedAfter.error));
     assert.equal(promotedAfter.value.total, FRICTION_OBSERVATION_THRESHOLD_N);
     for (const record of promotedAfter.value.items) {
-      assert.equal(record.promoted_to, created.value.object_uid, "promoted 条目须指向新账目的 object_uid（11 §12bis.1）");
+      assert.equal(record.promoted_to, created.value.object_uid, "promoted 条目须指向新账目的 object_uid（36 §8.8）");
     }
 
-    // 账目侧：恰好一条 open 账目，count 为该组真实条目数（不是硬编码的 1）。
     const ledger = await listFrictionObjects({ factSourceRoot, includeResolved: true });
     assert.ok(ledger.ok, JSON.stringify(ledger.error));
     assert.equal(ledger.value.total, 1);
@@ -622,12 +544,11 @@ test("11 §12bis.1 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋�
   });
 });
 
-test("11 §12bis.1：阈值按 group 独立计算，未达阈值的组不产生就绪项", async () => {
+test("36 §8.8：阈值按 group 独立计算，未达阈值的组不产生就绪项", async () => {
   await withTemp("friction-four-state.", async (root) => {
     const factSourceRoot = join(root, "fact-source");
     const home = bufferHome(root);
 
-    // 两组各 2 条：条目总数（4）已超过 N=3，但没有任何一组达阈值。
     const fixtures = [
       { group: "group-a", minutesAgo: 8, index: 1 },
       { group: "group-a", minutesAgo: 7, index: 2 },
@@ -653,7 +574,6 @@ test("11 §12bis.1：阈值按 group 独立计算，未达阈值的组不产生�
       "观察态在缓冲侧叫 pending——它不属于账本状态闭集",
     );
 
-    // 两个闭集不相交：缓冲状态里没有 observing，账本状态里没有 pending。
     assert.deepEqual(
       FRICTION_OBSERVATION_STATUSES.filter((status) => STATUSES_EXPORT_FOR_TEST.has(status)),
       [],
@@ -661,9 +581,9 @@ test("11 §12bis.1：阈值按 group 独立计算，未达阈值的组不产生�
     );
     assert.ok(
       !FRICTION_OBSERVATION_STATUSES.includes("observing"),
-      "11 §12bis.1：缓冲条目状态是 pending/promoted/discarded/evicted，observing 不再是任何载体的状态",
+      "36 §8.8：缓冲条目状态是 pending/promoted/discarded/evicted，observing 不再是任何载体的状态",
     );
-    assert.equal(FRICTION_OBSERVATION_THRESHOLD_N, 3, "11 §9：阈值 N 固定内嵌为 3，不可配置");
+    assert.equal(FRICTION_OBSERVATION_THRESHOLD_N, 3, "36 §8.7：阈值 N 固定内嵌为 3，不可配置");
 
     const ledger = await listFrictionObjects({ factSourceRoot, includeResolved: true });
     assert.ok(ledger.ok, JSON.stringify(ledger.error));

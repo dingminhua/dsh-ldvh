@@ -1,12 +1,3 @@
-// Spark 载体内聚冗余度量（可复现）。
-//
-// 口径：正文（自 H2 起，H1 由 title 生成故不计）中被
-// summary / question / scope_boundary 三字段**逐字覆盖**的字节占比。
-// 重复出现按次数累计。占比上限 1.0。
-//
-// 注意：这是**上界估计**——只按「字段原串在正文中出现」计，
-// 不判断该次出现是否真的在承担「展开」角色。
-// 故它偏高而非偏低，用它判断「冗余是否存在」是保守的（不会漏报）。
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -25,7 +16,6 @@ function splitCarrier(text) {
 
 function bodyFrom(fullBody) {
   const lines = fullBody.trim().split("\n");
-  // H1 由 title 生成，不属作者撰写的正文
   if (lines[0] && lines[0].startsWith("# ")) lines.shift();
   return lines.join("\n").trim();
 }

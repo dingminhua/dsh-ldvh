@@ -1,23 +1,3 @@
-// 真实任务召回评测（2026-11-11，spark-69b1de3f 第 (1) 步的执行体）
-//
-// 用法：
-//   node plugin/scripts/recall-real-eval.mjs              # 跑默认档
-//   node plugin/scripts/recall-real-eval.mjs --limit 12 --budget 10240
-//   node plugin/scripts/recall-real-eval.mjs --json       # 机器可读
-//
-// ── 它测什么 ───────────────────────────────────────────────────────────
-//
-// 用**真实用户原话**（见 `test/recall-real-cases.mjs` 的来源说明）跑一次注入
-// 路径召回，按 kind 分别报：
-//   · 精确率 = 返回行里属于标注答案的占比（衡量「有没有凑数」）
-//   · 主题命中 = 标注了应得答案的题里，答案是否出现（衡量「漏没漏」）
-//   · 净行数 = 不该召回的题（ellipsis/noise/ref）实际注入了几行
-//
-// ── 它不测什么（必须与指标一起读） ──────────────────────────────────────
-//
-// 不测真实流量下的召回率：本集只有本项目 48 个主控会话，不等于全部使用场景。
-// 不测「AI 拿到候选后是否据此行动」：那属消费侧（34 §8.1 第 2 项）。
-// 因此本脚本的输出是**候选质量读数**，不是「召回有没有用」的结论。
 
 import { recallForAction, INJECTION_EXCLUDED_TYPES } from "../lib/source-recall.js";
 import { REAL_CASES, isRealCaseRelated, REAL_CASE_KINDS } from "../test/recall-real-cases.mjs";
@@ -36,7 +16,6 @@ const LIMIT = argOf("--limit", 12);
 const BUDGET = argOf("--budget", 10240);
 const AS_JSON = process.argv.includes("--json");
 
-/** 跑一条用例。 */
 async function runCase(c) {
   const r = await recallForAction({
     action: c.q,
@@ -44,14 +23,9 @@ async function runCase(c) {
     limit: LIMIT,
     budgetBytes: BUDGET,
     includeSpecs: true,
-    // 与注入路径同参（否则测的是另一条路径，见 recall-quality 的既有教训）。
     excludeTypes: INJECTION_EXCLUDED_TYPES,
   });
   const ok = r.ok === true;
-  // **必须同时保留 type**（2026-11-11 修）：`want` 里有一类标注写的是**类型名**
-  // （如 `Pitfall-踩坑经验`），只有候选自己的 `type` 字段能对上。
-  // 初版只取标题，导致这类标注永远匹配不上，**事实侧精确率恒接近 0**——
-  // 读数看似「注入的全是无关经验」，实际是判据与期望不同构导致的恒定假。
   const specs = ok ? (r.specs ?? []).map((x) => ({ title: x.title, type: x.type ?? "spec" })) : [];
   const facts = ok ? (r.facts ?? []).map((x) => ({ title: x.title, type: x.type })) : [];
   const all = [...specs, ...facts];
@@ -59,14 +33,6 @@ async function runCase(c) {
   const hitOf = (rows, want) => rows.filter((x) => isRealCaseRelated(x.title, want, x.type)).length;
   const relevant = hitOf(all, c.want);
   const relevantFacts = hitOf(facts, c.want);
-  // ── 三种命中口径必须并列（2026-11-11 独立复核后补）──────────────────
-  //
-  // 复核实测同一批 topic 用例：any-of 下 10/10、all-of 下 5/10、对象级 12/17。
-  // 只报 any-of 会让人以为「有主题的不漏」，而对象级说明有 5 个应得对象根本
-  // 没进注入面。三者各有用途，**并列披露**才不误导：
-  //   hitAny  —— 命中任一答案即记（宽松，看「有没有进展」）
-  //   hitAll  —— 全部答案都在才记（严格，看「完整度」）
-  //   objHit/objTotal —— 按对象逐个记（唯一能答「该看到的看到几成」）
   const hitAny = c.want.length === 0
     ? titles.length === 0
     : all.some((x) => isRealCaseRelated(x.title, c.want, x.type));
@@ -74,8 +40,6 @@ async function runCase(c) {
   const objHit = perWant.filter(Boolean).length;
   const hitAll = c.want.length > 0 && objHit === c.want.length;
   const hit = hitAny;
-  // **两侧分开计数**：规范源条目数与事实源条目数差一个量级，混算会把
-  // 「事实侧一条没中」稀释成「整体精确率还行」。读者要能看出是哪一侧在凑数。
   return { ok, titles, specs, facts, n: titles.length, nSpecs: specs.length, nFacts: facts.length, relevant, relevantFacts, hit, hitAny, hitAll, objHit, objTotal: c.want.length };
 }
 
@@ -84,7 +48,6 @@ for (const c of REAL_CASES) {
   rows.push({ ...c, ...(await runCase(c)) });
 }
 
-// ── 汇总（按 kind 分组；混算总数会掩盖结构差异）──────────────────────────
 const byKind = {};
 for (const kind of REAL_CASE_KINDS) {
   const group = rows.filter((r) => r.kind === kind);
@@ -103,11 +66,9 @@ for (const kind of REAL_CASE_KINDS) {
     precision: n === 0 ? 0 : relevant / n,
     specLines: nSpecs,
     factLines: nFacts,
-    // 事实侧精确率单列：这是「有没有拿无关经验凑数」的直接读数。
     factPrecision: nFacts === 0 ? 0 : relevantFacts / nFacts,
     annotated: annotated.length,
     hits,
-    // 不该召回的题里，实际注入的行数（越小越干净）
     strayLines: group.filter((r) => r.want.length === 0).reduce((a, r) => a + r.n, 0),
   };
 }
@@ -123,8 +84,6 @@ const summary = {
   relevant: totalRelevant,
   precision: totalLines === 0 ? 0 : totalRelevant / totalLines,
   annotated: annotatedAll.length,
-  // 三种口径并列（2026-11-11 独立复核后补）——
-  // 只报 hits 会掩盖「命中了但漏了别的对象」这一缺口。
   hits: annotatedAll.filter((r) => r.hitAny).length,
   hitsAll: annotatedAll.filter((r) => r.hitAll).length,
   objHit: annotatedAll.reduce((a, r) => a + r.objHit, 0),
@@ -138,8 +97,6 @@ if (AS_JSON) {
   const pct = (x) => `${(x * 100).toFixed(1)}%`;
   console.log(`真实任务召回评测（limit=${LIMIT}、budget=${BUDGET}、用例 ${rows.length} 条）`);
   console.log("");
-  // **命中口径须并列**：any-of 宽松、all-of 严格、对象级最接近「看到几成」。
-  // 只印一个数会让人把宽口径当成结论（独立复核 2026-11-11 指出的缺陷）。
   console.log(
     `命中口径：` +
     `any-of ${summary.hits}/${summary.annotated}（有进展即记）  ` +

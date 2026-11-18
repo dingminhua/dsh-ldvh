@@ -86,8 +86,6 @@ test('YAML 源视图不含 report_body——markdown 正文不是 frontmatter �
     title: '调研',
     status: 'active',
     research_question: 'Q?',
-    // report_body 是读取层给 markdown 正文的投影名：文件里不存在该 frontmatter
-    // 字段。YAML 源视图必须排除，否则整篇正文被伪装成一个 YAML 字段并双重呈现。
     report_body: '## 研究问题\nQ?\n\n## 关键发现\n…',
     carrier: 'markdown',
     read_status: 'readable',

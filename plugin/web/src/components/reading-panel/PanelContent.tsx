@@ -43,8 +43,6 @@ export function EmptyPanelPreview() {
 }
 
 export function PanelContentRenderer({ content }: { content: PanelContent }) {
-  // 侧栏刷新档位：作为 key 让面板内容重挂，从而重新发起精确读取——面板挂在 App
-  // Shell 上，不随 `Layout` 那条「以 key 重挂当前路由页」的路径重建。
   const refreshKey = useRefreshKey();
   switch (content.type) {
     case 'object': return <ObjectPreview key={`object-${refreshKey}`} content={content} />;
@@ -99,7 +97,6 @@ function ObjectPreview({ content }: { content: PanelContent }) {
   const obj = (data as Record<string, unknown> | undefined) ?? detail?.data;
   const readMeta = getFactReadMeta(obj);
   const readable = Boolean(obj && isReadableFact(readMeta));
-  // Human 定案 2026-09-12：goal 不显示状态徽章（单例冻结锚的克制形态）。
   const status = objectType === 'goal' ? undefined : readable ? detail?.summary.status ?? (obj?.status as string | undefined) : undefined;
   const headerStatus = status === undefined ? undefined : getObjectHeaderStatus(objectType || '', status, obj || {});
   const title = getObjectTitle(obj, objectId, locale);
@@ -117,8 +114,6 @@ function ObjectPreview({ content }: { content: PanelContent }) {
     let cancelled = false;
     setDetail(null);
     setError(null);
-    // 25 号 Goal 单例：路径即身份（无 :id 通道），走 /api/cognition/goal 直读
-    // 并转成与 exact-read 同形的 detail（goal 字段即投影对象）。
     const loader = objectType === 'goal'
       ? fetchCognitionGoal().then((result) => {
           if (result.goal) {
@@ -385,26 +380,7 @@ function CommitReadingNodeSection({
   );
 }
 
-// 完整署名分区：**当前为停用件**——唯一的渲染点是本文件里那句被注释掉的调用
-// （搜索 `entry?.signature && <CommitSignatureSection`），现役署名呈现走同文件的
-// `<CommitSignatureMeta>`（见 CommitIdentitySection），紧凑形态与之并存即为重复，
-// 故整段被主动停用而非遗漏。（此处不写行号：行号会随本注释的增删漂移，写死必错。）
-//
-// 为什么不直接删：tests/api/changelog-presentation-contract.test.ts 确实钉住本函数。
-// 实测（2026-10-16，两次变异）——
-//   · 删掉整个函数定义 → 该用例失败，断在 `assert.match(panel, /<dd className="ldvh-detail-
-//     semantic-body … font-mono">/)`：那句 `<dd>` 只在本函数体内出现，故函数是**被断言要求
-//     存在**的，不是死代码。
-//   · 只删那句被注释的调用、保留函数 → 同一用例失败，断在
-//     `assert.match(panel, /<CommitSignatureSection signature={entry.signature} labels={labels} \/>/)`。
-// 由此得到一条**确实存在但形态较弱的判据**：最后那条断言匹配的是**原始源码文本**（`readFile`
-// 后直接 `assert.match`，不剥注释），故那句**注释**即可满足它——它能守住「这段调用文本还在」，
-// 却无法区分「正在渲染」与「已被注释」。恢复渲染或保持注释，它都通过；这正是该处待裁定的一部分。
-//
-// 两个待 Human 裁定的取舍：① 停用件是恢复渲染还是彻底移除（移除须同时改上面那条 `<dd>`
-// 断言，属产品语义取舍）；② 那句调用文本若要保留，该断言是否改为行为断言（渲染后断言存在
-// 与否），以恢复其判别力。二者都超出「清 lint」的授权范围，故按现状保留并显式豁免。
-/* eslint-disable-next-line @typescript-eslint/no-unused-vars -- 见上方说明：停用件待裁定，其存在被契约测试的 <dd> 断言要求 */
+/* eslint-disable-next-line @typescript-eslint/no-unused-vars*/
 function CommitSignatureSection({
   signature,
   labels,
@@ -489,7 +465,7 @@ function CommitIdentitySection({
       id={headerMetaItems.join(' · ')}
       target={copyValue}
       objectType="changelog"
-      typeColor={CATEGORY_COLORS.other} // 图标用中性色，与"提交"徽章一致；类别色只体现在 category badge 上
+      typeColor={CATEGORY_COLORS.other}
       typeLabel={typeLabel}
       source={{}}
       locale={locale}
@@ -497,7 +473,6 @@ function CommitIdentitySection({
       showDefaultDates={false}
       showTypeBadge={false}
       showActivityCount={false}
-      // Human 2026-09-09：落款不显示「提交」label——时间/署名本身已自明。
       titleMetaEntries={[{ label: '', value: timeValue }]}
       titleMetaAlign="footerEnd"
       copyLabel={labels.copyHash}
@@ -621,7 +596,7 @@ export function CommitDetailContent({
         );
       })}
 
-      {/* {entry?.signature && <CommitSignatureSection signature={entry.signature} labels={labels} />} */}
+      { }
 
       <CommitReadingNodeSection
         title={labels.changedFiles}

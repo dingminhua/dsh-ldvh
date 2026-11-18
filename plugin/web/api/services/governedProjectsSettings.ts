@@ -9,11 +9,8 @@ import { verifyWebGovernanceConfiguration } from './governanceScope.js'
 export type GovernedProjectSetting = { id: string; path: string; name?: string; color?: string }
 type Configuration = { governance_instance_name: string; product_description: string; projects: Array<Record<string, unknown>>; default_project_id?: string }
 
-// schema_version 是 v5 登记载体（~/.dsh/ldvh/governed-projects.yaml）的根字段，容忍之。
 const ROOT_FIELDS = new Set(['governance_instance_name', 'product_description', 'projects', 'default_project_id', 'schema_version'])
 
-/** v5 登记模式：LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体（与 governanceScope.configurationPath 同源）；
- * 未设置时保持 v4 布局（LDVH_WORKSPACE_ROOT/LDVH-GOVERNED-PROJECTS.yaml）。 */
 function configPath(): string {
   return process.env.LDVH_GOVERNED_PROJECTS_CONFIG
     ? path.resolve(process.env.LDVH_GOVERNED_PROJECTS_CONFIG)
@@ -86,11 +83,6 @@ function normalizeDefaultProjectId(input: unknown, projects: GovernedProjectSett
   return value
 }
 
-/** Web 呈现偏好（项目颜色）独立载体——与管辖配置分离：
- * 颜色是呈现偏好不是管辖事实，且管辖配置 Schema 由 Helper 校验（v4 不认识 color 字段）。
- * 键为项目 ID，值必须为色板键名（shared/projectColors 闭集）。 */
-/** 颜色偏好载体：挂载模式经 LDVH_WEB_PREFERENCES 指向 dshHome 下（与登记载体同目录，
- * 由插件设置卡读写）；未设置时保持 v4 布局（开发模式行为不变）。 */
 function preferencesPath(): string {
   return process.env.LDVH_WEB_PREFERENCES
     ? path.resolve(process.env.LDVH_WEB_PREFERENCES)
@@ -170,7 +162,6 @@ export async function updateGovernedProjectsSettings(input: unknown, expectedFin
     }
     if (project.name?.trim()) next.name = project.name.trim()
     else delete next.name
-    // color 不进管辖配置（Helper Schema 不认识该字段）——由 writeProjectColors 落偏好文件。
     delete next.color
     return next
   })
@@ -187,7 +178,6 @@ export async function updateGovernedProjectsSettings(input: unknown, expectedFin
     await rename(temporaryPath, filePath)
     throw error
   }
-  // 颜色落偏好文件（不进管辖配置——Helper Schema 不认识该字段）；管辖写入成功后才应用。
   const previousColors = await readProjectColors()
   for (const project of projects) {
     if (project.color) previousColors.set(project.id, project.color)
@@ -198,8 +188,6 @@ export async function updateGovernedProjectsSettings(input: unknown, expectedFin
   return readGovernedProjectsSettings()
 }
 
-/** 仅更新单项目颜色（偏好载体）——供 Web/插件设置卡的调色板交互；
- * 不触碰管辖登记 YAML（那是插件安装事务的地盘）。 */
 export async function updateProjectColor(projectId: string, color?: string): Promise<{ projects: GovernedProjectSetting[] }> {
   if (color !== undefined && !isProjectColorKey(color)) {
     throw new Error(`颜色必须是预制色板键名（shared/projectColors 的闭集成员）`)

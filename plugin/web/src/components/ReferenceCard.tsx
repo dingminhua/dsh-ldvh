@@ -12,7 +12,6 @@ import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 
-/** 从引用 ID 解析对象类型（如 pitfall-0001 → pitfall） */
 function parseRefType(refId: string): string | null {
   if (!isObjectRef(refId)) return null;
   const m = refId.match(/^([a-z]+)-\d+$/);
@@ -87,8 +86,6 @@ function ReferenceItem({
 
   const handleClick = () => {
     if (!refType) return;
-    // Emit custom event for reading panel; if preventDefault is called (desktop),
-    // open the panel instead of navigating
     const event = new CustomEvent('ldvh:ref-preview', {
       detail: { refType, refId, title: info?.title || refId },
       bubbles: true,
