@@ -121,10 +121,10 @@ LDVH CLI 是 LDVH 确定性服务的规范形态与契约的唯一实现形态�
 
 | operation_key | summary | effect | arguments_contract | result_contract |
 |---|---|---|---|---|
-| `resolve-governance-scope` | 解析当前会话工作目录的管辖状态（governed/not_governed/unavailable） | `read` | `05-LDVH CLI 确定性服务规范::6. 公开操作声明与能力发现/6.2 能力发现` | `05-LDVH CLI 确定性服务规范::8. 最小共同响应语义` |
-| `read-specification-candidates` | 按职责标识符或全量读取 L0–L2 层的规范与授权附件候选 | `read` | `05-LDVH CLI 确定性服务规范::9. 读取、预热与事实操作协作/9.1 规范读取` | `05-LDVH CLI 确定性服务规范::8. 最小共同响应语义` |
-| `read-specification-content` | 读取单份规范或附件的 L3（精确标题路径）或 L4（全文），并交还指纹与范围 | `read` | `05-LDVH CLI 确定性服务规范::9. 读取、预热与事实操作协作/9.1 规范读取` | `05-LDVH CLI 确定性服务规范::8. 最小共同响应语义` |
-| `discover-ldvh-capabilities` | 枚举 LDVH 公开操作及其声明、实现与当次可调用状态 | `read` | `05-LDVH CLI 确定性服务规范::6. 公开操作声明与能力发现/6.2 能力发现` | `05-LDVH CLI 确定性服务规范::8. 最小共同响应语义` |
+| `resolve-governance-scope` | 解析当前会话工作目录的管辖状态（governed/not_governed/unavailable） | `read` | `helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现` | `helper-service-contract::8. 最小共同响应语义` |
+| `read-specification-candidates` | 按职责标识符或全量读取 L0–L2 层的规范与授权附件候选 | `read` | `helper-service-contract::9. 读取、预热与事实操作协作/9.1 规范读取` | `helper-service-contract::8. 最小共同响应语义` |
+| `read-specification-content` | 读取单份规范或附件的 L3（精确标题路径）或 L4（全文），并交还指纹与范围 | `read` | `helper-service-contract::9. 读取、预热与事实操作协作/9.1 规范读取` | `helper-service-contract::8. 最小共同响应语义` |
+| `discover-ldvh-capabilities` | 枚举 LDVH 公开操作及其声明、实现与当次可调用状态 | `read` | `helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现` | `helper-service-contract::8. 最小共同响应语义` |
 
 上述四项的输入与结果章节即为本规范 §6.2、§8、§9.1；本节不复制其字段与语义。`resolve-governance-scope` 的判定语义归管辖范围规范，本条只声明其公开服务身份。
 
