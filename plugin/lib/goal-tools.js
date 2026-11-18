@@ -219,12 +219,12 @@ export function makeExecute(deps) {
       });
     }
     return envelope("goal-write-object", "completed", {
-      result: { action: "update", file: updated.value.file, fingerprint: updated.value.fingerprint, revised_anchors: updated.value.revised_anchors },
+      result: { action: "update", file: updated.value.file, fingerprint: updated.value.fingerprint },
       scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
       sources: [{ kind: "fact-object", path: updated.value.file, content_fingerprint: updated.value.fingerprint }],
       gaps: [],
       verification: { checks: ["cas-baseline", "anchor-stability", "frontmatter-closed-set", "body-structure", "atomic-write", "read-back"], passed: true },
-      follow_up: ["run the goal revision cascade over revised_anchors (21 §C2 semantics); Goal stores no downstream state"]
+      follow_up: ["Goal 陈述已修订：按 parent_goal → serves 两层反查，逐个核对下游子目标的 alignment 与作用范围是否仍相容（20 §13 / 30 §8.5）；每跳是标记非动作，Goal 侧不存储下游状态"]
     });
   }
 

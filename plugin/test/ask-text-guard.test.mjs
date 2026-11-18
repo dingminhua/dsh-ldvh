@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   validateAskText,
   askTextDenial,
-  ASK_TEXT_MAX_CHARS,
 } from "../lib/ask-text-guard.js";
 import { createHostSeams } from "../lib/host-seams.js";
 
@@ -24,12 +23,12 @@ function validQuestion(overrides = {}) {
 
 
 test("纯校验器：恰好 200 字符通过（边界包含）", () => {
-  const q = "字".repeat(ASK_TEXT_MAX_CHARS);
+  const q = "字".repeat(200);
   assert.equal(validateAskText(validQuestion({ question: q })).ok, true);
 });
 
 test("纯校验器：201 字符被拒，且不截断不改写", () => {
-  const q = "字".repeat(ASK_TEXT_MAX_CHARS + 1);
+  const q = "字".repeat(201);
   const r = validateAskText(validQuestion({ question: q }));
   assert.equal(r.ok, false);
   assert.match(r.reason, /201/);

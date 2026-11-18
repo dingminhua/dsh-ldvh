@@ -7,7 +7,7 @@ import { REVIEW_ASK_ANSWERS,
   recordReviewAskDecision,
   reviewAskFingerprint,
 } from "./review-ask.js";
-import { askTextDenial, validateAskText } from "./ask-text-guard.js";
+import { askTextDenial, validateAskText, ASK_TEXT_MAX_CHARS as ASK_QUESTION_MAX_CHARS } from "./ask-text-guard.js";
 
 const REVIEW_ASK_QUESTION_ID = "ldvh-review-ask";
 const REVIEW_ASK_REVIEW_LABEL = "安排代理";
@@ -31,7 +31,7 @@ function customTextOf(entry) {
   return text.length > 0 ? text : null;
 }
 
-export const ASK_QUESTION_MAX_CHARS = 200;
+export { ASK_QUESTION_MAX_CHARS };
 
 function clampHead(text, budget) {
   if (text.length <= budget) return text;

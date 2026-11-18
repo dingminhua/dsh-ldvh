@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createHostSeams, ASK_QUESTION_MAX_CHARS } from "../lib/host-seams.js";
+import { createHostSeams } from "../lib/host-seams.js";
 
 function installWith(ask) {
   const seams = createHostSeams();
@@ -107,7 +107,7 @@ test("spark consent: the dialog carries one bounded title line and NO detail blo
   assert.equal(q.id, "ldvh-spark-consent", "the question id is shared with the parser");
   assert.equal(q.detail, undefined, "卡片上不得再有 detail 块（Human 2026-11-13）");
   assert.ok(
-    q.question.length <= ASK_QUESTION_MAX_CHARS,
+    q.question.length <= 200,
     `question must stay within the bound, got ${q.question.length}: ${q.question}`
   );
   assert.ok(q.question.includes("示例对象"), "the object title must be shown");
@@ -126,13 +126,13 @@ test("spark consent: an OVERSIZED report still yields a bounded, detail-free dia
     return { answers: [{ id: "ldvh-spark-consent", selected: ["确认"] }] };
   });
   const oversized = `${REPORT}\n`.repeat(80);
-  assert.ok(oversized.length > ASK_QUESTION_MAX_CHARS, "fixture must actually exceed the bound");
+  assert.ok(oversized.length > 200, "fixture must actually exceed the bound");
   const out = await seams.requestSparkConsent({ ...CALL, summary: oversized });
 
   assert.equal(out.granted, true, "an oversized report must not break the gate itself");
   const q = seen.questions[0];
   assert.ok(
-    q.question.length <= ASK_QUESTION_MAX_CHARS,
+    q.question.length <= 200,
     `question must stay within the bound, got ${q.question.length}`
   );
   assert.equal(q.detail, undefined, "no detail block may carry it instead");
@@ -145,11 +145,11 @@ test("spark consent: an over-long object TITLE is clamped, and nothing else grow
     seen = request;
     return { answers: [{ id: "ldvh-spark-consent", selected: ["确认"] }] };
   });
-  const title = "标".repeat(ASK_QUESTION_MAX_CHARS * 2);
+  const title = "标".repeat(400);
   const out = await seams.requestSparkConsent({ ...CALL, objectTitle: title, summary: REPORT });
   assert.equal(out.granted, true, JSON.stringify(out));
   const q = seen.questions[0];
-  assert.ok(q.question.length <= ASK_QUESTION_MAX_CHARS, `got ${q.question.length}`);
+  assert.ok(q.question.length <= 200, `got ${q.question.length}`);
   assert.ok(q.question.endsWith("…"), "an over-long title is cut, not passed through");
   assert.equal(q.detail, undefined);
   install.dispose();
@@ -182,7 +182,7 @@ test("spark consent: the bound is measured in UTF-16 units, so surrogate pairs c
   assert.equal(out.granted, true, JSON.stringify(out));
   const q = seen.questions[0];
   assert.ok(
-    q.question.length <= ASK_QUESTION_MAX_CHARS,
+    q.question.length <= 200,
     `the bound must hold in .length units, got ${q.question.length}`
   );
   assert.doesNotMatch(q.question, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, "no lone high surrogate may survive the cut");
