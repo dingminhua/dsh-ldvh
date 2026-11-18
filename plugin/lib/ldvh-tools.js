@@ -1,17 +1,3 @@
-// LDVH first DSH-native tool batch (P0).
-//
-// Authorities: specs/05 (operation declaration shape, common request/response
-// semantics, availability discovery), specs/01 §10.3–10.4 (specification
-// reading entry points and minimal guidance anchors), specs/06 §6.2
-// (precheck-git-commit), specs/07 (governance three-state). Every tool
-// embeds its 05 §6.1 operation declaration for discover-ldvh-capabilities;
-// every response follows the 05 §8 common envelope (operation_key, result,
-// scope, sources, gaps, verification, follow_up) with a distinguishable
-// outcome (partial/unavailable/rejected/invalid_request vs execution error).
-//
-// Tool names carry an ldvh_ prefix to live in the DSH tool namespace;
-// operation_keys stay prefix-free (05 semantic identity — the DSH tool name
-// and the operation_key are deliberately different names, 05 §5.2 item 1).
 
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -26,8 +12,7 @@ import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evid
 import { currentRouteValues } from "./session-signature.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
 import { isFrictionPromotionRunning } from "./friction-promotion-lock.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute, checkAgentsPointers, extractAgentsSpecPaths } from "./commit-validation.js";
-// friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
 import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { REVIEW_ASK_OPERATION, reviewAskParameterSchema, executeReviewAsk } from "./review-ask-tool.js";
@@ -38,9 +23,6 @@ import { registerFrictionTools } from "./friction-tools.js";
 import { registerNormTools } from "./norm-tools.js";
 import { registerGoalTools } from "./goal-tools.js";
 import { registerSubGoalTools } from "./subgoal-tools.js";
-// DevLog（29 号）已于 2026-11-14 撤除（Human 根决定，见 01 §8 号位表 29 空位）。
-// 工具注册随之移除：ldvh_devlog_read / list / precheck_create / write 不再提供，
-// 运行时不得再创建或读取已撤销的事实类型。类型载体清除属后续批次。
 
 const execFileAsync = promisify(execFile);
 
@@ -87,32 +69,11 @@ const OPERATIONS = {
     effect: "may_change_state",
     awaitsHumanDecision: true
   },
-  // 11 §12ter 的两条公开操作。summary 与 effect 逐字对齐 specs/11 §12ter 声明表；
-  // `awaitsHumanDecision` **刻意不设**：审核段是机械通道（11 §10.2 机械通道边界
-  // ——仅 §10.1 第 2 项与 §10.2 第 3 项，无须事前 Human 确认并保留事后否决权，
-  // 23 §13）。**废止**才是 23 §16 的 Human Gate（2026-11-03 起 Pitfall 取消 `draft`
-  // 待确认态，创建即 `active`，不再有「入档」这一刻），本模块不做也不声明这件事
-  // ——把它标成 awaitsHumanDecision 会让宿主对一条**不提问**的
-  // 工具撤掉超时上限（toolDescriptor 的 timeoutMs 逻辑），反而制造挂死窗口。
-  // **2026-11-16**：两个留观缓冲工具已随 §12bis 删除。
-  // ── 宿主能力探针（2026-10-26）─────────────────────────────────────────
-  //
-  // **为什么它是一个工具而不是一个诊断路由**：探针要调宿主的 `schedule` 与
-  // `sessionController` 服务，而这两个只有宿主 `ctx` 能取到。诊断 Web API 是
-  // **独立模块**（web/api/app.ts 自成一体，拿不到 ctx）。工具 handler 由
-  // `registerLdvhTools(agent.ctx, …)` 注册，那里正是有 ctx 的地方。
-  //
-  // **它不再承载周期调度**：11 §6.1 已于 2026-11-17 改为「主控发起」——摩擦发现
-  // 改由主控经 child-only 工具直接派发代理，LDVH **不依赖**宿主周期任务或静置
-  // 检查点。本探针因此只剩一个用途：诊断宿主自身的自动化能力（`schedule` /
-  // `sessionController`）是否可用。能力仍在时保留它，成本低且 `write` 缺省为假。
   "probe-host-automation": {
     toolName: "ldvh_probe_host_automation",
-    summary: "Probe whether the host automation capabilities (schedule / sessionController) are available: schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. LDVH no longer depends on periodic tasks for friction discovery (11 §6.1: controller-initiated proxy assistance), so this probe is diagnostic only. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
+    summary: "Probe whether the host automation capabilities (schedule / sessionController) are available: schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. LDVH no longer depends on periodic tasks for friction discovery (36 §7.6: controller-initiated proxy assistance), so this probe is diagnostic only. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
     effect: "may_change_state"
   }
-  // 2026-11-17：`pending-queue-resolve` 已随待处置队列删除（Human 决定，11 §12）。
-  // 失败留痕由当次回执 + 运行痕迹承载，不再有需要「结案」的跨会话登记账。
 };
 
 function envelope(operationKey, outcome, fields) {
@@ -127,13 +88,6 @@ function sources(entry) {
   return [entry];
 }
 
-/**
- * Defense 1 of specs/01 §9.1: a carrier whose name carries a draft, temp or
- * backup marker never becomes a candidate, even when the rest of the name
- * matches the canonical pattern. The excluded markers are matched on the
- * whole name so `20-X.draft.md` (marker before the extension) and
- * `20-X.md.draft` (marker after it) are both rejected.
- */
 const EXCLUDED_NAME_MARKER = /\.(draft|tmp|temp|bak|backup|orig|swp|swo)$|~$|\.draft\.|\.tmp\.|\.temp\.|\.bak\.|\.orig\./;
 
 function isExcludedCarrierName(name) {
@@ -141,14 +95,6 @@ function isExcludedCarrierName(name) {
   return EXCLUDED_NAME_MARKER.test(name) || EXCLUDED_NAME_MARKER.test(withoutExtension);
 }
 
-/**
- * Defense 2 of specs/01 §9.1. Git paths compare as exact UTF-8 byte sequences
- * (no case folding, no Unicode normalization); but two distinct paths that
- * collide *after* NFC normalization or case folding are a cross-platform
- * ambiguity and must reject every affected candidate. The same applies when
- * two candidates claim one spec_id, responsibility_key or canonical_path.
- * Returns one entry per collision group; an empty array means no collision.
- */
 function detectCandidateCollisions(members) {
   const collisions = new Map();
   const addTo = (key, kind, member) => {
@@ -161,26 +107,12 @@ function detectCandidateCollisions(members) {
     addTo(`spec_id\u0000${identity?.specId ?? ""}`, "duplicate_spec_id", member);
     addTo(`key\u0000${identity?.responsibilityKey ?? ""}`, "duplicate_responsibility_key", member);
     addTo(`path\u0000${identity?.canonicalPath ?? ""}`, "duplicate_canonical_path", member);
-    // Approximate-path ambiguity: normalize then case-fold the repo path.
     const folded = repoPath.normalize("NFC").toLowerCase();
     addTo(`folded\u0000${folded}`, "approximate_path_collision", member);
   }
   return [...collisions.values()].filter((group) => group.paths.length > 1);
 }
 
-/**
- * specs/01 §10.3 规范语料三级回退：一次受辖读取按以下顺序探测语料目录，
- * 首个实际存在者即该次读取的唯一来源视图，同一次结果不跨级混读：
- *
- *   1. governed-project — 受辖项目根 specs/（项目自著语料；自举仓库与项目级扩展）
- *   2. dev-checkout — 插件包父目录的 specs/（link／开发安装指向源仓库目录；以根
- *      规范载体 00-理念与构成.md 的实际存在作辨认，防止同名目录误命中）
- *   3. plugin-bundle — 插件包内 specs/（发布打包时自源仓库复制的语料副本）
- *
- * dev-checkout 排在 plugin-bundle 之前：prepack 生成、postpack 清理之间可能残留的
- * 包内副本不得遮蔽源仓库目录（scripts/specs-bundle.mjs 的清理是尽力而为而非保证）。
- * 解析失败时如实报告全部探测位置——「读不到语料」的失败必须可定位。
- */
 const SPEC_ROOT_CARRIER = "00-理念与构成.md";
 
 async function isExistingDirectory(path) {
@@ -192,7 +124,6 @@ async function isExistingDirectory(path) {
   }
 }
 
-/** Any-type existence (the root carrier probe stats a FILE, not a directory). */
 async function pathExists(path) {
   try {
     await stat(path);
@@ -202,7 +133,6 @@ async function pathExists(path) {
   }
 }
 
-/** Resolve the corpus source for one governed read (01 §10.3 三级回退). */
 async function resolveSpecSourceRoot(projectRoot, workspaceRoot) {
   const probed = [];
   if (typeof projectRoot === "string" && projectRoot.length > 0) {
@@ -215,14 +145,9 @@ async function resolveSpecSourceRoot(projectRoot, workspaceRoot) {
     try {
       packageRoot = await realpath(workspaceRoot);
     } catch {
-      // keep the given spelling — an unresolvable package root simply misses below
     }
     const devSpecs = join(dirname(packageRoot), "specs");
     probed.push(`dev-checkout ${devSpecs}`);
-    // The dev checkout is identified by the canonical root carrier, not by the
-    // bare directory name: a sibling dependency literally named "specs" must
-    // not shadow the packaged corpus. The root carrier's fixed name is already
-    // part of the mechanical contract (spec-registry.js root profile check).
     if (await pathExists(join(devSpecs, SPEC_ROOT_CARRIER))) {
       return { ok: true, kind: "dev-checkout", specsDir: devSpecs };
     }
@@ -233,13 +158,6 @@ async function resolveSpecSourceRoot(projectRoot, workspaceRoot) {
   return { ok: false, reason: `specs/ directory not found in the governed project or the plugin corpus (probed: ${probed.join("; ")})` };
 }
 
-/**
- * Scan the corpus source resolved by the 01 §10.3 fallback for candidate
- * carriers. repoPaths stay `specs/…`-shaped (canonical paths are
- * corpus-relative), so the tree they resolve against is the PARENT of the
- * resolved specs/ directory for every source kind — that parent is reported
- * as snapshot.worktree_root and in the envelope sources[].
- */
 async function scanSpecCandidates(projectRoot, workspaceRoot) {
   const source = await resolveSpecSourceRoot(projectRoot, workspaceRoot);
   if (!source.ok) return { ok: false, reason: source.reason };
@@ -251,8 +169,6 @@ async function scanSpecCandidates(projectRoot, workspaceRoot) {
   } catch (error) {
     return { ok: false, reason: String(error?.message ?? error) };
   }
-  // Defense 1 (specs/01 §9.1): excluded carriers are reported as diagnostics
-  // with a precise reason rather than silently dropped.
   const excluded = [];
   const files = [];
   for (const entry of entries) {
@@ -279,7 +195,6 @@ async function scanSpecCandidates(projectRoot, workspaceRoot) {
       files.push(repoPath);
     }
   } catch {
-    /* no attachments directory — not an error */
   }
   const members = [];
   const gaps = [];
@@ -298,15 +213,9 @@ async function scanSpecCandidates(projectRoot, workspaceRoot) {
     }
     members.push({ identity: parsed.value.identity, markdownText: text, repoPath });
   }
-  // Defense 2 (specs/01 §9.1): when several candidates share a spec_id,
-  // responsibility_key or canonical_path — or collide once NFC-normalized or
-  // case-folded — every affected candidate is withheld from member reads
-  // until the collision is resolved. No candidate is chosen as the winner.
   const collisions = detectCandidateCollisions(members);
   const withheld = new Set(collisions.flatMap((collision) => collision.paths));
   const admissible = members.filter((member) => !withheld.has(member.repoPath));
-  // Defense 3 (specs/01 §9.1): one scan yields one snapshot; the member set,
-  // the diagnostics and the fingerprint all describe that same snapshot.
   const snapshot = {
     worktree_root: corpusRoot,
     candidate_count: members.length,
@@ -330,28 +239,11 @@ async function scanSpecCandidates(projectRoot, workspaceRoot) {
 function makeExecute(deps) {
   const { dshHomePath, workspaceRoot } = deps;
 
-  /**
-   * 07 §5.6 Human Gate: obtain explicit intent before a registration write.
-   *
-   * Routed through `ctx.userQuestions.ask` (08 §6). When the composition has no
-   * seam registry or no answerer, consent CANNOT be obtained — and 07 §5.6's
-   * "仅由 Human 明确意图触发" means the operation must fail closed rather than
-   * proceed on the caller's say-so.
-   */
   async function requestConsent(depsRef, { action, projectId, projectPath, agent, signal }) {
     const gate = depsRef?.hostSeams;
     if (gate === undefined || typeof gate.requestRegistrationConsent !== "function") {
       return { granted: false, reason: "no host seam registry is wired, so 07 §5.6 consent cannot be obtained" };
     }
-    // `agent` is required by the host forwarder (see installUserQuestions): the
-    // browser answerer is reached through `api-remotes`, which drops a request
-    // carrying no agent (dsh-api-remotes/lib/index.js:115-119).
-    //
-    // `signal` is likewise required, for a different reason: the operations
-    // carrying this ask declare NO wall-clock deadline (see
-    // `awaitsHumanDecision` in OPERATIONS). Without the caller's signal an
-    // abandoned session leaves the prompt pending forever; with it the ask
-    // aborts (ASK_ABORTED) and the operation fails closed.
     return gate.requestRegistrationConsent({ action, projectId, projectPath, agent, signal });
   }
 
@@ -408,8 +300,6 @@ function makeExecute(deps) {
       const outline = layer === "L2" ? extractHeadings(member.markdownText).map((h) => ({ level: h.level, text: h.text, line: h.line })) : undefined;
       return projectLayer(member.identity, layer, outline);
     });
-    // Defenses 1 and 2 of specs/01 §9.1 surface in `gaps` so an excluded or
-    // withheld carrier is visible as a diagnostic instead of vanishing.
     const scanGaps = [
       ...scan.gaps,
       ...scan.excluded.map((entry) => ({ responsibility_key: null, canonical_path: entry.canonical_path, reason: entry.reason })),
@@ -419,18 +309,8 @@ function makeExecute(deps) {
         reason: `${collision.kind}: ${collision.paths.length} candidates collide — all withheld from member reads until resolved`
       }))
     ];
-    // specs/01 §9.2 items 8/9/11/12: the mechanically checkable sub-parts are
-    // concluded only when the caller asks for them (`evidence: true`), because
-    // item 11 shells out to git per carrier. The semantic remainder is always
-    // reported alongside, so an item table can never be read as a membership
-    // verdict.
     let evidence = null;
     if (args?.evidence === true) {
-      // specs/01 §10.3: a corpus answered by a fallback source is not authored
-      // by this governed project — the §9.2 mechanical sub-items are reported
-      // as NOT APPLICABLE instead of manufacturing per-project git noise
-      // ("no commit touches this carrier" would read like a corpus defect).
-      // The corpus's own membership conditions belong to its source repository.
       evidence = scan.source.kind === "governed-project"
         ? await bindMembershipEvidence(governed.project.path, selected, {
           bindings: typeof args?.evidence_bindings === "object" && args.evidence_bindings !== null ? args.evidence_bindings : {},
@@ -481,9 +361,6 @@ function makeExecute(deps) {
     }
     const member = scan.members.find((m) => m.identity.responsibilityKey === key);
     if (member === undefined) {
-      // specs/01 §9.1: a withheld (colliding) or name-excluded carrier must be
-      // reported as a non-member candidate with its precise reason, never
-      // silently reported as absent and never served as current rules.
       const keyCollision = scan.collisions.find((group) => group.kind === "duplicate_responsibility_key" && group.key === `key\u0000${key}`);
       const nameExcluded = scan.excluded.filter((entry) => entry.canonical_path.includes(key));
       const reason = keyCollision !== undefined
@@ -505,7 +382,6 @@ function makeExecute(deps) {
     }
     const fingerprint = contentFingerprint(member.markdownText);
     if (headingPath === null) {
-      // L4: full source.
       return envelope("read-specification-content", "completed", {
         result: { layer: "L4", responsibility_key: key, canonical_path: member.repoPath, content_fingerprint: fingerprint, content: member.markdownText },
         scope: { requested: key, completed: [key], not_completed: [] },
@@ -547,18 +423,6 @@ function makeExecute(deps) {
     });
   }
 
-  /**
-   * 报告 `plugin/lib` 下哪些模块比本宿主进程新（源于一次实测的模块陈旧度问题）。
-   *
-   * **结论是 informational，不参与任何判定**：它不改写预检 `verdict`、不拒绝任何
-   * 写入、也不回答「载入的是哪一版代码」。判据只有一条确定性事实——文件 mtime 晚于
-   * 进程启动时刻，则该文件在进程内的那份代码必然不是磁盘上的现行版本；反向不成立
-   * （mtime 未变检不出），故 `stale` 为空**不等于**进程与磁盘一致。
-   *
-   * 与 precheck 的关系：`ldvh-tools.js` 与 `commit-validation.js` 陈旧时预检会把
-   * `failed` 降级为 `unverifiable`（那是判定语义，另一条路径）。本工具是**全量
-   * 可见性**入口，覆盖面从 2 个文件扩到整个目录，但不改变预检的任何行为。
-   */
   async function executeInspectLoadedModules(_args, _exec) {
     const report = detectStaleLibraryModules();
     return envelope("inspect-loaded-modules", "completed", {
@@ -577,14 +441,10 @@ function makeExecute(deps) {
       gaps: [],
       verification: {
         checks: ["mtime-vs-process-start"],
-        // 本工具不「通过/不通过」任何东西：它只报告。把 stale 非空写成 passed:false
-        // 会让调用方把它读成一个门禁结论——那正是 scope 第三条所禁止的。
         passed: true,
       },
       follow_up: report.stale.length === 0 ? [] : ["restart-host-to-load-disk-version"],
       informational: {
-        // 显式标注：结论不具判定效力（scope 第三条）。字段名自带语义，
-        // 避免下游把 stale 列表当成拒绝理由。
         effect: "informational-only",
         caveat:
           "An empty stale list does NOT prove the process matches disk: the mtime rule cannot see edits that preserved mtime. "
@@ -596,39 +456,15 @@ function makeExecute(deps) {
   async function executeDiscoverCapabilities(args, exec) {
     const requestedOperation = typeof args?.operation_key === "string" && args.operation_key.length > 0 ? args.operation_key : null;
     const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
-    // 05 §6.1「发现的机械义务」: the discovery entry MUST actually parse the
-    // source declaration and fill the classification from the parse result —
-    // "不得以常量或假设值代替解析结果". So `declared` and `implemented` below
-    // come from real parsing of the declaring spec carrier, not from a
-    // hardcoded `true`. An unparsable/missing declaration yields a precise
-    // reason and the operation is reported as a diagnostic, never as declared.
     const declarations = await parseOperationDeclarations(governed.state === "governed" ? governed.project.path : null, workspaceRoot);
     const declarationReporter = [];
     const entries = Object.entries(OPERATIONS)
-      // **探针不进 discovery**（2026-10-26）：它不在任何规范声明表里（原 §12ter 声明
-      // 的两个缓冲操作已随 review 层删除），是**实现侧诊断工具**。若让它出现在这里，它会被显示为「已声明=false」——而读者会据以认为
-      // 「这是一条规范要求但实现没声明」的缺口，那是假缺口。05 §6.2 明写「操作目录
-      // 不等于许可白名单」，反向亦然：不在目录里不等于它不存在。
-      // **实现侧诊断工具不进 discovery**：`probe-host-automation`（上面已述）与
-      // `inspect-loaded-modules`（源于一次实测的模块陈旧度问题）同属此类——两者都不在任何规范
-      // 声明表里。若让它们出现在枚举中，会被显示为「已声明=false」，读者会据以认为
-      // 存在「规范要求但实现没声明」的缺口，那是假缺口。05 §6.2 明写「操作目录不等于
-      // 许可白名单」，反向亦然：不在目录里不等于它不存在。二者仍注册为 DSH 工具、
-      // 仍可调用，只是不参与按规范声明做的可用性判定。
       .filter(([key]) => key !== "probe-host-automation" && key !== "inspect-loaded-modules")
       .filter(([key]) => requestedOperation === null || key === requestedOperation)
       .map(([key, operation]) => {
         const declaration = declarations.get(key) ?? null;
         const declared = declaration !== null;
-        // An implementation is locatable when the registered DSH tool has a
-        // handler in this batch (the operation table is built from handlers).
         const implemented = typeof handlers[key] === "function";
-        // discover itself is only registered for governed sessions (index.js
-        // gate), so `governed.state` is "governed" whenever this runs. A
-        // `|| key === "resolve-governance-scope"` branch used to sit here but
-        // was unreachable dead code: under the not_governed-default model
-        // (unavailable is a not_governed special case), NO operation is
-        // callable outside governed sessions — including the scope resolver.
         const callableHere = governed.state === "governed";
         const anchorsOk = declared && declaration.anchor_errors.length === 0;
         if (!declared) {
@@ -644,11 +480,6 @@ function makeExecute(deps) {
             detail: "05 §6.1: a contract that cannot be resolved mechanically equals an undeclared operation"
           });
         }
-        // 05 §5 结果分类闭集: 已声明 / 已实现 / 当次可调用 / 不可用.
-        // The classification must FOLLOW the parse result, never fall back to a
-        // positive label when parsing failed: an unresolved declaration is
-        // reported as `不可用` with the precise reason in `declaration_errors`,
-        // NOT as `已声明` (which would assert a declaration that was not found).
         const availability = !anchorsOk
           ? "不可用"
           : (implemented ? (callableHere ? "当次可调用" : "不可用") : "已声明");
@@ -680,9 +511,6 @@ function makeExecute(deps) {
       result: { operations: entries, ...(declarationReporter.length > 0 ? { undeclared_or_unresolvable: declarationReporter } : {}) },
       scope: { requested: requestedOperation ?? "all", completed: entries.map((e) => e.operation_key), not_completed: [] },
       sources: sources({ kind: "tool-batch", module: "plugin/lib/ldvh-tools.js" }),
-      // 05 §6.1: an operation whose declaration could not be parsed is reported
-      // HERE as a diagnostic with a precise reason — never silently classified
-      // as declared and never dropped.
       gaps: [
         ...(governed.state === "unavailable" ? [`governance registration unavailable: ${governed.detail}`] : []),
         ...declarationReporter.map((entry) => `${entry.operation_key}: ${entry.reason}`)
@@ -720,7 +548,6 @@ function makeExecute(deps) {
         follow_up: []
       });
     }
-    // Staged diff over the governed project root.
     let diff;
     try {
       const result = await execFileAsync("git", ["-C", governed.project.path, "diff", "--cached", "--binary", "--no-ext-diff"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
@@ -739,100 +566,37 @@ function makeExecute(deps) {
     if (diff.length === 0) issues.push(newFinding("git/index_empty", "candidate Index is empty"));
     const correspondence = checkKeyChangesAgainstDiff(message, diff);
     if (!correspondence.ok) issues.push(...correspondence.issues);
-    // 09 §5.3 item 5 (Human 2026-10-12): docs/ is temporary-only, so a carrier
-    // this candidate adds or modifies must not introduce a NEW reference to a
-    // docs/ path that would not exist. Mirrors the Git Gate exactly (09 §5.5:
-    // one validator, no second rule set) — both entries share these helpers.
     const docsRefs = await checkDocsReferencesForIndex(governed.project.path, correspondence.changedPaths ?? []);
     if (!docsRefs.ok) issues.push(...docsRefs.issues);
-    // 01 §7 末段 + 09 §5.3 item 6 (Human 2026-10-15): a load-bearing
-    // declaration must not be removed — nor stripped of its 恢复条件 element —
-    // without the commit carrying a resolvable independent-review reference.
-    // Mirrors the Git Gate through the SAME validator (09 §5.5).
     const declarations = await checkLoadBearingDeclarationsForIndex(governed.project.path, correspondence.changedPaths ?? [], message);
-    // 09 §5.3 第 7 项（Human 决定 2026-10-15）：以「§7.2 违规」为由删除规范内容时，消息
-    // 须携带逐字引用 §7.2 原文的声明，且该引用须在当次 §7.2 文本中逐字存在。只在自愿
-    // 申报时生效（不申报即不检查）——强度边界见 commit-validation.js 的说明。
     if (collectRemovalBasisDeclarations(message).length > 0) {
       const sections = await readSection72BothFromIndex(governed.project.path);
       const basis = checkRemovalBasisDeclarations({ message, sectionTexts: sections });
       if (!basis.ok) issues.push(...basis.issues);
     }
     if (!declarations.ok) issues.push(...declarations.issues);
-    // 26 §11 同一规则的第二入口：摩擦 `informs` 的 commit 形态目标必须真实可
-    // 解析。Git Gate 与预检共用 checkFrictionCommitTargets 这一个校验器（09 §5.5：
-    // 同一 validator，不建第二套规则）。此处针对**暂存区内容**校验——一个尚未
-    // 落盘的正确版本不得替暂存的错误版本通过。
     const frictionCommits = await checkFrictionCommitTargetsForIndex(governed.project.path);
     if (!frictionCommits.ok) issues.push(...frictionCommits.issues);
-    // 02 §7.1 / §5 第 6 项：事实载体的身份一致性。Git Gate 与预检共用
-    // checkFactCarrierIdentity 这一个校验器（09 §5.5：同一 validator，不建第二套
-    // 规则），此处只换 Git 读法——读暂存区内容，不读工作树。
     const factIdentity = await checkFactCarrierIdentityForIndex(governed.project.path);
     if (!factIdentity.ok) issues.push(...factIdentity.issues);
-    // 09 §5.3 item 8 (Human 2026-10-23): 根 AGENTS.md 指针有效性，仅当候选
-    // Index 触及该文件时检查（触发面与 Git Gate 一致）。同一 validator，规则
-    // 由 checkAgentsPointers 单点承载；未绑定锚点是 unverifiable，解析失败是 failed。
-    if ((correspondence.changedPaths ?? []).includes("AGENTS.md")) {
-      const agentsCheck = await checkAgentsPointersForIndex(governed.project.path);
-      if (!agentsCheck.ok) issues.push(...agentsCheck.issues);
-    }
-    // Signature values must trace back to the authoritative session record.
     const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
     const signatureCheck = checkSignatureAgainstRoute(message, route);
     if (!signatureCheck.ok) issues.push(...signatureCheck.issues);
-    // 06 §6.2 item 4 has two sub-conditions: (a) both trailer lines are
-    // structurally complete — decidable without any routing source; (b) the
-    // values trace back to the authoritative session record — decidable
-    // only when the routing source is available. Outcome classification:
-    //   passed        — every check passed, including (a) AND (b);
-    //   failed        — positive failure evidence exists: any non-signature
-    //                   issue, a structural trailer defect, or a value
-    //                   MISMATCH against an available authoritative source;
-    //   unverifiable  — no positive failure, but the signature values cannot
-    //                   be traced (routing source unavailable): the check is
-    //                   incomplete, not failed.
     const structuralTrailerOk = message.includes("LDVH-Provider:") && message.includes("LDVH-Model:") && validateMessage(message).every((issue) => issue.rule !== "validation/signature_trailer_missing");
     const hasValueMismatch = signatureCheck.issues.length > 0;
-    // 09 §5.3 item 8: 未绑定锚点是「输入不足以判定」（unverifiable），不是确认失败；
-    // 其余 AGENTS 问题（解析失败/路径缺失/不可读）是 failed。故把它从 failed 判据中排除，
-    // 单独作为 unverifiable 触发项——与 09 §5.4 三值语义一致，不冒充 passed。
-    const hasAgentsUnverifiable = issues.some((issue) => issue.rule === "validation/agents_pointer_unverifiable");
     const hasNonSignatureFailure = issues.some(
-      (issue) => !issue.rule.startsWith("validation/signature_") && issue.rule !== "validation/agents_pointer_unverifiable",
+      (issue) => !issue.rule.startsWith("validation/signature_"),
     );
-    // **宿主模块陈旧时不得报 failed**（friction-fbd65401，2026-10-28）。
-    //
-    // 本工具跑在**长驻宿主进程**里，而本仓的主干循环是「就地改 plugin/lib → 立刻
-    // 用同一会话的 precheck 验证」——此时跑的是改动前的旧代码，却以 `failed`（09
-    // §5.4：意为「确认未通过」）的形态回报。实测：同一候选，宿主内 precheck 两次
-    // 报 failed，而 `git-gate-runner.js`（新起进程）报 passed。
-    //
-    // 危害在于**错的方向会诱导人去改候选去迎合**（本次即据此收窄了检查范围）。
-    // 故：当 validator 模块的 mtime 晚于进程启动时刻时，本次结论**不可信**，
-    // 按 09 §5.4 归入 `unverifiable`（「输入不足以完成检查」）而非 `failed`。
-    //
-    // **不反向改判为 passed**：陈旧只说明「不知道」，不说明「候选合规」——那会把
-    // 一个检查缺口伪装成通过（00 §5.6 据实声明）。
-    //
-    // **只作用于 failed**：passed 侧不受影响（陈旧代码若判过，Git Gate 会以新代码
-    // 再判一次，终闸仍可信）；unverifiable 侧本就已如实声明。
-    // 接缝 `deps.detectStaleModules` 只为测试存在：这条分支的正向半边（陈旧→降级）
-    // 要求「模块 mtime 晚于进程启动」，而测试无法真的把已加载的模块改旧；不设接缝
-    // 就只能测 helper，测不到接线（pitfall-967f00c7：helper 正确而没接上）。
     const staleness = (deps.detectStaleModules ?? detectStaleValidatorModules)();
     const validatorStale = staleness.stale.length > 0;
     let mechanicalOutcome;
     if (hasNonSignatureFailure || !structuralTrailerOk || hasValueMismatch) mechanicalOutcome = "failed";
-    else if (!route.ok || hasAgentsUnverifiable) mechanicalOutcome = "unverifiable";
+    else if (!route.ok) mechanicalOutcome = "unverifiable";
     else mechanicalOutcome = "passed";
-    // 陈旧优先于 failed：旧代码给出的「未通过」不是关于本候选的证据。
     if (validatorStale && mechanicalOutcome === "failed") mechanicalOutcome = "unverifiable";
     const result = {
       mechanical_outcome: mechanicalOutcome,
       issues,
-      // 陈旧时如实披露，使「为什么不是 failed」可从返回值读出，而不是只留一句
-      // unverifiable 让人误以为是输入问题。
       ...(validatorStale
         ? {
             stale_modules: {
@@ -850,7 +614,6 @@ function makeExecute(deps) {
       result,
       scope: { requested: "precheck", completed: ["header", "key-changes", "diff-correspondence", "trailers", "signature-source"], not_completed: [
         ...(route.ok ? [] : ["signature-traceability"]),
-        // 陈旧时如实登记：检查项**跑过但结论无效**，不得读作「已完成」。
         ...(validatorStale ? ["verdict-computed-by-current-validator-code"] : []),
       ] },
       sources: [
@@ -864,20 +627,12 @@ function makeExecute(deps) {
           ]
         : route.ok ? [] : [`provider/model could not be traced to the authoritative session record: ${route.reason ?? "session identity unavailable"}`],
       verification: { checks: ["header", "key_changes", "diff_correspondence", "trailers", "signature_traceability", "docs_references"], passed: issues.length === 0 },
-      // **陈旧时不得给出「fix the reported issues」这类指引**（friction-fbd65401 的
-      // 危害本体）：那会把人推向「改候选去迎合旧代码的结论」——本次实测即先据此
-      // 误收窄了检查范围。此处只给「刷新模块后重跑」这一条真路径。
       follow_up: validatorStale
         ? ["restart the host (or reload the plugin) so the validator loads the on-disk version, then re-run precheck; the Git Gate spawns a fresh process per commit and can be used meanwhile"]
         : mechanicalOutcome === "passed" ? ["commit; then verify the Git Gate stderr snapshot_identity equals this result's snapshot_identity"] : ["fix the reported issues and re-run precheck"]
     });
   }
 
-  /**
-   * 26 §11 for the precheck entrypoint: read every staged friction carrier from
-   * the Index and assert its `informs` commit targets resolve. Shares
-   * checkFrictionCommitTargets with the Git Gate (09 §5.5).
-   */
   async function checkFrictionCommitTargetsForIndex(projectPath) {
     const runGit = async (args) => {
       const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
@@ -911,14 +666,6 @@ function makeExecute(deps) {
     });
   }
 
-  /**
-   * 09 §5.3 item 5 for the precheck entrypoint: gather the added/modified
-   * carriers from the staged Index and flag newly introduced docs/ references
-   * whose targets are absent. Shares checkDocsReferences with the Git Gate so
-   * both entries apply one rule set (09 §5.5). Fail-closed: an unreadable
-   * candidate tree yields no "exists" oracle, so any reference is reported
-   * rather than silently passed.
-   */
   async function checkDocsReferencesForIndex(projectPath, changedPaths) {
     const runGit = async (args) => {
       const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
@@ -932,10 +679,6 @@ function makeExecute(deps) {
         if (!/^[A-Z]/.test(status)) continue;
         const letter = status[0];
         if (letter === "R" || letter === "C") {
-          // 旧路径是判定「是否本批新增引用」的血缘依据；丢弃它会令 R 行
-          // 取 HEAD:<新路径> 必然失败、baseline 为空、preexisting 豁免整体
-          // 失效（与 git-gate-runner.changedPathStatuses 同构，09 §5.5 要求
-          // 两入口同一 validator，故此处必须同步）。
           const oldPath = fields[index + 1];
           const newPath = fields[index + 2];
           if (typeof newPath === "string") {
@@ -956,12 +699,9 @@ function makeExecute(deps) {
       for (const path of (await runGit(["ls-files", "--cached", "-z"])).split("\0")) if (path) candidates.add(path);
       for (const path of (await runGit(["ls-files", "--others", "--exclude-standard", "-z"])).split("\0")) if (path) candidates.add(path);
     } catch {
-      // Leave the set as-is; unresolved references below still fail closed.
     }
     const carriers = [];
     for (const path of changedPaths) {
-      // Governed class only (09 §5.3 item 5): spec and fact carriers. The
-      // checker re-applies the same filter, so the two entries cannot diverge.
       if (!isSpecOrFactCarrierPath(path)) continue;
       const entry = statuses.get(path);
       const status = entry?.letter;
@@ -972,8 +712,6 @@ function makeExecute(deps) {
       } catch {
         continue;
       }
-      // 同 git-gate-runner：基线按载体血缘取（R/C 用旧路径）；取不到时
-      // 纯新增(A) 记 undefined，R/C 记 null 交检查器 fail-closed。
       const baselinePath = entry?.oldPath ?? path;
       let baseline;
       try {
@@ -986,17 +724,6 @@ function makeExecute(deps) {
     return checkDocsReferences(carriers, { exists: (p) => candidates.has(p) });
   }
 
-  /**
-   * 02 §7.1 / §5 第 6 项 for the precheck entrypoint: read every staged fact
-   * carrier from the Index and assert its self-declared `object_uid` agrees
-   * with the identity its filename encodes, and that no uid is claimed twice.
-   * Shares checkFactCarrierIdentity with the Git Gate (09 §5.5) — only the
-   * Git reads differ, never the rule.
-   *
-   * Fail-closed on unreadable staged bytes: the check itself reports them
-   * (`facts/carrier_uid_unverifiable`), so content is passed through as the
-   * empty string rather than silently skipped.
-   */
   async function checkFactCarrierIdentityForIndex(projectPath) {
     const runGit = async (args) => {
       const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
@@ -1015,7 +742,7 @@ function makeExecute(deps) {
       try {
         content = await runGit(["show", `:${path}`]);
       } catch {
-        content = ""; // 不可读：交给校验器按 fail-closed 判定，不在此处吞掉
+        content = "";
       }
       carriers.push({ path, content });
     }
@@ -1023,64 +750,9 @@ function makeExecute(deps) {
     return checkFactCarrierIdentity(carriers);
   }
 
-  /**
-   * 09 §5.3 item 8 for the precheck entrypoint: read the staged root AGENTS.md
-   * and resolve its anchors against the candidate Index, through the SAME
-   * checkAgentsPointers validator the Git Gate uses (09 §5.5 同一 validator).
-   * 只换 Git 读法，不换规则；路径形态在解析阶段已限定为 specs/... .md。
-   */
-  async function checkAgentsPointersForIndex(projectPath) {
-    const runGit = async (args) => {
-      const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
-      return result.stdout;
-    };
-    let agentsText;
-    try {
-      agentsText = await runGit(["show", ":AGENTS.md"]);
-    } catch {
-      agentsText = ""; // 不可读交给 validator 按 fail-closed 判定
-    }
-    // 候选树路径集合（ Index + 未跟踪），与 git-gate-runner.candidateTreePaths 同口径。
-    const candidatePaths = new Set();
-    for (const args of [["ls-files", "--cached", "-z"], ["ls-files", "--others", "--exclude-standard", "-z"]]) {
-      try {
-        for (const p of (await runGit(args)).split("\0")) if (p) candidatePaths.add(p);
-      } catch { /* best-effort；exists 交给 validator 判定 */ }
-    }
-    const allSpecPaths = new Set();
-    for (const line of agentsText.split("\n")) {
-      for (const e of extractAgentsSpecPaths(line)) allSpecPaths.add(e.path);
-    }
-    const specTextCache = new Map();
-    for (const p of allSpecPaths) {
-      if (!/^specs\/[^\n]+\.md$/.test(p)) continue;
-      let text = null;
-      try {
-        text = await runGit(["show", `:${p}`]);
-      } catch {
-        text = null; // fail-closed
-      }
-      specTextCache.set(p, text);
-    }
-    return checkAgentsPointers([{ content: agentsText }], {
-      specExists: (p) => candidatePaths.has(p),
-      specText: (p) => (specTextCache.has(p) ? specTextCache.get(p) : null),
-    });
-  }
 
-  /**
-   * Load-bearing declaration check over the staged Index (01 §7 末段,
-   * 09 §5.3 item 6). Same scope and same fail-closed line as the Git Gate's
-   * collector, routed through the SAME validator — 09 §5.5 forbids the two
-   * entries from holding different rule sets, so only the Git reads differ.
-   */
-  /** 候选 Index 与 HEAD 两版的 §7.2 节文本（并集比对）；两版都取不到即 fail-closed。 */
   async function readSection72BothFromIndex(projectPath) {
     try {
-      // `-z` (see git-gate-runner.js findSpecCarrierOne): without it a
-      // `core.quotepath=true` Git C-quotes the non-ASCII path and the derived
-      // `git show :<path>` cannot resolve it. Both entries must read the same
-      // way — 09 §5.5 forbids them diverging.
       const listed = await execFileAsync("git", ["-C", projectPath, "ls-files", "--cached", "-z", "--", "specs/01-*.md"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
       const path = String(listed.stdout ?? "").split("\0").find((line) => line.length > 0);
       if (path === undefined) return [null, null];
@@ -1109,10 +781,6 @@ function makeExecute(deps) {
         return new Set();
       }
     };
-    // `-z` on both listings (see git-gate-runner.js collectLoadBearingDeclarations):
-    // these sets are membership-tested against `-z` (verbatim) diff paths, and a
-    // `core.quotepath=true` Git C-quotes non-ASCII names — the mismatch made a
-    // present HEAD path read as absent. Both entries must agree (09 §5.5).
     const headPaths = await listPaths(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "specs"], "\0");
     const indexPaths = await listPaths(["ls-files", "--cached", "-z", "--", "specs"], "\0");
     const factPaths = [
@@ -1127,8 +795,6 @@ function makeExecute(deps) {
       try {
         baseline = await runGit(["show", `HEAD:${path}`]);
       } catch {
-        // A path its own HEAD listing names but that cannot be read is an
-        // undecidable baseline — reported, never read as "no declarations".
         if (headPaths.has(path)) unreadable.push(path);
       }
       let content = "";
@@ -1144,10 +810,6 @@ function makeExecute(deps) {
     const resolvable = new Set();
     for (const token of collectDeclarationReferenceTokens(message)) {
       if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(token)) {
-        // A fact reference resolves against the carrier's own object_uid
-        // declaration, not only its file name (09 §5.3 item 6 says "可解析的
-        // 同项目事实对象"): the Index and the HEAD tree are both consulted, so
-        // an object this very commit lands can still back the reference.
         const namedWithoutUid = factPaths.some((path) => path.startsWith("ldvh-base/") && path.includes(token));
         if (namedWithoutUid || (await declaresObjectUid(token))) resolvable.add(token);
         continue;
@@ -1156,7 +818,6 @@ function makeExecute(deps) {
         await runGit(["rev-parse", "--verify", "--quiet", `${token}^{commit}`]);
         resolvable.add(token);
       } catch {
-        // Unresolvable hash: it exempts nothing unless another token resolves.
       }
     }
     return checkLoadBearingDeclarations(carriers, { message, resolvable, unreadable });
@@ -1170,20 +831,12 @@ function makeExecute(deps) {
         try {
           if ((await runGit(args)).trim().length > 0) return true;
         } catch {
-          // git grep exits 1 on no-match; an unreadable tree lands here too.
         }
       }
       return false;
     }
   }
 
-  /**
-   * 07 §5.4 AI entry. Every precondition is checked before any write; an
-   * unmet precondition is `unavailable` with the precise reason code, never a
-   * success-shaped partial. The session cwd is the project under registration
-   * when the caller omits `path` (the spec's "用户 … 表达把当前项目设为管辖"
-   * wording), otherwise the explicit path is used.
-   */
   async function executeRegisterGovernedProject(args, exec) {
     const cwd = exec?.agent?.session?.header?.cwd;
     const target = typeof args?.path === "string" && args.path.length > 0 ? args.path : cwd;
@@ -1197,9 +850,6 @@ function makeExecute(deps) {
         follow_up: []
       });
     }
-    // 07 §5.6: "登记或取消仅由 Human 明确意图触发". The consent is requested
-    // through ctx.userQuestions.ask before ANY write, and a non-affirmative
-    // answer (or an unavailable answerer) fails closed — silence is not intent.
     const consent = await requestConsent(deps, { action: "register", projectId: args?.id, projectPath: target, agent: exec?.agent, signal: exec?.signal });
     if (consent.granted !== true) {
       return envelope("register-governed-project", "rejected", {
@@ -1238,7 +888,6 @@ function makeExecute(deps) {
     });
   }
 
-  /** 07 §5.7 AI entry: the same precondition gate, then removal + read-back. */
   async function executeUnregisterGovernedProject(args, exec) {
     const cwd = exec?.agent?.session?.header?.cwd;
     const target = typeof args?.path === "string" && args.path.length > 0 ? args.path : cwd;
@@ -1263,7 +912,6 @@ function makeExecute(deps) {
         follow_up: ["resolve the reported precondition, then retry"]
       });
     }
-    // 07 §5.6: cancellation likewise requires explicit Human intent.
     const consent = await requestConsent(deps, { action: "unregister", projectId: args.id, projectPath: target, agent: exec?.agent, signal: exec?.signal });
     if (consent.granted !== true) {
       return envelope("unregister-governed-project", "rejected", {
@@ -1300,27 +948,8 @@ function makeExecute(deps) {
     });
   }
 
-  // **2026-11-16**：`observation-buffer-list` 与 `observation-buffer-review` 两个
-  // 只读／成文工具随经验留观缓冲（11 §12bis）一并删除——review 层整层取消，
-  // 经验积累改由主控派生代理完成（23 §13 主控主动记录通道）。
 
-  /**
-   * 宿主能力探针（见 OPERATIONS 的注释）。
-   *
-   * **缺省只读**：`write` 不为 true 时只探测服务可用性与标题可读性，不创建任何东西。
-   * 这是刻意的——一个诊断工具被误调时不应在宿主机上留下会话与定时任务。
-   *
-   * 结果里带 `cleanup`：确切的删除参数。探针**不自动删**——删会话是不可逆操作，
-   * 交给调用方（Human）决定。
-   */
   async function executeProbeHostAutomation(args, exec) {
-    // ── 只读诊断：代理辅助的开关状态与摩擦晋升是否正在跑（2026-10-26）──
-    //
-    // 用途：Human 报「改了设置没反应」时，靠它当场读出两件事——
-    //   ① 代理辅助总开关与两个子项（发现摩擦 / 积累经验）当前是开还是关；
-    //   ② 该项目此刻是否有摩擦晋升在跑（项目级跨进程锁）。
-    // 它**不判断**「应该何时跑」：摩擦发现由主控在当次行动中以 child 工具发起
-    // （11 §6.1），没有周期、安静期或间隔可对照。只读：不建会话、不建任务、不改配置。
     if (args?.reconcile === true) {
       const governedScope = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
       if (governedScope.state !== "governed") {
@@ -1335,24 +964,12 @@ function makeExecute(deps) {
       }
       const settingsOf = typeof deps.getIdleSettings === "function" ? deps.getIdleSettings : () => ({});
       const s = settingsOf();
-      // **全部字段显式兜底为 JSON 合法值**：工具返回值必须是 lossless JSON，任何
-      // `undefined` 都会让整次调用失败（而不是显示一个空值）——诊断工具自己坏掉，
-      // 看起来却像「被诊断的东西坏了」（2026-10-27 实测）。
-      //
-      // 读的是设置解析后的形状：总开关 `enabled` + 两个子项 `tasks`。旧字段
-      // （review.enabled / review.intervalMs / review.model）随审核层与静置检查点
-      // 删除，**不得再被读**——它们已不存在，读到的只能是 undefined。
       const state = {
         enabled: s?.enabled === true,
         frictionDiscovery: s?.tasks?.["friction-discovery"] === true,
         experienceAccumulation: s?.tasks?.["experience-accumulation"] === true,
       };
-      // **2026-10-30：互斥改为项目级跨进程文件锁**，故查询须按项目问。
-      // 这里已解析出 `governedScope`，用它给出 projectId——否则诊断报的是「本进程
-      // 有没有在跑」，而真实判据是「这个项目有没有在跑」（跨进程）。
       const running = await isFrictionPromotionRunning(dshHomePath, governedScope.project.id);
-      // verdict 只回答「开着且此刻有没有在跑」，不暗含任何「应该何时跑」：
-      // 主控发起后不存在周期/间隔，故没有「等待静置」这一态。
       return envelope("probe-host-automation", "completed", {
         result: {
           settings: state,
@@ -1384,7 +1001,6 @@ function makeExecute(deps) {
     const write = args?.write === true;
     const probeCtx = deps.agentCtx ?? null;
     if (probeCtx === null || typeof probeCtx.get !== "function") {
-      // 没有宿主 ctx 时**如实拒绝**，不降级成「假装探过了」。
       return envelope("probe-host-automation", "unavailable", {
         result: null,
         scope: { requested: "probe", completed: [], not_completed: ["probe"] },
@@ -1430,35 +1046,7 @@ function makeExecute(deps) {
   return { handlers, OPERATIONS };
 }
 
-/**
- * Register the LDVH tool batch onto ctx.tools. Only called for governed
- * sessions (the caller owns the three-state gate — not_governed and
- * unavailable sessions register nothing, 08 §6). Returns the disposers.
- */
-/**
- * Build the registration descriptor for one operation. Exported so the output
- * contract (open schema + array-rendering render) is assertable without a live
- * ctx.tools registry — the registration call itself was never the failure
- * point; result delivery was.
- *
- * `timeoutMs` is omitted for operations that block on a Human answer
- * (`awaitsHumanDecision`). The host's timeout policy arms a wall-clock
- * deadline from this field and substitutes `TOOL_TIMEOUT` for the real result
- * once it has elapsed — so a declaration here would guarantee a wrong answer:
- * a person cannot reply within the budget, and the replacement happens AFTER
- * the true answer arrives (`dsh-tool-call-timeout-policy` awaits the tool,
- * then reports the expiry). Omitting the field is the host-sanctioned way to
- * declare "no deadline": `defineTool` skips the key entirely when it is
- * `undefined`, and the policy wrapper returns `next()` unarmed. The official
- * `ask_user_question` tool does exactly this.
- *
- * These operations are still cancellable — that is what `exec.signal` is for,
- * and they now forward it to the ask seam.
- */
 export function toolDescriptor(operationKey, operation, handler) {
-  // Register through defineTool so the DSH argument check actually runs: the
-  // bare-descriptor path only asserts output/timeoutMs shape and stores the
-  // schema verbatim, leaving `parameters` unenforced (spark-5b0b380e).
   return defineTool({
     name: operation.toolName,
     description: operation.summary,
@@ -1469,8 +1057,6 @@ export function toolDescriptor(operationKey, operation, handler) {
         const result = await handler(args, exec);
         return { envelope: result };
       } catch (error) {
-        // Execution error: report the actual side effects (none — every
-        // operation here is read-only) and the residual scope honestly.
         return {
           envelope: envelope(operationKey, "execution_error", {
             result: null,
@@ -1490,22 +1076,6 @@ export function toolDescriptor(operationKey, operation, handler) {
   });
 }
 
-/**
- * Parse the 05 §6.1 operation declarations out of the declaring spec carriers
- * of a governed project. This is the mechanical obligation of 05 §6.1: the
- * discovery entry must actually parse the sources, not substitute constants.
- *
- * It reads each candidate carrier's TEXT, parses its declaration table, and
- * resolves each contract anchor through the shared heading-path resolver. A
- * row whose anchors do not resolve stays in the map carrying `anchor_errors`,
- * so the caller reports it instead of silently treating it as declared.
- *
- * NOTE the two-argument contract: this wrapper takes the PROJECT ROOT (plus
- * the plugin package root for the specs/01 §10.3 corpus fallback) and does
- * the file reading; `parseDeclarationTable` takes the carrier TEXT. Passing a
- * path straight to the latter parses nothing (a path has no newlines and no
- * header row), which is a silent total failure — hence the split is explicit.
- */
 async function parseOperationDeclarations(projectRoot, workspaceRoot) {
   const merged = new Map();
   const setReason = (reason) => Object.defineProperty(merged, "reason", { value: reason, enumerable: false });
@@ -1527,8 +1097,6 @@ async function parseOperationDeclarations(projectRoot, workspaceRoot) {
     }
     const sourceKey = member.identity?.responsibilityKey ?? member.repoPath;
     for (const [operationKey, row] of rows) {
-      // First declaring source wins; a duplicate declaration is itself a
-      // defect (05 §6.1: operation_key is globally unique) — report, keep first.
       if (merged.has(operationKey)) {
         merged.get(operationKey).anchor_errors.push(`duplicate declaration also found in ${member.repoPath}`);
         continue;
@@ -1543,84 +1111,37 @@ async function parseOperationDeclarations(projectRoot, workspaceRoot) {
 }
 
 export function registerLdvhTools(ctx, deps) {
-  // **把宿主 ctx 交给 handler**（2026-10-26）：探针工具要调 `schedule` 与
-  // `sessionController`，而这两个服务只有 ctx 取得到。`ctx` 是本函数的第一个
-  // 形参（`registerLdvhTools(agent.ctx, …)`），故直接注入，不再要求调用方
-  // 另传一份——两份会漂移。
   const { handlers } = makeExecute({ ...deps, agentCtx: ctx });
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
     const handler = handlers[operationKey];
     disposers.push(ctx.tools.register(toolDescriptor(operationKey, operation, handler)));
   }
-  // Append subagent result collection tool (root-session only, governed only).
   if (deps.children !== undefined) {
     disposers.push(registerSubagentResultTool(ctx, {
       dshHomePath: deps.dshHomePath,
       children: deps.children,
-      // 活体 + 已结束子代理的统一枚举。必须在**此处**透传：漏掉它会让 collect
-      // 工具回落到只含活体的 Map，从而「只在子代理运行中查得到」——而收集结果
-      // 恰恰发生在其结束之后（2026-09-26 修；首版修复即因漏传此处而在真实路径上
-      // 不生效，由 lifecycle 的「已结束子代理仍可枚举」用例捕获）。
       listChildren: deps.listChildren,
-      // 2026-10-19: 同样的「漏传即静默失效」在本处重演了一次。插件 fiber 重建
-      // 后登记表被清空，`listChildren` 也随之只覆盖新实例的活体，于是已结束的
-      // 复核者查不到——而「收集结果」恰恰发生在子代理结束之后。`resolveChild`
-      // 是复原侧的唯一入口（lifecycle.js:220，从子代理自身会话记录回溯）：
-      // 不透传它，subagent-result.js 里的回落分支永远不执行，工具会在历史
-      // 复核者明明存在时仍报 "no child record found"。
       resolveChild: deps.resolveChild
     }));
   }
-  // Research mechanical layer (specs/33 state machine + specs/24 writer),
-  // same registration surface: governed sessions only.
   disposers.push(registerReportTools(ctx, deps));
-  // Spark mechanical layer (specs/20 writer), same registration surface.
   disposers.push(registerSparkTools(ctx, deps));
-  // Pitfall mechanical layer (specs/23 writer), same registration surface.
   disposers.push(registerPitfallTools(ctx, deps));
-  // Friction mechanical layer (specs/26 writer), same registration surface.
   disposers.push(registerFrictionTools(ctx, deps));
-  // Norm mechanical layer (specs/27 writer) — carries uniqueness layer 1
-  // (direction_key pre-write refusal) and layer 3 (consumption fail-closed);
-  // layer 2 (Git Gate) lives in git-gate-runner.js.
   disposers.push(registerNormTools(ctx, deps));
-  // Goal mechanical layer (specs/25 writer) — singleton type, same surface.
   disposers.push(registerGoalTools(ctx, deps));
-  // SubGoal mechanical layer (specs/28 writer) — the goal-layer anchors that
-  // downstream `serves` resolves against; carries anchor uniqueness (28 §6.2)
-  // and `parent_goal` resolution (28 §14.1) before any write.
   disposers.push(registerSubGoalTools(ctx, deps));
-  // DevLog mechanical layer removed 2026-11-14 — the type was retired by a
-  // 00 §3.2 root decision (01 §8 number 29 is now an empty slot). No tools are
-  // registered for it; the four ldvh_devlog_* operations are gone.
-  // 两处把关询问（2026-11-13 Human 决定：改为「要不要安排代理」两问）。
-  //
-  // **不写事实源、不参与受控写入**：它只读开关、发询问、记答复，与 21 §6.3 的
-  // 路由询问同层（辅助机制的运行状态）。故**不注册为 writeShaped**——那会把
-  // 「询问」错当成「写」，并使治理状态不可用时连问都问不了。
   disposers.push(ctx.tools.register(defineTool({
     name: REVIEW_ASK_OPERATION.toolName,
     description: REVIEW_ASK_OPERATION.summary,
     parameters: toParameterSpec(reviewAskParameterSchema()),
-    // **不设墙钟期限**（与 toolDescriptor 的同一套语义，`awaitHumanDecision`
-    // 那条）：本工具会阻塞在 Human 的答复上，声明一个期限会让每一次调用都
-    // 付「等 Human」的时间代价——而 Human 可能几分钟才看到。
-    //
-    // 此前 REVIEW_ASK_OPERATION.awaitsHumanDecision 是**死字段**：本工具走
-    // defineTool 直注册、不经 toolDescriptor，消费点在那里。改为在这里按同一
-    // 语义接线，让那个声明真的生效（2026-11-13 独立审核 MINOR #7）。
     ...(REVIEW_ASK_OPERATION.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 }),
     async execute(args, exec) {
       try {
         return { envelope: JSON.parse(JSON.stringify(await executeReviewAsk(args, exec, {
           hostSeams: deps.hostSeams,
           getReviewAskSettings: deps.getReviewAskSettings,
-          // 行动前那处的判断依据（弱约束，06 §5／§6）：读**活事件累积器**里
-          // 本轮已写出的正文，而不是会话日志——宿主活事件先进 200ms 批处理
-          // 缓冲（`LIVE_WRITE_BATCH_MAX_DELAY_MS`），工具执行发生在
-          // `assistant/message` append 后数毫秒内，磁盘上通常还没有本步正文。
-          // 取不到时如实返回 unavailable 形态，**不假装是空**（见 review-ask-tool.js）。
           readCurrentTurnText: deps.readCurrentTurnText,
         }))) };
       } catch (error) {
@@ -1642,20 +1163,11 @@ export function registerLdvhTools(ctx, deps) {
   })));
   return () => {
     for (const dispose of disposers) {
-      try { dispose(); } catch { /* already removed */ }
+      try { dispose(); } catch {   }
     }
   };
 }
 
-// Deliberately open (same shape dsh-mnemon uses for every tool output).
-//
-// This schema constrains OUR OWN handler return value, not a model emission —
-// model output is constrained by `parameters`, which stays strict. A
-// field-by-field output schema only creates self-inflicted failures: the
-// `gaps` field was originally declared `items: { type: "string" }` and every
-// structured scan gap ({ responsibility_key, canonical_path, reason }) was
-// rejected by it. The 05 §8 envelope semantics are guaranteed by the
-// handlers, not by this schema.
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
 
 function parameterSchemaFor(operationKey) {
@@ -1717,85 +1229,40 @@ function parameterSchemaFor(operationKey) {
         additionalProperties: false
       };
     case "inspect-loaded-modules":
-      // 只读、无参数：结论是「磁盘上哪些模块比本进程新」，不接受任何筛选——
-      // 让它可以被参数收窄，就等于给了「看不见」一条路（源于一次实测的模块陈旧度问题）。
       return { type: "object", properties: {}, additionalProperties: false };
     default:
       return { type: "object", properties: {}, additionalProperties: false };
   }
 }
 
-/**
- * The single choke point for tool output (the `text()` idiom dsh-mnemon uses
- * for all of its tools).
- *
- * Contract (verified against dsh-tools and the MCP spec): output.render must
- * return an ARRAY of content blocks, never a bare string. dsh-tools feeds the
- * return through `result.content.some((block) => block.type === "image")`, so
- * a string return throws `content.some is not a function` and the tool result
- * never reaches the model — a silent total failure of the whole batch.
- * Routing every tool's text through here makes that mistake structurally
- * impossible rather than merely absent.
- */
 function text(body) {
   return [{ type: "text", text: body }];
 }
 
-/**
- * Human-readable projection of one 05 §8 envelope. Pure and exported so the
- * array contract is testable without a live ctx.tools registry.
- */
 export function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   if (env.result?.mechanical_outcome !== undefined) lines.push(`mechanical_outcome: ${env.result.mechanical_outcome}`);
-  // ── 把关询问（review-ask）──────────────────────────────────────────────
-  //
-  // **这是模型唯一能看到本工具结果的地方**（03 §9.5：render 输出是模型的唯一
-  // 窗口）。2026-11-13 独立审核抓出：本工具注册了 `renderEnvelope("review-ask", …)`
-  // 却没有任何分支，实测 render 结果恒为 `LDVH review-ask: completed`——
-  // **Human 的答复、派发模板、开关状态全部丢失**，且 `review` 与 `skip` 两种情况
-  // 渲染结果**逐字相同**，模型无从区分。
-  //
-  // 那意味着整套「询问」在真实宿主上等于一把没有输出的开关：我做了四轮工具、
-  // 模板、设置页，Human 点完之后我一个字都读不到。
-  //
-  // 渲染纪律：答复必须**逐字可辨**（不能只回「已处理」），模板必须**整段给出**
-  // （模板就是派发给子代理的正文，截断即不可用），未取得答复时须明说未决策。
   if (operationKey === "review-ask" || env.operation_key === "review-ask") {
     const r = env.result ?? {};
     if (r.point !== undefined) lines.push(`point: ${r.point}`);
-    // **本次 bug 的修复口**（2026-11-14）：自由输入提交的文字必须逐字出现在
-    // 模型唯一可见窗口（03 §9.5 render）。它是补充信息，不是 review/skip 决定。
     if (typeof r.custom_note === "string" && r.custom_note.length > 0) {
       lines.push(`custom_note（Human 自由输入，非答复、不冒充 review/skip，请逐字读）: ${r.custom_note}`);
     }
-    // 开关与复用状态：让模型能判断「这次为什么没问」。
     if (r.switch_enabled !== undefined) lines.push(`switch_enabled: ${r.switch_enabled}`);
     if (r.asked !== undefined) lines.push(`asked: ${r.asked}`);
     if (r.reused === true) lines.push(`reused: true (同一候选内容已答复过，未重复提问)`);
     if (r.fingerprint !== undefined) lines.push(`fingerprint: ${r.fingerprint}`);
-    // **答复本身**——三种状态必须可区分，不得合并成一句「completed」。
     if (r.decision === "review") {
       lines.push(`decision: review — Human 已同意安排${r.point === "post-work" ? "复核" : "审查"}`);
     } else if (r.decision === "skip") {
       lines.push(`decision: skip — Human 选择不安排独立把关，直接推进（主控自查仍在）`);
     } else if (r.decision === "silent") {
-      // 静默执行（2026-11-13 晚）：**这一段是 A1 在模型侧的唯一窗口**。
-      //
-      // 缺了它，静默结果会落进下面的 else，被渲染成「未发起询问」——而它其实
-      // 已经按设置安排了核对；更糟的是 `notice` 从未被渲染，模型只看得到
-      // follow_up 里「原样引用 result.notice」，却看不到 notice 本身，那条
-      // 「静默不等于无痕」的要求在真实路径上不可执行（独立复核 BLOCKER）。
       lines.push(`decision: silent — 静默执行：未询问，按设置直接安排${r.point === "post-work" ? "复核" : "审查"}（不是 Human 的答复，也不是 skip）`);
-      // `notice` **逐字给出**：它是交付说明里必须原样引用的那一行。
       if (typeof r.notice === "string" && r.notice.length > 0) {
         lines.push(`notice（须原样写进本次交付说明）: ${r.notice}`);
       }
     } else {
-      // 文案须分三种（2026-11-13 独立审核 MINOR-6）：此前无论什么情况都说
-      // 「下次仍会问」，但开关关闭或配置不可用时**根本没问**，下次也不会问
-      // （除非改开关）——那句话与同屏的 `switch_enabled: false` 自相矛盾。
       if (r.asked === false && r.switch_enabled === false) {
         lines.push("decision: null — 开关关闭，本次未发起询问（这是配置的结果，不是未决策）");
       } else if (r.asked === false) {
@@ -1804,10 +1271,6 @@ export function renderEnvelope(operationKey, value) {
         lines.push("decision: null — 未取得明确答复（未决策不是答复，下次仍会问；不得当成 skip）");
       }
     }
-    // **行动前那处的判断依据**（弱约束，06 §5／§6）：它是模型唯一可见窗口
-    // （03 §9.5 render），不渲染就等于没交还——信封里写了而这里漏掉，正是
-    // 2026-11-14 那个 BLOCKER（`notice` 从未被渲染）的同一种失效形状。
-    // 只摆事实、不给裁决：这里不得出现「可以问／不能问」这类判定。
     const basis = r.candidate_basis;
     if (basis !== undefined && basis !== null && typeof basis === "object") {
       if (basis.available === true) {
@@ -1820,12 +1283,9 @@ export function renderEnvelope(operationKey, value) {
         }
         if (typeof basis.note === "string" && basis.note.length > 0) lines.push(`candidate_basis.note: ${basis.note}`);
       } else {
-        // 取不到时**必须说出来**：静默省略会让模型把「没读到」当成「正文是空的」，
-        // 那是本仓反复出现的「读数不可判读」形态。
         lines.push(`candidate_basis: unavailable — ${typeof basis.reason === "string" ? basis.reason : "取不到本轮正文"}`);
       }
     }
-    // 模板：整段给出，不截断。它是派发时交给子代理的正文。
     const template = r.review_template;
     if (template !== undefined && template !== null && typeof template === "object") {
       if (typeof template.kind === "string") lines.push(`review_template.kind: ${template.kind}`);
@@ -1847,23 +1307,12 @@ export function renderEnvelope(operationKey, value) {
     for (const item of env.scope?.not_completed ?? []) lines.push(`not_completed: ${item}`);
     for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
   }
-  // 候选**必须逐条列出**，不能只印计数（friction-8608a8a6）。
-  //
-  // 实测（2026-10-28）：主控索取候选清单时，模型可见输出只有「31 candidate(s)
-  // at L0」——逐条条目在渲染层被丢掉。后果不是「少看一点」：清单不可得时主控
-  // 只能改读规范原文自行定位，等于把「枚举」从工具面退回人工兜底；而 01 §10.3
-  // 把本操作定义为按 responsibility_key 取值或全文枚举的入口，只回计数使
-  // 「枚举」语义在模型侧不成立。
-  //
-  // L0 只显示身份与路径；L1/L2 才展开对应层级字段，不在浅层倾倒正文。
   if (Array.isArray(env.result?.candidates)) {
     lines.push(`${env.result.candidates.length} candidate(s) at ${env.result.layer}`);
     for (const candidate of env.result.candidates) {
       if (candidate === null || typeof candidate !== "object") continue;
       const key = candidate.responsibility_key ?? "(no key)";
       const title = candidate.title ?? "(no title)";
-      // L1/L2 explicitly request deeper disclosure; keep the complete layer
-      // projection without repeating the key and title outside it.
       if (operationKey === "read-specification-candidates" && ["L1", "L2"].includes(env.result?.layer)) {
         lines.push(JSON.stringify(candidate));
       } else {
@@ -1872,8 +1321,6 @@ export function renderEnvelope(operationKey, value) {
       }
     }
   }
-  // L3/L4 handlers return exact source text and fingerprints. Render the text
-  // verbatim rather than reducing a successful read to its outcome alone.
   if (operationKey === "read-specification-content" && typeof env.result?.content === "string") {
     const { content, ...metadata } = env.result;
     lines.push(`source: ${JSON.stringify(metadata)}`);
@@ -1886,21 +1333,12 @@ export function renderEnvelope(operationKey, value) {
     }
   }
   if (env.result?.state !== undefined) lines.push(`state: ${env.result.state}`);
-  // 机械预检的**失败原因**必须对调用方可读（09 §5.3 的意图是给出问题项，不是只给
-  // 一个 failed）。此前本渲染只印 gaps，而预检把问题项放在 `result.issues` 里，
-  // 于是「failed 但看不到为什么」——实测踩到（2026-10-15 的宿主目标功能提交前预检）。
   for (const issue of env.result?.issues ?? []) {
     const rule = issue?.rule ?? "issue";
     const message = issue?.message ?? (typeof issue === "string" ? issue : JSON.stringify(issue));
     lines.push(`issue: ${rule} — ${message}`);
   }
-  // Gaps may be structured records (05 §8 traceability), so stringify them
-  // rather than interpolating them as [object Object].
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
-  // **探针结果**（2026-10-26）：它的价值全在逐步的 ok/detail 上，而 `result` 是个
-  // 自由结构。此前本渲染器只认几个固定字段（mechanical_outcome / candidates /
-  // state / issues），于是探针返回 `completed` 而**内容一个字段都不显示**——调用方
-  // 看到「完成」却拿不到任何证据。那比失败更糟：它让「探过了」无法与「没探」区分。
   if (env.result !== null && typeof env.result === "object" && Array.isArray(env.result.steps)) {
     for (const step of env.result.steps) {
       lines.push(`${step.ok === true ? "ok" : "FAILED"}: ${step.name}${step.detail ? ` — ${step.detail}` : ""}`);
@@ -1910,10 +1348,6 @@ export function renderEnvelope(operationKey, value) {
       lines.push(`cleanup: ${item.kind} ${JSON.stringify(item.request ?? item.sessionId)}`);
     }
   }
-  // **reconcile 诊断的结果**（2026-10-26）：它的形状与探针不同（有 settings /
-  // trigger / running / verdict，没有 steps 数组），故上面那段不覆盖它。
-  // 不补这段的后果实测过：调 reconcile 只看到 「completed」而**内容一个字都没有**
-  // ——与「探针没跑」无法区分。诊断的价值全在能不能读到具体状态。
   if (env.result !== null && typeof env.result === "object" && env.result.settings !== undefined) {
     const st = env.result.settings ?? {};
     lines.push(`agent assistance enabled: ${st.enabled === true}`);
@@ -1923,12 +1357,6 @@ export function renderEnvelope(operationKey, value) {
     lines.push(`running: ${env.result.running === true}${env.result.runningReason ? ` (${env.result.runningReason})` : ""}`);
     lines.push(`verdict: ${env.result.verdict}`);
   }
-  // **陈旧模块报告**（源于一次实测的模块陈旧度问题）：它的字段是 process_start_ms / library_dir /
-  // checked / stale / unreadable，与上面几种结构都不同。不补这段的后果**已实测**：
-  // 真机调用 `ldvh_inspect_loaded_modules` 时模型侧只看到一行
-  // 「LDVH inspect-loaded-modules: completed」——查了几个文件、有没有陈旧、哪些陈旧，
-  // 一个字段都读不到。那使「查过了」与「没查」在模型侧不可区分，与探针那次同型
-  // （friction-8608a8a6 的教训：只回计数即失败，此处连计数都没有）。
   if (env.result !== null && typeof env.result === "object" && env.result.checked !== undefined && env.result.library_dir !== undefined) {
     lines.push(`checked: ${env.result.checked} module(s) under ${env.result.library_dir}`);
     lines.push(`process_start_ms: ${env.result.process_start_ms}`);

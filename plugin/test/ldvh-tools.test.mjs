@@ -1,16 +1,3 @@
-// Tests for plugin/lib/ldvh-tools.js: the five LDVH tool handlers
-// (resolve-governance-scope, read-specification-candidates,
-// read-specification-content, discover-ldvh-capabilities, precheck-git-commit)
-// and the guidance-text module that produces the minimal rule guidance
-// attached to governed sessions.
-//
-// The handlers are obtained from makeExecute(deps); the DSH tool layer
-// (registerLdvhTools) is not exercised here — it is the index.js wiring
-// and tested separately.
-//
-// Common envelope (specs/05 §8): { operation_key, outcome, scope, sources,
-// gaps, verification, follow_up }. Every test inspects the full envelope
-// shape, not just the result.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -25,8 +12,6 @@ import { execFileAsync, git, initRepo, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
-// Exercise the renderer over every operation_key and every outcome the
-// envelope can carry, so a shape regression in one branch is caught.
 function renderAllOutcomes() {
 	const outcomes = ["completed", "partial", "unavailable", "rejected", "invalid_request", "execution_error"];
 	const collected = [];
@@ -62,16 +47,12 @@ function descriptors() {
 	return Object.entries(OPERATIONS).map(([operationKey, operation]) => toolDescriptor(operationKey, operation, handlers[operationKey]));
 }
 
-/** Tool names whose operation blocks on a Human answer (declared in OPERATIONS). */
 function operationsAwaitingHuman() {
 	return Object.values(OPERATIONS)
 		.filter((operation) => operation.awaitsHumanDecision === true)
 		.map((operation) => operation.toolName);
 }
 
-// ---------------------------------------------------------------------------
-// Shared fixtures
-// ---------------------------------------------------------------------------
 
 const SAMPLE_SPEC_01 = `---
 ldvh_spec:
@@ -170,9 +151,6 @@ function assertEnvelopeShape(envelope, expectedKey, expectedOutcome) {
 	assert.ok(Array.isArray(envelope.follow_up));
 }
 
-// ---------------------------------------------------------------------------
-// resolve-governance-scope
-// ---------------------------------------------------------------------------
 
 test("resolve-governance-scope returns governed with the registered project", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -215,9 +193,6 @@ test("resolve-governance-scope returns unavailable when the registration is unpa
 	});
 });
 
-// ---------------------------------------------------------------------------
-// read-specification-candidates
-// ---------------------------------------------------------------------------
 
 test("read-specification-candidates enumerates all candidates by default", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -263,11 +238,7 @@ test("read-specification-candidates rejects a key that matches no candidate", as
 	});
 });
 
-// ---------------------------------------------------------------------------
-// specs/01 §9.1 defenses: excluded names, collision withholding, snapshot
-// ---------------------------------------------------------------------------
 
-/** Build a minimal parseable carrier with an explicit identity + file name. */
 function specCarrier({ key, id, title, canonicalPath }) {
 	return `---
 ldvh_spec:
@@ -297,7 +268,6 @@ test("01 §9.1 defense 1: a .draft carrier never enters candidate discovery", as
 		const home = join(base, "home");
 		const root = await initRepo(base);
 		await writeSpecsTree(root);
-		// The audit counterexample: this name matches the canonical pattern.
 		await writeFile(
 			join(root, "specs", "13-规范示例三.draft.md"),
 			specCarrier({ key: "sample-spec-3", id: "13", title: "规范示例三", canonicalPath: "specs/13-规范示例三.draft.md" })
@@ -308,7 +278,6 @@ test("01 §9.1 defense 1: a .draft carrier never enters candidate discovery", as
 		assert.equal(envelope.outcome, "completed");
 		const keys = envelope.result.candidates.map((c) => c.responsibility_key);
 		assert.ok(!keys.includes("sample-spec-3"), "the .draft carrier must not become a candidate");
-		// Excluded carriers are visible as diagnostics, not silently dropped.
 		assert.ok(
 			envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("excluded_name_marker")),
 			"the excluded carrier must be reported with a precise reason"
@@ -321,7 +290,6 @@ test("01 §9.1 defense 1: every canonical-pattern excluded marker form is reject
 		const home = join(base, "home");
 		const root = await initRepo(base);
 		await writeSpecsTree(root);
-		// All four still end in .md, so all four reach the candidate pattern.
 		const names = ["14-甲.draft.md", "15-乙.tmp.md", "16-丙.bak.md", "17-丁.temp.md"];
 		for (const [index, name] of names.entries()) {
 			const id = String(14 + index);
@@ -345,8 +313,6 @@ test("01 §9.1 defense 2: colliding responsibility_key withholds every affected 
 		const home = join(base, "home");
 		const root = await initRepo(base);
 		await mkdir(join(root, "specs"), { recursive: true });
-		// Two carriers claiming the same responsibility_key, each with its own
-		// consistent identity so only the key collides.
 		await writeFile(join(root, "specs", "21-甲.md"), specCarrier({ key: "shared-key", id: "21", title: "甲", canonicalPath: "specs/21-甲.md" }));
 		await writeFile(join(root, "specs", "22-乙.md"), specCarrier({ key: "shared-key", id: "22", title: "乙", canonicalPath: "specs/22-乙.md" }));
 		await registerProject(dshHome(home), { id: "demo", path: root });
@@ -358,7 +324,6 @@ test("01 §9.1 defense 2: colliding responsibility_key withholds every affected 
 			envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("duplicate_responsibility_key")),
 			"the collision must be reported with its kind"
 		);
-		// And the content read must refuse rather than pick the first match.
 		const read = await handlers["read-specification-content"]({ responsibility_key: "shared-key" }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(read.outcome, "rejected");
 		assert.ok(read.gaps.some((g) => String(g).includes("collides across")));
@@ -370,29 +335,19 @@ test("01 §9.1 defense 2: an approximate-path collision rejects both carriers", 
 		const home = join(base, "home");
 		const root = await initRepo(base);
 		await mkdir(join(root, "specs"), { recursive: true });
-		// Same visible name, different Unicode composition: on a
-		// case-sensitive/NFC-normalizing checkout these can exist as two files
-		// that normalize to one path — the cross-platform ambiguity the rule
-		// guards. (The identity spec_id/canonical_path are kept distinct so that
-		// only the path-collision defense is under test.)
-		const composed = "41-caf\u00e9.md"; // é as one code point (NFC)
-		const decomposed = "41-cafe\u0301.md"; // e + combining acute (NFD)
+		const composed = "41-caf\u00e9.md";
+		const decomposed = "41-cafe\u0301.md";
 		await writeFile(join(root, "specs", composed), specCarrier({ key: "nfc-key", id: "41", title: "cafe1", canonicalPath: `specs/${composed}` }));
 		await writeFile(join(root, "specs", decomposed), specCarrier({ key: "nfd-key", id: "42", title: "cafe2", canonicalPath: `specs/${decomposed}` }));
 		await registerProject(dshHome(home), { id: "demo", path: root });
 		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
 		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
-		// Whether the host folds these into one file or keeps them apart, the
-		// invariant holds: no two candidates that normalize to the same path may
-		// both be served.
 		const served = envelope.result.candidates.map((c) => c.responsibility_key);
 		const collided = envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("approximate_path_collision"));
 		if (served.length === 2) {
 			assert.ok(collided, "two candidates normalizing to one path must be withheld and reported");
 			assert.deepEqual(served, [], "no colliding candidate may be served");
 		} else {
-			// The filesystem itself collapsed them to one file; the scan cannot
-			// and must not invent a second candidate.
 			assert.ok(served.length <= 2);
 		}
 	});
@@ -412,7 +367,6 @@ test("01 §9.1 defense 3: the envelope carries the snapshot the members came fro
 		assert.equal(snapshot.candidate_count, 3);
 		assert.equal(typeof snapshot.candidate_set_fingerprint, "string");
 		assert.equal(snapshot.candidate_set_fingerprint.length, 64);
-		// Every member's content fingerprint is bound in the same snapshot.
 		assert.equal(Object.keys(snapshot.content_fingerprints).length, 3);
 		for (const value of Object.values(snapshot.content_fingerprints)) {
 			assert.equal(value.length, 64);
@@ -449,9 +403,6 @@ test("read-specification-candidates at L2 includes a section outline", async () 
 	});
 });
 
-// ---------------------------------------------------------------------------
-// read-specification-content
-// ---------------------------------------------------------------------------
 
 test("read-specification-content returns L4 (full source) when no heading_path is given", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -480,15 +431,10 @@ test("read-specification-content returns L3 (sliced) with line numbers and secti
 		const envelope = await handlers["read-specification-content"]({ responsibility_key: "sample-spec-1", heading_path: "2. 职责边界" }, { agent: { session: { header: { cwd: root } } } });
 		assertEnvelopeShape(envelope, "read-specification-content", "completed");
 		assert.equal(envelope.result.layer, "L3");
-		// Counted from the fixture: ## 2. 职责边界 sits at line 23
-		// (1 H1 + 1 blank + 1 fence-open + 14 identity-block lines + 1 fence-close
-		//  + 1 blank + 1 H2 + 1 H2 text = 22; the actual layout is verified
-		// by the test outcome below).
 		assert.ok(typeof envelope.result.start_line === "number" && envelope.result.start_line > 0);
 		assert.ok(envelope.result.end_line >= envelope.result.start_line);
 		assert.match(envelope.result.section_fingerprint, /^[0-9a-f]{64}$/);
 		assert.ok(envelope.result.content.includes("2. 职责边界"));
-		// the slice must NOT contain the previous H2 ("1. 价值")
 		assert.ok(!envelope.result.content.includes("1. 价值"));
 	});
 });
@@ -526,22 +472,14 @@ test("read-specification-content returns rejected for an ambiguous heading path"
 		await writeSpecsTree(root);
 		await registerProject(dshHome(home), { id: "demo", path: root });
 		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		// "1. 价值" is unique in sample-spec-1; sample-spec-2 also has it.
-		// Pass an H2 that appears in multiple carriers to make sure each
-		// call only sees its own target.
 		const envelope = await handlers["read-specification-content"]({ responsibility_key: "sample-spec-1", heading_path: "1. 价值" }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope.outcome, "completed");
-		// Now a path that is genuinely ambiguous inside sample-spec-1: there
-		// is no duplicate; instead exercise content/heading_not_found.
 		const envelope404 = await handlers["read-specification-content"]({ responsibility_key: "sample-spec-1", heading_path: "不存在的节" }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope404.outcome, "rejected");
 		assert.ok(envelope404.gaps.some((g) => g.includes("heading_not_found")));
 	});
 });
 
-// ---------------------------------------------------------------------------
-// discover-ldvh-capabilities
-// ---------------------------------------------------------------------------
 
 test("discover-ldvh-capabilities enumerates all operations", async () => {
 	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
@@ -550,12 +488,9 @@ test("discover-ldvh-capabilities enumerates all operations", async () => {
 	const keys = envelope.result.operations.map((o) => o.operation_key).sort();
 	assert.deepEqual(keys, [
 		"discover-ldvh-capabilities",
-		// **2026-11-16**：两个留观缓冲操作已随 §12bis 删除（review 层整层取消）。
-		// **2026-11-17**：pending-queue-resolve 已随待处置队列删除（11 §12）。
 		"precheck-git-commit",
 		"read-specification-candidates",
 		"read-specification-content",
-		// 07 §5.4 / §5.7 AI entries, declared per 05 §6.1 in specs/07.
 		"register-governed-project",
 		"resolve-governance-scope",
 		"unregister-governed-project",
@@ -580,39 +515,14 @@ test("discover-ldvh-capabilities returns rejected for an unknown operation_key",
 	assertEnvelopeShape(envelope, "discover-ldvh-capabilities", "rejected");
 });
 
-// 2026-11-17：pending-queue-resolve 的整组测试已随该操作删除（11 §12）。
 
-// ---------------------------------------------------------------------------
-// precheck-git-commit
-//
-// Outcome matrix (06 §6.2 item 4, two sub-conditions):
-//   passed        — every check passed, including trailer-traceability
-//                   (route source available AND trailer values match it)
-//   failed        — positive failure evidence: any non-signature issue, a
-//                   STRUCTURAL trailer defect (missing/empty trailer line,
-//                   decidable without a route), or a trailer value MISMATCH
-//                   against an available authoritative route
-//   unverifiable  — no positive failure evidence, but the signature cannot
-//                   be traced (sessionPersistence unavailable / locate fails
-//                   / jsonl unreadable / jsonl has no routing event).
-//                   Trailer structure is fine, but traceability is incomplete
-//                   — must NOT collapse into "passed".
-//
-// The "route source" is built from a temp JSONL file the test controls;
-// the stub `sessionPersistence.locate` returns { kind: "jsonl", path: ... }
-// pointing at that file, and `currentRouteValues` reads it via the same
-// path the real DSH service uses. Pure-text JSONL works because
-// currentRouteValues falls back to raw text when zstd decompression fails.
-// ---------------------------------------------------------------------------
 
-/** Build a JSONL file containing a single routing event. */
 async function writeSessionLog(base, fileName, events) {
 	const path = join(base, fileName);
 	await writeFile(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
 	return path;
 }
 
-/** Build a stub sessionPersistence whose locate() points at the given file. */
 function stubSessionPersistence(logPath) {
 	return {
 		locate: () => ({ kind: "jsonl", path: logPath }),
@@ -639,7 +549,6 @@ test("precheck-git-commit returns unavailable when the session is not governed",
 	});
 });
 
-// ----- passed: route available + trailer matches ----------------------------
 
 test("precheck-git-commit returns passed when the route source agrees with the trailers, and attaches snapshot_identity", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -670,19 +579,15 @@ test("precheck-git-commit returns passed when the route source agrees with the t
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
 		assertEnvelopeShape(envelope, "precheck-git-commit", "completed");
 		assert.equal(envelope.result.mechanical_outcome, "passed");
-		// passed is the ONLY branch that attaches snapshot_identity
 		assert.match(envelope.result.snapshot_identity, /^[0-9a-f]{64}$/);
 		assert.equal(envelope.result.source_fingerprint.length, 64);
-		// signature_source traces back to the authoritative record
 		assert.equal(envelope.result.signature_source.provider, "deepseek-harness");
 		assert.equal(envelope.result.signature_source.model, "test");
 		assert.equal(envelope.result.signature_source.event_type, "model/selection");
-		// scope.completed is full; nothing is not_completed
 		assert.equal(envelope.scope.not_completed.length, 0);
 	});
 });
 
-// ----- failed: route available + trailer value MISMATCH ---------------------
 
 test("precheck-git-commit returns failed when the trailer values do not match the available route (positive mismatch evidence)", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -713,19 +618,14 @@ test("precheck-git-commit returns failed when the trailer values do not match th
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope.outcome, "completed");
 		assert.equal(envelope.result.mechanical_outcome, "failed");
-		// a positive mismatch is reported as a concrete issue
 		assert.ok(envelope.result.issues.some((i) => i.rule.startsWith("validation/signature_provider_mismatch")));
 		assert.ok(envelope.result.issues.some((i) => i.rule.startsWith("validation/signature_model_mismatch")));
-		// no snapshot_identity on a failed precheck
 		assert.equal(envelope.result.snapshot_identity, undefined);
-		// signature_source still surfaces the authoritative values that
-		// the trailer was measured against
 		assert.equal(envelope.result.signature_source.provider, "deepseek-harness");
 		assert.equal(envelope.result.signature_source.model, "test");
 	});
 });
 
-// ----- failed: structural trailer defect (no route needed) ------------------
 
 test("precheck-git-commit returns failed when the trailer is structurally incomplete (no route needed for the verdict)", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -735,8 +635,6 @@ test("precheck-git-commit returns failed when the trailer is structurally incomp
 		await registerProject(dshHome(home), { id: "demo", path: root });
 		await writeFile(join(root, "feature.txt"), "x\n");
 		await git(root, ["add", "feature.txt"]);
-		// missing LDVH-Model entirely (structural defect — decidable
-		// without any route source).
 		const message = [
 			"chore(code): 新增特性文件",
 			"",
@@ -750,7 +648,6 @@ test("precheck-git-commit returns failed when the trailer is structurally incomp
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope.outcome, "completed");
 		assert.equal(envelope.result.mechanical_outcome, "failed");
-		// the structural defect is the deciding issue; route is irrelevant
 		assert.ok(envelope.result.issues.some((i) => i.message.includes("LDVH-Model")));
 	});
 });
@@ -780,7 +677,6 @@ test("precheck-git-commit returns failed when the trailer values are empty (no r
 	});
 });
 
-// ----- failed: bad header / illegal body ------------------------------------
 
 test("precheck-git-commit refuses a fact carrier whose filename contradicts its object_uid (09 §5.5 same validator)", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -788,7 +684,6 @@ test("precheck-git-commit refuses a fact carrier whose filename contradicts its 
 		const root = await initRepo(base);
 		await writeSpecsTree(root);
 		await registerProject(dshHome(home), { id: "demo", path: root });
-		// 文件名编码 11111111…，frontmatter 却声明 22222222…——两侧不一致。
 		const dir = join(root, "ldvh-base", "sparks");
 		await mkdir(dir, { recursive: true });
 		await writeFile(
@@ -807,7 +702,6 @@ test("precheck-git-commit refuses a fact carrier whose filename contradicts its 
 		].join("\n");
 		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
-		// 预检须与 Git Gate 给出同一结论（09 §5.5：同一 validator，不建第二套规则）。
 		assert.equal(envelope.result.mechanical_outcome, "failed");
 		assert.ok(
 			envelope.result.issues.some((i) => i.rule === "facts/carrier_uid_filename_mismatch"),
@@ -857,13 +751,8 @@ test("precheck-git-commit returns failed when a 关键变更: item names a chang
 	});
 });
 
-// ----- unverifiable: route missing but every other check passed ------------
 
 test("precheck-git-commit returns unverifiable (NOT passed) when the route source is unavailable and the trailer is structurally complete", async () => {
-	// This is the canonical "no route" case: sessionPersistence is
-	// unavailable, every other check passes. The contract says the
-	// outcome must be "unverifiable" — never "passed" — because the
-	// trailer values cannot be traced to an authoritative record.
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
 		const root = await initRepo(base);
@@ -885,21 +774,14 @@ test("precheck-git-commit returns unverifiable (NOT passed) when the route sourc
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope.outcome, "completed");
 		assert.equal(envelope.result.mechanical_outcome, "unverifiable");
-		// unverifiable does NOT attach snapshot_identity
 		assert.equal(envelope.result.snapshot_identity, undefined);
-		// signature_source reports WHY traceability was lost
 		assert.ok(envelope.result.signature_source.unavailable_reason);
-		// scope explicitly names the incomplete check
 		assert.ok(envelope.scope.not_completed.includes("signature-traceability"));
-		// no positive failure evidence, so the issues list is empty
 		assert.deepEqual(envelope.result.issues, []);
 	});
 });
 
 test("precheck-git-commit returns unverifiable when the session log exists but contains no routing event", async () => {
-	// The route source "exists" (locate returns a path) but the file has
-	// no model/selection or request/context event. The structural trailer
-	// check passes, but traceability is still incomplete → unverifiable.
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
 		const root = await initRepo(base);
@@ -928,15 +810,10 @@ test("precheck-git-commit returns unverifiable when the session log exists but c
 		});
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope.result.mechanical_outcome, "unverifiable");
-		// specifically because the session has no routing event, not a
-		// structural defect
 		assert.match(envelope.result.signature_source.unavailable_reason, /no model\/selection or request\/context/);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// makeExecute shape
-// ---------------------------------------------------------------------------
 
 test("makeExecute returns five handlers and the same OPERATIONS export", () => {
 	const { handlers, OPERATIONS: ops } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
@@ -948,15 +825,6 @@ test("makeExecute returns five handlers and the same OPERATIONS export", () => {
 	assert.equal(ops, OPERATIONS);
 });
 
-// ---------------------------------------------------------------------------
-// render contract (regression guard)
-//
-// The DSH tool layer calls `result.content.some((block) => block.type ===
-// "image")` on every tool result, so output.render MUST return an ARRAY of
-// content blocks. A string return throws `content.some is not a function`
-// and the tool result never reaches the model — a silent total failure of
-// the whole tool batch that no handler-level test can catch.
-// ---------------------------------------------------------------------------
 
 test("output.render returns an array of content blocks (never a bare string)", () => {
 	for (const block of renderAllOutcomes()) {
@@ -966,14 +834,11 @@ test("output.render returns an array of content blocks (never a bare string)", (
 			assert.equal(typeof item.type, "string", "each content block needs a string type");
 			assert.equal(typeof item.text, "string", "each text block needs string text");
 		}
-		// The exact call dsh-tools performs on the result.
 		assert.equal(block.blocks.some((b) => b.type === "image"), false);
 	}
 });
 
 test("output.render survives structured (object) gaps without throwing", () => {
-	// scanSpecCandidates emits object gaps; render must stringify them
-	// instead of interpolating them as [object Object].
 	const blocks = renderBlocks({
 		envelope: {
 			operation_key: "read-specification-candidates",
@@ -991,9 +856,6 @@ test("output.render survives structured (object) gaps without throwing", () => {
 	assert.ok(!text.includes("[object Object]"), "structured gaps must not render as [object Object]");
 });
 
-// The output schema constrains OUR handler return, not a model emission, so it
-// stays open. Re-tightening it is what rejected every structured gap and is the
-// second half of the same incident — this test is the guard against regression.
 test("output.schema stays open so structured envelope values are never rejected", () => {
 	for (const descriptor of descriptors()) {
 		const schema = descriptor.output.schema;
@@ -1011,20 +873,10 @@ test("every tool descriptor declares the DSH registration contract", () => {
 		assert.ok(descriptor.description.length > 0);
 		assert.equal(typeof descriptor.execute, "function");
 		assert.equal(typeof descriptor.output.render, "function");
-		// parameters stays strict: it constrains what the MODEL emits.
 		assert.equal(descriptor.parameters.type, "object");
 	}
 });
 
-// ---------------------------------------------------------------------------
-// Timeout budget vs. Human-facing asks
-// ---------------------------------------------------------------------------
-//
-// The host's timeout policy arms a wall-clock deadline from `timeoutMs` and
-// substitutes TOOL_TIMEOUT for the real result once it elapses — AFTER the tool
-// resolves. For an operation that waits on a person, a declared budget is
-// therefore not "slow", it is WRONG: the answer arrives and is then discarded.
-// So the contract is two-sided and both sides are pinned here.
 
 test("tools that never wait on a Human keep a bounded timeout budget", () => {
 	const bounded = descriptors().filter((d) => operationsAwaitingHuman().includes(d.name) === false);
@@ -1052,14 +904,6 @@ test("tools that wait on a Human declare NO timeout budget", () => {
 });
 
 test("Human-facing asks forward the caller's cancellation signal", async () => {
-	// Omitting timeoutMs removes the only wall-clock release, so the caller's
-	// signal becomes the sole way an abandoned prompt is freed. If this wiring
-	// regresses, the prompt hangs forever instead of failing closed.
-	//
-	// This drives the REAL handler through a recording seam. A source-text
-	// check would be a false guarantee here: the string "signal" also appears
-	// in requestConsent's own parameter list, so a regex passes even when every
-	// CALL SITE drops it (verified by mutation 2026-09-20).
 	const seen = [];
 	const seams = {
 		requestRegistrationConsent: async (payload) => {
@@ -1074,10 +918,6 @@ test("Human-facing asks forward the caller's cancellation signal", async () => {
 		hostSeams: seams
 	});
 	const signal = new AbortController().signal;
-	// Registration reaches the consent ask only after its preconditions pass,
-	// which need a real Git root; the unregister path asks too, and both share
-	// requestConsent — so drive whichever one the environment lets through and
-	// assert on the seam call itself.
 	await handlers["register-governed-project"]({ path: "/nope" }, { agent: { session: { header: { cwd: "/nope" } } }, signal });
 	await handlers["unregister-governed-project"]({ id: "p1", path: "/nope" }, { agent: { session: { header: { cwd: "/nope" } } }, signal });
 
@@ -1087,44 +927,24 @@ test("Human-facing asks forward the caller's cancellation signal", async () => {
 	}
 });
 
-// ---------------------------------------------------------------------------
-// guidance-text
-// ---------------------------------------------------------------------------
 
 test("guidanceTextFor returns the governed text with the six 00 anchors", () => {
 	const text = guidanceTextFor("governed");
 	assert.ok(text.length > 0);
-	// 01 §10.4 contract (six anchors, post-00-refactor): identity block,
-	// §1 三大核心价值, §2 方法与构成, §3 Human 权利, §4 AI 责任与义务
-	// (with §4.6 据实声明 / §4.7 必停情形与恢复 / §4.8 交还与撤回), §5 价值纪律.
-	// The former §6 dual-track values (V1–V8 / HV1–HV5) anchor was deleted with
-	// the 00 refactor; §2 方法与构成 merges the former §2 root scheme and §3 构成解析.
 	for (const anchor of ["身份块", "§1 三大核心价值", "§2 方法与构成", "§3 Human 权利", "§4 AI 责任与义务", "§4.6", "§4.7", "§4.8", "§5 价值纪律"]) {
 		assert.ok(text.includes(anchor), `governed guidance missing anchor: ${anchor}`);
 	}
 });
 
 test("guidanceTextFor not_governed: one-line judgment notice (Human 2026-09-04 上下文注入决定)", () => {
-	// Supersedes the former zero-interference shape (not_governed → "").
-	// The judgment must now be TOLD to the AI for every state — including
-	// not_governed — as a single judgment line plus a minimal body.
 	const text = guidanceTextFor("not_governed");
 	assert.ok(text.length > 0, "not_governed must carry text now");
 	assert.match(text, /【LDVH 管辖判定】not_governed/);
 	assert.match(text, /不受 LDVH 管辖/);
-	// Minimal: no seven-anchor body leaks into non-governed sessions.
 	assert.ok(!text.includes("工作模型"), "non-governed body must stay minimal");
 });
 
 test("guidanceTextFor unavailable: reports unavailable but acts as not_governed", () => {
-	// Human decision (2026-09-02): unavailable is a SPECIAL CASE of
-	// not_governed — behaviour is identical (no tools, no controlled
-	// operations), except that unavailable additionally reports the
-	// condition and how to check it. So the text must NOT claim the
-	// project is ungoverned (that would guess over an unreadable
-	// registration), and must NOT tell AI to call a tool (no ldvh_* tool
-	// is registered outside governed sessions — the deadlock the
-	// independent audit found).
 	const text = guidanceTextFor("unavailable");
 	assert.ok(text.length > 0);
 	assert.match(text, /不可用/);
@@ -1139,12 +959,6 @@ test("GUIDANCE_SECTION_NAME and ORDER are exported constants", () => {
 	assert.ok(GUIDANCE_SECTION_ORDER > 0);
 });
 
-// ----- load-bearing declaration protection (01 §7 末段; 09 §5.3 item 6) -----
-//
-// The precheck entry must reach the SAME verdict as the Git Gate for the same
-// candidate (09 §5.5: one validator, no second rule set); the gate's own
-// spawn-level cases live in git-gate-runner.test.mjs, and these cover the
-// precheck adapter that reads HEAD and the Index itself.
 
 const DECLARATION_MARKER = "【承重声明】";
 const DECLARATION_RESOLUTION = "**恢复条件**：";
@@ -1220,8 +1034,6 @@ test("precheck-git-commit passes the same edit when a 关键变更 item carries 
 });
 
 test("renderEnvelope: 预检的失败原因必须对调用方可读（09 §5.3 的意图是给出问题项，不是只给 failed）", () => {
-	// 实测踩到（2026-10-15 宿主目标功能提交前预检）：渲染器只印 gaps，而预检把问题项
-	// 放在 `result.issues` 里，于是「failed 但看不到为什么」——调用方只能反复试错。
 	const blocks = renderEnvelope("precheck-git-commit", {
 		envelope: {
 			operation_key: "precheck-git-commit",
@@ -1242,7 +1054,6 @@ test("renderEnvelope: 预检的失败原因必须对调用方可读（09 §5.3 �
 	assert.match(text, /\ngap: provider\/model could not be traced/, "gaps 的既有呈现不受影响");
 });
 
-// 09 §5.3 第 7 项（precheck 入口）：以「§7.2 违规」为由删除时，逐字引用须在 §7.2 中存在。
 test("precheck-git-commit 拒绝编造的 §7.2 依据引用，放行逐字引用", async () => {
 	await withTemp("ldvh-tools-basis.", async (base) => {
 		const home = join(base, "home");
@@ -1290,8 +1101,6 @@ test("precheck-git-commit 拒绝编造的 §7.2 依据引用，放行逐字引�
 		assert.ok(outOfScope.result.issues.some((issue) => issue.rule === "validation/removal_basis_unquotable"));
 
 		const good = await handlers["precheck-git-commit"]({ message: build("§7.2 依据：禁止三类：实现状态；下位文档的存在状态；过程与进度。") }, exec);
-		// 夹具无会话日志，故机械结论止于 unverifiable（路由取不到）——与本项检查无关；
-		// 本项只须证明逐字引用不再产生 removal_basis 类问题。
 		assert.ok(
 			!(good.result.issues ?? []).some((issue) => issue.rule.startsWith("validation/removal_basis")),
 			JSON.stringify(good.result.issues)
@@ -1300,19 +1109,8 @@ test("precheck-git-commit 拒绝编造的 §7.2 依据引用，放行逐字引�
 	});
 });
 
-// ── 工具返回值必须是 lossless JSON（2026-10-27 实测缺陷）─────────────────────
 
 test("**删除设置字段后，诊断工具不得把 undefined 带进返回值**", async () => {
-  // 实测症状（2026-10-27）：去掉「审核模型」设置后，`ldvh_probe_host_automation`
-  // （`reconcile: true`）整次调用失败，报 `value is not lossless JSON`。
-  //
-  // 根因：我把 `review.model` 从设置解析里删了，但诊断仍在读 `settings.review.model`
-  // 并把它放进 `result.settings`——读到 `undefined`。而 `undefined` 不是合法 JSON，
-  // 于是**整个诊断失败**，看起来像「被诊断的机制坏了」，实际是诊断工具自己坏了。
-  //
-  // 这个失败形态特别值得守：删字段时只查「谁引用它」不够，还要查**谁读它并把它
-  // 放进返回值**。故此处直接读源码断言：该处不得再出现 `review.model`，且各字段
-  // 须显式兜底为合法的 JSON 值。
   const source = readFileSync(new URL("../lib/ldvh-tools.js", import.meta.url), "utf8");
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
@@ -1322,15 +1120,10 @@ test("**删除设置字段后，诊断工具不得把 undefined 带进返回值*
     "诊断不得再读 settings.review.model——该字段已随「审核模型」设置移除，读到的是 undefined，会让整个工具返回非法 JSON",
   );
 
-  // 三个展示字段都须显式兜底（`?.` + 类型判定或 `?? null`），不得直接裸取。
   const idx = code.indexOf("const state = {");
   assert.ok(idx >= 0, "须仍存在 state 构造");
   const block = code.slice(idx, code.indexOf("};", idx));
   assert.match(block, /enabled:.*===?\s*true/, "enabled 须显式判真，不裸取");
-  // **`intervalMs` 已整体删除**（2026-10-27 二次修订，与 `review.model` 同一处置）：
-  // 审核随静置触发，没有间隔这个量。此处反向钉住——它不得再被读、也不得被放进
-  // 返回值。两条断言合起来才是完整判据：既守「删掉的字段没被继续读」，也守「没有
-  // 以 `intervalMs: null` 的形式留一个空位」（留空位会让读者以为机制还在）。
   assert.equal(
     /settings\.review\.intervalMs/.test(code),
     false,
@@ -1343,19 +1136,10 @@ test("**删除设置字段后，诊断工具不得把 undefined 带进返回值*
   );
 });
 
-// ---------------------------------------------------------------------------
-// precheck-git-commit: 宿主模块陈旧时的三值归类（friction-fbd65401）
-//
-// 这组用例的意义不在 helper（module-freshness.test.mjs 已测判据），而在**接线**：
-// 判据正确但没接上分类逻辑，是 pitfall-967f00c7「helper 正确而没接上」的同类形态。
-// 正向半边要求「模块 mtime 晚于进程启动」，测试无法真的让已加载的模块变旧，故经
-// `deps.detectStaleModules` 注入——该接缝只为测试存在，生产走默认实现。
-// ---------------------------------------------------------------------------
 
 const STALE = { stale: [{ file: "/repo/plugin/lib/commit-validation.js", mtime_ms: 9_999_999_999_999 }], unreadable: [], checked: 2, start_ms: 1 };
 const FRESH = { stale: [], unreadable: [], checked: 2, start_ms: 1 };
 
-/** 一条必然 failed 的候选（trailer 值与权威路由不符 = 正向失败证据）。 */
 const MISMATCHED_MESSAGE = [
 	"chore(code): 新增特性文件",
 	"",
@@ -1390,18 +1174,13 @@ test("precheck-git-commit 在 validator 模块陈旧时把 failed 降为 unverif
 	await withTemp("ldvh-stale.", async (base) => {
 		const envelope = await precheckWithStaleness(base, STALE);
 		assert.equal(envelope.outcome, "completed");
-		// 同一候选、同一路由：唯一差别是模块陈旧——结论必须由 failed 变 unverifiable。
 		assert.equal(envelope.result.mechanical_outcome, "unverifiable");
-		// 但**问题项不消失**：它们仍是旧代码给出的观察，只是不再被当作结论。
 		assert.ok(envelope.result.issues.some((i) => i.rule.startsWith("validation/signature_provider_mismatch")));
-		// 陈旧须能从返回值读出，而不是只留一句 unverifiable 让人误以为是输入问题。
 		assert.ok(envelope.result.stale_modules, "陈旧时应回传 stale_modules");
 		assert.equal(envelope.result.stale_modules.files.length, 1);
 		assert.equal(typeof envelope.result.stale_modules.process_start_ms, "number");
-		// gaps 按 09 §5.4 承载具体缺口：既含原因，也逐条带出被降级的问题。
 		assert.ok(envelope.gaps.some((g) => g.includes("STALE code") && g.includes("commit-validation.js")));
 		assert.ok(envelope.gaps.some((g) => g.startsWith("validation/signature_provider_mismatch")));
-		// scope 如实登记「结论非现行代码算出」这一未完成项。
 		assert.ok(envelope.scope.not_completed.includes("verdict-computed-by-current-validator-code"));
 	});
 });
@@ -1409,9 +1188,6 @@ test("precheck-git-commit 在 validator 模块陈旧时把 failed 降为 unverif
 test("陈旧时 follow_up 不得指引「去修候选」（friction-fbd65401 的危害本体）", async () => {
 	await withTemp("ldvh-stale.", async (base) => {
 		const envelope = await precheckWithStaleness(base, STALE);
-		// 原实现在非 passed 时一律回「fix the reported issues and re-run precheck」——
-		// 对陈旧结论而言，那等于推着调用方去改候选迎合旧代码（本次实测即据此
-		// 误收窄了检查范围）。故陈旧路径下这句必须不出现。
 		assert.ok(
 			!envelope.follow_up.some((f) => f.includes("fix the reported issues")),
 			`陈旧时不得给出「改候选」式指引：${JSON.stringify(envelope.follow_up)}`,
@@ -1458,19 +1234,14 @@ test("陈旧不改判 passed：陈旧只说明「不知道」，不得伪装成�
 			detectStaleModules: () => STALE,
 		});
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
-		// passed 侧不动：Git Gate 每次新起进程会以现行代码再判一次，终闸仍可信。
 		assert.equal(envelope.result.mechanical_outcome, "passed");
 		assert.match(envelope.result.snapshot_identity, /^[0-9a-f]{64}$/);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// 渲染层：候选清单必须逐条可见（friction-8608a8a6）
-// ---------------------------------------------------------------------------
 
 test("渲染：候选枚举必须逐条列出 responsibility_key，只回计数即失败", () => {
 	const text = (blocks) => blocks.map((b) => b.text ?? "").join("\n");
-	// 三条候选：两条带 title，一条缺 title（渲染不得因此丢条）
 	const value = {
 		envelope: {
 			operation_key: "read-specification-candidates",
@@ -1502,16 +1273,8 @@ test("渲染：候选为空时不伪造条目", () => {
 	assert.doesNotMatch(body, /^- [^ ]/m, "零候选不得印出任何条目行");
 });
 
-// ---------------------------------------------------------------------------
-// 陈旧模块报告的渲染必须逐字段可读
-// ---------------------------------------------------------------------------
 
 test("渲染：陈旧模块报告的每个字段都须在模型侧可见（不能只印 completed）", () => {
-	// 这条用例的来源：**真机实测**。宿主重启后调用 ldhv_inspect_loaded_modules，
-	// 模型侧只看到一行「LDVH inspect-loaded-modules: completed」——checked／stale／
-	// unreadable 一个字段都没有，因为 renderEnvelope 只认几个固定结构。那使
-	// 「查过了」与「没查」在模型侧不可区分，与 friction-8608a8a6（候选只回计数）
-	// 及探针那次同型。此用例钉住：报告字段必须逐项渲染。
 	const fake = {
 		envelope: {
 			operation_key: "inspect-loaded-modules",
@@ -1564,16 +1327,7 @@ test("渲染：stale 为空时也必须印出计数与被检数（空结果同�
 	assert.ok(rendered.includes("stale: 0"));
 });
 
-// ---------------------------------------------------------------------------
-// 规范读取面的模型可见性（渲染层行为回归）
-//
-// spark-a569c490：handler 已返回内容，模型可见渲染却只输出 completed。
-// 本段贯穿 handler → descriptor.execute → output.render，断言读取结果进入文本
-// 而非仅存在于信封中；L0 反向控制防止所有层一律输出正文。覆盖范围限于这些
-// 规范读取夹具，不证明其他工具的投影完整。
-// ---------------------------------------------------------------------------
 
-/** 走真实描述符链渲染一次调用，返回 { envelope, text }。 */
 async function renderThroughTool(operationKey, handler, args, exec) {
 	const descriptor = toolDescriptor(operationKey, OPERATIONS[operationKey], handler);
 	const value = await descriptor.execute(args, exec);
@@ -1583,7 +1337,6 @@ async function renderThroughTool(operationKey, handler, args, exec) {
 	return { envelope: value.envelope, text: blocks.map((b) => b.text).join("\n") };
 }
 
-/** 在一次受辖夹具上跑读取面可见性断言。 */
 async function withSpecFixture(run) {
 	await withTemp("ldvh-tools.render.", async (base) => {
 		const home = join(base, "home");
@@ -1602,22 +1355,16 @@ test("渲染可见性：L0 候选保持简洁——键与标题可见，正文�
 		for (const c of envelope.result.candidates) {
 			assert.ok(text.includes(c.responsibility_key), `候选键必须可见：${c.responsibility_key}`);
 			assert.ok(text.includes(c.title), `候选标题必须可见：${c.title}`);
-			// 01.Att.03 §4：L0 须可见类型、key、编号、标题、路径。
-			// 断言限定在**该候选自己的行**内：编号（如 11）会偶然出现在指纹串里，
-			// 全局 text.includes 查编号等于没查。
 			const line = text.split("\n").find((l) => l.includes(c.responsibility_key) && !l.startsWith("sources:"));
 			assert.ok(line !== undefined, `该候选必须独占一行：${c.responsibility_key}`);
 			assert.ok(line.includes(c.carrier_kind), `候选类型必须可见：${c.responsibility_key}`);
 			assert.ok(line.includes(c.spec_id), `候选编号必须可见：${c.responsibility_key}`);
 			assert.ok(line.includes(c.canonical_path), `候选路径必须可见：${c.responsibility_key}`);
-			// positioning 属 L1，不进 L0
 			assert.ok(!text.includes(c.positioning), `L0 不得出现候选 positioning：${c.responsibility_key}`);
 		}
-		// L0 反向控制：不承载正文，也不携带 L2 目录
 		assert.ok(!text.includes("正文段落。"), "L0 不得倾倒正文");
 		assert.ok(!text.includes("子节正文。"), "L0 不得倾倒正文");
 		assert.ok(!text.includes("2. 职责边界"), "L0 不得携带 L2 的 section_outline");
-		// 但 L0 仍须披露来源视图与继续读取的入口（01 §10.3）
 		assert.ok(text.includes("sources:"), "L0 必须披露来源视图");
 		const snapshot = envelope.sources[0].snapshot;
 		assert.ok(snapshot, "数据面必须绑定扫描快照");
@@ -1665,13 +1412,11 @@ test("渲染可见性：L2 不指定 key 时，全部候选各自的目录都必
 		assert.equal(envelope.outcome, "completed");
 		assert.equal(envelope.result.layer, "L2");
 		assert.ok(envelope.result.candidates.length >= 2, "本夹具至少有两个候选");
-		// 不设字节阈值：只主张「都在」，不主张「多大都在」
 		for (const c of envelope.result.candidates) {
 			const where = `候选 ${c.responsibility_key}`;
 			assert.ok(text.includes(c.responsibility_key), `${where}：键必须可见`);
 			assert.ok(text.includes(c.title), `${where}：标题必须可见`);
 			assert.ok(text.includes(c.positioning), `${where}：positioning 必须可见`);
-			// scope 是可选字段（附件可无 scope）：有则必须可见，无则不凭空断言
 			if (c.scope !== undefined) assert.ok(text.includes(c.scope), `${where}：scope 必须可见`);
 			assert.ok(Array.isArray(c.section_outline), `${where}：数据面必须给出目录`);
 			for (const entry of c.section_outline) {
@@ -1688,11 +1433,9 @@ test("渲染可见性：L3 的正文与定位信息（起止行号、节指纹�
 		assert.equal(envelope.outcome, "completed");
 		assert.equal(envelope.result.layer, "L3");
 		assert.ok(text.includes(envelope.result.content), "L3 切片须完整逐字可见");
-		// 逐字正文：模型要读的就是这一段
 		assert.ok(text.includes("2. 职责边界"), "L3 的所读标题必须可见");
 		assert.ok(text.includes("子节正文。"), "L3 的所读正文必须逐字可见");
 		assert.ok(text.includes("又一正文。"), "L3 的所读正文必须逐字可见（不得只给首段）");
-		// 定位信息：起止行号与两个指纹（01 §10.3 要求披露来源视图与内容指纹）
 		assert.ok(text.includes(String(envelope.result.start_line)), "L3 的起始行号必须可见");
 		assert.ok(text.includes(String(envelope.result.end_line)), "L3 的结束行号必须可见");
 		assert.ok(text.includes(envelope.result.section_fingerprint), "L3 的节指纹必须可见");
@@ -1718,13 +1461,11 @@ test("渲染可见性：L4 的全文必须可见（逐字，不得只回一行 c
 
 test("渲染可见性：读取失败时，原因与自愈方向（follow_up）必须可见", async () => {
 	await withSpecFixture(async ({ handlers, exec }) => {
-		// 未知 key → rejected：原因与「去枚举键」的入口都要看得见
 		const unknown = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "no-such-key" }, exec);
 		assert.equal(unknown.envelope.outcome, "rejected");
 		assert.ok(unknown.text.includes("rejected"), "失败响应的结果分类必须可见");
 		assert.ok(unknown.text.includes("no-such-key"), "被拒的键必须出现在可见文本里");
 		assert.ok(unknown.text.includes("read-specification-candidates"), "rejected 的自愈方向（去枚举键）必须可见，否则模型只看到一句拒绝");
-		// heading_path 写错 → rejected：精确原因与「去 L2 取目录」的入口都要看得见
 		const badHeading = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1", heading_path: "不存在的节" }, exec);
 		assert.equal(badHeading.envelope.outcome, "rejected");
 		assert.ok(badHeading.text.includes("heading_not_found"), "失败原因码必须可见");
@@ -1748,7 +1489,6 @@ test("渲染可见性：非受辖会话的 unavailable 响应必须把治理状�
 	});
 });
 
-/** 与预检入口读暂存区时完全相同的命令，取未经 trim 的原始 diff。 */
 async function stagedDiff(root) {
 	const { stdout } = await execFileAsync("git", ["-C", root, "diff", "--cached", "--binary", "--no-ext-diff"], { encoding: "utf8" });
 	return stdout;
@@ -1776,7 +1516,6 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 		const exec = { agent: { session: { header: { cwd: root } } } };
 		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => stubSessionPersistence(logPath) });
 
-		// (1) passed：两个标识都要可读，且 source_fingerprint 须明示它是 protocol tag
 		const passed = await renderThroughTool("precheck-git-commit", handlers["precheck-git-commit"], { message: okMessage }, exec);
 		assert.equal(passed.envelope.result.mechanical_outcome, "passed");
 		assert.match(passed.envelope.result.snapshot_identity, /^[0-9a-f]{64}$/);
@@ -1785,7 +1524,6 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 		assert.ok(passed.text.includes("protocol tag"), "source_fingerprint 须明示它是 protocol tag");
 		assert.ok(passed.text.includes("not a source-code fingerprint"), "须明示它不是源码指纹");
 
-		// (2) 真实 failed：信封不带标识，文本不得出现任何 hash；错误仍须可见
 		const badMessage = "not a conventional header";
 		const failed = await renderThroughTool("precheck-git-commit", handlers["precheck-git-commit"], { message: badMessage }, exec);
 		assert.equal(failed.envelope.result.mechanical_outcome, "failed");
@@ -1795,7 +1533,6 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 		assert.ok(failed.text.includes("failed"), "失败结论必须可见");
 		for (const issue of failed.envelope.result.issues) assert.ok(failed.text.includes(issue.rule), `失败原因须可见：${issue.rule}`);
 
-		// (3) 真实 unverifiable（路由不可得）：同理，且原因可见
 		const { handlers: noRoute } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
 		const unverifiable = await renderThroughTool("precheck-git-commit", noRoute["precheck-git-commit"], { message: okMessage }, exec);
 		assert.equal(unverifiable.envelope.result.mechanical_outcome, "unverifiable");
@@ -1803,7 +1540,6 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 		assert.ok(unverifiable.text.includes("unverifiable"), "不可验证结论必须可见");
 		assert.ok(unverifiable.text.includes("could not be traced"), "不可验证的原因必须可见");
 
-		// (4) 构造信封：failed/unverifiable 即使带了伪造 hash，也不得显示出来
 		for (const outcome of ["failed", "unverifiable"]) {
 			const fake = "f".repeat(64);
 			const rendered = renderEnvelope("precheck-git-commit", {
@@ -1823,7 +1559,6 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 			assert.ok(rendered.includes("follow_up: restart the host"), `${outcome}：重试方向必须可见`);
 		}
 
-		// (5) 陈旧（failed 被降级为 unverifiable）：gap / not_completed / 重试方向可见，且仍无 hash
 		const { handlers: staleHandlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => stubSessionPersistence(logPath), detectStaleModules: () => STALE });
 		const stale = await renderThroughTool("precheck-git-commit", staleHandlers["precheck-git-commit"], { message: MISMATCHED_MESSAGE }, exec);
 		assert.equal(stale.envelope.result.mechanical_outcome, "unverifiable");
@@ -1834,70 +1569,8 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 	});
 });
 
-// ---------------------------------------------------------------------------
-// 09 §5.3 item 8 (Human 决定 2026-10-23): precheck 入口的 AGENTS 指针三值。
-// 与 Git Gate 共用 checkAgentsPointers（同一 validator），但 precheck 须把
-// 未绑定锚点判为 unverifiable、解析失败判为 failed（09 §5.4 三值语义）。
-// ---------------------------------------------------------------------------
 
-async function precheckAgentsSetup(base, agentsText) {
-	const home = join(base, "home");
-	const root = await initRepo(base); // 默认创建并暂存 README.md
-	await writeSpecsTree(root);
-	await writeFile(join(root, "AGENTS.md"), agentsText);
-	await git(root, ["add", "AGENTS.md", "specs/11-规范示例一.md", "specs/12-规范示例二.md"]);
-	await registerProject(dshHome(home), { id: "demo", path: root });
-	const logPath = await writeSessionLog(base, "session.jsonl", [
-		{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
-	]);
-	const message = [
-		"chore(code): 更新 AGENTS 指针",
-		"",
-		"关键变更:",
-		"- seed README.md test carrier",
-		"- add AGENTS.md pointer file",
-		"- seed specs/11-规范示例一.md",
-		"- seed specs/12-规范示例二.md",
-		"",
-		"LDVH-Provider: deepseek-harness",
-		"LDVH-Model: test",
-	].join("\n");
-	return { home, root, logPath, message };
-}
 
-async function runAgentsPrecheck(base, setup, message) {
-	const { handlers } = makeExec({
-		dshHomePath: dshHome(setup.home),
-		workspaceRoot: base,
-		sessionPersistence: () => stubSessionPersistence(setup.logPath),
-	});
-	return handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: setup.root } } } });
-}
 
-test("precheck-git-commit: AGENTS pointer resolves -> passed (no false failure)", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const setup = await precheckAgentsSetup(base, "指针见 `specs/11-规范示例一.md` §1 一节\n");
-		const envelope = await runAgentsPrecheck(base, setup, setup.message);
-		assertEnvelopeShape(envelope, "precheck-git-commit", "completed");
-		assert.equal(envelope.result.mechanical_outcome, "passed", JSON.stringify(envelope.result.issues));
-	});
-});
 
-test("precheck-git-commit: dangling AGENTS anchor -> failed", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const setup = await precheckAgentsSetup(base, "指针见 `specs/11-规范示例一.md` §9.99 一节\n");
-		const envelope = await runAgentsPrecheck(base, setup, setup.message);
-		assert.equal(envelope.result.mechanical_outcome, "failed");
-		assert.ok(envelope.result.issues.some((i) => i.rule === "validation/agents_pointer_unresolved"));
-	});
-});
 
-test("precheck-git-commit: unbound AGENTS anchor -> unverifiable (NOT failed, NOT passed)", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const setup = await precheckAgentsSetup(base, "先看 §2 再读 `specs/11-规范示例一.md`\n");
-		const envelope = await runAgentsPrecheck(base, setup, setup.message);
-		assert.equal(envelope.result.mechanical_outcome, "unverifiable", JSON.stringify(envelope.result.issues));
-		assert.ok(envelope.result.issues.some((i) => i.rule === "validation/agents_pointer_unverifiable"));
-		assert.equal(envelope.result.snapshot_identity, undefined, "unverifiable 不得带 snapshot_identity");
-	});
-});

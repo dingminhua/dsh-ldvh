@@ -1,67 +1,18 @@
-// Shared commit-candidate validation core.
-//
-// Authority: specs/06 §6.1 (message contract) and §6.2 (precheck-git-commit
-// public operation). specs/09 §6 requires the Git commit-msg gate and the
-// Helper precheck to call THE SAME validation entry — this module is that
-// single entry. The Git Gate runner (git-gate-runner.js) and the
-// precheck-git-commit tool both consume it; no second implementation is
-// permitted.
-//
-// v4 absorption record (P0 implementation plan §2; that plan was removed with
-// the temporary documentation tree in ec19ba6): the body-structure
-// and trailer checks are extracted-and-adapted from v4
-// code/ldvh/commits/validation.py `_body_structure_issues` /
-// `_footer_trailers` (~120 lines of its 1049); v4's platform-affected,
-// fact-layer, human-gate-trailer checks are deliberately NOT migrated (v5
-// removed them — dev-memo decision #29).
 
 import { createHash } from "node:crypto";
-// 09 §5.3 item 8: reuse the SAME fenced-heading extractor the spec reader uses,
-// so 锚点解析 does not duplicate the fenced-line mask. No cycle: spec-registry
-// does not import this module (verified in the import graph).
-import { extractHeadings } from "./spec-registry.js";
 
-/**
- * Ambient Git override variables must never leak into an LDVH Git invocation
- * (a surrounding shell's GIT_DIR / GIT_INDEX_FILE would silently redirect the
- * diff being validated). Shared by the Gate runner and the precheck handler
- * so both invoke Git with the same environment (specs/09 §6 single
- * implementation discipline).
- */
 export function cleanGitEnvironment(extra = {}) {
   const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
-  // Strip ambient Git overrides FIRST, then let the caller's explicit values
-  // win: a preflight deliberately passes its own GIT_INDEX_FILE and must not
-  // have it stripped, while an inherited shell GIT_DIR must never leak in.
   for (const key of Object.keys(env)) {
     if (["GIT_COMMON_DIR", "GIT_CONFIG_COUNT", "GIT_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_WORK_TREE"].includes(key) || key.startsWith("GIT_CONFIG_KEY_") || key.startsWith("GIT_CONFIG_VALUE_")) delete env[key];
   }
-  // `core.quotepath=false` is REQUIRED for every LDVH Git read, not a cosmetic
-  // preference. With the default (`true`) Git C-quotes a non-ASCII pathname —
-  // the diff header becomes `diff --git "a/specs/13-\346\211\277..." ...`.
-  // Two checks parse pathnames out of that output:
-  //   - extractDiffPaths' `/^diff --git a\/(.+) b\/(.+)$/` matches no quoted
-  //     line, so `changedPaths` came back EMPTY and every 关键变更 item was
-  //     reported unmatched (false blocking verdict);
-  //   - `git show :<path>` on a quoted spelling dies with "path does not exist",
-  //     so a readable §7.2 / declaration carrier read as unreadable.
-  // Observed on Windows against this repository's own Chinese spec filenames.
-  // Set here — the one shared Git invocation boundary (09 §6) — so the Git Gate
-  // and the Helper precheck can never diverge on it.
   const quotepath = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.quotepath", GIT_CONFIG_VALUE_0: "false" };
   return { ...env, ...quotepath, ...extra };
 }
 
 export const HEADER_PATTERN = /^(feat|fix|docs|refactor|test|chore|build|ci|perf|style)(?:\([a-z0-9-]+\))?: .+/;
-/** The description half of a header: everything after `type(scope): `.
- *  The header-language check judges this half only — the conventional prefix
- *  is Latin by definition and must not count as "having a description". */
 export const HEADER_DESCRIPTION_PATTERN = /^(?:feat|fix|docs|refactor|test|chore|build|ci|perf|style)(?:\([a-z0-9-]+\))?: (.+)$/;
-/** 中文（CJK 统一表意文字）判定，供 header 描述的语言检查使用。 */
 export const CJK_CHARACTER_PATTERN = /[\u4e00-\u9fff]/;
-/** 实现层登记的历史豁免（与 EXEMPT_BASENAMES 同体例）：本规则生效之前
- *  已经落入历史的两笔非中文 header。豁免按完整 header 文本逐字匹配，
- *  不改变规范层语义边界，也不放行任何新提交。 */
 export const HEADER_LANGUAGE_EXEMPTIONS = Object.freeze([
 	"fix(injection): stop re-injecting the governance block on adjacent turns",
 	"fix(client): ctx.get→ctx.inject for betterSidebar tab registration",
@@ -69,12 +20,6 @@ export const HEADER_LANGUAGE_EXEMPTIONS = Object.freeze([
 export const SIGNATURES = ["LDVH-Provider", "LDVH-Model"];
 export const SOURCE_FINGERPRINT = createHash("sha256").update("dsh-ldvh-git-gate-v1", "utf8").digest("hex");
 
-// ---------------------------------------------------------------------------
-// K1 rule registry — the single authority for every mechanical finding the
-// validator can emit (anchor doc §8.1 K1: stable rule IDs so findings are
-// referenceable {rule, severity, line}). Emitting an unregistered rule throws
-// (fail-loud registry discipline); adding a rule means adding it here first.
-// ---------------------------------------------------------------------------
 
 export const GATE_RULES = Object.freeze({
   "validation/header_invalid": Object.freeze({ severity: "blocking", description: "first line must be a conventional commit header" }),
@@ -103,16 +48,8 @@ export const GATE_RULES = Object.freeze({
   "facts/carrier_uid_filename_mismatch": Object.freeze({ severity: "blocking", description: "a staged ldvh-base carrier's filename encodes one identity while its own `object_uid:` declaration states another (02 §7.1: the declaration is the identity authority; 02 §5 item 6 forbids silently consuming one of two disagreeing claims). 09 §8.1 item 2 领域增量，Human 批准 2026-11-04" }),
   "facts/carrier_uid_duplicate": Object.freeze({ severity: "blocking", description: "two or more staged ldvh-base carriers declare the same `object_uid` (02 §5 item 6: 载体重复/身份冲突时不得静默选择一份继续消费或写入). 09 §8.1 item 2 领域增量，Human 批准 2026-11-04" }),
   "facts/carrier_uid_unverifiable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base carrier could not be read or its frontmatter could not be parsed, so its identity declaration cannot be checked — fails closed rather than passing an unverified carrier (02 §5 item 6)" }),
-  "validation/agents_pointer_unresolved": Object.freeze({ severity: "blocking", description: "a bound §anchor in the staged root AGENTS.md does not resolve to a matching numbered heading in its explicit spec carrier, or an explicit backticked specs/ path is absent from the candidate tree (09 §5.3 item 8: failed)" }),
-  "validation/agents_pointer_unverifiable": Object.freeze({ severity: "blocking", description: "an anchor in the staged root AGENTS.md has no explicit spec path bound before it (09 §5.3 item 8: unverifiable — listed, never read as pass; non-pass blocks at the Gate per 09 §5.5)" }),
-  "validation/agents_pointer_unreadable": Object.freeze({ severity: "blocking", description: "a referenced spec carrier text could not be read, so the AGENTS.md anchor cannot be decided — fails closed rather than passing an unverified pointer (09 §5.3 item 8)" }),
 });
 
-/** Mechanical-artifact exemption for the bidirectional coverage check
- *  (06 §6.2 item 3 reverse half): basenames listed here are generated
- *  artifacts that a 关键变更 item is not expected to name. First batch:
- *  package-lock.json (Human 2026-09-10). Extending this list is an
- *  implementation-registry change; the exemption CATEGORY is spec-level. */
 export const EXEMPT_BASENAMES = Object.freeze(["package-lock.json", "pnpm-lock.yaml"]);
 
 export function isExemptPath(path) {
@@ -120,10 +57,6 @@ export function isExemptPath(path) {
   return EXEMPT_BASENAMES.includes(base);
 }
 
-/** True when a header's description carries no CJK character and the header is
- *  not a registered historical exemption. A non-conventional header is not
- *  judged here — `validation/header_invalid` already rejects it, and stacking a
- *  second finding on the same defect would blur which rule fired. */
 export function isHeaderDescriptionNonChinese(header) {
 	const match = HEADER_DESCRIPTION_PATTERN.exec(header ?? "");
 	if (match === null) return false;
@@ -131,28 +64,16 @@ export function isHeaderDescriptionNonChinese(header) {
 	return !CJK_CHARACTER_PATTERN.test(match[1]);
 }
 
-/** Build one structured finding; `rule` must be registered. */
 export function newFinding(rule, message, line = null) {
   const entry = GATE_RULES[rule];
   if (entry === undefined) throw new Error(`unregistered gate rule: ${rule}`);
   return { rule, severity: entry.severity, message, line };
 }
 
-/**
- * Validate a commit message against the v5 contract (06 §6.1, transition
- * header format per decision #15): conventional header, exactly one
- * `关键变更:` section with at least one non-empty `- ` item, and exactly one
- * non-empty trailer line for each signature. Returns structured findings
- * {rule, severity, message, line} (empty = valid).
- */
 export function validateMessage(message) {
   const issues = [];
   const lines = message.replace(/\r\n/g, "\n").split("\n");
   if (!HEADER_PATTERN.test(lines[0] ?? "")) issues.push(newFinding("validation/header_invalid", "first line must be a conventional commit header", 1));
-  // 09 §5.1 的 message 契约以中文表述，并要求 `关键变更:` 这一中文字面量
-  // 逐字存在；header 描述承载同一语言要求。此前只有 `关键变更:` 受机械
-  // 校验，header 与正文散文不受，故一条全拉丁 header 可以完整通过两个入口
-  // （实例：2c476bd8，其 `关键变更:` 六项为中文、header 为英文）。
   if (isHeaderDescriptionNonChinese(lines[0])) issues.push(newFinding("validation/header_not_chinese", "header description must contain at least one Chinese (CJK) character", 1));
   const keyIndexes = lines.flatMap((line, index) => (line === "关键变更:" ? [index] : []));
   if (keyIndexes.length !== 1 || !lines.slice(keyIndexes[0] + 1).some((line) => line.startsWith("- ") && line.slice(2).trim().length > 0)) {
@@ -165,45 +86,11 @@ export function validateMessage(message) {
   return issues;
 }
 
-/**
- * Deterministic snapshot identity over (staged diff, message) — 06 §6.2.
- *
- * The message is NORMALISED before hashing (trailing newlines trimmed, CRLF
- * folded to LF), because the two entrypoints that must agree on this value do
- * not receive byte-identical text for the same candidate:
- *
- *  - the precheck tool hashes the string its caller passed in;
- *  - the Git Gate reads the message file, and `git commit -F`/`-m` strip the
- *    trailing newline before the Hook sees it.
- *
- * Measured on this repository (2026-11-11): one trailing "\n" flipped the
- * digest from 1bf077a5… to e93b41de… for the SAME diff and the SAME prose. The
- * follow_up of `precheck-git-commit` tells the caller to compare the two
- * values, so the comparison would have failed on formatting alone — a false
- * alarm pointing at a candidate that never changed. Trimming is not a
- * loosening of the contract: 09 §6.2 is about binding a verdict to a
- * (diff, message) pair, and a message's meaning does not depend on the
- * newline its file happened to end with. Any change to the message's actual
- * content still changes the digest (see the sensitivity cases in
- * commit-validation.test.mjs).
- */
 export function snapshotIdentity(diff, message) {
   const normalized = message.replace(/\r\n/g, "\n").replace(/\n+$/, "");
   return createHash("sha256").update(diff, "utf8").update("\0").update(normalized, "utf8").digest("hex");
 }
 
-/**
- * Compare the two signature trailers against the authoritative route (09 §5.1:
- * 「取值来源」is one of the three things both entrypoints must check).
- *
- * THREE-VALUE, deliberately (09 §5.4): when the route is unavailable this
- * returns `{ok:false, hardFail:false, issues:[]}` — the precheck reports
- * `unverifiable`, it does NOT hard-fail. The Git Gate entrypoint decides what
- * an unavailable route means for the commit seam (it refuses it by name), so
- * the severity of "unverifiable" stays with the caller instead of being baked
- * into the shared comparison. Splitting those two questions is what keeps
- * "the value is WRONG" and "we could not judge the value" distinguishable.
- */
 export function checkSignatureAgainstRoute(message, route) {
   const lines = message.replace(/\r\n/g, "\n").split("\n");
   const providerLine = lines.find((line) => line.startsWith("LDVH-Provider:"));
@@ -219,54 +106,21 @@ export function checkSignatureAgainstRoute(message, route) {
   return { ok: issues.length === 0, hardFail: issues.length > 0, issues };
 }
 
-/**
- * 09 §5.5 content dispatch: which staged paths make a commit subject to the
- * controlled-commit contract. The spec's list is 受管载体 (`ldvh-base/` 事实对象),
- * 规范源文件, 规则源成员变更 and 仓库根 `AGENTS.md`.
- *
- * 「规则源成员」has no separate registry carrier in this repository (the member
- * set is the specs' own identity blocks — specs/01 §9), so a spec carrier is
- * exactly what a 规则源成员变更 touches; `specs/` is that union. Keeping the
- * predicate here (not in the runner) is what lets the same answer be tested and
- * reused by both entrypoints.
- */
 export function isGovernedCommitPath(path) {
-  // The repository-root `README.md` is deliberately NOT a trigger: it is inside
-  // the precheck's 检查范围 (09 §5.3 item 5) but outside this dispatch set, and
-  // Human decided (2026-11-05) to keep that divergence and
-  // declare it in 09 §5.5 rather than silently widening the Gate's domain.
-  return path === "AGENTS.md" || path.startsWith("ldvh-base/") || path.startsWith("specs/");
+  return path.startsWith("ldvh-base/") || path.startsWith("specs/");
 }
 
-/** True when the staged path list touches at least one governed carrier. */
 export function touchesGovernedContent(paths) {
   return Array.isArray(paths) && paths.some((path) => isGovernedCommitPath(path));
 }
 
-/**
- * Check the `关键变更:` items against the staged diff, BOTH directions
- * (06 §6.1: "每个 - 列表项必须与本次提交的 diff 逐条对应——不得列出 diff
- * 中不存在的变更项，也不得遗漏 diff 中实际存在的变更项").
- *
- * Forward: every non-empty item must match a changed path (the v5-built
- * half — items naming absent changes are rejected).
- * Reverse (K1 bidirectional, Human 2026-09-10): every non-exempt changed
- * path must be covered by at least one item. This is the tripwire that turns
- * silent staged-content pollution (e.g. a parallel session's `git add`
- * landing in a shared Index) into a loud rejection. The correspondence is
- * the same deliberately loose mechanical slice as the forward direction
- * (itemMatchesPath below). That slice accepts full paths, basenames, stems
- * and a directory PREFIX of at least two levels (`plugin/lib`) — a bare
- * single segment is NOT accepted, because it would cover an entire subtree
- * and make this half vacuous (Human 2026-11-10, spark-c48af9e6).
- */
 export function checkKeyChangesAgainstDiff(message, diff) {
   const lines = message.replace(/\r\n/g, "\n").split("\n");
   const keyIndex = lines.findIndex((line) => line === "关键变更:");
   if (keyIndex === -1) return { ok: false, issues: [newFinding("validation/key_changes_required", "no 关键变更: section", null)] };
   const items = [];
   for (const [offset, line] of lines.slice(keyIndex + 1).entries()) {
-    if (line === "关键变更:") { items.length = 0; break; } // second section: caught by validateMessage
+    if (line === "关键变更:") { items.length = 0; break; }
     if (line.startsWith("- ")) {
       const text = line.slice(2).trim();
       if (text.length > 0) items.push({ text, line: keyIndex + 1 + offset });
@@ -274,32 +128,20 @@ export function checkKeyChangesAgainstDiff(message, diff) {
   }
   if (items.length === 0) return { ok: false, issues: [newFinding("validation/key_changes_required", "关键变更: has no non-empty item", keyIndex + 1)] };
   const changedPaths = extractDiffPaths(diff);
-  // friction-1a1f2d8f「块结构规则无权威源致预检反复打回」：这条规则是**双向**的，
-  // 而预检过去在第一个失配处就 return，只回显一条局部要求——使用者无从得知还有
-  // 反向半边，也无从得知匹配依据是「文件路径」，于是逐轮改写逐轮被打回。
-  //
-  // 修法不是放宽规则，而是**把同一条规则的完整约束一次说清**：两个方向一起算、
-  // 一起报，并在诊断文本里带上可操作的匹配口径。判定逻辑本身一个字没动。
   const unmatched = [];
   for (const item of items) {
     if (!changedPaths.some((path) => itemMatchesPath(item.text, path))) unmatched.push(item);
   }
-  // Reverse half: every non-exempt staged path must be covered by some item.
   const uncovered = changedPaths.filter((path) => !isExemptPath(path) && !items.some((item) => itemMatchesPath(item.text, path)));
   if (unmatched.length > 0 || uncovered.length > 0) {
     const issues = [];
-    // 方向一：正文提到的东西必须真的被改了。
     for (const item of unmatched) {
-      // 给出该项**实际能命中什么**的线索：已改路径里与该文本最接近的那个。
       const nearest = changedPaths.length > 0 ? ` 已改路径：${changedPaths.map((p) => `"${p}"`).join("、")}` : " 本次提交没有任何已改路径";
       issues.push(newFinding("validation/key_change_unmatched", `关键变更 item "${item.text}" 未命中任何已改路径（该方向要求：item 须点名它对应的改动，匹配依据是**文件路径**——完整路径、文件名、去扩展名的词干（≥3 字符）、**编号载体前缀**（如 \`specs/08\`）或**不少于两级的目录前缀**（如 \`plugin/lib\`），任一按路径边界出现在 item 文本中即算命中；单个目录词不算（它会覆盖该目录下的全部改动），\`plugin/library\`、\`plugin/lib-old\` 这类粘连写法也不算）。${nearest}`, item.line));
     }
-    // 方向二：改了的东西必须被正文覆盖。
     for (const path of uncovered) {
       issues.push(newFinding("validation/staged_path_uncovered", `已改路径 "${path}" 没有任何 关键变更 item 覆盖它（该方向要求：每个非豁免的已暂存改动都须在 关键变更 中被点名，否则等于漏报改动）。补一条点名 "${path}" 的 item 即可。只写它所在的单个目录名不算覆盖（会被判为漏报）；可用写法：完整路径、文件名、\`specs/08\` 这类编号载体前缀，或不少于两级的目录前缀（该路径只有一级目录时，写完整路径或文件名）。`, null));
     }
-    // 两个方向同时存在时，额外给一条整体说明——「规则是双向的」这件事过去
-    // 只存在于实现里，使用者只能靠反复失败反推。
     if (unmatched.length > 0 && uncovered.length > 0) {
       issues.push(newFinding("validation/key_changes_required", `关键变更 与已暂存改动是**双向一一对应**关系（06 §6.1 K1）：每个 item 须命中一个已改路径，每个已改路径须被一个 item 命中。本次同时有 ${unmatched.length} 个 item 无对应改动、${uncovered.length} 个改动无对应 item——请一并修正后再提交，不必逐轮试探。`, null));
     }
@@ -319,48 +161,15 @@ export function extractDiffPaths(diff) {
   return [...paths];
 }
 
-/**
- * Mechanical item-to-path correspondence: the item mentions the changed path
- * (or its basename without extension when the item uses a natural-language
- * name). This is the deliberately narrow decidable slice — semantic review
- * of the DESCRIPTION quality stays with human/independent review, not here.
- */
 function itemMatchesPath(item, path) {
   if (item.includes(path)) return true;
   const base = path.split("/").pop() ?? path;
   const stem = base.replace(/\.[^.]+$/, "");
-  // Filename / stem acceptance. The basename is checked without a length gate so
-  // dotfiles (`.gitignore`) and two-letter stems (`ci.yml`) still match; only the
-  // stem fallback needs ≥3 chars, because a 2-char stem is too weak a signal.
   if (item.includes(base)) return true;
   if (stem.length > 2 && item.includes(stem)) return true;
-  // Numeric-prefix naming: `specs/08` names the carrier whose filename starts with
-  // `08-` (specs/ holds 29 carriers named `NN-<title>.md`). This is the dominant
-  // authoring form (404 of 2212 items across history). Two guards keep it from
-  // degrading into a substring match: the directory must be non-empty (a root-level
-  // `08-x.md` must not be covered by a clock time like `08:30`), and the number
-  // must end on a non-digit boundary (`specs/080 条` must not cover `specs/08-x.md`).
   const dir = path.slice(0, path.length - base.length);
   const numbered = /^(\d{2})-[^/]*$/.exec(base);
   if (numbered !== null && dir.length > 0 && hasBoundedSubstring(item, `${dir}${numbered[1]}`)) return true;
-  // Diffstat-style summaries name the touched area; accept a directory PREFIX of
-  // at least two levels (spark-5b0b380e / spark-c48af9e6, Human 2026-11-10).
-  //
-  // Why not bare directory words: the reverse half exists to catch silent staged
-  // pollution from a shared Index. A single segment ("plugin", "specs") matches
-  // every path under it, so an item saying "plugin 目录改动" would cover an entire
-  // subtree and the tripwire would be vacuous. Accepting a two-level prefix keeps
-  // the diffstat affordance (`plugin/lib`) while requiring the item to name the
-  // area that was actually touched.
-  //
-  // Only PREFIXES are accepted, never an interior segment: "web" must not match
-  // `plugin/web/src/x.ts` by looking at its middle. The item has to name the path
-  // from the repository root, which is the same axis the diagnostics report.
-  //
-  // Residual, declared rather than hidden: a two-level prefix still covers the
-  // WHOLE subtree beneath it, so pollution inside `plugin/web` can be absorbed by
-  // an item that names `plugin/web`. What this tightening removes is the
-  // one-segment escape hatch, not subtree-level coverage.
   const parts = path.split("/");
   for (let depth = parts.length - 1; depth >= 2; depth -= 1) {
     if (hasBoundedSubstring(item, parts.slice(0, depth).join("/"))) return true;
@@ -368,95 +177,23 @@ function itemMatchesPath(item, path) {
   return false;
 }
 
-/**
- * Substring test with a path boundary on BOTH sides: the needle may not abut a
- * letter, digit, dot, dash or underscore, so `plugin/lib-old/x.js` and
- * `plugin/library 说明` no longer satisfy the `plugin/lib` prefix. `/` and any
- * non-ASCII text count as boundaries, which is what makes the CJK prose forms in
- * real commit messages (`plugin/lib Spark 机械层`) keep matching.
- */
 function hasBoundedSubstring(haystack, needle) {
   const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^A-Za-z0-9_.-])${escaped}(?![A-Za-z0-9_.-])`).test(haystack);
 }
-// ---------------------------------------------------------------------------
-// docs/ reference check (09 §5.3 item 5, Human 2026-10-12)
-// ---------------------------------------------------------------------------
-//
-// docs/ holds temporary documents only: it is neither a specification source
-// nor a fact source, so no carrier may cite it as an authority. This check
-// blocks NEW dangling references; it deliberately does not chase existing ones
-// (the spec says pre-existing references are cleaned up gradually and must not
-// block commits in the meantime).
-//
-// Decidable slice, deliberately narrow:
-//   - Only carriers that this commit ADDS or MODIFIES are scanned.
-//   - The scan is limited to SPEC and FACT carriers (specs/**, ldvh-base/**,
-//     and the repository-root README.md) — the class the rule is about.
-//     Implementation carriers (code, tests, build scripts) are excluded: their
-//     mentions of docs/ are code comments and test fixtures, not authority
-//     claims; including them would also make the rule self-defeating, since
-//     the rule's own tests must name docs/ paths and the change could then
-//     never land.
-//   - Carriers inside docs/ itself are skipped: intra-docs cross-links are
-//     fine, that directory is temporary by definition.
-//   - A reference blocks only when it is NEWLY INTRODUCED by this commit AND
-//     its target is ABSENT from the candidate tree. Both halves are required:
-//     the Human's instruction is to clean up EXISTING references gradually,
-//     so editing a carrier that merely still carries an old reference must
-//     not block — otherwise "gradually" would be impossible to honour, every
-//     later edit to that carrier would be frozen until the cleanup lands.
-//     The caller supplies the baseline text to make the "newly introduced"
-//     half decidable; with no baseline every current reference counts as new
-//     (an added file has no prior text, which is exactly right).
-//   - `plugin/web/docs/` is a DIFFERENT directory (Web design docs, owned by
-//     07) and is never matched: the pattern is anchored so that `docs/` must
-//     begin a path segment.
-//   - The tail class accepts any Unicode letter/mark/number, not only ASCII:
-//     a path may end in a CJK filename segment (e.g.
-//     `docs/指称形态候选-2026-10-18.md`). An ASCII-only class
-//     truncates the match before the CJK run and existence-checks the
-//     truncated token — a false `docs_reference_dangling` on a reference that
-//     resolves. The prefix class stays ASCII-punctuated so a CJK character
-//     directly before `docs/` still acts as the segment-start boundary.
-//
-// `carriers` is supplied as { path, content, baseline? } so this stays pure
-// and testable; the runner gathers content from the Index (staged content is
-// authoritative for what the commit would land) and the baseline from HEAD.
-// The pattern is BUILT from `_FLAGS`, not only from a literal's own flags. The
-// precheck entrypoint re-compiles this module's source and rebuilds every regex
-// literal with `new RegExp(<literal>.source, <flags>)`; when that path supplied
-// only "g", the `u` flag was dropped and `\p{L}` degraded from a Unicode
-// property class to a literal character set — the tail class then matched ONE
-// character, so `docs/real.md` extracted as `docs/r` and every reference
-// silently vanished (the rule was blind, not strict). Keeping the flags in a
-// constant makes the indicator explicit in the source itself, and the pattern
-// source carries no `/` delimiter so recompilation stays safe.
 const _FLAGS = "gu";
 const _SOURCE = String.raw`(?:^|[^A-Za-z0-9._/-])(docs\/[\p{L}\p{N}\p{M}._/-]*[A-Za-z0-9_-])`;
 export const DOCS_REFERENCE_PATTERN = new RegExp(_SOURCE, _FLAGS);
 
-/** True when a repo-relative path is under the top-level temporary docs/ tree. */
 export function isTemporaryDocsPath(path) {
   return path === "docs" || path.startsWith("docs/");
 }
 
-/**
- * True when a path is a spec or fact carrier — the class of file the docs/
- * reference rule governs (09 §5.3 item 5, whose wording is "规范或事实载体").
- * Implementation carriers (code, tests, scripts) are out of scope by that
- * same wording: they do not cite docs/ as an authority.
- */
 export function isSpecOrFactCarrierPath(path) {
   if (path === "README.md") return true;
   return path.startsWith("specs/") || path.startsWith("ldvh-base/");
 }
 
-/**
- * Extract the distinct docs/ references a carrier text makes.
- * Trailing punctuation is trimmed so `docs/x.md`（…）and `docs/x.md`,
- * both yield the bare path.
- */
 export function extractDocsReferences(text) {
   const found = new Set();
   for (const match of text.matchAll(DOCS_REFERENCE_PATTERN)) {
@@ -466,19 +203,6 @@ export function extractDocsReferences(text) {
   return [...found];
 }
 
-/**
- * True when `ref` is the truncated ASCII prefix of some longer docs/ path that
- * also occurs in `text` — i.e. the text is quoting the validator's own cut-off
- * report of that path.
- *
- * 2026-10 订正（独立复核发现）：`exists` 是必需参数。原实现只要求「文本里
- * 还出现了一个以 ref 为前缀的更长 token」，**不要求那个更长 token 可解析**
- * ——于是任何悬空的 docs/ 引用只要在旁边编造一个更长的同类 token 就能被洗白
- * （实测 `docs/totally-nonexistent-` 配 `docs/totally-nonexistent-abcd-efgh-ijkl-mnop.md`
- * 判 ok=true）。豁免的前提是「真实路径也被检查过」，故这里要求那个更长的
- * 引用本身 exists 为真：此时它是真实存在的目标，ref 才确实可能是它在错误
- * 报告里的截断产物。更长者不可解析 → 不豁免，两个引用各自照常报悬空。
- */
 function isQuotedTruncationArtifact(ref, text, exists) {
   if (typeof ref !== "string" || ref.length <= "docs/".length) return false;
   if (typeof exists !== "function") return false;
@@ -496,19 +220,8 @@ export function checkDocsReferences(carriers, { exists } = {}) {
   const issues = [];
   const resolveExists = typeof exists === "function" ? exists : () => false;
   for (const carrier of carriers) {
-    // Only spec/fact carriers are governed; docs/ carriers may cross-link
-    // freely among themselves, and implementation carriers are out of scope.
     if (!isSpecOrFactCarrierPath(carrier.path)) continue;
     if (typeof carrier.content !== "string" || carrier.content.length === 0) continue;
-    // `baseline === null` 是「血缘不可判定」的**显式信号**（重命名/复制但旧
-    // 路径读不到，见 git-gate-runner 的 collectChangedCarriers 与 precheck
-    // 的同构实现）。它不同于 `undefined`（纯新增：HEAD 本无此载体，其中每条
-    // 引用确实都是新的，故预存集为空是正确的）。
-    //
-    // 不可判定时**不得**退回「预存集为空」——那恰恰是本条要修的缺陷形态：
-    // 把一次读不到基线的失败静默当成「全是新引用」，既误报存量、又让
-    // 「读不到就放过」成为可被利用的绕过口。09 §5.3 非通过即阻断：这里
-    // 直接判未通过，不进入逐引用豁免。
     if (carrier.baseline === null) {
       issues.push(newFinding(
         "validation/docs_reference_dangling",
@@ -521,16 +234,8 @@ export function checkDocsReferences(carriers, { exists } = {}) {
       typeof carrier.baseline === "string" ? extractDocsReferences(carrier.baseline) : []
     );
     for (const ref of extractDocsReferences(carrier.content)) {
-      if (preexisting.has(ref)) continue; // old reference: cleaned up gradually
-      if (resolveExists(ref)) continue;   // live target: not a violation
-      // A mention made FOR the purpose of quoting the rule's own error report is
-      // not an authority claim. The docs/ rule's subject is precisely truncated
-      // tokens of a CJK filename, so quoting the defect (as this pitfall's 症状
-      // must) would otherwise make the defect record itself unfalsifiable: the
-      // quoted token is a prefix the validator itself produced. Skip a token
-      // that appears as a STRICT PREFIX of a real path also present in the same
-      // text — the real reference is checked on its own, so a genuinely dangling
-      // reference still blocks; only the quoted artifact is waived.
+      if (preexisting.has(ref)) continue;
+      if (resolveExists(ref)) continue;
       if (isQuotedTruncationArtifact(ref, carrier.content, resolveExists)) continue;
       issues.push(newFinding(
         "validation/docs_reference_dangling",
@@ -542,31 +247,9 @@ export function checkDocsReferences(carriers, { exists } = {}) {
   return { ok: issues.length === 0, issues };
 }
 
-// ---------------------------------------------------------------------------
-// Fact-object uniqueness assertion (specs/27 §11 second layer — Git Gate)
-// ---------------------------------------------------------------------------
 
-/** Directory (under the repo root) that carries Norm fact-object carriers. */
 export const NORM_FACT_DIRECTORY = "ldvh-base/norms";
 
-/**
- * Uniqueness formula from 27 §11:  Count(direction_key = d ∧ status = "active") ≤ 1
- *
- * The writer refuses such a write up front (layer 1) and the consuming side
- * fails closed (layer 3), but neither covers a carrier written by hand or by a
- * shell redirect. This is layer 2: at commit time, read every Norm carrier that
- * the candidate tree would contain and refuse the commit when two ACTIVE ones
- * share a direction_key.
- *
- * `carriers` is supplied by the caller as { path, content } pairs so this
- * function stays pure and testable; the runner gathers them from the Index and
- * the working tree (a staged carrier plus an unstaged sibling both land in the
- * committed tree).
- *
- * Scope honesty: this asserts the uniqueness constraint over the carriers it is
- * given. It does NOT validate rule quality, and per 27 §17 red line 5 it makes
- * no claim about whether a Norm is genuinely "systematic".
- */
 export function checkNormDirectionUniqueness(carriers) {
   const issues = [];
   const active = [];
@@ -600,23 +283,10 @@ export function checkNormDirectionUniqueness(carriers) {
   return { ok: issues.length === 0, issues };
 }
 
-/**
- * Parse just enough YAML frontmatter to read status + direction_key. Kept local
- * (rather than importing the Norm writer) so the Git Gate runner stays free of
- * the writer's heavier dependency surface — the hook runs on every commit.
- */
 function parseNormCarrierFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return { ok: false, reason: "missing YAML frontmatter fence" };
   const frontmatter = {};
-  // Normalise CRLF -> LF BEFORE splitting. The fence regex above deliberately
-  // accepts CRLF, so splitting on "\n" alone leaves a trailing "\r" on every
-  // line. That "\r" is swallowed by the regex's `\s*` and then makes `(.*)$`
-  // unmatchable, so such lines are dropped entirely — including `status`. The
-  // carrier is then silently skipped and a duplicate direction_key commits
-  // unchallenged: a FAIL-OPEN in the very layer 27 §11 declares fail-closed.
-  // Normalising first mirrors validateMessage/checkKeyChangesAgainstDiff, which
-  // already apply this same "\r\n" -> "\n" step in this file.
   for (const line of match[1].replace(/\r\n/g, "\n").split("\n")) {
     const field = line.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
     if (field === null) continue;
@@ -629,28 +299,9 @@ function parseNormCarrierFrontmatter(content) {
   return { ok: true, frontmatter };
 }
 
-/** True when a repo-relative path is a Norm carrier this gate must inspect. */
-// ---------------------------------------------------------------------------
-// Load-bearing declaration protection
-// (specs/01 §7 末段「承重声明的撤除条件」 + specs/09 §5.3 item 6)
-//
-// The rule this implements: a declaration that states some scope is not yet
-// fulfilled — carrying a 「不得声称」-shaped prohibition as its requirement and
-// a resolution condition as its release — must not be removed or stripped of
-// its resolution element without the commit carrying a resolvable reference to
-// an independent review conclusion.
-//
-// HONEST BOUNDARY (stated here because the check's green result must not be
-// read as more than it is): this proves that the commit carried a resolvable
-// reference. It does NOT prove the reference is honest, and it does NOT prove
-// the declaration's scope is actually closed. A statement weakened while
-// keeping both the marker and the anchor is not caught here at all.
-// ---------------------------------------------------------------------------
 
-/** Fixed marker a load-bearing declaration carries at the head of its unit. */
 export const LOAD_BEARING_MARKER = "【承重声明】";
 
-/** Fixed label of the release sub-element a load-bearing declaration carries. */
 export const LOAD_BEARING_RESOLUTION_LABEL = "**恢复条件**：";
 
 export const LOAD_BEARING_RULES = Object.freeze({
@@ -659,26 +310,16 @@ export const LOAD_BEARING_RULES = Object.freeze({
   baselineUnreadable: "validation/load_bearing_baseline_unreadable"
 });
 
-/** The check's scope is spec carriers (09 §5.3 item 6: `specs/**`). */
 export function isSpecCarrierPath(path) {
   return typeof path === "string" && path.startsWith("specs/");
 }
 
-/**
- * Extract load-bearing units from one carrier text.
- *
- * The unit is one physical line: a table row is one line, and a paragraph
- * declaration puts the marker at the head of its opening line. The unit key is
- * what follows the marker up to the first structural delimiter — the
- * declaration's own anchor (dependency name / clause subject), which is
- * expected to survive editorial changes inside the declaration text.
- */
 export function extractLoadBearingUnits(text) {
   if (typeof text !== "string" || text.length === 0) return [];
   const units = [];
   for (const line of text.split("\n")) {
     const uses = literalUsesOutsideCodeSpans(line, LOAD_BEARING_MARKER);
-    if (uses.length === 0) continue; // a mention is not a declaration
+    if (uses.length === 0) continue;
     const rest = line.slice(uses[0] + LOAD_BEARING_MARKER.length).trim();
     const cut = rest.search(/[|｜：:]/);
     const anchor = (cut >= 0 ? rest.slice(0, cut) : rest).replace(/\*\*|\s+/g, " ").trim().slice(0, 40);
@@ -688,18 +329,6 @@ export function extractLoadBearingUnits(text) {
   return units;
 }
 
-/**
- * Offsets where a literal is USED rather than merely MENTIONED.
- *
- * Both the marker and the resolution label have to be NAMED by the very rules
- * that define them, and those rules write them inside code spans —
- * `【承重声明】`, `**恢复条件**：…`. Counting a code-span occurrence would make
- * the rule's own paragraph a protected unit, and (for the label) would accept a
- * declaration whose label is only quoted rather than carried. A literal inside
- * a code span (an odd number of backticks before it on the same line) is a
- * mention; everything else is a use. Both checks go through this one helper so
- * the marker side and the label side cannot drift apart.
- */
 function literalUsesOutsideCodeSpans(line, literal) {
   const offsets = [];
   let from = 0;
@@ -715,24 +344,15 @@ function literalUsesOutsideCodeSpans(line, literal) {
 const REFERENCE_UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const REFERENCE_COMMIT_PATTERN = /(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])/g;
 
-/**
- * Collect the reference tokens a message's 关键变更 items offer as the
- * independent-review reference. Extraction is pure; resolution is the
- * caller's (it needs git and the fact store) — same split as the docs/ check's
- * injected `exists`.
- */
 export function collectDeclarationReferenceTokens(message) {
   const lines = String(message ?? "").replace(/\r\n/g, "\n").split("\n");
   const keyIndex = lines.findIndex((line) => line === "关键变更:");
   if (keyIndex === -1) return [];
   const tokens = new Set();
   for (const line of lines.slice(keyIndex + 1)) {
-    if (line === "关键变更:") break; // a second section is validateMessage's business
+    if (line === "关键变更:") break;
     if (!line.startsWith("- ")) continue;
     const text = line.slice(2);
-    // UUID spans first, then bare hashes OUTSIDE those spans: a UUID contains
-    // hyphen-separated hex runs, and a hash pattern alone would read its
-    // fragments ("0ac049b5", "f5e647c249b9") as separate references.
     const spans = [];
     for (const match of text.matchAll(REFERENCE_UUID_PATTERN)) {
       tokens.add(match[0]);
@@ -748,13 +368,6 @@ export function collectDeclarationReferenceTokens(message) {
   return [...tokens];
 }
 
-/**
- * specs/09 §5.3 item 6. `carriers` are `{path, content, baseline}` where
- * `baseline` is the declaration source at HEAD and `content` the candidate
- * bytes; `unreadable` lists paths whose baseline could not be read (they fail
- * closed); `resolvable` is a Set of reference tokens the caller confirmed
- * resolvable (or a sync predicate).
- */
 export function checkLoadBearingDeclarations(carriers, { message, resolvable, unreadable } = {}) {
   const issues = [];
   for (const path of Array.isArray(unreadable) ? unreadable : []) {
@@ -794,18 +407,6 @@ export function checkLoadBearingDeclarations(carriers, { message, resolvable, un
   return { ok: issues.length === 0, issues, exemption: null };
 }
 
-/**
- * 09 §5.3 第 7 项（Human 决定 2026-10-15）：以「§7.2 违规」为由删除规范内容时，
- * 提交消息须携带**逐字引用 §7.2 原文**的声明，且该引用须在当次 §7.2 文本中逐字存在。
- *
- * 来历：主控曾为判定「哪类表述该删」自拟一条规范外的判据（并另造了一个 §7.2 中并不
- * 存在的违规类「布局自指计数」），据此批量删除；同一判据在同一批内对结构同类项给出
- * 互斥结果（账目 ba4afa96）。该轮复审给出的可修方向即本项：**无原文即不得删**。
- *
- * 强度边界（如实声明，不主张闭环）：本项**只在消息自愿申报依据时**生效——不申报而删
- * 的情形看不见（那仍属独立复核与 Human 阅读范围）；它挡的是**凭印象引规范**，即
- * 引一句 §7.2 里并不存在的话。故本项是加固，不是闭环。
- */
 export const REMOVAL_BASIS_LABEL = "§7.2 依据：";
 export const REMOVAL_BASIS_RULES = Object.freeze({
   unquotable: "validation/removal_basis_unquotable",
@@ -813,13 +414,10 @@ export const REMOVAL_BASIS_RULES = Object.freeze({
   sectionUnreadable: "validation/removal_basis_section_unreadable",
 });
 
-/** 取出消息中每一处 `§7.2 依据：` 后随的引用文本（不含行首列表符）。 */
 export function collectRemovalBasisDeclarations(message) {
   const out = [];
   for (const raw of String(message ?? "").replace(/\r\n/g, "\n").split("\n")) {
     const line = raw.trim();
-    // **提及 vs 使用**：标签若落在代码跨度内，则这一行是在**描述**该机制（如规范正文或
-    // 提交消息举例），不是申报依据——与承重标记一侧同口径（literalUsesOutsideCodeSpans）。
     const uses = literalUsesOutsideCodeSpans(line, REMOVAL_BASIS_LABEL);
     if (uses.length === 0) continue;
     const at = uses[0] + REMOVAL_BASIS_LABEL.length;
@@ -828,7 +426,6 @@ export function collectRemovalBasisDeclarations(message) {
   return out;
 }
 
-/** 从规范载体全文取出 §7.2 一节（`### 7.2` 起，至下一个 `###`／`## ` 前）。 */
 export function extractSectionText(specText, sectionHeading = "### 7.2") {
   const text = String(specText ?? "").replace(/\r\n/g, "\n");
   const start = text.indexOf(sectionHeading);
@@ -838,17 +435,10 @@ export function extractSectionText(specText, sectionHeading = "### 7.2") {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-/**
- * `sectionText === null` 表示当次 §7.2 文本取不到（fail-closed）；`undefined`
- * 表示调用方未提供该信息，此时只做「声明非空」这一半。
- */
 export function checkRemovalBasisDeclarations({ message, sectionText, sectionTexts } = {}) {
   const declared = collectRemovalBasisDeclarations(message);
   if (declared.length === 0) return { ok: true, issues: [], declarations: 0 };
   const issues = [];
-  // 比对范围是 **HEAD 与候选两版的 §7.2 并集**：本次提交可能正是要删掉被引的那句
-  // （那样它当然不在候选里），而本项要抓的是**编造判据**——历史上那条「布局自指计数」
-  // 在两版里都不存在。任一版含该句即算引用成立。
   const raw = Array.isArray(sectionTexts) ? sectionTexts : [sectionText];
   const known = raw.filter((text) => typeof text === "string").map((text) => text.replace(/\s+/g, " ").trim());
   const unreadable = raw.length > 0 && known.length === 0;
@@ -874,24 +464,6 @@ export function isNormCarrierPath(path) {
   return path.startsWith(`${NORM_FACT_DIRECTORY}/`) && /\/norm-[^/]+\.md$/.test(path);
 }
 
-// ── 摩擦 relations 的 commit 目标：提交层的兜底校验 ──────────────────────
-//
-// 26 §11 要求 `informs` 的目标「存在且可解析」，commit 例外形态同样如此
-// （「机械层只核 hash 真实可解析」）。这条校验写在 friction-writer 里，覆盖
-// create/update/correct 三条受控路径——**但它覆盖不到不经 writer 的直接落盘**。
-//
-// 实测事故（2026-10-19 发现）：friction-ed844630 以 `git add` + `commit` 直接
-// 落盘（git 记录为 new file、42 行纯新增，status 一上来就是 resolved、relations
-// 一上来就带着两条 informs），完全绕过 writer，于是两个**从未存在过**的 commit
-// 标识堂而皇之地进了账目，Web 端渲染成死链接。writer 里的 fail-closed 再严密，
-// 对「不经过 writer」的写入也毫无作用。
-//
-// 提交缝是所有写入路径的唯一汇聚点，故在此再兜一层：校验的对象是 **Index 里
-// 暂存的内容**（即将进仓的那一版），而不是工作树上的副本——否则一笔提交可能
-// 携带一个尚未落盘的正确版本通过校验。
-//
-// 判定口径与 writer 一致（`git cat-file -e <hash>^{commit}`），差别只在失败
-// 处理的时机：writer 是在写之前拒绝，这里是在提交之前拒绝。
 const FRICTION_FACT_DIRECTORY = "ldvh-base/frictions";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{40}$/i;
 
@@ -899,20 +471,9 @@ export function isFrictionCarrierPath(path) {
   return path.startsWith(`${FRICTION_FACT_DIRECTORY}/`) && /\/friction-[^/]+\.md$/.test(path);
 }
 
-/**
- * 从摩擦载体的 frontmatter 中取出所有 commit 形态的目标。
- *
- * 只做窄解析：本函数不承担 YAML 全集的正确性，它的输入是**已经过了 writer
- * 校验或结构校验**的载体；这里要抓的是「标识是否真实存在于仓库」。因此只认
- * `relations:` 块里 `target:` 下的 `commit:` 行，以及 `evidence_locator:` 下的
- * `commit:` 行——两种形态在 02 §8.1 中并列，都必须真实可解析。
- *
- * 找不到 `relations:` 块返回空数组（绝大多数摩擦没有关系边，这是常态）。
- */
 export function extractFrictionCommitTargets(content) {
   const targets = [];
   const lines = String(content ?? "").split(/\r?\n/);
-  // 只在 frontmatter 围栏内找：从首行 `---` 到下一个 `---`。
   const start = lines.findIndex((line) => line.trim() === "---");
   if (start === -1) return targets;
   const end = lines.findIndex((line, index) => index > start && line.trim() === "---");
@@ -921,7 +482,6 @@ export function extractFrictionCommitTargets(content) {
   let inRelations = false;
   for (let index = start + 1; index < end; index += 1) {
     const line = lines[index];
-    // 顶层键（无缩进）决定是否已离开 relations 块。
     if (/^[A-Za-z_][A-Za-z0-9_]*\s*:/.test(line)) {
       inRelations = /^relations\s*:/.test(line);
       continue;
@@ -933,13 +493,6 @@ export function extractFrictionCommitTargets(content) {
   return targets;
 }
 
-/**
- * 校验摩擦载体里的 commit 目标是否真实可解析。
- *
- * `resolves(hash)` 由调用方注入（gate runner 用 `git cat-file -e`），保持本模块
- * 不直接触碰 git。**无 resolver 时 fail-closed**：无法核验即不通过——这正是
- * writer 侧已经确立的口径，此处不因为「只是在提交时查一下」而放松。
- */
 export async function checkFrictionCommitTargets(carriers, { resolves } = {}) {
   const issues = [];
   if (typeof resolves !== "function") {
@@ -965,35 +518,11 @@ export async function checkFrictionCommitTargets(carriers, { resolves } = {}) {
   return { ok: issues.length === 0, issues, checked };
 }
 
-// ── 事实载体的身份一致性：提交层的兜底校验 ──────────────────────────────
-//
-// 02 §7.1：`object_uid` 是事实对象的唯一身份，且它是**载体自己声明的**字段；
-// 文件名只是一个位置约定。02 §5 第 6 项进一步要求「载体重复、身份冲突或
-// 当前权威位置不唯一时，不得静默选择一份继续消费或写入」。
-//
-// 2026-11-04 核查：list 读取面此前以文件名为身份权威（`uid = nameMatch[1]`），
-// 且 `if (!nameMatch) continue` 会静默吞掉命名不符的文件；Git Gate 侧则完全
-// 没有「文件名 vs 声明」的比对（`object_uid` 只用于 `declaresObjectUid` 的
-// 「仓库里有没有这个 uid」）。两侧合起来的效果是：一份被改名、被复制或被手工
-// 粘贴的载体，可以带着错误的身份进仓，且没有任何一处会说出来。
-//
-// 本检查是同一纪律在提交缝上的第 2 层：暂存进 ldvh-base 的载体，文件名编码的
-// uid 段必须与其 `object_uid:` 声明一致；同一 uid 不得被多条暂存载体声明。
-// writer 管不到直接落盘，故提交缝是兜底位置（与 27 §11 的 norm 唯一性同层）。
-//
-// 范围边界如实声明：本检查只核「身份标识这一行的自洽」，**不核**字段合法性、
-// 状态闭集、正文结构或语义正确性——那些由各自的 writer 与其类型规范负责。
-// 它也不追溯存量：只对**本次暂存**的载体作判定。
 
-/** 载体文件名里的身份段：与 reader 侧接受形态一致（含历史 v4 期数字/ULID 形态）。 */
 const CARRIER_ID_SEGMENT =
   "(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})";
 
-/** ldvh-base 下每个事实类型目录对应的载体名前缀。 */
 const FACT_TYPE_PREFIXES = Object.freeze({
-  // "ldvh-base/adrs": "adr" — 22 号已于 2026-11-15 撤除；存量载体按 H2 裁定物理删除，
-  // 该目录不再存在，故不再登记前缀（先例同下方 devlogs）。
-  // "ldvh-base/devlogs": "devlog" — 29 号已于 2026-11-14 撤除；21 条存量已删（91b3d727），逐字副本在 docs/devlog-archive/。
   "ldvh-base/frictions": "friction",
   "ldvh-base/norms": "norm",
   "ldvh-base/pitfalls": "pitfall",
@@ -1002,7 +531,6 @@ const FACT_TYPE_PREFIXES = Object.freeze({
   "ldvh-base/subgoals": "subgoal",
 });
 
-/** 取载体路径的事实类型目录与前缀；非载体返回 null。 */
 export function factCarrierType(path) {
   for (const [directory, prefix] of Object.entries(FACT_TYPE_PREFIXES)) {
     if (!path.startsWith(`${directory}/`)) continue;
@@ -1013,7 +541,6 @@ export function factCarrierType(path) {
   return null;
 }
 
-/** 从载体正文取顶层 `object_uid:` 声明（缩进的不算：身份是顶层字段）。 */
 function declaredObjectUidLine(content) {
   const fm = /^---\n([\s\S]*?)\n---\n/m.exec(content);
   const block = fm ? fm[1] : null;
@@ -1023,16 +550,6 @@ function declaredObjectUidLine(content) {
   return { ok: true, uid: line[1] };
 }
 
-/**
- * 断言暂存事实载体的身份自洽（02 §7.1 / §5 第 6 项）。
- *
- * `carriers` 由调用方以 `{ path, content }` 提供，使本函数保持纯函数、可单测；
- * runner 从 Index 取暂存内容（而非工作树副本——否则一笔提交可能携带未落盘的
- * 正确版本通过校验）。
- *
- * 三种拒绝：文件名与声明不符、同一 uid 被多条载体声明、以及载体不可读/不可解析
- * 时的 fail-closed。三者各自登记为独立的 gate rule，因为修复动作不同。
- */
 export function checkFactCarrierIdentity(carriers) {
   const issues = [];
   const claims = new Map();
@@ -1052,13 +569,6 @@ export function checkFactCarrierIdentity(carriers) {
     }
     const nameMatch = pattern.exec(type.base);
     if (nameMatch === null) {
-      // The filename encodes NO identity at all. That is deliberately NOT a
-      // finding here: 09 §5.3 item 6 resolves a fact reference by the carrier's
-      // declared `object_uid`, and the runner's own test asserts that "an
-      // object whose carrier is not named after its uid" must still back a
-      // reference. Refusing such a name would replace that rule with a stricter
-      // naming convention nobody approved. This check only compares two
-      // identities when the filename actually states one.
       const key = declared.uid.toLowerCase();
       const group = claims.get(key) ?? [];
       group.push(carrier.path);
@@ -1089,149 +599,4 @@ export function checkFactCarrierIdentity(carriers) {
   }
 
   return { ok: issues.length === 0, issues, carriers: claims.size };
-}
-
-// ---------------------------------------------------------------------------
-// AGENTS.md pointer validity (09 §5.3 item 8, Human 决定 2026-10-23)
-// ---------------------------------------------------------------------------
-//
-// 立规于 008b45ad（明确「实现归 06」），触发面由 bf64380b 接入，但解析检查
-// 从未实现——本段补上。规则文本一字不改，这里只实现其可判定文法：
-//   · 锚点文法 `§<整数>` / `§<整数>.<整数>`，无前导零，§0 不构成锚点；
-//     同一句内并列/括注的锚点逐个解析；不合文法者不属覆盖范围，不读作通过。
-//   · 显式规范路径 = 反引号包裹的仓库相对 `specs/<路径>.md`（其它形式不识别）。
-//   · 每锚点绑定其自身之前最近一次出现的显式规范路径。
-//   · `§N` 须在该载体有标题匹配 `^#{2,3} N\.?(?:\s|$)`；
-//     `§N.M` 须有 `^#{2,3} N\.M\.?(?:\s|$)`——编号逐段相等，§6 不因存在 §6.3 成立。
-//   · 三值：任一已绑定锚点解析失败、或任一已识别 specs 路径在候选树不存在 → failed；
-//     某锚点之前无显式路径或全文件无显式路径 → unverifiable（逐项列出，不读作通过）；
-//     全部通过 → passed（此处以 ok=true 表达）。
-//
-// 标题提取复用 spec-registry 的 extractHeadings（已屏蔽围栏），不复制围栏逻辑。
-// 纯函数：调用方提供 specText(relPath) 与 specExists(relPath) 两个读取器，规则只判定，不读盘。
-
-/** 从一行文本抽取锚点 token（含序号，便于定位与未绑定列示）。 */
-export function extractAgentsAnchors(line) {
-  const out = [];
-  // 无前导零的正整数；§0 交给调用方排除。锚点可出现在句中任意位置。
-  const re = /§(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?/g;
-  for (const m of line.matchAll(re)) {
-    const major = Number(m[1]);
-    const minor = m[2] === undefined ? null : Number(m[2]);
-    if (major === 0) continue; // §0 不构成锚点
-    if (minor !== null && minor === 0) continue; // §N.0 无意义，逐段须为正整数
-    out.push({ raw: m[0], major, minor, at: m.index });
-  }
-  return out;
-}
-
-/** 抽取一行中被反引号包裹的显式 specs 路径（形如 `specs/xx-*.md`）。 */
-export function extractAgentsSpecPaths(line) {
-  const out = [];
-  const re = /`([^`\n]*?specs\/[^`\n]+?\.md)`/g;
-  for (const m of line.matchAll(re)) {
-    const p = m[1];
-    // 只认仓库相对、以 specs/ 开头、以 .md 结尾的路径；绝对路径/其它形式不识别。
-    if (!p.startsWith("specs/") || !p.endsWith(".md")) continue;
-    out.push({ path: p, at: m.index });
-  }
-  return out;
-}
-
-/**
- * 校验候选树中的根 AGENTS.md 指针。
- * `carriers`: [{ content }] —— 调用方保证这是候选 Index 的根 AGENTS.md（通常是单条）。
- * `readers`: { specText(p) -> string|null, specExists(p) -> boolean }。
- * specText 返回 null/undefined 表示该载体不可读（fail-closed）。
- */
-export function checkAgentsPointers(carriers, readers = {}) {
-  const issues = [];
-  const readText = typeof readers.specText === "function" ? readers.specText : () => null;
-  const exists = typeof readers.specExists === "function" ? readers.specExists : () => false;
-  const unbound = []; // 逐项列出未绑定锚点，判 failed 时也须一并列出
-
-  for (const carrier of carriers) {
-    if (typeof carrier.content !== "string" || carrier.content.length === 0) {
-      issues.push(newFinding("validation/agents_pointer_unreadable", "AGENTS.md: candidate content is unreadable — cannot decide pointer validity (09 §5.3 item 8 fails closed)", null));
-      continue;
-    }
-    const lines = carrier.content.split("\n");
-    let boundPath = null; // 每锚点绑定其之前最近一次出现的显式路径
-    const checkedPaths = new Set();
-    const absentPaths = new Set(); // 已判缺失的路径：其锚点不再重复报 unreadable（缺失本身已 failed）
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
-      // 同一行内按位置排序处理：路径在其后锚点之前绑定。
-      const events = [
-        ...extractAgentsSpecPaths(line).map((e) => ({ ...e, kind: "path" })),
-        ...extractAgentsAnchors(line).map((e) => ({ ...e, kind: "anchor" })),
-      ].sort((a, b) => a.at - b.at);
-
-      for (const ev of events) {
-        if (ev.kind === "path") {
-          boundPath = ev.path;
-          if (!checkedPaths.has(ev.path)) {
-            checkedPaths.add(ev.path);
-            if (!exists(ev.path)) {
-              absentPaths.add(ev.path);
-              issues.push(newFinding(
-                "validation/agents_pointer_unresolved",
-                `AGENTS.md:${i + 1}: explicit spec path ${JSON.stringify(ev.path)} is absent from the candidate tree (09 §5.3 item 8: failed)`,
-                null,
-              ));
-            }
-          }
-          continue;
-        }
-        // anchor
-        if (boundPath === null) {
-          unbound.push(`AGENTS.md:${i + 1} ${ev.raw}`);
-          continue;
-        }
-        if (absentPaths.has(boundPath)) continue; // 路径缺失已按 failed 报过，绑定其上的锚点不再重复
-        const text = readText(boundPath);
-        if (text === null || text === undefined || typeof text !== "string") {
-          issues.push(newFinding(
-            "validation/agents_pointer_unreadable",
-            `AGENTS.md:${i + 1}: spec carrier ${JSON.stringify(boundPath)} for ${ev.raw} is unreadable — cannot decide (09 §5.3 item 8 fails closed)`,
-            null,
-          ));
-          continue;
-        }
-        const headings = extractHeadings(text);
-        const majorOk = (h) => h.level === 2 || h.level === 3;
-        let hit;
-        if (ev.minor === null) {
-          // ^#{2,3} N\.?(?:\s|$) —— 标题文本以 "N" 起，后接可选点、空白或行尾
-          hit = headings.find((h) => {
-            if (!majorOk(h)) return false;
-            return new RegExp(`^${ev.major}\\.?(?:\\s|$)`).test(h.text);
-          });
-        } else {
-          // ^#{2,3} N\.M\.?(?:\s|$) —— 逐段相等
-          hit = headings.find((h) => {
-            if (!majorOk(h)) return false;
-            return new RegExp(`^${ev.major}\\.${ev.minor}\\.?(?:\\s|$)`).test(h.text);
-          });
-        }
-        if (hit === undefined) {
-          issues.push(newFinding(
-            "validation/agents_pointer_unresolved",
-            `AGENTS.md:${i + 1}: anchor ${ev.raw} has no matching numbered heading in ${JSON.stringify(boundPath)} (09 §5.3 item 8: failed)`,
-            null,
-          ));
-        }
-      }
-    }
-
-    if (unbound.length > 0) {
-      issues.push(newFinding(
-        "validation/agents_pointer_unverifiable",
-        `AGENTS.md: ${unbound.length} anchor(s) have no explicit spec path bound before them — ${unbound.join("; ")} (09 §5.3 item 8: unverifiable, never read as pass)`,
-        null,
-      ));
-    }
-  }
-
-  return { ok: issues.length === 0, issues, unbound };
 }

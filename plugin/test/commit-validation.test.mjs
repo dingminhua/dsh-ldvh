@@ -1,9 +1,3 @@
-// Tests for plugin/lib/commit-validation.js: the single shared validation
-// core used by the Git Gate runner and the precheck-git-commit tool
-// (specs/09 §6 single-implementation discipline).
-//
-// Authority: specs/06 §6.1 (message contract), §6.2 (precheck-git-commit
-// public operation). Transition header format is per dev-memo decision #15.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -36,10 +30,9 @@ import {
 	LOAD_BEARING_MARKER,
 	LOAD_BEARING_RESOLUTION_LABEL,
 	LOAD_BEARING_RULES, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText,
-	checkFrictionCommitTargets, extractFrictionCommitTargets, isFrictionCarrierPath,
-	checkAgentsPointers, extractAgentsAnchors, extractAgentsSpecPaths} from "../lib/commit-validation.js";
+	checkFrictionCommitTargets, extractFrictionCommitTargets, isFrictionCarrierPath
+} from "../lib/commit-validation.js";
 
-/** A canonical, fully-legal commit message. */
 const validMessage = [
 	"chore(code): 接入 ldvh 提交校验",
 	"",
@@ -50,9 +43,6 @@ const validMessage = [
 	"LDVH-Model: test",
 ].join("\n");
 
-// ---------------------------------------------------------------------------
-// validateMessage — happy path
-// ---------------------------------------------------------------------------
 
 test("validateMessage returns no issues for a fully legal message", () => {
 	assert.deepEqual(validateMessage(validMessage), []);
@@ -87,9 +77,6 @@ test("validateMessage accepts the transition-period scoped header (e.g. chore(co
 	assert.deepEqual(validateMessage(msg), []);
 });
 
-// ---------------------------------------------------------------------------
-// validateMessage — header failures
-// ---------------------------------------------------------------------------
 
 test("validateMessage rejects a missing header", () => {
 	const msg = ["关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
@@ -109,9 +96,6 @@ test("validateMessage rejects an unknown header type", () => {
 	assert.ok(issues.some((i) => i.rule.startsWith("validation/header_invalid")));
 });
 
-// ---------------------------------------------------------------------------
-// validateMessage — header 描述语言（09 §5.1 中文契约的 header 半边）
-// ---------------------------------------------------------------------------
 
 test("validateMessage rejects a header whose description has no Chinese character", () => {
 	const msg = ["fix(injection): stop re-injecting the governance block on adjacent turns", "", "关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
@@ -136,7 +120,6 @@ test("validateMessage exempts the two registered historical Latin headers", () =
 });
 
 test("isHeaderDescriptionNonChinese does not judge a non-conventional header", () => {
-	// 该形态已由 validation/header_invalid 拒绝；本规则不叠加第二个 finding。
 	assert.equal(isHeaderDescriptionNonChinese("Bug fix on Tuesday"), false);
 	assert.equal(isHeaderDescriptionNonChinese(""), false);
 });
@@ -146,9 +129,6 @@ test("isHeaderDescriptionNonChinese flags a fresh Latin description", () => {
 	assert.equal(isHeaderDescriptionNonChinese("docs: update the readme"), true);
 });
 
-// ---------------------------------------------------------------------------
-// validateMessage — 关键变更: section failures
-// ---------------------------------------------------------------------------
 
 test("validateMessage rejects a missing 关键变更: section", () => {
 	const msg = ["chore: add gate", "", "free-form body", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
@@ -168,9 +148,6 @@ test("validateMessage rejects multiple 关键变更: sections", () => {
 	assert.ok(issues.some((i) => i.rule.startsWith("validation/key_changes_required")));
 });
 
-// ---------------------------------------------------------------------------
-// validateMessage — trailer failures
-// ---------------------------------------------------------------------------
 
 test("validateMessage rejects a message missing LDVH-Provider", () => {
 	const msg = ["chore: add gate", "", "关键变更:", "- x", "", "LDVH-Model: test"].join("\n");
@@ -196,18 +173,12 @@ test("validateMessage rejects an empty LDVH-Provider trailer", () => {
 	assert.ok(issues.some((i) => i.message.includes("LDVH-Provider")));
 });
 
-// ---------------------------------------------------------------------------
-// validateMessage — CRLF and redaction
-// ---------------------------------------------------------------------------
 
 test("validateMessage normalizes CRLF to LF before checking", () => {
 	const crlf = validMessage.replace(/\n/g, "\r\n");
 	assert.deepEqual(validateMessage(crlf), []);
 });
 
-// ---------------------------------------------------------------------------
-// snapshotIdentity — determinism
-// ---------------------------------------------------------------------------
 
 test("snapshotIdentity is sha256 hex and stable over (diff, message)", () => {
 	const a = snapshotIdentity("diff", "msg");
@@ -229,19 +200,12 @@ test("snapshotIdentity is sensitive to a one-byte message change", () => {
 });
 
 test("snapshotIdentity is sensitive to the NUL separator boundary", () => {
-	// (diff, message) and (diff\0message, "") must produce different
-	// digests, otherwise the separator is ambiguous.
 	const left = snapshotIdentity("diff", "message");
 	const right = snapshotIdentity("diff\0message", "");
 	assert.notEqual(left, right);
 });
 
 test("snapshotIdentity ignores trailing-newline formatting, so both entrypoints agree", () => {
-	// MEASURED DEFECT (2026-11-11): the precheck tool hashes the string its
-	// caller passed; the Git Gate hashes the message file, which `git commit -F`
-	// has already stripped of its trailing newline. One "\n" turned e93b41de…
-	// into 1bf077a5… for the same diff and prose — and the tool's own follow_up
-	// instructs the caller to compare exactly those two values.
 	const base = "fix(plugin): 示例\n\n关键变更:\n- plugin/lib/x.js：改动\n\nLDVH-Provider: workbuddy\nLDVH-Model: deepseek-v4.1-flash";
 	assert.equal(snapshotIdentity("d", base), snapshotIdentity("d", `${base}\n`));
 	assert.equal(snapshotIdentity("d", base), snapshotIdentity("d", `${base}\n\n\n`));
@@ -249,18 +213,12 @@ test("snapshotIdentity ignores trailing-newline formatting, so both entrypoints 
 });
 
 test("snapshotIdentity still separates messages that differ only INSIDE the body", () => {
-	// The normalisation above must not flatten real differences: trimming the
-	// tail may not make two distinct messages collide.
 	const a = "subject\n\n关键变更:\n- A";
 	const b = "subject\n\n关键变更:\n- B";
 	assert.notEqual(snapshotIdentity("d", a), snapshotIdentity("d", b));
-	// A trailing blank line is formatting; a trailing SPACE in content is not.
 	assert.notEqual(snapshotIdentity("d", a), snapshotIdentity("d", "subject\n\n关键变更:\n- A "));
 });
 
-// ---------------------------------------------------------------------------
-// checkKeyChangesAgainstDiff — happy path
-// ---------------------------------------------------------------------------
 
 test("checkKeyChangesAgainstDiff returns ok when every item matches a changed path", () => {
 	const diff = [
@@ -292,9 +250,6 @@ test("checkKeyChangesAgainstDiff accepts a single item that names a parent direc
 	assert.equal(result.ok, true);
 });
 
-// ---------------------------------------------------------------------------
-// checkKeyChangesAgainstDiff — failure modes
-// ---------------------------------------------------------------------------
 
 test("checkKeyChangesAgainstDiff returns ok:false when the 关键变更: section is missing", () => {
 	const msg = ["chore: no items", "", "free body", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
@@ -318,38 +273,23 @@ test("checkKeyChangesAgainstDiff returns key_change_unmatched for an item naming
 	assert.ok(result.issues.some((i) => i.rule.startsWith("validation/key_change_unmatched") && i.message.includes("bar.js")));
 });
 
-// friction-1a1f2d8f「块结构规则无权威源致预检反复打回」：这条规则是双向的，而预检
-// 过去在第一个失配处就 return——使用者只看到单条局部要求，无从得知还有反向半边，
-// 也无从得知匹配依据是「文件路径」，于是逐轮改写逐轮被打回。修法是把同一规则的
-// 完整约束一次说清（判定逻辑不动，只改回显的形状）。
 test("checkKeyChangesAgainstDiff 同时报出两个方向的失配，并在失配项里带上匹配口径（friction-1a1f2d8f）", () => {
-	// 一个 item 无对应改动（方向一），一个改动无对应 item（方向二）。
 	const diff = "diff --git a/plugin/lib/foo.js b/plugin/lib/foo.js\ndiff --git a/plugin/lib/zap.js b/plugin/lib/zap.js\n";
 	const msg = ["chore: mixed", "", "关键变更:", "- add foo.js", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result = checkKeyChangesAgainstDiff(msg, diff);
 	assert.equal(result.ok, false);
-	// 方向二：zap.js 没被任何 item 覆盖。
 	assert.ok(result.issues.some((i) => i.rule.startsWith("validation/staged_path_uncovered") && i.message.includes("zap.js")), "uncovered path must be reported");
-	// 方向一：item 文本本身能命中 foo.js（stem 匹配），故此处不产生 unmatched；
-	// 换一个真正无对应的 item 验证方向一与匹配口径说明。
 	const msg2 = ["chore: mixed", "", "关键变更:", "- add foo.js", "- rewrite entirely-unrelated-thing", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result2 = checkKeyChangesAgainstDiff(msg2, diff);
 	assert.equal(result2.ok, false);
 	const unmatchedIssue = result2.issues.find((i) => i.rule.startsWith("validation/key_change_unmatched"));
 	assert.ok(unmatchedIssue, "unmatched item must be reported");
-	// 匹配口径必须出现在诊断里——这是本条摩擦的核心：使用者过去只能靠反复失败反推。
 	assert.ok(unmatchedIssue.message.includes("匹配依据是") && unmatchedIssue.message.includes("文件路径"), "diagnostic must state the matching basis");
-	// 已改路径必须一并回显，使用者不必自己去翻 diff。
 	assert.ok(unmatchedIssue.message.includes("plugin/lib/foo.js"), "changed paths must be echoed");
-	// 两个方向同时存在时，须给一条整体说明（规则是双向的）。
 	assert.ok(result2.issues.some((i) => i.message.includes("双向一一对应")), "when both directions fail, explain the bidirectional rule once");
 });
 
 test("checkKeyChangesAgainstDiff accepts a diff with no diff lines (no path-level claim)", () => {
-	// Empty diff: there is nothing to match against. Every key-change item
-	// would be unmatched — the implementation surfaces that as ok:false
-	// (it is the gate's job to demand staged work). The precheck handler
-	// further appends `git/index_empty` upstream.
 	const msg = ["chore: x", "", "关键变更:", "- describe anything", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result = checkKeyChangesAgainstDiff(msg, "");
 	assert.equal(result.ok, false);
@@ -357,26 +297,13 @@ test("checkKeyChangesAgainstDiff accepts a diff with no diff lines (no path-leve
 });
 
 test("checkKeyChangesAgainstDiff handles a second 关键变更: section by zeroing items (re-collected by validateMessage upstream)", () => {
-	// Implementation note: when a second 关键变更: appears, checkKeyChanges
-	// zeros the collected list and falls through; validateMessage will
-	// already have flagged the duplicate section upstream, so this branch
-	// is a "torn message" defensive case.
 	const diff = "diff --git a/foo b/foo\n";
 	const msg = ["chore: x", "", "关键变更:", "- y", "", "关键变更:", "- z", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result = checkKeyChangesAgainstDiff(msg, diff);
-	// After zeroing, the items list is empty => the missing-items branch fires.
 	assert.equal(result.ok, false);
 });
 
-// ---------------------------------------------------------------------------
-// Norm direction_key uniqueness — 27 §11 second layer (Git Gate)
-//
-// This layer is the ONLY one that sees a hand-edited or shell-written carrier
-// (layer 1 is bypassed when the writer is not used, layer 3 only fails closed
-// at read time), so a silent skip here is a real uniqueness hole.
-// ---------------------------------------------------------------------------
 
-/** A minimal Norm carrier with the fields the gate's parser reads. */
 function normCarrier(frontmatter) {
 	return `---\ntitle: T\n${frontmatter}\n---\n\n# T\n`;
 }
@@ -392,18 +319,11 @@ test("norm uniqueness: two ACTIVE carriers on one direction_key are blocked (27 
 	assert.equal(result.ok, false);
 	const collision = result.issues.find((issue) => issue.rule === "facts/norm_direction_collision");
 	assert.ok(collision, "a shared active direction_key must raise norm_direction_collision");
-	// The finding must name both carriers so the Human can act on it directly.
 	assert.ok(collision.message.includes(NORM_A));
 	assert.ok(collision.message.includes(NORM_B));
 });
 
 test("norm uniqueness: a CRLF carrier is parsed, not silently skipped (fail-open regression)", () => {
-	// Regression: the fence regex accepts CRLF but the field loop split on "\n"
-	// alone, so every line kept a trailing "\r". `\s*` swallowed it and `(.*)$`
-	// then matched nothing, dropping the whole line — including `status`. Both
-	// carriers were skipped and the duplicate direction_key committed
-	// unchallenged. CRLF is ordinary on Windows checkouts, so this was a
-	// realistic bypass of the layer 27 §11 declares fail-closed.
 	const crlf = (frontmatter) => normCarrier(frontmatter).replace(/\n/g, "\r\n");
 	const result = checkNormDirectionUniqueness([
 		{ path: NORM_A, content: crlf("status: active\ndirection_key: code-style") },
@@ -445,9 +365,6 @@ test("isNormCarrierPath recognises only norms/ carriers", () => {
 	assert.equal(isNormCarrierPath("ldvh-base/sparks/spark-x.md"), false);
 });
 
-// ---------------------------------------------------------------------------
-// Exported constants
-// ---------------------------------------------------------------------------
 
 test("HEADER_PATTERN is exported as a RegExp", () => {
 	assert.ok(HEADER_PATTERN instanceof RegExp);
@@ -462,9 +379,6 @@ test("SOURCE_FINGERPRINT is a 64-hex string and stable", () => {
 });
 
 
-// ---------------------------------------------------------------------------
-// K1 rule registry + structured findings
-// ---------------------------------------------------------------------------
 
 test("GATE_RULES registers every rule the validator emits, each with severity and description", () => {
 	const expected = [
@@ -491,16 +405,9 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"validation/removal_basis_section_unreadable",
 		"validation/removal_basis_unquotable",
 		"validation/lint_failed",
-		// 02 §7.1 + §5 item 6（09 §8.1 item 2 领域增量，Human 批准 2026-11-04）：
-		// 事实载体身份一致性。登记在此是刻意的——新增 gate rule 必须显式进入
-		// 这张表，否则「规则已注册」与「测试认识这条规则」会各自漂移。
 		"facts/carrier_uid_filename_mismatch",
 		"facts/carrier_uid_duplicate",
 		"facts/carrier_uid_unverifiable",
-		// 09 §5.3 item 8（Human 决定 2026-10-23）：AGENTS.md 指针有效性。
-		"validation/agents_pointer_unresolved",
-		"validation/agents_pointer_unverifiable",
-		"validation/agents_pointer_unreadable",
 	];
 	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
 	for (const entry of Object.values(GATE_RULES)) {
@@ -530,9 +437,6 @@ test("validateMessage returns structured findings with rule/severity/message fie
 	}
 });
 
-// ---------------------------------------------------------------------------
-// Bidirectional coverage (06 §6.1 不得遗漏 half; K1, Human 2026-09-10)
-// ---------------------------------------------------------------------------
 
 test("checkKeyChangesAgainstDiff rejects a staged path covered by no item (bidirectional)", () => {
 	const diff = [
@@ -596,9 +500,6 @@ test("checkKeyChangesAgainstDiff exempts registered mechanical artifacts from th
 });
 
 test("checkKeyChangesAgainstDiff reverse half distinguishes precise-path coverage from area-word coverage", () => {
-	// The uncovered path plugin/lib/research-session.js shares no segment
-	// with the item; the covered path matches via the full explicit path
-	// text inside the item (not via a bare directory word).
 	const diff = [
 		"diff --git a/specs/08-x.md b/specs/08-x.md",
 		"diff --git a/plugin/lib/research-session.js b/plugin/lib/research-session.js",
@@ -619,10 +520,6 @@ test("checkKeyChangesAgainstDiff reverse half distinguishes precise-path coverag
 });
 
 test("checkKeyChangesAgainstDiff rejects a bare directory word in the reverse half (spark-c48af9e6)", () => {
-	// The reverse half exists to turn silent staged pollution into a loud
-	// rejection. A single directory segment matches every path beneath it, so
-	// accepting one would make the half vacuous: an item saying "plugin 目录改动"
-	// would cover an entire subtree nobody actually named.
 	const diff = ["diff --git a/plugin/web/src/App.tsx b/plugin/web/src/App.tsx", ""].join("\n");
 	const msgFor = (item) =>
 		["chore: x", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
@@ -632,8 +529,6 @@ test("checkKeyChangesAgainstDiff rejects a bare directory word in the reverse ha
 		assert.equal(result.ok, false, `single segment "${item}" must not cover a subtree`);
 		assert.ok(result.issues.some((i) => i.rule === "validation/staged_path_uncovered"));
 	}
-	// A two-level prefix still names the touched area — the diffstat affordance
-	// stays available, it just has to point at where the change actually is.
 	for (const item of ["plugin/web 改动", "plugin/web/src/App.tsx 改动"]) {
 		const result = checkKeyChangesAgainstDiff(msgFor(item), diff);
 		assert.equal(result.ok, true, `two-level prefix "${item}" must still cover`);
@@ -641,10 +536,6 @@ test("checkKeyChangesAgainstDiff rejects a bare directory word in the reverse ha
 });
 
 test("checkKeyChangesAgainstDiff keeps the numeric-prefix carrier convention working", () => {
-	// specs/ holds 29 carriers named `NN-<title>.md`; authors write `specs/08`
-	// to name one of them. That is a specific carrier, not a subtree, so the
-	// tightening above must not break it. This is the DOMINANT historic form
-	// (404 of 2212 items), not an edge case.
 	const diff = ["diff --git a/specs/08-x.md b/specs/08-x.md", ""].join("\n");
 	const msg = ["chore: x", "", "关键变更:", "- specs/08 回填", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result = checkKeyChangesAgainstDiff(msg, diff);
@@ -653,13 +544,10 @@ test("checkKeyChangesAgainstDiff keeps the numeric-prefix carrier convention wor
 
 test("numeric-prefix matching is bounded: no digit-suffix or root-level bleed", () => {
 	const msgFor = (item) => ["chore: x", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
-	// `specs/080` must not cover `specs/08-x.md` — the number has to end on a boundary.
 	const diff08 = ["diff --git a/specs/08-x.md b/specs/08-x.md", ""].join("\n");
 	assert.equal(checkKeyChangesAgainstDiff(msgFor("specs/080 条"), diff08).ok, false);
-	// A root-level `08-x.md` must not be covered by a bare `08` (e.g. a clock time).
 	const diffRoot = ["diff --git a/08-x.md b/08-x.md", ""].join("\n");
 	assert.equal(checkKeyChangesAgainstDiff(msgFor("会议 08:30 开始"), diffRoot).ok, false);
-	// Nested: only the full `a/b/12` prefix is a carrier reference.
 	const diffNested = ["diff --git a/b/12-y.md a/b/12-y.md", ""].join("\n");
 	assert.equal(checkKeyChangesAgainstDiff(msgFor("b/12 改了"), diffNested).ok, false);
 });
@@ -667,17 +555,11 @@ test("numeric-prefix matching is bounded: no digit-suffix or root-level bleed", 
 test("directory-prefix matching is boundary-bounded (no glued siblings)", () => {
 	const msgFor = (item) => ["chore: x", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const diff = ["diff --git a/plugin/lib/x.js b/plugin/lib/x.js", ""].join("\n");
-	// Glued continuations of the prefix must NOT count as naming that area.
 	assert.equal(checkKeyChangesAgainstDiff(msgFor("plugin/library 说明"), diff).ok, false);
 	assert.equal(checkKeyChangesAgainstDiff(msgFor("plugin/lib-old 说明"), diff).ok, false);
 });
 
 test("dotfiles and short filenames still match by basename alone", () => {
-	// The filename branch must not be gated by the stem-length rule: a dotfile has
-	// an empty stem and `ci.yml` a two-letter one, so both reach the reverse half
-	// through the basename. Each case below deliberately omits the full path, which
-	// is what forces the basename branch (naming the path outright would pass by
-	// the first branch and prove nothing).
 	const msgFor = (item) => ["chore: x", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const diffDot = ["diff --git a/.gitignore b/.gitignore", ""].join("\n");
 	assert.equal(checkKeyChangesAgainstDiff(msgFor("补 .gitignore 条目"), diffDot).ok, true);
@@ -696,13 +578,6 @@ test("isExemptPath matches the registered basenames only", () => {
 	assert.deepEqual([...EXEMPT_BASENAMES], ["package-lock.json", "pnpm-lock.yaml"]);
 });
 
-// ---------------------------------------------------------------------------
-// docs/ reference check — 09 §5.3 item 5 (Human 2026-10-12)
-//
-// docs/ holds temporary documents only; no carrier may newly cite a docs/ path
-// that does not exist. Pre-existing references are cleaned up gradually and
-// must NOT block a commit, so the check compares against the baseline text.
-// ---------------------------------------------------------------------------
 
 test("extractDocsReferences finds bare docs/ paths and trims trailing punctuation", () => {
 	assert.deepEqual(extractDocsReferences("见 `docs/a.md`（注）"), ["docs/a.md"]);
@@ -713,7 +588,6 @@ test("extractDocsReferences finds bare docs/ paths and trims trailing punctuatio
 test("extractDocsReferences does NOT match plugin/web/docs (a different directory)", () => {
 	assert.deepEqual(extractDocsReferences("见 `plugin/web/docs/10-baseline.md` §5"), []);
 	assert.deepEqual(extractDocsReferences("见 plugin/web/docs/10 §5"), []);
-	// The top-level docs/ still matches when it is a real path segment.
 	assert.deepEqual(extractDocsReferences("见 docs/real.md"), ["docs/real.md"]);
 });
 
@@ -721,40 +595,23 @@ test("extractDocsReferences ignores the bare directory token without a path", ()
 	assert.deepEqual(extractDocsReferences("文档一律位于 docs/ 目录"), []);
 });
 
-// A docs/ filename may carry a CJK segment. An ASCII-only tail class stops the
-// match at the first CJK run and existence-checks the truncated token — a
-// false `docs_reference_dangling` on a reference that resolves. The prefix
-// class stays ASCII-punctuated so `见docs/…` (no boundary) and CJK-before-docs
-// rules are unaffected.
 test("extractDocsReferences extracts a CJK filename segment to its full extent", () => {
 	assert.deepEqual(
 		extractDocsReferences("产出：`docs/指称形态候选-2026-10-18.md` §1"),
 		["docs/指称形态候选-2026-10-18.md"],
 	);
-	// Two such paths in one sentence are both taken whole.
 	assert.deepEqual(
 		extractDocsReferences("见 docs/a-中文.md 与 docs/b-二.md。"),
 		["docs/a-中文.md", "docs/b-二.md"],
 	);
-	// A CJK run in the middle, with an ASCII tail, is still one path.
 	assert.deepEqual(extractDocsReferences("（`docs/候选/x.md`）"), ["docs/候选/x.md"]);
 });
 
-// The extractor is also called at RUNTIME through `new RegExp(..., "g")` (the
-// skill's load_module bridge rebuilds each module's regex literals from their
-// source). Without the `u` flag a `\p{L}` class degrades to a literal "p",
-// "L", "{" set, so the pattern only ever matches `docs/p` — every reference,
-// including bare ASCII ones, becomes invisible and the rule silently passes.
-// Pin the flag against the SOURCE so a future re-serialization cannot drop it.
 test("DOCS_REFERENCE_PATTERN source keeps the u flag when rebuilt with new RegExp", () => {
 	const rebuilt = new RegExp(DOCS_REFERENCE_PATTERN.source, "gu");
 	const found = [];
 	for (const match of "见 docs/real.md 与 `docs/x.md`。".matchAll(rebuilt)) found.push(match[1]);
 	assert.deepEqual(found, ["docs/real.md", "docs/x.md"]);
-	// And the degradation is real, not hypothetical: without `u` the same
-	// source yields ONLY the first character after `docs/` (`docs/r`), never
-	// the reference. This is what made the extractor blind in the running
-	// instance while the CLI entry looked healthy.
 	const withoutU = new RegExp(DOCS_REFERENCE_PATTERN.source, "g");
 	const degraded = [..."见 docs/real.md".matchAll(withoutU)].map((match) => match[1]);
 	assert.deepEqual(degraded, ["docs/r"], "without u the class degrades to a literal char set — the extractor sees docs/r, never docs/real.md");
@@ -790,10 +647,6 @@ test("checkDocsReferences does NOT flag a PRE-EXISTING dangling reference (gradu
 });
 
 test("checkDocsReferences does NOT flag a PRE-EXISTING reference on a RENAMED carrier (baseline by lineage)", () => {
-	// 2026-11-14 回归：重命名载体的基线来自**旧路径**。此前实现按新路径取
-	// HEAD，新路径在 HEAD 中不存在 → baseline 为空 → preexisting 豁免整体
-	// 失效，把改名载体里的存量 docs/ 引用全判成「本批新增」。实测形态：
-	// 50 份调研对象由 researches/ 改名为 reports/ 后一次性报出 50 条。
 	const text = "`docs/persistence-schema.json` 的 ±1,600 行不代表格式升级。";
 	const result = checkDocsReferences(
 		[{ path: "ldvh-base/reports/report-x.md", content: text, baseline: text }],
@@ -804,7 +657,6 @@ test("checkDocsReferences does NOT flag a PRE-EXISTING reference on a RENAMED ca
 });
 
 test("checkDocsReferences still flags a genuinely NEW reference added during a rename", () => {
-	// 改名同时新增引用：新增者不在旧基线里，仍须被拦住（甲案不得 fail-open）。
 	const result = checkDocsReferences(
 		[{
 			path: "ldvh-base/reports/report-x.md",
@@ -820,9 +672,6 @@ test("checkDocsReferences still flags a genuinely NEW reference added during a r
 });
 
 test("checkDocsReferences FAILS CLOSED when a renamed carrier's baseline is unreadable", () => {
-	// baseline === null 是「血缘不可判定」的显式信号（R/C 但旧路径读不到）。
-	// 不得退回「预存集为空」——那正是要被修的缺陷形态：读不到当全新增，且
-	// 让「读不到就放过」成为绕过口。09 §5.3 非通过即阻断。
 	const text = "`docs/whatever.md` 的描述。";
 	const result = checkDocsReferences(
 		[{ path: "ldvh-base/reports/report-x.md", content: text, baseline: null }],
@@ -867,10 +716,6 @@ test("checkDocsReferences does not flag plugin/web/docs references", () => {
 });
 
 test("checkDocsReferences exempts a token quoted as the rule's own truncation report", () => {
-	// The docs/ rule's own subject is a truncated CJK-filename token. Quoting that
-	// defect (as pitfall-430bef13's 症状 must) names BOTH the real path and the
-	// prefix the validator produced; the prefix alone is an artifact of the rule,
-	// not an authority claim. The real path is still checked on its own.
 	const content = "报出的 token 是被截断的 ASCII 前缀（如 `docs/指称形态候选-2026-10-18.md` 被截成 `docs/`）。";
 	const result = checkDocsReferences(
 		[{ path: "ldvh-base/pitfalls/pitfall-430bef13-3984-4b67-92e8-2dc5ab4c07cf.md", content }],
@@ -880,8 +725,6 @@ test("checkDocsReferences exempts a token quoted as the rule's own truncation re
 });
 
 test("checkDocsReferences still blocks the real path when only the quoted prefix appears", () => {
-	// Same shape, but the full path does NOT resolve: the prefix cannot excuse
-	// itself by being mentioned, so the dangling real target still blocks.
 	const result = checkDocsReferences(
 		[{ path: "specs/99-new.md", content: "见 `docs/missing-指称候选.md`（其截断形为 `docs/missing-`）。" }],
 		{ exists: () => false }
@@ -891,10 +734,6 @@ test("checkDocsReferences still blocks the real path when only the quoted prefix
 });
 
 test("checkDocsReferences does not waive a dangling prefix for a fabricated longer token", () => {
-	// 2026-10 订正（独立复核发现）：原豁免条件只要求「文本里另有一个以该前缀开头的
-	// 更长 token」，**不要求那个更长 token 可解析**——于是任何悬空的 docs/ 引用只
-	// 要在旁边编造一个更长的同类 token 就能被洗白。豁免的前提是「真实路径也被检
-	// 查过」，故更长者必须自己 exists 为真；它是假的，就谁都豁免不了。
 	const content = "见 `docs/totally-nonexistent-abcd-efgh-ijkl-mnop.md` 与其截断形 `docs/totally-nonexistent-`。";
 	const result = checkDocsReferences(
 		[{ path: "specs/99-new.md", content }],
@@ -907,8 +746,6 @@ test("checkDocsReferences does not waive a dangling prefix for a fabricated long
 });
 
 test("checkDocsReferences waives the prefix only when the longer token really exists", () => {
-	// 同一条文本，只把 exists 改为认识那个真实路径：此时前缀是校验器自己产出的截断
-	// 产物，可豁免；真实路径自行核验通过；整体无悬空引用。
 	const content = "见 `docs/totally-nonexistent-abcd-efgh-ijkl-mnop.md` 与其截断形 `docs/totally-nonexistent-`。";
 	const result = checkDocsReferences(
 		[{ path: "specs/99-new.md", content }],
@@ -922,9 +759,6 @@ test("isSpecOrFactCarrierPath limits the rule to spec/fact carriers", () => {
 	assert.equal(isSpecOrFactCarrierPath("specs/attachments/a.md"), true);
 	assert.equal(isSpecOrFactCarrierPath("ldvh-base/frictions/f.md"), true);
 	assert.equal(isSpecOrFactCarrierPath("README.md"), true);
-	// Implementation carriers are out of scope: their mentions are comments and
-	// fixtures, and including them would make the rule self-defeating (its own
-	// tests must name docs/ paths).
 	assert.equal(isSpecOrFactCarrierPath("plugin/lib/commit-validation.js"), false);
 	assert.equal(isSpecOrFactCarrierPath("plugin/test/commit-validation.test.mjs"), false);
 	assert.equal(isSpecOrFactCarrierPath("plugin/web/docs/10.md"), false);
@@ -943,15 +777,6 @@ test("docs_reference_dangling is registered in the K1 rule registry", () => {
 	assert.equal(GATE_RULES["validation/docs_reference_dangling"].severity, "blocking");
 });
 
-// ---------------------------------------------------------------------------
-// Load-bearing declaration protection (01 §7 末段; 09 §5.3 item 6)
-//
-// The five classes the scope names, one test each, plus the
-// boundary assertions the rule states about itself. Class 2 replays the
-// incident this implements: the declaration kept its marker and its
-// prohibition but lost its 恢复条件 sub-element, and the removal went
-// undetected.
-// ---------------------------------------------------------------------------
 
 const declarationUnit = (subject, resolution) =>
 	`| ${LOAD_BEARING_MARKER} ${subject} | 不得声称本文已完成对齐 | ${resolution ?? "**无**——须按判据逐处核对"} |`;
@@ -1031,9 +856,6 @@ test("references: only tokens inside 关键变更 items count, and both forms ar
 });
 
 test("BOUNDARY: weakening a declaration while keeping marker and resolution is NOT caught here", () => {
-	// The rule's own stated limit, asserted so a green suite cannot be read as
-	// "load-bearing declarations are semantically protected": the mechanical
-	// check proves only that a resolvable reference was carried.
 	const weakened = `| ${LOAD_BEARING_MARKER} ${SUBJECT} | 尽量不对齐 | ${LOAD_BEARING_RESOLUTION_LABEL}也许某天 |`;
 	const result = checkLoadBearingDeclarations(specCarrier(weakened, WITH_RESOLUTION), {
 		message: messageWith(["specs/27-Norm-事实规范.md: 弱化表述"]),
@@ -1048,34 +870,22 @@ test("registered: every load-bearing rule is in the K1 registry as blocking", ()
 });
 
 test("mention vs use: a marker inside a code span is a mention, not a declaration", () => {
-	// The rule texts themselves write the marker inside backticks while
-	// defining it. Counting those as declarations would make the rule's own
-	// paragraph a protected unit and demand a review reference for every later
-	// wording fix — so a code-span marker must not open a unit.
 	const BT = String.fromCharCode(96);
 	const ruleText = `承重声明**须**以固定标记 ${BT}${LOAD_BEARING_MARKER}${BT} 标识，并以固定标签的恢复条件子件 ${BT}${LOAD_BEARING_RESOLUTION_LABEL}…${BT} 承载其解除要件；`;
 	assert.deepEqual(extractLoadBearingUnits(ruleText), []);
-	// The same marker OUTSIDE a code span is a use: it opens the unit.
 	assert.equal(extractLoadBearingUnits(`${LOAD_BEARING_MARKER} 本文正文对 §7.2 的对齐 | 不得声称… | ${LOAD_BEARING_RESOLUTION_LABEL}完成后删除本行 |`).length, 1);
 	assert.equal(extractLoadBearingUnits(`| ${LOAD_BEARING_MARKER} 授权包 | 不得声称… | ${LOAD_BEARING_RESOLUTION_LABEL}来源回填 |`).length, 1);
 });
 
 test("one unit per line, and a mention stays a mention regardless of where it sits", () => {
-	// Two mentions of the marker on one line describe ONE declaration (a table
-	// row whose text also names the marker): the unit count must not double.
 	const BT = String.fromCharCode(96);
 	const twoOnOneLine = `| ${LOAD_BEARING_MARKER} 授权包 | 见 ${LOAD_BEARING_MARKER} 的约定 | ${LOAD_BEARING_RESOLUTION_LABEL}来源回填 |`;
 	assert.equal(extractLoadBearingUnits(twoOnOneLine).length, 1);
-	// A code-span marker yields no unit, wherever in the line it appears.
 	assert.deepEqual(extractLoadBearingUnits(`见 ${BT}${LOAD_BEARING_MARKER} 的约定${BT}`), []);
 	assert.deepEqual(extractLoadBearingUnits(`${BT}${LOAD_BEARING_MARKER}${BT} 标识`), []);
 });
 
 test("the resolution label must be CARRIED, not merely quoted in a code span", () => {
-	// Review finding F3: the marker side already ignored code spans while the
-	// label side used a plain substring test, so a declaration whose release
-	// element was only quoted satisfied the shape check. Both sides now share
-	// one use/mention helper.
 	const BT = String.fromCharCode(96);
 	const quoted = `| ${LOAD_BEARING_MARKER} 本文正文对 §7.2 的对齐 | 不得声称已完成 | 见 ${BT}${LOAD_BEARING_RESOLUTION_LABEL}…${BT} 的约定 |`;
 	const carried = `| ${LOAD_BEARING_MARKER} 本文正文对 §7.2 的对齐 | 不得声称已完成 | ${LOAD_BEARING_RESOLUTION_LABEL}完成后删除本行 |`;
@@ -1088,9 +898,6 @@ test("the resolution label must be CARRIED, not merely quoted in a code span", (
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 09 §5.3 第 7 项：以「§7.2 违规」为由删除时，消息中的逐字引用须在 §7.2 文本中存在。
-// ─────────────────────────────────────────────────────────────────────────────
 
 test("collectRemovalBasisDeclarations: 只认声明标签之后的引用文本", () => {
 	assert.deepEqual(collectRemovalBasisDeclarations("无声明"), []);
@@ -1115,42 +922,25 @@ test("checkRemovalBasisDeclarations: 编造引用被拒、真实引用放行、�
 	const section = "禁止的状态有三类：1. 实现状态；2. 下位文档的存在状态；3. 过程与进度。";
 	const rules = (message, sectionTexts) => checkRemovalBasisDeclarations({ message, sectionTexts }).issues.map((issue) => issue.rule);
 
-	// 无声明即不检查（窄版设计：只在自愿申报时生效）
 	assert.deepEqual(rules("无声明", [section]), []);
-	// 空声明
 	assert.deepEqual(rules("§7.2 依据：", [section]), ["validation/removal_basis_empty"]);
-	// 引真句
 	assert.deepEqual(rules("§7.2 依据：禁止的状态有三类：", [section]), []);
-	// 编造判据（历史事故的形态：「布局自指计数」在 §7.2 中并不存在）
 	assert.deepEqual(rules("§7.2 依据：布局自指计数", [section]), ["validation/removal_basis_unquotable"]);
-	// 两版并集：仅 HEAD 版含该句也算成立（本次提交可能正要删掉它）
 	assert.deepEqual(rules("§7.2 依据：禁止的状态有三类：", [null, section]), []);
-	// 两版都取不到 → fail-closed
 	assert.deepEqual(rules("§7.2 依据：实现状态", [null, null]), ["validation/removal_basis_section_unreadable"]);
-	// 空白差异不影响逐字判定
 	assert.deepEqual(rules("§7.2 依据：禁止的状态有三类：", [section.replace("：", "：  ")]), []);
 });
 
 test("标签落在代码跨度内属提及、不构成依据申报（本轮实测踩到的误报）", () => {
-	// 首次落盘本项时，提交消息的 关键变更 里写了 `§7.2 依据：<引用>` 来**描述**该机制，
-	// 新门禁据此要求逐字引用并拒绝了该提交——即「提及」被当成「使用」。与承重标记一侧
-	// 同口径：代码跨度内的标签不构成申报。
 	assert.deepEqual(
 		collectRemovalBasisDeclarations("关键变更:\n- 声明 `§7.2 依据：<引用>` 的机制"),
 		[]
 	);
 	assert.deepEqual(collectRemovalBasisDeclarations("§7.2 依据：某句原文"), ["某句原文"]);
-	// 同一行里既有提及又有裸写：仍须申报（裸写那处要核对）
 	const both = collectRemovalBasisDeclarations("§7.2 依据：甲 与 `§7.2 依据：乙`");
 	assert.deepEqual(both, ["甲 与 `§7.2 依据：乙`"], "以第一个**裸写**标签为锚，其余留在引用文本内");
 });
 
-// ── 摩擦 informs 的 commit 目标：提交层兜底（26 §11）───────────────────────
-//
-// 这一层的存在理由是一次实测事故：friction-ed844630 由 `git add` + `commit`
-// 直接落盘（git 记录为 new file、42 行纯新增、status 一上来就是 resolved），
-// 完全绕过 friction-writer，于是两个从未存在过的 commit 标识进了账目，Web 端
-// 渲染成死链接。writer 的 fail-closed 再严密，也管不到不经 writer 的写入。
 
 const FRICTION_OK = `---
 title: 示例摩擦
@@ -1184,14 +974,11 @@ object_uid: 11111111-2222-3333-4444-555555555555
 x
 `;
 	assert.deepEqual(extractFrictionCommitTargets(content), ["b".repeat(40), "c".repeat(40)]);
-	// 无 relations 的摩擦是常态，不得误报
 	assert.deepEqual(extractFrictionCommitTargets("---\ntitle: t\nstatus: observing\n---\n## 现象\nx\n"), []);
-	// object_uid 形态不参与 commit 校验
 	assert.deepEqual(extractFrictionCommitTargets(FRICTION_OK.replace("commit:", "object_uid:")), []);
 });
 
 test("摩擦载体：commit 目标不可解析即拦下（事故形态复现）", async () => {
-	// 场景一：标识不在仓库中——正是 friction-ed844630 的形态
 	const missing = await checkFrictionCommitTargets(
 		[{ path: "ldvh-base/frictions/friction-x.md", content: FRICTION_OK }],
 		{ resolves: async () => false }
@@ -1199,7 +986,6 @@ test("摩擦载体：commit 目标不可解析即拦下（事故形态复现）"
 	assert.equal(missing.ok, false);
 	assert.deepEqual(missing.issues.map((i) => i.rule), ["git/friction_commit_unresolvable"]);
 
-	// 场景二：标识可解析——放行
 	const present = await checkFrictionCommitTargets(
 		[{ path: "ldvh-base/frictions/friction-x.md", content: FRICTION_OK }],
 		{ resolves: async (hash) => hash === "a".repeat(40) }
@@ -1233,21 +1019,10 @@ test("摩擦载体路径判定只认 frictions/ 下的 friction-*.md", () => {
 	assert.equal(isFrictionCarrierPath("ldvh-base/pitfalls/pitfall-abc.md"), false);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 02 §7.1 + §5 第 6 项：事实载体身份一致性（提交层兜底）
-//
-// 来历（2026-11-04）：核查发现两侧都不说话——list 读取面以文件名为身份权威，
-// 把命名不符的载体静默跳过；Git Gate 侧则完全没有「文件名 vs 声明」的比对
-// （`object_uid` 只用于 declaresObjectUid 的「仓库里有没有这个 uid」）。
-// 于是一份被改名、被复制或手工粘贴的载体可以带着错误身份进仓。
-//
-// 本项按 09 §8.1 第 2 项属 Human Gate 领域增量，已获批准后实施。
-// ─────────────────────────────────────────────────────────────────────────────
 
 const UID_A = "11111111-1111-4111-8111-111111111111";
 const UID_B = "22222222-2222-4222-8222-222222222222";
 
-/** A minimal carrier whose declared identity is `uid`. */
 const carrierText = (uid) => `---\nobject_uid: ${uid}\ntitle: t\nstatus: open\n---\n\nbody\n`;
 
 test("carrier identity: a clean staged carrier produces no finding", () => {
@@ -1264,7 +1039,6 @@ test("carrier identity: filename/declaration mismatch is refused (真实错误�
 	]);
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((i) => i.rule), ["facts/carrier_uid_filename_mismatch"]);
-	// The finding must name BOTH identities, or the reader cannot tell what to fix.
 	assert.ok(result.issues[0].message.includes(UID_A), result.issues[0].message);
 	assert.ok(result.issues[0].message.includes(UID_B), result.issues[0].message);
 });
@@ -1276,7 +1050,6 @@ test("carrier identity: two carriers declaring one uid are refused (02 §5 item 
 	]);
 	const rules = result.issues.map((i) => i.rule);
 	assert.ok(rules.includes("facts/carrier_uid_duplicate"), JSON.stringify(rules));
-	// The duplicate finding names every claimant, not just the second one.
 	const duplicate = result.issues.find((i) => i.rule === "facts/carrier_uid_duplicate");
 	assert.ok(duplicate.message.includes(UID_A), duplicate.message);
 	assert.ok(duplicate.message.includes(UID_B), duplicate.message);
@@ -1298,11 +1071,6 @@ test("carrier identity: a frontmatter without the declaration fails closed", () 
 	assert.deepEqual(result.issues.map((i) => i.rule), ["facts/carrier_uid_unverifiable"]);
 });
 
-// 这一条钉的是**范围的边界**，不是能力：文件名不编码身份时，本检查不得拒绝。
-// 09 §5.3 第 6 项要求引用按载体声明的 object_uid 解析，runner 侧已有测试
-// （「a fact reference resolves by the carrier's object_uid, not only by its
-// file name」）依赖「载体不必以 uid 命名」这一形态成立。把命名约定收紧成强制
-// 要求会替规范增加一条没人批准的规定——首版实现正是这样，被那条测试拦住。
 test("carrier identity: a carrier whose filename encodes no identity is NOT refused", () => {
 	const result = checkFactCarrierIdentity([
 		{ path: "ldvh-base/norms/unnamed-carrier.md", content: carrierText(UID_A) },
@@ -1333,95 +1101,12 @@ test("carrier identity: identity comparison is case-insensitive (uppercase decla
 	assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
 
-// ---------------------------------------------------------------------------
-// AGENTS.md pointer validity (09 §5.3 item 8, Human 2026-10-23)
-// 规则 008b45ad 立规（实现归 06），本测试钉住其可判定文法。
-// ---------------------------------------------------------------------------
 
-test("agents pointers: rule ids are registered in GATE_RULES", () => {
-	for (const rule of [
-		"validation/agents_pointer_unresolved",
-		"validation/agents_pointer_unverifiable",
-		"validation/agents_pointer_unreadable",
-	]) {
-		assert.equal(GATE_RULES[rule]?.severity, "blocking", `${rule} must be a registered blocking rule`);
-	}
-});
 
-test("agents pointers: anchor grammar rejects §0, leading zeros and §N.0", () => {
-	assert.deepEqual(extractAgentsAnchors("见 §1 与 §4.6、§4、§5"), [
-		{ raw: "§1", major: 1, minor: null, at: 2 },
-		{ raw: "§4.6", major: 4, minor: 6, at: 7 },
-		{ raw: "§4", major: 4, minor: null, at: 12 },
-		{ raw: "§5", major: 5, minor: null, at: 15 },
-	]);
-	assert.deepEqual(extractAgentsAnchors("§0 不构成锚点，§06 与 §4.0 也不合文法"), []);
-});
 
-test("agents pointers: only backticked repo-relative specs paths are recognised", () => {
-	const refs = extractAgentsSpecPaths("用 `specs/00-理念与构成.md` 与 `specs/x/y.md`；裸 specs/z.md 与 /abs/specs/q.md 不算");
-	assert.deepEqual(refs.map((r) => r.path), ["specs/00-理念与构成.md", "specs/x/y.md"]);
-});
 
-// 真实规范载体作夹具：00 §6 是无子节的编号列表，正好验证「§6 不因 §6.3 成立」。
 const SPEC00 = readFileSync(new URL("../../specs/00-理念与构成.md", import.meta.url), "utf8");
 
-test("agents pointers: bound anchors resolve; §6 (list-only section) has no §6.3 so it fails", () => {
-	// 逐段编号相等：§1 存在（H2 "1. LDVH 的三大核心价值"）；§4.6 存在（H3 "### 4.6 据实声明"）。
-	const ok = checkAgentsPointers([{ content: "`specs/00-理念与构成.md` §1 与 §4.6\n" }], {
-		specExists: () => true,
-		specText: () => SPEC00,
-	});
-	assert.equal(ok.ok, true, JSON.stringify(ok.issues));
-	// §4.99 不存在，且 §6 一节是编号列表、没有 §6.3 子标题 → 必须失败（§6 不因 §6.3 成立）。
-	const bad = checkAgentsPointers([{ content: "`specs/00-理念与构成.md` §4.99 与 §6.3\n" }], {
-		specExists: () => true,
-		specText: () => SPEC00,
-	});
-	assert.equal(bad.ok, false);
-	assert.deepEqual(bad.issues.map((i) => i.rule), [
-		"validation/agents_pointer_unresolved",
-		"validation/agents_pointer_unresolved",
-	]);
-});
 
-test("agents pointers: fenced pseudo-headings do not count (reuse extractHeadings)", () => {
-	const fencedSpec = "# 假规范\n\n```\n## 4.99 这是围栏内的伪标题\n```\n\n## 2. 真标题\n";
-	const bad = checkAgentsPointers([{ content: "`specs/fake.md` §4.99\n" }], {
-		specExists: () => true,
-		specText: () => fencedSpec,
-	});
-	assert.equal(bad.ok, false, "围栏内伪标题不得被当作可寻址标题");
-	const ok = checkAgentsPointers([{ content: "`specs/fake.md` §2\n" }], {
-		specExists: () => true,
-		specText: () => fencedSpec,
-	});
-	assert.equal(ok.ok, true, "围栏外的真标题应解析成功");
-});
 
-test("agents pointers: absent explicit path -> failed; unbound anchor -> unverifiable (listed)", () => {
-	const missing = checkAgentsPointers([{ content: "`specs/99-不存在.md` §2\n" }], {
-		specExists: () => false,
-		specText: () => null,
-	});
-	assert.equal(missing.ok, false);
-	assert.deepEqual(missing.issues.map((i) => i.rule), ["validation/agents_pointer_unresolved"]);
 
-	const unbound = checkAgentsPointers([{ content: "任何锚点 §2 出现在显式路径之前\n" }], {
-		specExists: () => true,
-		specText: () => SPEC00,
-	});
-	assert.equal(unbound.ok, false);
-	assert.deepEqual(unbound.issues.map((i) => i.rule), ["validation/agents_pointer_unverifiable"]);
-	assert.match(unbound.issues[0].message, /§2/);
-	assert.deepEqual(unbound.unbound, ["AGENTS.md:1 §2"]);
-});
-
-test("agents pointers: unreadable spec carrier fails closed", () => {
-	const outcome = checkAgentsPointers([{ content: "`specs/real.md` §2\n" }], {
-		specExists: () => true,
-		specText: () => null,
-	});
-	assert.equal(outcome.ok, false);
-	assert.deepEqual(outcome.issues.map((i) => i.rule), ["validation/agents_pointer_unreadable"]);
-});
