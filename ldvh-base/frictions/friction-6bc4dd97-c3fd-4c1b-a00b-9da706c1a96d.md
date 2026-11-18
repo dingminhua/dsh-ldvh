@@ -1,8 +1,12 @@
 ---
 title: 全量测试静默少跑用例且未被拦截
-status: open
+status: resolved
 phenomenon: 本轮改动后全量测试通过数由 2912 降到 2865，少跑的 47 例因某个测试文件加载时静默失败而未被发现，报告仍以全绿结束。
 attribution: 测试运行器的用例计数守卫与测试文件加载失败处理路径：文件加载/收集阶段抛错时被静默跳过，该文件全部用例不计入执行且不产生失败项，条数守卫也未把「用例数相对基线下降」升级为失败。
+relations:
+  - relation_key: informs
+    target:
+      commit: 52fb79deff38b2112f0f40dc752359562b8e86df
 object_uid: 6bc4dd97-c3fd-4c1b-a00b-9da706c1a96d
 fact_type_key: friction
 created_at: 2026-11-03T21:02:10.572Z
@@ -27,6 +31,10 @@ change_log:
     provider: modeliflare
     model: gpt-6.1-terra
     summary: 补充观察：count 5 → 6（11 §9 第 2 项）
+  - at: 2026-11-18T23:54:30.997Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: 销账：commit 52fb79de 补 skip 对账并覆盖开发期入口（含 11-16 复现形态）；informs 指向该 commit
 occurrence:
   count: 6
   first_at: 2026-11-01T15:13:55.205Z
@@ -60,3 +68,11 @@ occurrence:
 补充观察（2026-11-16T15:50:47.624Z）：引证显示本轮受控提交收口时，用例计数守卫已明确报出「低于上次全绿基线、552 条消失」，但整轮全量测试的退出码仍为 0，两笔提交照常完成并以「全量测试全绿」的口径收口——即「少跑/少算用例被报出却不被拦下、报告仍以全绿结束」这一机制再次生效。既有 open 账目 friction-6bc4dd97（全量测试静默少跑用例且未被拦截）的归因落点正是测试运行器的用例计数守卫未把「用例数相对基线下降」升级为失败（其 47 例少跑另有一处加载失败静默跳过，本次材料未查明 552 条消失的成因，材料自述为「既有状态」且未定位原因）。按 26 §6.2 以归因落点与机制模式判重而非按现象措辞判重：两者的承载面（测试运行器的用例计数守卫与其基线下降升级判据）、产生方式（守卫只报告不升级、退出码 0、提交照常通过）完全相同，故判为 same-obstacle 并指向该 uid，不另起观察组。与 fricti
 逐字引证：测试计数守卫报「低于上次全绿基线，552 条消失（本次 2708，基线 3260）」，退出码 0——这是既有状态，所以这两笔提交都不能说「全量测试全绿」。
 （来源：1）
+
+## 处置
+
+已销账（2026-11-19）：逐条核实当前代码，现象所述缺陷已由解药 commit `52fb79deff38b2112f0f40dc752359562b8e86df` 消除。
+
+核实依据：早期 `b2fc2eb9`（2026-11-02）建立初版 test-count guard，但 11-16 观察显示它「只报不拦、退出码仍 0」；`52fb79de`（2026-11-19）补上 skip 对账（observedSkippedCount，超基线即失败）、共享 countTestBlocks 与**覆盖开发期入口 affected-tests.mjs**，当前 run-tests.mjs 与 affected-tests.mjs 在守卫失败时均设 exitCode=1。故以覆盖最全、时间最新的 52fb79de 为本账解药，确保 11-16 那笔「报出但不拦截」的形态也被消解。
+
+解药为 commit 级代码修复、无对应事实对象，按 26 §9.2 commit 例外以 `informs.target.commit` 承载。本轮无 `paired-with`，无配对复审义务。

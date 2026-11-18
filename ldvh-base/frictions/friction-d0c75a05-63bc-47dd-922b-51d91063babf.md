@@ -1,8 +1,12 @@
 ---
 title: 建前预检与写入器字段判据不同源
-status: open
+status: resolved
 phenomenon: Norm create 的建前预检把 writer 会剥离的 frontmatter_draft.change_summary 判为闭集外字段，一份完全合法的创建被预检直接拒收，且给出的拒因与 writer 不同。
 attribution: 根在 Norm create 建前预检层与 norm-writer 校验层之间的「喂入校验函数前的对象形态」接缝：预检把原始 frontmatter_draft 与原始 body 直接交给校验函数，而 writer 会先剥离 change_summary、先拼装 body 再校验，两侧字段搬运与状态归一不同源。
+relations:
+  - relation_key: informs
+    target:
+      commit: 8d6ee42317c0cc28f9a1567a0040f43ea438115e
 object_uid: d0c75a05-63bc-47dd-922b-51d91063babf
 fact_type_key: friction
 created_at: 2026-11-15T13:42:10.433Z
@@ -15,6 +19,10 @@ change_log:
     provider: qoder
     model: qmodel_38max
     summary: 补充观察：count 3 → 4（11 §9 第 2 项）
+  - at: 2026-11-18T23:53:39.654Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: 销账：commit 8d6ee423 预检与写入器同形；informs 指向该 commit
 occurrence:
   count: 4
   first_at: 2026-11-14T19:47:46.483Z
@@ -40,3 +48,11 @@ Norm create 的建前预检把 writer 会剥离的 frontmatter_draft.change_summ
 补充观察（2026-11-15T20:16:39.701Z）：引证显示本次受控写入被拒的直接原因是：写入草稿比预检草稿多了一个 change_summary 字段，写入侧算出的内容指纹因此与预检侧指纹（5250464a…）不同，须重跑预检后重写。归因落点与既有 open 账目 friction-d0c75a05「建前预检与写入器字段判据不同源」一致：该条登记的根源是预检侧与 writer 侧对 change_summary 的字段搬运与状态归一不同源（writer 会先剥离 change_summary，预检侧不剥离），两侧口径不同源时，一次本应合法的创建会因预检结果不可传递而被拒。本次观察正是同一接缝的另一形态——change_summary 在预检稿与写入稿之间的不对称使预检指纹无法被写入复用，差别只在对象类型（本次为 Spark、该条为 Norm）与拒绝发生的方向（该条预检侧拒、本次写入侧拒），根仍在同一子系统/流程（预检层↔写入层对同一字段的
 逐字引证：The cause of rejection was that I added a `change_summary` field to the write draft (it wasn't included in the pre-check draft), so the content fingerprint changed.
 （来源：29）
+
+## 处置
+
+已销账（2026-11-19）：逐条核实当前代码，现象所述缺陷已由解药 commit `8d6ee42317c0cc28f9a1567a0040f43ea438115e` 消除。
+
+核实依据：commit 标题即「建前预检与写入器同形，修掉三处判据分歧」，当前 norm-tools.js:232 与 norm-writer.js:273 均剥离 change_summary，字段搬运与状态归一已同源。
+
+解药为 commit 级代码修复、无对应事实对象，按 26 §9.2 commit 例外以 `informs.target.commit` 承载。本轮无 `paired-with`，无配对复审义务。

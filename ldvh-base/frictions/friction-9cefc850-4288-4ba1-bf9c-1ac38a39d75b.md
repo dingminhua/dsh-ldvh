@@ -1,8 +1,12 @@
 ---
 title: 规范已批字段在写入器闭集缺位
-status: open
+status: resolved
 phenomenon: specs/29 §8 的 internal_evidence 与 specs/24 §8 的 serves 已由规范与 ADR 批准，但对应写入器的字段闭集（plugin/lib/devlog-writer.js 的 VALID_FM_KEYS、plugin/lib/research-writer.js）不含这些字段，按规范构造的写入被判 closed-set violation 拒收。
 attribution: 类型规范的字段表（specs/29 §8、specs/24 §8）与其受控写入器的字段闭集（plugin/lib/devlog-writer.js 的 VALID_FM_KEYS、plugin/lib/research-writer.js 的字段闭集）之间的承载接缝：两侧各自维护字段清单，规范侧新增字段不触发写入器闭集变更，二者之间没有 schema–writer 一致性用例或常量化绑定，落差只能由按规范构造写入才暴露。
+relations:
+  - relation_key: informs
+    target:
+      commit: 748fc5802c066eefd368fde942fbc1fbd9563aef
 object_uid: 9cefc850-4288-4ba1-bf9c-1ac38a39d75b
 fact_type_key: friction
 created_at: 2026-11-13T16:57:35.885Z
@@ -19,6 +23,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 3 → 4（11 §9 第 2 项）
+  - at: 2026-11-18T23:54:00.766Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: 销账：commit 748fc580 补 serves 白名单与 schema；informs 指向该 commit
 occurrence:
   count: 4
   first_at: 2026-11-12T23:45:47.367Z
@@ -52,3 +60,11 @@ specs/29 §8 的 internal_evidence 与 specs/24 §8 的 serves 已由规范与 A
 补充观察（2026-11-14T07:06:13.530Z）：引证出自 turn 37 助手在「现状核准完毕」后对 24 号现状的复核：规范侧 specs/24 §8 的 serves 仍在，而写入器侧 VALID_FM_KEYS 仍不含它，同一段「实现批」又写明「上轮实测：规范有 serves、白名单没有，按规范建对象会被拒」。这与既有 open 账目 friction-9cefc850（规范已批字段在写入器闭集缺位）的归因落点完全一致——同为「类型规范的字段表 ↔ 受控写入器字段闭集」之间的承载接缝，现象同为按规范构造的写入被闭集拒收，机制模式相同（两侧各自维护字段清单、无一致性用例），故按同一阻碍报 same-obstacle 并给出其 uid，由机械层对该账目做补充级更新。另如实说明：本次交付的 Pitfall 侧候选不完整（已交付 40 / 74，跨类型查重不完整），已交付的 40 条中未见与该 schema–writer 接缝同源者，但这
 逐字引证：24 号的 serves 字段仍在规范里（7 处），且实现侧 VALID_FM_KEYS 仍缺它——旧阻断还在。
 （来源：37）
+
+## 处置
+
+已销账（2026-11-19）：逐条核实当前代码，现象所述缺陷已由解药 commit `748fc5802c066eefd368fde942fbc1fbd9563aef` 消除。
+
+核实依据：该提交说明明写「VALID_FM_KEYS 补 report_form 与 serves（修好规范有而实现无的现存阻断）」，当前 report-writer 的 VALID_FM_KEYS 与 report-tools schema 均含 serves；DevLog/internal_evidence 半边则随类型撤除先行消失。账目正文 2026-11-14 的「不销账」判断是针对当时状态，其后 748fc580 才补上 serves 白名单，故本次销账以 748fc580 为解药。
+
+解药为 commit 级代码修复、无对应事实对象，按 26 §9.2 commit 例外以 `informs.target.commit` 承载。本轮无 `paired-with`，无配对复审义务。
