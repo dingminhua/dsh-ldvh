@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFile, readdir, writeFile } from "node:fs/promises";
-import { observedTestCount, reconcileTestCount } from "../lib/test-run-report.js";
+import { countTestBlocks, observedTestCount, observedSkippedCount, reconcileTestCount } from "../lib/test-run-report.js";
 
 const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const args = ["--test"];
@@ -16,11 +16,7 @@ async function countDeclaredTests() {
   for (const name of await readdir(testDir)) {
     if (!name.endsWith(".test.mjs")) continue;
     const text = await readFile(join(testDir, name), "utf8");
-    for (const line of text.split("\n")) {
-      const trimmed = line.trimStart();
-      if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
-      if (/^(test|it)(\.[a-zA-Z]+)?\s*\(/.test(trimmed)) total += 1;
-    }
+    total += countTestBlocks(text);
   }
   return total;
 }
@@ -62,7 +58,15 @@ child.on("exit", async (code, signal) => {
   } catch {
     baseline = null;
   }
-  const check = reconcileTestCount({ observed: observedTests, declared, baseline });
+  const skippedBaselinePath = join(pluginRoot, "test", ".test-skipped-baseline");
+  let skippedBaseline = null;
+  try {
+    skippedBaseline = Number((await readFile(skippedBaselinePath, "utf8")).trim()) || null;
+  } catch {
+    skippedBaseline = null;
+  }
+  const observedSkipped = observedSkippedCount({ stdout: tailBuffer });
+  const check = reconcileTestCount({ observed: observedTests, declared, baseline, skipped: observedSkipped, skippedBaseline });
   if (!check.ok) {
     process.stderr.write(`test-count guard: ${check.verdict}（${check.evidence}）\n`);
     process.stderr.write(

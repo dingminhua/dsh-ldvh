@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url";
 
 import {
 	classifyTestRun,
+	countTestBlocks,
 	isUsableForVerdict,
 	observedTestCount,
+	observedSkippedCount,
 	reconcileTestCount,
 	RUN_TERMINAL,
 } from "../lib/test-run-report.js";
@@ -147,4 +149,72 @@ test("守卫实现只有一份：判定逻辑在 lib/test-run-report.js，脚本
 		!/observedTests\s*<\s*baseline/.test(script),
 		"脚本不得自行比较 observedTests 与 baseline——判定须只在 lib 内实现一次",
 	);
+});
+
+const SKIP_OUTPUT = ["ℹ tests 8", "ℹ pass 0", "ℹ fail 0", "ℹ skipped 8", "ℹ todo 0", ""].join("\n");
+const ZERO_SKIP_OUTPUT = ["ℹ tests 2", "ℹ pass 2", "ℹ fail 0", "ℹ skipped 0", "ℹ todo 0", ""].join("\n");
+
+test("countTestBlocks 与 run-tests.mjs 内联计数同口径，且被两入口共用", async () => {
+	const sample = [
+		"test('a', () => {});",
+		"it.skip('b', () => {});",
+		"// test('comment', () => {});",
+		"  test ('spaced', () => {});",
+	].join("\n");
+	assert.equal(countTestBlocks(sample), 3, "注释行不计，test/it 及其 .modifier 都计");
+	const run = await readFile(join(PLUGIN, "scripts/run-tests.mjs"), "utf8");
+	const affected = await readFile(join(PLUGIN, "scripts/affected-tests.mjs"), "utf8");
+	assert.match(run, /countTestBlocks/, "全量入口须用共享计数器，不另持副本");
+	assert.match(affected, /countTestBlocks/, "局部入口须用共享计数器，不另持副本");
+	assert.ok(!/for \(const line of text\.split/.test(run), "run-tests 不得再内联逐行计数");
+});
+
+test("affected-tests.mjs 接入条数守卫：取 skip、对账、非零退出码", async () => {
+	const script = await readFile(join(PLUGIN, "scripts/affected-tests.mjs"), "utf8");
+	assert.match(script, /observedTestCount/, "须从汇总行取条数");
+	assert.match(script, /observedSkippedCount/, "须从汇总行取 skip 数");
+	assert.match(script, /reconcileTestCount/, "须调用共享对账入口");
+	assert.match(script, /test-count guard\(affected\)/, "须有失败输出，供工单/人核对");
+	assert.match(script, /stdio: \["inherit", "pipe", "inherit"\]/, "须 pipe stdout 才能取到汇总行");
+});
+
+test("run-tests.mjs 接入 skip 对账：读基线、取 skip、传入判定——三处缺一即红", async () => {
+	const script = await readFile(join(PLUGIN, "scripts/run-tests.mjs"), "utf8");
+	assert.match(script, /observedSkippedCount/, "须调用 observedSkippedCount");
+	assert.match(script, /\.test-skipped-baseline/, "须读取 skip 基线文件");
+	assert.match(script, /skipped:\s*observedSkipped/, "须把 skip 数传入 reconcileTestCount");
+	assert.match(script, /skippedBaseline/, "须把 skip 基线传入 reconcileTestCount");
+});
+
+test("observedSkippedCount：读出 ℹ skipped N；取不到时给 null 而非 0", () => {
+	assert.equal(observedSkippedCount({ stdout: SKIP_OUTPUT }), 8);
+	assert.equal(observedSkippedCount({ stdout: ZERO_SKIP_OUTPUT }), 0);
+	assert.equal(observedSkippedCount({ stdout: PASS_OUTPUT }), null, "无 skipped 行时须为 null，不得读作零 skip");
+	assert.equal(observedSkippedCount({ stdout: "" }), null);
+});
+
+test("reconcileTestCount：全 skip 也能过 tests/fail 对账——证明确有此洞（防回归锚）", () => {
+	const base = reconcileTestCount({ observed: 8, declared: 8, baseline: 8 });
+	assert.equal(base.ok, true, "没有 skip 基线时，全 skip 确实会被判通过——这是被修复的洞本身");
+});
+
+test("reconcileTestCount：skip 数高于基线即判不完整（新增 skip 不得随单次运行上移）", () => {
+	const r = reconcileTestCount({ observed: 8, declared: 8, baseline: 8, skipped: 8, skippedBaseline: 27 });
+	assert.equal(r.ok, true, "skip 未超过基线时通过");
+	const risen = reconcileTestCount({ observed: 8, declared: 8, baseline: 8, skipped: 28, skippedBaseline: 27 });
+	assert.equal(risen.ok, false);
+	assert.match(risen.verdict, /skip 数高于基线/);
+	assert.match(risen.evidence, /28/);
+	assert.match(risen.evidence, /27/);
+});
+
+test("reconcileTestCount：skip 计数不可得且给了基线时判失败——不得读作零 skip", () => {
+	const r = reconcileTestCount({ observed: 8, declared: 8, baseline: 8, skipped: null, skippedBaseline: 27 });
+	assert.equal(r.ok, false);
+	assert.match(r.verdict, /skip 计数不可得/);
+});
+
+test("reconcileTestCount：未给 skip 基线时保持原行为（对新参数的向后兼容）", () => {
+	assert.equal(reconcileTestCount({ observed: 8, declared: 8, baseline: 8, skipped: null }).ok, true);
+	assert.equal(reconcileTestCount({ observed: 8, declared: 8, baseline: 8, skipped: 99 }).ok, true);
 });

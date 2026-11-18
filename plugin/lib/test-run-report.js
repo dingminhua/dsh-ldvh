@@ -48,7 +48,22 @@ export function observedTestCount({ stdout = "", stderr = "" } = {}) {
 	return m === null ? null : Number(m[1]);
 }
 
-export function reconcileTestCount({ observed, declared, baseline }) {
+export function observedSkippedCount({ stdout = "", stderr = "" } = {}) {
+	const m = /^ℹ skipped (\d+)$/m.exec(`${stdout ?? ""}${stderr ?? ""}`);
+	return m === null ? null : Number(m[1]);
+}
+
+export function countTestBlocks(text) {
+	let total = 0;
+	for (const line of text.split("\n")) {
+		const trimmed = line.trimStart();
+		if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
+		if (/^(test|it)(\.[a-zA-Z]+)?\s*\(/.test(trimmed)) total += 1;
+	}
+	return total;
+}
+
+export function reconcileTestCount({ observed, declared, baseline, skipped, skippedBaseline }) {
 	if (observed === null || observed === undefined) {
 		return {
 			ok: false,
@@ -70,9 +85,25 @@ export function reconcileTestCount({ observed, declared, baseline }) {
 			evidence: `本次 ${observed} 条，上次全绿 ${baseline} 条（删减须经评审，不随单次运行下移）`,
 		};
 	}
+	if (skippedBaseline !== null && skippedBaseline !== undefined) {
+		if (skipped === null || skipped === undefined) {
+			return {
+				ok: false,
+				verdict: "skip 计数不可得（不得读作零 skip）",
+				evidence: "输出中不存在「ℹ skipped N」行",
+			};
+		}
+		if (skipped > skippedBaseline) {
+			return {
+				ok: false,
+				verdict: `skip 数高于基线，新增 ${skipped - skippedBaseline} 条未执行`,
+				evidence: `本次 skip ${skipped} 条，基线 ${skippedBaseline} 条（新增 skip 须经评审，不随单次运行上移）`,
+			};
+		}
+	}
 	return {
 		ok: true,
 		verdict: "条数对账通过",
-		evidence: `本次 ${observed} 条${baseline !== null && baseline !== undefined ? `，基线 ${baseline} 条` : "（无基线，本次为首次）"}`,
+		evidence: `本次 ${observed} 条${baseline !== null && baseline !== undefined ? `，基线 ${baseline} 条` : "（无基线，本次为首次）"}${skippedBaseline !== null && skippedBaseline !== undefined ? `，skip ${skipped ?? "不可得"} 条（基线 ${skippedBaseline}）` : ""}`,
 	};
 }

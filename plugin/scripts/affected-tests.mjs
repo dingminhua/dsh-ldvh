@@ -284,19 +284,60 @@ async function main(argv) {
   await runTests(plan.tests);
 }
 
+async function countDeclaredIn(relTests) {
+  const { countTestBlocks } = await import("../lib/test-run-report.js");
+  let files = relTests;
+  if (files.length === 0) {
+    files = (await readdir(join(pluginRoot, "test")))
+      .filter((name) => name.endsWith(".test.mjs"))
+      .map((name) => join("test", name));
+  }
+  let total = 0;
+  for (const file of files) {
+    const text = await readFile(join(pluginRoot, file), "utf8");
+    total += countTestBlocks(text);
+  }
+  return total;
+}
+
 async function runTests(relTests) {
   const { spawn } = await import("node:child_process");
+  const { observedTestCount, observedSkippedCount, reconcileTestCount } = await import("../lib/test-run-report.js");
   const args = ["--test"];
   if (process.platform !== "win32") args.push("--test-force-exit");
   args.push(...(relTests.length > 0 ? relTests : ["test/*.test.mjs"]));
+  let declared = null;
+  try {
+    declared = await countDeclaredIn(relTests);
+  } catch (error) {
+    process.stderr.write(`test-count guard: could not count declared tests (${error?.message ?? error})\n`);
+  }
   await new Promise((resolveRun) => {
-    const child = spawn(process.execPath, args, { cwd: pluginRoot, stdio: "inherit" });
+    const child = spawn(process.execPath, args, { cwd: pluginRoot, stdio: ["inherit", "pipe", "inherit"] });
+    let tail = "";
+    child.stdout.on("data", (chunk) => {
+      process.stdout.write(chunk);
+      tail = (tail + chunk.toString()).slice(-131072);
+    });
     child.on("exit", (code, signal) => {
       if (signal !== null) {
         process.stderr.write(`test runner terminated by signal ${signal}\n`);
         process.exitCode = 1;
       } else {
         process.exitCode = code ?? 1;
+      }
+      if (process.exitCode === 0) {
+        const check = reconcileTestCount({
+          observed: observedTestCount({ stdout: tail }),
+          declared,
+          baseline: null,
+          skipped: observedSkippedCount({ stdout: tail }),
+          skippedBaseline: null,
+        });
+        if (!check.ok) {
+          process.stderr.write(`test-count guard(affected): ${check.verdict}（${check.evidence}）\n`);
+          process.exitCode = 1;
+        }
       }
       resolveRun();
     });
