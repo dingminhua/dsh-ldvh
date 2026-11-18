@@ -740,6 +740,27 @@ export function registerFrictionChildSurface(ctx, deps) {
           "Observation recorded. Promotion to an open ledger entry was attempted in this same dispatch (36 §8.7 items 3/4); see `promotion` for the outcome. This tool does NOT create a Friction ledger object directly and does NOT change any ledger status.",
       };
     },
+    output: {
+      schema: OUTPUT_SCHEMA,
+      render: (args, value) => {
+        const result = value?.envelope ?? value ?? {};
+        const lines = ["LDVH 摩擦观察记录（36 §8.7 第 2 项）"];
+        if (result.ok === false) {
+          lines.push(`result: rejected`);
+          lines.push(`error: ${result.error ?? "friction_observation/failed"}`);
+          if (result.message !== undefined) lines.push(`message: ${result.message}`);
+          return text(lines.join("\n"));
+        }
+        lines.push("result: recorded");
+        if (result.entry_id !== undefined) lines.push(`entry_id: ${result.entry_id}`);
+        if (result.group_pending_count !== undefined) lines.push(`group_pending_count: ${result.group_pending_count}`);
+        if (result.promotion !== undefined) {
+          lines.push(`promotion: ${JSON.stringify(result.promotion)}`);
+        }
+        if (result.note !== undefined) lines.push(`note: ${result.note}`);
+        return text(lines.join("\n"));
+      }
+    }
   };
 
   const dispose = ctx.tools.register(descriptor);

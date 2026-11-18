@@ -54,6 +54,21 @@ function observationArgs({ index = 1, group = "dependency-reinstall" } = {}) {
   };
 }
 
+test("子代理摩擦面描述符声明 output 契约（宿主 register 缺 output 必抛，缺则子面从未挂载）", () => {
+  const { ctx, registered } = makeCtx();
+  registerFrictionChildSurface(ctx, {
+    dshHomePath: () => "",
+    resolveProjectId: () => null,
+    resolveSessionId: () => "sess",
+  });
+  const descriptor = registered[0];
+  assert.ok(descriptor, "record 子面工具必须被注册");
+  const output = descriptor.output;
+  assert.ok(output !== undefined && typeof output === "object", "descriptor 必须声明 output（宿主ToolsService.register 的强制契约）");
+  assert.ok(output.schema !== undefined && typeof output.schema === "object", "output.schema 必须是对象");
+  assert.equal(typeof output.render, "function", "output.render 必须是函数");
+});
+
 test("子代理摩擦面：只注册 record 一个工具，不给账目读写（26 §16 第 1 项边界）", async () => {
   await withTemp("friction-child-surface.", async (root) => {
     const { ctx, registered } = makeCtx();
