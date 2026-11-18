@@ -850,18 +850,18 @@ async function resolveResearchObjectUid(factSourceRoot, input, currentProjectId 
     return { ok: false, error: failure("research/invalid_uid", `foreign_project: identifier targets project "${projectId}", but this session is governed by "${currentProjectId}" — cross-project reads are not supported by this entry`) };
   }
   if (objectUid !== undefined) {
-    if (declaredType !== undefined && declaredType !== "research") {
-      return { ok: false, error: failure("research/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "research" objects`) };
+    if (declaredType !== undefined && declaredType !== REPORT_TYPE_KEY) {
+      return { ok: false, error: failure("research/invalid_uid", `type_prefix_mismatch: identifier declares type "${declaredType}", but this entry reads "${REPORT_TYPE_KEY}" objects`) };
     }
     return { ok: true, objectUid };
   }
-  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType: declaredType ?? "research" });
+  const resolved = await resolveShortId({ factSourceRoot, shortId, declaredType });
   if (!resolved.ok) {
     const extra = resolved.error.candidates === undefined ? "" : `; candidates: ${resolved.error.candidates.join(", ")}`;
     return { ok: false, error: failure("research/invalid_uid", `${resolved.error.code}: ${resolved.error.message}${extra}`) };
   }
-  if (resolved.value.factTypeKey !== "research") {
-    return { ok: false, error: failure("research/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "research" objects`) };
+  if (resolved.value.factTypeKey !== REPORT_TYPE_KEY) {
+    return { ok: false, error: failure("research/invalid_uid", `type_prefix_mismatch: short id "${shortId}" resolves to a ${resolved.value.factTypeKey} object, but this entry reads "${REPORT_TYPE_KEY}" objects`) };
   }
   return { ok: true, objectUid: resolved.value.objectUid };
 }

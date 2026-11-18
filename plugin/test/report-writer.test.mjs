@@ -268,6 +268,23 @@ test("createResearchObject creates directed object with v4-style body", async ()
   assert.ok(readBack.value.body.includes("对 LDVH 的价值"));
 });
 
+test("readResearchObject accepts every declared identifier form for a report object", async () => {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+    sessionSignature: authoritativeSignature({ provider: "zzztoken-glm", model: "glm-5.3" }),
+  });
+  assert.ok(created.ok, JSON.stringify(created.error));
+  const full = created.value.object_uid;
+  const short = full.slice(0, 8);
+  for (const id of [full, `report-${full}`, `report-${short}`, short]) {
+    const read = await readResearchObject({ factSourceRoot: root, objectUid: id });
+    assert.ok(read.ok, `${id} must resolve to the same report object: ${JSON.stringify(read.error)}`);
+    assert.equal(read.value.object_uid ?? read.value.frontmatter?.object_uid, full, `${id} resolved to a different object`);
+  }
+});
+
 test("createResearchObject creates exploratory object", async () => {
   const result = await createResearchObject({
     factSourceRoot: root,

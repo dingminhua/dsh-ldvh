@@ -14,6 +14,7 @@ import {
   readResearchObject,
   updateResearchObject,
   correctResearchObject,
+  REPORT_DIRECTORY,
   RESEARCH_CORRECTABLE_FIELDS as RESEARCH_CORRECTABLE_FIELDS_FOR_TEST,
 } from "./report-writer.js";
 import { currentRouteValues } from "./session-signature.js";
@@ -370,7 +371,7 @@ async function executeListObject(args, exec, deps) {
     return envelope("report-list-objects", "unavailable", {
       result: null,
       scope: { requested: "list", completed: [], not_completed: ["list"] },
-      sources: [{ kind: "fact-object", path: join(factSourceRoot, "researches") }],
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, REPORT_DIRECTORY) }],
       gaps: [`${listed.error.code}: ${listed.error.message}`],
       verification: { checks: ["directory-scan"], passed: false },
       follow_up: []
@@ -393,7 +394,7 @@ async function executeListObject(args, exec, deps) {
       completed: value.complete ? ["list"] : [`first ${value.items.length} of ${value.total}`],
       not_completed: value.complete ? [] : [`${value.total - value.items.length} objects beyond the limit`],
     },
-    sources: [{ kind: "fact-object", path: join(factSourceRoot, "researches") }],
+    sources: [{ kind: "fact-object", path: join(factSourceRoot, REPORT_DIRECTORY) }],
     gaps,
     verification: { checks: ["directory-scan", "frontmatter-parse", "f1-projection"], passed: gaps.length === 0 },
     follow_up: [
@@ -427,7 +428,7 @@ async function executeReadObject(args, exec, deps) {
     return envelope("report-read-object", outcome, {
       result: null,
       scope: { requested: objectUid, completed: [], not_completed: [objectUid] },
-      sources: [{ kind: "fact-object", path: join(factSourceRoot, "researches") }],
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, REPORT_DIRECTORY) }],
       gaps: [`${read.error.code}: ${read.error.message}`],
       verification: { checks: ["precise-read"], passed: false },
       follow_up: []
@@ -570,7 +571,7 @@ async function executeWriteObject(args, exec, deps) {
       return envelope("report-write-object", "partial", {
         result: { object_uid: args.object_uid, fingerprint: corrected.value.fingerprint, read_back: "failed" },
         scope: { requested: "correct", completed: ["correct"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
-        sources: [{ kind: "fact-object", path: join(factSourceRoot, "researches") }],
+        sources: [{ kind: "fact-object", path: join(factSourceRoot, REPORT_DIRECTORY) }],
         gaps: [`corrected but read-back failed: ${back.ok ? "fingerprint mismatch" : back.error.message}`],
         verification: { checks: ["correct"], passed: false },
         follow_up: ["STOP further writes and success claims (03 §9.7); re-read the object before anything else"]
@@ -633,7 +634,7 @@ async function executeWriteObject(args, exec, deps) {
     return envelope("report-write-object", "partial", {
       result: { object_uid: objectUid, fingerprint: updated.value.fingerprint, read_back: "failed" },
       scope: { requested: "update", completed: ["update"], not_completed: ["read-back"] },
-      sources: [{ kind: "fact-object", path: join(factSourceRoot, "researches") }],
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, REPORT_DIRECTORY) }],
       gaps: [`updated but read-back failed: ${readBack.ok ? "fingerprint mismatch" : readBack.error.message}`],
       verification: { checks: ["update"], passed: false },
       follow_up: ["STOP further writes and success claims (03 §9.7); re-read the object before anything else"]
@@ -675,7 +676,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
   return envelope(operationKey, outcome, {
     result: null,
     scope: { requested: "write", completed: [], not_completed: ["write"] },
-    sources: [{ kind: "fact-object", path: join(factSourceRoot, "researches") }],
+    sources: [{ kind: "fact-object", path: join(factSourceRoot, REPORT_DIRECTORY) }],
     gaps: [`${code}: ${failureResult.error.message}`, ...issues],
     verification: { checks: [], passed: false },
     follow_up: code === "research/cas_conflict"
@@ -950,7 +951,7 @@ export function toolDescriptorFor(operationKey, operation, handler) {
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);
-        return { envelope: result };
+        return { envelope: JSON.parse(JSON.stringify(result)) };
       } catch (error) {
         return {
           envelope: envelope(operationKey, "execution_error", {
