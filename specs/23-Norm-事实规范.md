@@ -180,7 +180,7 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 
 `direction_key` 与 `title` 的区别：`direction_key` 是机器标识（唯一性校验、索引、跨规范检索），`title` 是人类可读短标题（扫读定位、Web 呈现）。`direction_key` 不随标题修改而改变（纯标题修正不改 direction_key，参见 §13.2 勘误边界）。
 
-字段间不变量：`direction_key` 格式符合正则（机械校验）；同一 `direction_key` 在 active 集合中至多一个（§11 唯一性公式；其三层机械承载的具备前提见 §11 与 §14）；`retirement_reason`/`retired_at` 随 `status` 约束（§8.1）；正文四段固定 H2 全部存在且各段非空（机械校验）；未知字段不进入 canonical 对象。「方向定位与适用范围」段两句的书写契约（见上）**当前不接入创建/更新拒绝**：不合契约者由 `ldvh_norm_list` 的「摘录可用性标注」（`positioning_status`）与注入面的「机械导不出」披露行显式报告不可用并点名判定项（此处借用 `34 §12` 的 unavailable 词表示「该份定位不可导出」，并非该节召回完整度三态的取值），并指引 `ldvh_norm_read` 读正文。是否启用机械拦截属独立 Human Gate 决定，本文不预设其时点。
+字段间不变量：`direction_key` 格式符合正则（机械校验）；同一 `direction_key` 在 active 集合中至多一个（§11 唯一性公式；其三层机械承载的具备前提见 §11 与 §14）；`retirement_reason`/`retired_at` 随 `status` 约束（§8.1）；正文四段固定 H2 全部存在且各段非空（机械校验）；未知字段不进入 canonical 对象。「方向定位与适用范围」段两句的书写契约（见上）**不得据本规范主张已接入创建/更新拒绝**：未接入机械拦截时，不合契约者由 `ldvh_norm_list` 的「摘录可用性标注」（`positioning_status`）与注入面的「机械导不出」披露行显式报告不可用并点名判定项（此处借用 `34 §12` 的 unavailable 词表示「该份定位不可导出」，并非该节召回完整度三态的取值），并指引 `ldvh_norm_read` 读正文；是否接入按 `01 §7.2` 由读取时的观察取得。是否启用机械拦截属独立 Human Gate 决定，本文不预设其时点。
 
 ### 8.1 状态与生命周期
 
@@ -262,11 +262,11 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 
 **唯一性的三层设计契约（写入前拒绝 / Git Gate 拦截 / 消费端 fail-closed）**：
 
-本节定义唯一性在架构上由哪三层承载。三层现已全部具备，各层实际入口与验证方式回填如下（§14 原条件式条款据此闭合）：
+本节定义唯一性在架构上由哪三层承载：写入前拒绝、提交前 Git Gate 拦截、消费端 fail-closed。各层是否具备、实际入口与验证方式按 `01 §7.2` 由读取时的观察取得，本节不陈述其当前状态；任一层未具备时按 `00 §4.7` 暂停受影响范围并如实披露：
 
-1. **第一层：受控写入前**——受控写入入口在创建/更新前扫描 `ldvh-base/norms/` 全部现存 Norm 载体、解析 frontmatter，发现同 `direction_key` 的 active Norm 时拒绝写入（`ERR_DIRECTION_ALREADY_EXISTS`）。入口：`plugin/lib/norm-writer.js`；验证：`plugin/test/norm-writer.test.mjs`（同 key 拒绝、退役后复用放行）。
-2. **第二层：提交前 Git Gate**——即使绕过受控写入工具（手工编辑或 shell 写入），提交时 Git Gate 遍历工作树与暂存区的 `ldvh-base/norms/norm-*.md`，提取 active Norm 的 `direction_key` 构建频次 Map，任何 key 出现次数 > 1 则拒绝提交。入口：`plugin/lib/commit-validation.js` 的 `checkNormDirectionUniqueness`（判定 `facts/norm_direction_collision`；载体不可解析时以 `facts/norm_carrier_unparseable` fail-closed）；验证：`plugin/test/commit-validation.test.mjs`（含 `\r\n` 换行回归）。
-3. **第三层：消费/读取诊断**——主控通过 LDVH CLI 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入成员读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。入口：`ldvh_norm_list`（扣留全部冲突项并回报 `direction_collision`）；验证：`plugin/test/norm-writer.test.mjs`。
+1. **第一层：受控写入前**——受控写入入口在创建/更新前扫描 `ldvh-base/norms/` 全部现存 Norm 载体、解析 frontmatter，发现同 `direction_key` 的 active Norm 时拒绝写入（`ERR_DIRECTION_ALREADY_EXISTS`）。
+2. **第二层：提交前 Git Gate**——即使绕过受控写入工具（手工编辑或 shell 写入），提交时 Git Gate 遍历工作树与暂存区的 `ldvh-base/norms/norm-*.md`，提取 active Norm 的 `direction_key` 构建频次 Map，任何 key 出现次数 > 1 时拒绝提交（判定 `facts/norm_direction_collision`）；载体不可解析时以 `facts/norm_carrier_unparseable` fail-closed。
+3. **第三层：消费/读取诊断**——主控通过 LDVH CLI 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入成员读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。
 
 **反重复版的「一方向一规范」判据**：
 
@@ -292,7 +292,7 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 ### 13.1 类型特有验证
 
 - **查重结果记录**：创建提案必含查重结论（同 direction_key active 已存在 → 不新建，走更新或替代）；
-- **direction_key 合法性**：符合 `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$` 正则（机械校验）。该正则的**唯一权威来源**是 [01.Att.02-规范身份字段表](attachments/01.Att.02-规范身份字段表.md) §2「共同值格式」的**职责标识符**闭集 `[a-z][a-z0-9]*(?:-[a-z0-9]+)*`（本文的全串匹配语义等价于 `plugin/lib/spec-registry.js` 的 `ID_PATTERN` 全串校验；此处不复制定义，只回指来源）。类型专属字段采用既有标识符格式，不建立第二套命名规则；
+- **direction_key 合法性**：符合 `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$` 正则（机械校验）。该正则的**唯一权威来源**是 [01.Att.02-规范身份字段表](attachments/01.Att.02-规范身份字段表.md) §2「共同值格式」的**职责标识符**闭集 `[a-z][a-z0-9]*(?:-[a-z0-9]+)*`（此处只回指该闭集，不复制定义、不陈述实现位置）。类型专属字段采用既有标识符格式，不建立第二套命名规则；
 - **direction_key 唯一性**：active 集合内无冲突（由 §11 三层机械承载——写入前拒绝 / Git Gate 拦截 / 消费端 fail-closed）；
 - **正文骨架完整**：四段固定 H2 全部存在且各段非空（机械校验——H2 标题与段落存在性）；
 - **终态完整性**：retired 必有 `retirement_reason` + `retired_at`；superseded 时须确认替代 Norm 已存在可解析；
@@ -349,7 +349,7 @@ Human 决定只证明决定及其作用范围，不替代查重判断、directio
 
 ### 15.2 确认的承载与呈报
 
-**承载范围（条件式）**：第 1 项（创建）与第 2 项（终态决定）的确认，须由宿主询问入口（`10 §5.5`：`ctx.userQuestions.ask`）取得——无答题器、询问失败或未作选择时一律拒绝并如实报告。**第 3 项（方向清单的增减或重新分层）与第 4 项（Norm 类型本身的取消或合并）不为它们声明承载**：前者属对本文自身的修改、走规范修改程序，后者当前没有受控实现入口。该两项一旦提上日程，须先建立入口再谈承载，不得据本节主张其已获机械保障。
+**承载范围（条件式）**：第 1 项（创建）与第 2 项（终态决定）的确认，须由宿主询问入口（`10 §5.5`：`ctx.userQuestions.ask`）取得——无答题器、询问失败或未作选择时一律拒绝并如实报告。**第 3 项（方向清单的增减或重新分层）与第 4 项（Norm 类型本身的取消或合并）不为它们声明承载**：前者属对本文自身的修改、走规范修改程序，后者在本节不声明受控实现入口、其是否具备按 `01 §7.2` 由读取时的观察取得。该两项一旦提上日程，须先建立入口再谈承载，不得据本节主张其已获机械保障。
 
 **呈报内容**：取得确认时须向 Human 呈报——创建：查重结论、`title`、`direction_key`、以及**正文「方向定位与适用范围」段**（整段呈报，两句都在，不截取「要点」）；终态决定：拟转状态、`retirement_reason`，以及本次流转的 `change_log.summary` 据实说明。
 
