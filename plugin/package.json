@@ -39,13 +39,15 @@
   "files": [
     "lib",
     "icons",
+    "docs/assets",
     "specs",
     "cordis.patch.yml",
     "web/dist",
     "LICENSE",
     "README.md",
     "README.en.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "screenshots.json"
   ],
   "scripts": {
     "test": "node scripts/run-tests.mjs",
