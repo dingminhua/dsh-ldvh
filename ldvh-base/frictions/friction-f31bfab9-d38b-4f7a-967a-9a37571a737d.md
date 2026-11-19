@@ -1,8 +1,12 @@
 ---
 title: README 悬空 docs 引用未被机械拦下
-status: open
+status: resolved
 phenomenon: plugin/README.md 第 59 行指向的 docs 目录校验记录文档在仓库中不存在（git ls-files docs 为 0），该悬空引用仍留在受保护文档中且此前未被任何检查拦下。
 attribution: 受控提交与机械守护门禁的 docs 引用检查（specs/09 §5.3 第 5 项）适用范围限于 specs/**、ldvh-base/** 与仓库根 README.md，不含插件市场页 plugin/README.md，故该页的悬空引用不在任何机械检查的覆盖内；存在性校验本身是有的，缺的是该路径的覆盖。
+relations:
+  - relation_key: informs
+    target:
+      commit: 232b14944740c34bcb0dfd94917b45f0d96d0068
 object_uid: f31bfab9-d38b-4f7a-967a-9a37571a737d
 fact_type_key: friction
 created_at: 2026-11-04T05:29:37.458Z
@@ -23,6 +27,10 @@ change_log:
     provider: qoder-global
     model: qmodel_38max
     summary: 补充级更新（保持 open）：实例已消——README:59 被引文件已由 e94cab1f 重建且 git 跟踪、当前唯一 docs 引用可解析；机制缺口未动——09 §5.3 第 5 项范围句与 isSpecOrFactCarrierPath(:444) 均仍不含 plugin/README.md，受保护市场页的悬空引用照样不被拦；不销账（无可指解药、复发条件在），出路仍是范围领域增量须 Human Gate
+  - at: 2026-11-19T22:47:39.372Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: Human Gate 立项修复并销账：解药 commit 232b149（把 plugin/README.md 纳入 docs 引用检查范围，含 specs/09 范围句+两处测试），informs 指向该 commit；三销账条件成立。
 occurrence:
   count: 4
   first_at: 2026-11-03T11:28:38.167Z
@@ -32,6 +40,7 @@ occurrence:
 # README 悬空 docs 引用未被机械拦下
 
 ## 现象
+
 plugin/README.md 第 59 行指向的 docs 目录校验记录文档在仓库中不存在（git ls-files docs 为 0），该悬空引用仍留在受保护文档中且此前未被任何检查拦下。
 
 **归因订正（2026-11-04，主控核实）**：本账目原登记「检查只核形式、不核存在性」，经实测代码该说法不成立——`checkDocsReferences` 一直以候选树路径集合解析被引目标的存在性（`commit-validation.js` 的 `exists: (p) => candidatePaths.has(p)`），悬空引用会被判 `validation/docs_reference_dangling`。悬空引用本身属实（文件确已随 ec19ba6 删除），但**未被拦下的原因是范围不含 plugin/README.md**，而不是缺少存在性校验。`:325` 的 `isSpecOrFactCarrierPath` 只认仓库根 `README.md` 与 `specs/`、`ldvh-base/`，插件市场页不在其内。故本条若要真正消解，改的是**检查范围**（属 specs/09 §8.1 第 2 项的领域增量，须 Human Gate），不是再加一条存在性校验。
@@ -45,6 +54,7 @@ plugin/README.md 第 59 行指向的 docs 目录校验记录文档在仓库中�
 （来源：1）
 
 ## 入账依据
+
 该悬空引用可被读者当场核验失败（指向的文件不存在），其根源在于受控提交门禁的 docs 引用检查**范围不含 plugin/README.md**，而该页正是 00 §4.3 受保护文档中的插件市场页（10 §7.6 登记的两条 README 路径之一）——受保护文档却落在检查范围之外，这一缺口可被具体指出，补上范围即可消除此类悬空引用，预计会有明显改善。订正后的依据不再主张「缺少存在性校验」：该校验已存在且工作正常（见上方归因订正）。
 
 补充观察（2026-11-04T05:31:28.755Z）：引证陈述了 15 条事实对象正文引用的是 docs/ 被清空时删掉的文档，同段紧接着说明其中 4 条把已不存在的《重建总纲》当作一手依据——这正是「悬空 docs 引用未被机械拦下」的又一实例，而非单点笔误。与既有账目比对：friction-f31bfab9 的归因落在受控提交与机械守护的 docs 引用检查的覆盖范围，本条同属该检查口径漏过的悬空引用，归因落点与机制模式相同，故按 26 §6.2 判为同一阻碍（命中 open 账目，交机械层补充计数），不另立新笔。需要说明的是：本条材料里这些悬空引用在事实上还连带「判据链已不可回查却仍留 open、被读成待办」的后果，若主控认为状态语义需单列，可在该账目补充更新时一并考虑；本次仍按根源归入既有账目，不按措辞另开。另：观察组 stale-spec-section-citation-in-
@@ -58,3 +68,15 @@ plugin/README.md 第 59 行指向的 docs 目录校验记录文档在仓库中�
 **② 机制缺口未动（实测）。** 归因订正段指出的真因——docs 引用检查的范围不含 plugin/README.md——两处承载均未变：specs/09 §5.3 第 5 项明文「检查范围限于规范载体与事实载体（`specs/**`、`ldvh-base/**` 与仓库根 `README.md`）」；commit-validation.js 的 `isSpecOrFactCarrierPath`（现 :444）仍只认 `README.md`/`specs/`/`ldvh-base/` 三个前缀。受保护的插件市场页下次再写出悬空 docs 引用时，机械层照样不拦——本条阻碍「未被机械拦下」的机制完整存活，只是这一次恰好没有实例可拦。
 
 **③ 不销账的理由与出路。** 不标 resolved：没有可指的解药——实例消失靠的是被引文件被重建（另一工作线的验收记录），不是检查范围被补上；「阻碍不再复现」不成立（范围缺口在，复发条件在）。不标 voided：承载面（09 §5.3 第 5 项 + isSpecOrFactCarrierPath）都还在，不是「无处可发生」。出路只有归因订正段已写明的那条：把 plugin/README.md 纳入检查范围，属 specs/09 §8.1 第 2 项的领域增量，须 Human Gate——AI 不得单方面改规范或扩实现范围，故本轮不动。
+
+## 处置
+
+**解药（已落盘，Human Gate 立项）**：2026-11-20 经 Human 明确授权立项修复，把 plugin/README.md 纳入 docs 引用悬空检查范围，落为解药提交 `232b14944740c34bcb0dfd94917b45f0d96d0068`（fix: 将 plugin/README.md 纳入 docs 引用悬空检查范围）。改动三处：① `isSpecOrFactCarrierPath` 增加 `plugin/README.md` 分支——该函数被 git-gate-runner 与 ldvh-tools 两处共用，一次改动即同时覆盖受控提交 Gate 与 precheck 两入口；② specs/09 §5.3 第 5 项范围句加入 `plugin/README.md`，即归因订正段指出的领域增量落点；③ 补两处用例（市场页判定为真、新增悬空引用被拦）。测试全绿（2477 条、0 失败，19 skip），Git Gate pre-commit/commit-msg 均通过。
+
+**销账成立核对（36 §9.1 三条件）**：① 解药可回指——informs 指向 commit `232b149…`，全 40 位、git 可解析、cat-file 类型 commit；② 阻碍不再复现——范围缺口已补，受保护市场页再写悬空 docs 引用时机械层会判 `validation/docs_reference_dangling`，复发条件消除；③ 修复覆盖账目范围——账目诉求正是「把 plugin/README.md 纳入检查范围」，解药精确覆盖该范围，无剩余。
+
+**代价保留**：销账不追溯抹去历史——4 次观察与 change_log 全部保留；归档前「实例已消但机制缺口存活、故长期保持 open」的历程如实留痕。
+
+**配对复审**：本账目无 `paired-with` 边，销账不触发配对经验去向判定。
+
+（状态转换：open → resolved，Human 2026-11-20 立项修复并确认销账；解药 commit 232b149…，依 26 §9.2 / 36 §9.1。）
