@@ -8,7 +8,7 @@
 
 <h1 align="center">LDVH · LD Vibe Harness</h1>
 
-<p align="center"><b>一个深度绑定 DSH 的 AI 协作与治理框架，核心价值是对齐 Vibe、协调 Coding——让人与 AI 对项目形成一致认识，让项目进展更稳定、执行更顺利。</b></p>
+<p align="center"><b>一个深度绑定 DSH 的 AI 协作与治理框架，核心价值是对齐 Vibe、协调 Coding。<br>让人与 AI 对项目形成一致认识，让项目进展更稳定、执行更顺利。</b></p>
 
 <p align="center">
   <a href="plugin/README.en.md">English（插件页）</a> ·
