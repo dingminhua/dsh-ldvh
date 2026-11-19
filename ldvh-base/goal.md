@@ -1,6 +1,6 @@
 ---
 goal_key: project-goal
-title: DSH AI 协作治理框架
+title: DSH AI 协作与治理框架
 status: active
 created_at: 2026-09-09T12:00:00+08:00
 change_log:
@@ -32,10 +32,18 @@ change_log:
     provider: workbuddy
     model: hy4flash-free
     summary: Human 确认去掉目标陈述中的「空闲时自动」，改为「从行动中主动积累经验、发现摩擦」，与 00 §4.5/§5.2「主控在当次行动中主动发起记录」的现行语义对齐（00 全书已无「空闲」概念）。
+  - at: 2026-11-19T15:46:39.474Z
+    provider: workbuddy-global
+    model: hy4flash-free
+    summary: Human 2026-11-19 决定把项目定位措辞统一为「AI 协作与治理框架」（带「与」字）：title「DSH AI 协作治理框架」→「DSH AI 协作与治理框架」，目标陈述「AI 协作治理框架」→「AI 协作与治理框架」。其余文字（含 11-18 已确认的「从行动中主动积累经验、发现摩擦」）逐字未动；核心价值两句不在本对象内，未改。授权范围仅限这一措辞统一，见本会话 Human 决定。
+  - at: 2026-11-19T15:47:49.012Z
+    provider: workbuddy-global
+    model: hy4flash-free
+    summary: 补正上一条（2026-11-19T15:46）的遗漏：上次 change_summary 声明要改 title，但 frontmatter_after 传了空对象，title 实际未改、仍为「DSH AI 协作治理框架」。本次仅把 title 改为「DSH AI 协作与治理框架」（带「与」字），与目标陈述（上次已改为「协作与治理」）一致；正文目标陈述、其余字段与 change_log 历史条目逐字未动。授权：Human 2026-11-19 本会话决定「AI 协作与治理框架，统一用这个」。
 ---
 
 # 项目目标
 
 ## 目标陈述
 
-建成一个深度绑定 DSH 的 AI 协作治理框架，帮助人和 AI 共同厘清项目，让 AI 更高效、准确地完成任务，并从行动中主动积累经验、发现摩擦。
+建成一个深度绑定 DSH 的 AI 协作与治理框架，帮助人和 AI 共同厘清项目，让 AI 更高效、准确地完成任务，并从行动中主动积累经验、发现摩擦。
