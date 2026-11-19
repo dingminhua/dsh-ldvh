@@ -1458,6 +1458,17 @@ test("把关提示行：静默执行开着时，两处由「须询问」改为�
 	assert.doesNotMatch(noSubject, /不要问/);
 });
 
+test("把关提示行：第三处开关的取值也注入，「未设置」不得说成已关", async () => {
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	const on = buildReviewAskNotice({ preOn: false, postOn: false, consultOn: true });
+	assert.match(on, /遇难题：联网调查提请：\*\*已开启\*\*/, "第三处开着时须在提示行里看得见");
+	const off = buildReviewAskNotice({ preOn: false, postOn: false, consultOn: false, consultKnown: true });
+	assert.match(off, /遇难题：联网调查提请：关闭/);
+	const unknown = buildReviewAskNotice({ preOn: false, postOn: false, consultOn: false, consultKnown: false });
+	assert.match(unknown, /遇难题：联网调查提请：关闭（未设置/, "「未设置」不得被陈述成「Human 关掉了」");
+	assert.doesNotMatch(unknown, /遇难题：联网调查提请：\*\*已开启\*\*/);
+});
+
 test("把关提示行：静默开关取不到时不得出现自相矛盾的「已开启（按关闭处理）」", async () => {
 	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
 	const text = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });

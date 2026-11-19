@@ -12,15 +12,17 @@ import { COMPLEXITY_CRITERIA, GATE_POINT_EXCLUSIONS, REVIEW_ASK_ROW_SUMMARY } fr
 
 
 
-export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown = true, silentOn = false }) {
+export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown = true, consultOn = false, consultKnown = true, silentOn = false }) {
   const criteria = COMPLEXITY_CRITERIA
     .map((item, index) => `  ${index + 1}. ${item.label}（${item.source}）`)
     .join("\n");
   const lines = [
-    "两处提请的开关状态（Human 2026-11-13 决定：改为「要不要安排代理」两问）",
+    "各处提请的开关状态（行动前与收口前为「要不要安排代理」两问，Human 2026-11-13 决定；第三处为「遇难题：联网调查提请」，Human 2026-11-19 决定增设）",
   ];
   const stateOf = (on, known) => (on ? "**已开启**" : (known ? "关闭" : "关闭（未设置，按关处理）"));
   lines.push(`- 行动前审查：${stateOf(preOn, preKnown)} ｜ 行动后复核：${stateOf(postOn, postKnown)}`);
+  const consultStateOf = (on, known) => (on ? "**已开启**" : (known ? "关闭" : "关闭（未设置——该处按不可用报告，不当作已关闭）"));
+  lines.push(`- 遇难题：联网调查提请：${consultStateOf(consultOn, consultKnown)}｜开时，主控自查遇到依赖外部信息、且自己不掌握的事，会先查内部经验／报告／事实规范，未命中才来问你要不要联网调查一次；关时只交还内部读数、不来打扰。`);
   if (silentOn) {
     lines.push("- 静默执行：**已开启** —— 判为复杂任务且**未命中点位排除**时**不问**，直接自动安排那次代理核对；每次须在交付里原样引用该次结果的 notice 一行（静默不等于无痕）。命中点位排除时该处不问**也不派发**——排除管的是那一次核对要不要发生，它优先于档位（32 §6.3 末段）。");
   }
@@ -451,12 +453,15 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             if (settings === null) return { inject: false, reason: "settings-unavailable" };
             const preOn = settings.preAction === true;
             const postOn = settings.postWork === true;
-            if (!preOn && !postOn) return { inject: false, reason: "both-switches-off" };
+            const consultOn = settings.researchConsult === true;
+            if (!preOn && !postOn && !consultOn) return { inject: false, reason: "all-switches-off" };
             const text = buildReviewAskNotice({
               preOn,
               postOn,
               preKnown: settings.preActionKnown !== false,
               postKnown: settings.postWorkKnown !== false,
+              consultOn,
+              consultKnown: settings.researchConsultKnown !== false,
               silentOn: settings.silentRun === true,
             });
             return { inject: true, text, digest: text };
