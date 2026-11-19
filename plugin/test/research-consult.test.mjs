@@ -243,6 +243,7 @@ test("executeResearchConsult：内部命中 → 不提请，直接给内部候�
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => { asked += 1; return { decision: "research", asked: true }; } }
     }
   );
@@ -261,6 +262,7 @@ test("executeResearchConsult：内部未命中 → 提请；获准后返回派�
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => ({ decision: "research", asked: true }) }
     }
   );
@@ -280,6 +282,7 @@ test("executeResearchConsult：未取得答复 → partial，且明写不阻断�
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => ({ decision: null, asked: true, reason: "未决策不是答复" }) }
     }
   );
@@ -297,6 +300,7 @@ test("executeResearchConsult：Human 选先不查 → 不联网，且不许把�
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => ({ decision: "skip", asked: true }) }
     }
   );
@@ -314,6 +318,7 @@ test("executeResearchConsult：非管辖项目不受理", async (t) => {
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => ({ decision: "research", asked: true }) }
     }
   );
@@ -340,6 +345,7 @@ test("executeResearchConsult：只有弱命中时不得硬停，须继续提请"
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => { asked += 1; return { decision: "research", asked: true }; } }
     }
   );
@@ -357,6 +363,7 @@ test("executeResearchConsult：带 internal_gap 时，即使内部有强命中�
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => { asked += 1; return { decision: "research", asked: true }; } }
     }
   );
@@ -376,6 +383,7 @@ test("executeResearchConsult：内部事实源不可读时不得报成「未命�
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => ({ decision: "research", asked: true }) }
     }
   );
@@ -393,6 +401,7 @@ test("executeResearchConsult：未取得答复时已完成内部查找，scope �
     { agent: agentOf(root) },
     {
       dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
       hostSeams: { requestResearchConsult: async () => ({ decision: null, asked: true, reason: "未决策不是答复" }) }
     }
   );
@@ -416,4 +425,79 @@ test("research consult seam：内容指纹含 scope，同 need 不同 scope 不�
   const same = await seams.requestResearchConsult({ need: "查 X", scope: "v4", agent: agentOf("/p") });
   assert.equal(same.reused, true, "同内容才复用");
   install.dispose();
+});
+
+test("executeResearchConsult：开关关闭时不提请，只交还内部读数", async (t) => {
+  const root = await corpusRoot(t);
+  const home = await governedHome(t, root);
+  let asked = 0;
+  const out = await executeResearchConsult(
+    { need: "qqzzxxyyww" },
+    { agent: agentOf(root) },
+    {
+      dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: false, researchConsultKnown: true }),
+      hostSeams: { requestResearchConsult: async () => { asked += 1; return { decision: "research", asked: true }; } }
+    }
+  );
+  assert.equal(asked, 0, "开关关闭时不得打扰 Human");
+  assert.equal(out.outcome, "completed");
+  assert.equal(out.result.asked, false);
+  assert.equal(out.result.consult_required, false);
+  assert.ok(out.gaps.some((line) => line.includes("switch_off")));
+  assert.ok(out.follow_up.some((line) => line.includes("开关关闭未提请")));
+});
+
+test("executeResearchConsult：开关状态读不到时按不可用报告，不当作已关闭", async (t) => {
+  const root = await corpusRoot(t);
+  const home = await governedHome(t, root);
+  let asked = 0;
+  const out = await executeResearchConsult(
+    { need: "qqzzxxyyww" },
+    { agent: agentOf(root) },
+    {
+      dshHomePath: (...segments) => join(home, ...segments),
+      hostSeams: { requestResearchConsult: async () => { asked += 1; return { decision: "research", asked: true }; } }
+    }
+  );
+  assert.equal(out.outcome, "unavailable");
+  assert.equal(asked, 0);
+  assert.ok(out.gaps.some((line) => line.includes("NOT the same as the switch being off")));
+});
+
+test("executeResearchConsult：开关未设置时按不可用报告，不当作已关闭", async (t) => {
+  const root = await corpusRoot(t);
+  const home = await governedHome(t, root);
+  let asked = 0;
+  const out = await executeResearchConsult(
+    { need: "qqzzxxyyww" },
+    { agent: agentOf(root) },
+    {
+      dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: false, researchConsultKnown: false }),
+      hostSeams: { requestResearchConsult: async () => { asked += 1; return { decision: "research", asked: true }; } }
+    }
+  );
+  assert.equal(out.outcome, "unavailable");
+  assert.equal(asked, 0);
+  assert.ok(out.gaps.some((line) => line.includes("not set in the configuration")));
+});
+
+test("开关读取走调用时的配置取值，不在装载时固化（pitfall-2236bdbb）", async (t) => {
+  const root = await corpusRoot(t);
+  const home = await governedHome(t, root);
+  let enabled = false;
+  let asked = 0;
+  const deps = {
+    dshHomePath: (...segments) => join(home, ...segments),
+    getReviewAskSettings: () => ({ researchConsult: enabled, researchConsultKnown: true }),
+    hostSeams: { requestResearchConsult: async () => { asked += 1; return { decision: "research", asked: true }; } }
+  };
+  const closed = await executeResearchConsult({ need: "qqzzxxyyww" }, { agent: agentOf(root) }, deps);
+  assert.equal(asked, 0);
+  assert.equal(closed.result.consult_required, false);
+  enabled = true;
+  const opened = await executeResearchConsult({ need: "qqzzxxyyww" }, { agent: agentOf(root) }, deps);
+  assert.equal(asked, 1, "改设置后须立即生效，不需重启");
+  assert.equal(opened.result.consult_required, true);
 });

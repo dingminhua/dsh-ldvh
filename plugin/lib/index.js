@@ -60,6 +60,7 @@ export const Config = z.object({
 
   preActionReviewAskEnabled: volatileField(z.boolean().default(false)),
   postWorkReviewAskEnabled: volatileField(z.boolean().default(false)),
+  researchConsultAskEnabled: volatileField(z.boolean().default(false)),
   reviewAskSilentRunEnabled: volatileField(z.boolean().default(false)),
 
   });

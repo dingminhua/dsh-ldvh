@@ -86,12 +86,15 @@ function readSwitchValue(value) {
 export function resolveReviewAskSettings(config) {
   const pre = readSwitchValue(config?.preActionReviewAskEnabled);
   const post = readSwitchValue(config?.postWorkReviewAskEnabled);
+  const consult = readSwitchValue(config?.researchConsultAskEnabled);
   const silent = readSwitchValue(config?.reviewAskSilentRunEnabled);
   return {
     preAction: pre === true,
     postWork: post === true,
+    researchConsult: consult === true,
     preActionKnown: pre !== undefined,
     postWorkKnown: post !== undefined,
+    researchConsultKnown: consult !== undefined,
     silentRun: silent === true,
     silentRunKnown: silent !== undefined,
   };

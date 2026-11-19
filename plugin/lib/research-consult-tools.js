@@ -252,6 +252,58 @@ function consultEnvelope(args, lookup, classified, outcome, escalation) {
   });
 }
 
+function consultSwitch(deps) {
+  const reader = deps?.getReviewAskSettings;
+  if (typeof reader !== "function") {
+    return { available: false, reason: "the consult switch reader is not wired in this composition, so the switch state is unavailable (this is NOT the same as the switch being off)" };
+  }
+  let settings = null;
+  try {
+    settings = reader();
+  } catch (error) {
+    return { available: false, reason: `switch read failed: ${String(error?.message ?? error)}` };
+  }
+  if (settings === null || typeof settings !== "object") {
+    return { available: false, reason: "the consult switch reader returned no settings, so the switch state is unavailable (this is NOT the same as the switch being off)" };
+  }
+  return {
+    available: true,
+    enabled: settings.researchConsult === true,
+    known: settings.researchConsultKnown !== false
+  };
+}
+
+function switchOffEnvelope(args, lookup, classified, escalation) {
+  return envelope("research-consult", "completed", {
+    result: {
+      need: trimmed(args?.need),
+      internal_found: classified.usable,
+      internal_hit_count: classified.strong.length,
+      internal_hits: classified.strong,
+      internal_weak_hit_count: classified.weak.length,
+      internal_source_read: lookup.source_read,
+      internal_completeness: lookup.completeness,
+      asked: false,
+      decision: null,
+      consult_required: false
+    },
+    scope: { requested: "internal-lookup", completed: ["internal-lookup"], not_completed: ["consult"] },
+    sources: [{ kind: "fact-source", path: "ldvh-base" }],
+    gaps: [
+      ...lookup.gaps,
+      "switch_off: the consult switch is closed, so no prompt was issued by design (打开才有). No consult is arranged — that is the configured behaviour, not a failure."
+    ],
+    verification: { checks: ["internal-lookup", "governance-scope", "switch-read"], passed: true },
+    follow_up: [
+      "本次不发出联网调查提请：按既有路径继续，主控自查仍在（04 §6.1）。若要启用，请在 LDVH 设置里打开「联网调查提请」开关。",
+      INTERNAL_READING_LINE,
+      escalation === "internal-gap"
+        ? "本次内部缺口已登记但未提请（开关关闭）——交还里须写明「内部已有 X 仍缺 Y、开关关闭未提请」"
+        : "交还里须写明「内部未命中、开关关闭未提请」"
+    ]
+  });
+}
+
 export async function executeResearchConsult(args, exec, deps) {
   const need = trimmed(args?.need);
   if (need === null) {
@@ -280,6 +332,29 @@ export async function executeResearchConsult(args, exec, deps) {
   const escalation = internalGap !== null ? "internal-gap" : (classified.usable ? null : (classified.weak.length > 0 ? "weak-only" : "no-hit"));
   if (classified.usable && escalation === null) {
     return internalFoundEnvelope(args, lookup, classified);
+  }
+  const switchState = consultSwitch(deps);
+  if (!switchState.available) {
+    return unavailable(
+      "research-consult",
+      [
+        switchState.reason,
+        "no prompt was issued because the switch state could not be determined — report this to Human (00 §4.6 据实声明); do not treat it as a configured skip"
+      ],
+      "consult"
+    );
+  }
+  if (!switchState.enabled && !switchState.known) {
+    return unavailable(
+      "research-consult",
+      [
+        "the switch state is not set in the configuration — it is **not** the same as the switch being off, so no prompt was issued; report this to Human (00 §4.6 据实声明)"
+      ],
+      "consult"
+    );
+  }
+  if (!switchState.enabled) {
+    return switchOffEnvelope(args, lookup, classified, escalation);
   }
   const seam = deps?.hostSeams;
   if (typeof seam?.requestResearchConsult !== "function") {
