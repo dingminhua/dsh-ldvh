@@ -1,5 +1,14 @@
 # LDVH · LD Vibe Harness
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-ldvh"><img src="https://img.shields.io/npm/v/dsh-ldvh?style=flat-square&label=npm&color=cb3837" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/dsh-ldvh"><img src="https://img.shields.io/npm/d18m/dsh-ldvh?style=flat-square&label=downloads&color=cb3837" alt="npm downloads"></a>
+  <a href="https://github.com/dingminhua/dsh-ldvh/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/dingminhua/dsh-ldvh/ci.yml?branch=main&style=flat-square&label=tests" alt="test status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/dingminhua/dsh-ldvh?style=flat-square" alt="MIT license"></a>
+  <a href="https://github.com/dingminhua/dsh-ldvh/stargazers"><img src="https://img.shields.io/github/stars/dingminhua/dsh-ldvh?style=flat-square" alt="GitHub stars"></a>
+  <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
+</p>
+
 > 版本 `1.0.0` ｜ MIT License（与 DSH 本体同协议）
 > 版本 `1.0.0` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
 
@@ -10,15 +19,35 @@
 
 ## 截图
 
-| 设置页 1/3：服务与入口 · 代理辅助 · 召回预算 | 设置页 2/3：把关请示 |
-|---|---|
-| ![LDVH 设置页 1/3](plugin/docs/assets/ldvh-settings-1.png) | ![LDVH 设置页 2/3](plugin/docs/assets/ldvh-settings-2.png) |
+### 设置页 · 服务与入口 / 代理辅助 / 召回预算
 
-| 设置页 3/3：管辖项目（路径已脱敏） | LDVH Web 信息呈现 |
-|---|---|
-| ![LDVH 设置页 3/3](plugin/docs/assets/ldvh-settings-3.png) | ![LDVH Web](plugin/docs/assets/ldvh-web.png) |
+<p align="center">
+  <img src="plugin/docs/assets/ldvh-settings-1.png" width="760" alt="LDVH 设置页 1/3：服务与入口、代理辅助与召回预算" />
+</p>
 
-![DSH 内的 LDVH 面板](plugin/docs/assets/ldvh-in-dsh.png)
+### 设置页 · 把关请示
+
+<p align="center">
+  <img src="plugin/docs/assets/ldvh-settings-2.png" width="760" alt="LDVH 设置页 2/3：行动前审查、行动后复核、遇难题联网调查、静默执行与倒计时" />
+</p>
+
+### 设置页 · 管辖项目（路径已脱敏）
+
+<p align="center">
+  <img src="plugin/docs/assets/ldvh-settings-3.png" width="760" alt="LDVH 设置页 3/3：管辖项目登记与配置，路径已脱敏" />
+</p>
+
+### LDVH Web 信息呈现
+
+<p align="center">
+  <img src="plugin/docs/assets/ldvh-web.png" width="900" alt="LDVH Web：聚焦、待决定事项、目标、火花、规范、报告、经验、摩擦等信息呈现" />
+</p>
+
+### DSH 内的 LDVH 面板
+
+<p align="center">
+  <img src="plugin/docs/assets/ldvh-in-dsh.png" width="900" alt="DSH 桌面中挂载的 LDVH 面板" />
+</p>
 
 ## 这是什么
 
