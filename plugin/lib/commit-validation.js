@@ -191,6 +191,7 @@ export function isTemporaryDocsPath(path) {
 
 export function isSpecOrFactCarrierPath(path) {
   if (path === "README.md") return true;
+  if (path === "plugin/README.md") return true;
   return path.startsWith("specs/") || path.startsWith("ldvh-base/");
 }
 

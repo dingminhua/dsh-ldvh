@@ -754,15 +754,26 @@ test("checkDocsReferences waives the prefix only when the longer token really ex
 	assert.equal(result.ok, true);
 });
 
-test("isSpecOrFactCarrierPath limits the rule to spec/fact carriers", () => {
+test("isSpecOrFactCarrierPath limits the rule to spec/fact carriers and both protected READMEs", () => {
 	assert.equal(isSpecOrFactCarrierPath("specs/00-x.md"), true);
 	assert.equal(isSpecOrFactCarrierPath("specs/attachments/a.md"), true);
 	assert.equal(isSpecOrFactCarrierPath("ldvh-base/frictions/f.md"), true);
 	assert.equal(isSpecOrFactCarrierPath("README.md"), true);
+	assert.equal(isSpecOrFactCarrierPath("plugin/README.md"), true);
+	assert.equal(isSpecOrFactCarrierPath("plugin/README.en.md"), false);
 	assert.equal(isSpecOrFactCarrierPath("plugin/lib/commit-validation.js"), false);
 	assert.equal(isSpecOrFactCarrierPath("plugin/test/commit-validation.test.mjs"), false);
 	assert.equal(isSpecOrFactCarrierPath("plugin/web/docs/10.md"), false);
 	assert.equal(isSpecOrFactCarrierPath("scripts/x.sh"), false);
+});
+
+test("checkDocsReferences flags a dangling docs/ reference newly added to plugin/README.md", () => {
+	const result = checkDocsReferences(
+		[{ path: "plugin/README.md", content: "见 docs/governed-project-lifecycle-verification.md", baseline: "" }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, false);
+	assert.equal(result.issues[0].rule, "validation/docs_reference_dangling");
 });
 
 test("checkDocsReferences ignores docs/ references in implementation carriers", () => {
