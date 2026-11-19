@@ -31,20 +31,25 @@ test('retired has an explicit lifecycle status label', () => {
   assert.match(locales, /pitfall: \{[\s\S]*active: \{ zh: '活跃', en: 'Active' \}/)
 })
 
-test('Spark list carries three filters (priority/serves/lifecycle)', () => {
+test('Spark list carries priority and serves filters', () => {
   const list = source('src/pages/ObjectList.tsx')
   const route = source('api/routes/objects.ts')
 
   assert.doesNotMatch(list, /objectList\.lifecycleFilter/)
   assert.match(list, /ObjectPriorityFilter/)
+  assert.match(list, /ObjectServesFilter/)
   assert.match(list, /const supportsPriorityNavigation = currentType === 'spark'/)
+  assert.match(list, /const supportsServesNavigation = currentType === 'spark'/)
   assert.match(list, /activePriority/)
+  assert.match(list, /activeServes/)
   assert.match(route, /function getSparkPriorityOptions/)
-  assert.match(route, /priorityOptions/)
+  assert.match(route, /function getSparkServesOptions/)
+  assert.match(route, /servesOptions/)
   assert.match(route, /const priority = type === 'spark' && typeof req\.query\.priority === 'string'/)
+  assert.match(route, /const serves = type === 'spark' && typeof req\.query\.serves === 'string'/)
   assert.match(
     list,
-    /fetchObjects\(currentType, activeStatus \?\? undefined, undefined, activePriority \?\? undefined, activeForm \?\? undefined\)/,
+    /fetchObjects\(currentType, activeStatus \?\? undefined, undefined, activePriority \?\? undefined, activeForm \?\? undefined, activeServes \?\? undefined\)/,
   )
   assert.doesNotMatch(list, /const fetchStatus = currentType === 'spark'/)
   assert.doesNotMatch(route, /matchesSparkListFilter|getSparkStatusOptions|getSparkImplementedPresentationStatus/)

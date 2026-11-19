@@ -16,7 +16,7 @@ import {
 import { createHostSeams, recordJudgementForGuard, observedVersionFor, resetObservations, writeShapedTools, registerWriteShapedTool } from "../lib/host-seams.js";
 import { bindMembershipEvidence } from "../lib/membership-evidence.js";
 import { makeExecute } from "../lib/ldvh-tools.js";
-import { git, initRepo, withTemp } from "./helpers.mjs";
+import { git, initRepo, seedSubGoals, subGoalUid, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
@@ -808,10 +808,11 @@ test("signature: updates land a signed change_log entry through the real writer"
 		const { authoritativeSignature } = await import("../lib/signature-channel.js");
 		const root = join(base, "root");
 		await mkdir(root, { recursive: true });
+		await seedSubGoals(root, ["SG-1", "SG-2"]);
 
 		const branded = authoritativeSignature({ provider: "workbuddy", model: "deepseek-v4.1-flash" });
 		const q = "这个字段该叫什么？", sb = "定名后即停", sm = "当前理解快照";
-		const draftT = { title: "T", question: q, scope_boundary: sb, intent: "I", summary: sm, priority: "P2", change_summary: "init" };
+		const draftT = { title: "T", question: q, scope_boundary: sb, intent: "I", summary: sm, serves: subGoalUid(1), priority: "P2", change_summary: "init" };
 		const bodyT = `## 当前理解\n\n${sm}\n\n## 调查问题\n\n${q}\n\n## 调查边界\n\n${sb}\n`;
 		const created = await createSparkObject({
 			factSourceRoot: root,

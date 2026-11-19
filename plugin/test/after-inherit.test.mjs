@@ -323,7 +323,7 @@ test("after-inherit: 白名单自检——⊆ VALID ∪ 已退出闭集、不含
 
   assert.equal(NORM_REMOVABLE_FIELDS.size, 0, "norm 白名单应为空");
   assert.equal(GOAL_REMOVABLE_FIELDS.size, 0, "goal 白名单应为空");
-  assert.deepEqual([...SPARK_REMOVABLE_FIELDS].sort(), ["priority", "refs", "serves"], "spark 白名单应为 priority/refs/serves");
+  assert.deepEqual([...SPARK_REMOVABLE_FIELDS].sort(), ["priority", "refs"], "spark 白名单应为 priority/refs（serves 已必填，不可删除）");
 
   assert.deepEqual(
     [...FRICTION_REMOVABLE_FIELDS].sort(),

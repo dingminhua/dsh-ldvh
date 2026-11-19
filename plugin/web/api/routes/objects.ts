@@ -1,6 +1,7 @@
 
 import { Router, type Request, type Response } from 'express'
 import { listObjects, showObject, OBJECT_TYPES, type ObjectType } from '../services/facts.js'
+import { listLocalFacts } from '../services/localFactReader.js'
 import { ProjectScopeError, requestFactScope } from '../services/requestScope.js'
 import { compareTimestamps } from '../services/time.js'
 import type { LocalFactScope } from '../services/localFactReader.js'
@@ -145,6 +146,43 @@ function getSparkPriorityOptions(items: ListedObject[]): StatusOption[] {
   return SPARK_PRIORITY_ORDER.map((status) => ({ status, count: counts.get(status) ?? 0 }))
 }
 
+function sparkServesUid(item: ListedObject): string | undefined {
+  const serves = (item as Record<string, unknown>).serves
+  return typeof serves === 'string' && serves.length > 0 ? serves : undefined
+}
+
+function getSparkServesOptions(items: ListedObject[]): StatusOption[] {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const uid = sparkServesUid(item)
+    if (uid === undefined) continue
+    counts.set(uid, (counts.get(uid) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([status, count]) => ({ status, count }))
+    .sort((a, b) => b.count - a.count || a.status.localeCompare(b.status))
+}
+
+async function readSubGoalOrderIndex(scope: LocalFactScope): Promise<Record<string, number>> {
+  const orders: Record<string, number> = {}
+  let listed
+  try {
+    listed = await listLocalFacts('subgoal', scope)
+  } catch {
+    return orders
+  }
+  if (listed.status !== 'complete') return orders
+  for (const item of listed.items) {
+    if (item.read_status !== 'readable' || item.fact_object === null) continue
+    const uid = item.fact_object.object_uid
+    const order = item.fact_object.order
+    if (typeof uid === 'string' && typeof order === 'number' && Number.isInteger(order)) {
+      orders[uid] = order
+    }
+  }
+  return orders
+}
+
 async function listObjectSummaries(type: ObjectType, scope: LocalFactScope): Promise<ListedObject[]> {
   const result = await listObjects(type, undefined, undefined, scope)
   if (!result.ok) return []
@@ -187,6 +225,9 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ ok: false, error: `Invalid spark priority: ${priority} (20 §8: P0/P1/P2/P3)` })
     return
   }
+  const serves = type === 'spark' && typeof req.query.serves === 'string'
+    ? req.query.serves
+    : undefined
   const form = type === 'report' && typeof req.query.form === 'string' ? req.query.form : undefined
   if (form && !REPORT_FORMS.includes(form as typeof REPORT_FORMS[number])) {
     res.status(400).json({ ok: false, error: `Invalid report form: ${form} (24 §5: ${REPORT_FORMS.join('/')})` })
@@ -202,7 +243,7 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
 
   const allItems = getResultItems(result)
   const items = type === 'spark'
-    ? allItems.filter((item) => !priority || item.priority === priority)
+    ? allItems.filter((item) => (!priority || item.priority === priority) && (!serves || sparkServesUid(item) === serves))
     : type === 'report'
       ? allItems.filter((item) => !form || (item as Record<string, unknown>).report_form === form)
       : allItems
@@ -215,6 +256,11 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
         ? allItems.filter((item) => item.status === status)
         : allItems
       result.data.priorityOptions = getSparkPriorityOptions(priorityPool)
+      const servesPool = status
+        ? allItems.filter((item) => item.status === status)
+        : allItems
+      result.data.servesOptions = getSparkServesOptions(servesPool)
+      result.data.servesOrders = await readSubGoalOrderIndex(factScope)
     }
     result.data.statusTotal = statusItems.length
   }

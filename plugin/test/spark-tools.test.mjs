@@ -111,6 +111,7 @@ function validFrontmatterDraft(overrides = {}) {
     scope_boundary: "仅以本仓库规范与单元测试为证据，不运行外部系统。",
     intent: "验证工具层机械通道，为后续自动化覆盖保留依据。",
     summary: "工具层已完成注册与封装；未决事项是边界用例的覆盖。",
+    serves: subGoalUid(1),
     priority: "P2",
     change_summary: "受控创建（测试夹具）",
     ...overrides,
@@ -752,12 +753,12 @@ test("schema: spark-write-object enforces the frontmatter_draft shape", async ()
 });
 
 
-test("update: adding serves works for an existing SG and is rejected (zero-write) for an unknown SG", async () => {
+test("update: changing serves to an existing SG works and is rejected (zero-write) for an unknown SG", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    const draft = { ...validFrontmatterDraft(), title: "无归属悬置（补充SG）", question: "补充子目标归属后能否被清单接纳？", summary: "总结：补充SG" };
+    const draft = { ...validFrontmatterDraft(), title: "变更归属悬置", question: "变更子目标归属后能否被清单接纳？", summary: "总结：变更SG" };
     const created = await createSpark(descriptors, {
       action: "create",
       dedup_result: DEDUP_OK,
@@ -769,20 +770,20 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
 
     const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     assert.equal(read1.outcome, "completed");
-    assert.equal(read1.result.serves, undefined, "fixture created without serves");
+    assert.equal(read1.result.serves, subGoalUid(1), "fixture created with serves=SG-1");
 
     const updated = await run(descriptors, "ldvh_spark_write", {
       action: "update",
       object_uid: uid,
       expected_fingerprint: read1.result.fingerprint,
-      frontmatter_after: { ...read1.result.frontmatter, serves: subGoalUid(1) },
+      frontmatter_after: { ...read1.result.frontmatter, serves: subGoalUid(2) },
       body_markdown_after: validBodyMarkdown(draft),
-      change_summary: "补充子目标归属",
+      change_summary: "变更子目标归属",
     }, repo);
     assert.equal(updated.outcome, "completed", JSON.stringify(updated));
     assert.ok(updated.verification.checks.includes("serves-resolution"));
     const read2 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
-    assert.equal(read2.result.serves, subGoalUid(1));
+    assert.equal(read2.result.serves, subGoalUid(2));
 
     const draft2 = { ...validFrontmatterDraft(), title: "另一悬置（错误SG）", question: "伪造子目标归属是否被拒绝？", summary: "总结：错误SG" };
     const created2 = await createSpark(descriptors, {
@@ -809,7 +810,7 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     const after = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid2}.md`), "utf8");
     assert.equal(after, before, "rejected update must leave the carrier untouched");
     const rerun = await run(descriptors, "ldvh_spark_read", { object_uid: uid2 }, repo);
-    assert.equal(rerun.result.serves, undefined);
+    assert.equal(rerun.result.serves, subGoalUid(1));
   });
 });
 

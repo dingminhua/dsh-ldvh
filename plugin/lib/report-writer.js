@@ -36,7 +36,6 @@ const VALID_FM_KEYS = new Set([
   "urls", "relations", "change_log",
   "research_question", "research_purpose", "stopping_reason", "confirmed_statements", "uncertain", "gaps",
   "implications", "clarification_log",
-  "serves",
   "retirement_reason", "retired_at",
 ]);
 

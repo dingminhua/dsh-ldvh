@@ -38,7 +38,7 @@ const VALID_FM_KEYS = new Set([
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3"]);
 
-export const SPARK_REMOVABLE_FIELDS = new Set(["priority", "refs", "serves"]);
+export const SPARK_REMOVABLE_FIELDS = new Set(["priority", "refs"]);
 
 const MAX_EVOLUTION_ENTRIES = 20;
 
@@ -131,10 +131,10 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     if (limitIssue !== null && options?.skipSummaryLimit !== true) issues.push(limitIssue);
   }
 
-  if (frontmatter.serves !== undefined) {
-    if (typeof frontmatter.serves !== "string" || !UUID_PATTERN.test(frontmatter.serves)) {
-      issues.push(`serves: must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(frontmatter.serves)}`);
-    }
+  if (frontmatter.serves === undefined || frontmatter.serves === null || frontmatter.serves === "") {
+    issues.push("serves: required — every Spark must declare the SubGoal it serves (22 §8; Human decision)");
+  } else if (typeof frontmatter.serves !== "string" || !UUID_PATTERN.test(frontmatter.serves)) {
+    issues.push(`serves: must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(frontmatter.serves)}`);
   }
 
   if (frontmatter.refs !== undefined) {

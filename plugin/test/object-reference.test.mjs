@@ -7,7 +7,7 @@ import * as pitfallToolsModule from "../lib/pitfall-tools.js";
 import { listSparkObjects } from "../lib/spark-writer.js";
 import { objectRef, objectRefOf, promptObjectRef } from "../lib/object-reference.js";
 import { registerProject } from "../lib/governed-projects.js";
-import { initRepo, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
+import { initRepo, seedSubGoals, subGoalUid, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 const exec = (cwd) => ({ agent: { session: { header: { cwd } } } });
@@ -87,6 +87,7 @@ async function governedFixture(base) {
   const repo = await initRepo(base);
   await mkdir(join(repo, "ldvh-base", "sparks"), { recursive: true });
   await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
+  await seedSubGoals(join(repo, "ldvh-base"), ["SG-1", "SG-2"]);
   await registerProject(dshHome(home), { id: "demo", path: repo });
   return { home, repo };
 }
@@ -126,6 +127,7 @@ test("spark list: every item line carries a type-prefixed reference, and the pro
         scope_boundary: "仅以本仓库单元测试为证据。",
         intent: "钉住 02 §9.3 的指称形态。",
         summary: "工具响应已按形态渲染。",
+        serves: subGoalUid(1),
         priority: "P2",
         change_summary: "受控创建（测试夹具）",
       },
@@ -204,6 +206,7 @@ test("spark read: refs targets carry type + title, unresolvable ones keep their 
         scope_boundary: "仅以本仓库单元测试为证据。",
         intent: "钉住 refs 目标的指称形态。",
         summary: "refs 目标已按形态渲染。",
+        serves: subGoalUid(1),
         priority: "P2",
         change_summary: "受控创建（测试夹具）",
         refs: [{ object_uid: targetUid }],
@@ -334,6 +337,7 @@ test("spark terminal report: relation targets render with the type prefix, never
         "scope_boundary: 仅以本仓库单元测试为证据。",
         "intent: 钉住关系行的指称形态。",
         "summary: 关系目标按 02 §9.3 渲染。",
+        `serves: ${subGoalUid(1)}`,
         "created_at: 2026-10-18T00:00:00.000Z",
         "---",
         "",
