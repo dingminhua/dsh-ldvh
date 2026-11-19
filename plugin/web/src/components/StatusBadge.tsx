@@ -1,0 +1,45 @@
+import { useTheme } from '@/hooks/useTheme';
+import { getStatusColor } from '@/utils/statusColors';
+import { getObjectStatusHint, getStatusLocale } from '@/i18n/locales';
+import { useI18n } from '@/i18n/context';
+
+interface StatusBadgeProps {
+  status: string;
+  statusLabel?: string;
+  objectType?: string;
+  size?: 'xs' | 'sm' | 'md';
+  variant?: 'pill' | 'compact';
+}
+
+export default function StatusBadge({ status, statusLabel, objectType = '', size = 'sm', variant = 'pill' }: StatusBadgeProps) {
+  const { resolved } = useTheme();
+  const { locale } = useI18n();
+  const color = (objectType === 'spark' && status === 'discarded')
+    || (objectType === 'pitfall' && status === 'discarded')
+    || (objectType === 'friction' && status === 'voided')
+    || (objectType === 'friction' && status === 'accepted')
+    || (objectType === 'norm' && status === 'retired')
+    ? '#6b7280'
+    : getStatusColor(status);
+  const compact = variant === 'compact' || size === 'xs';
+  const sizeClasses = compact
+    ? ''
+    : size === 'sm' ? 'px-2 py-0.5' : 'px-2.5 py-1';
+  const display = statusLabel || getStatusLocale(status, locale);
+  const tooltip = getObjectStatusHint(objectType, status, locale);
+
+  return (
+    <span
+      key={resolved}
+      className={`${compact ? 'ldvh-chip-sm' : 'ldvh-chip'} inline-flex items-center whitespace-nowrap ${variant === 'compact' ? 'rounded-md' : 'rounded-full'} font-medium ${sizeClasses}`}
+      style={{
+        color,
+        backgroundColor: `${color}18`,
+        border: `1px solid ${color}30`,
+      }}
+      title={tooltip || undefined}
+    >
+      {display}
+    </span>
+  );
+}

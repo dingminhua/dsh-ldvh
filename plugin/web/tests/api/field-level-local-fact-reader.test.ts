@@ -1,0 +1,465 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import { listLocalFacts, readLocalFact, type LocalFactScope } from '../../api/services/localFactReader.ts';
+
+const base = [
+  'fact_type_key: pitfall',
+  'status: active',
+  'created_at: "2026-01-01"',
+  'scope: Applies to this fixture',
+].join('\n');
+
+function pitfallMarkdownCarrier(objectUid: string, extraFrontmatter = ''): string {
+  const frontmatterLines = ['---', `object_uid: ${objectUid}`, 'title: UID projection'];
+  if (extraFrontmatter.trim()) frontmatterLines.push(extraFrontmatter);
+  frontmatterLines.push(...base.split('\n'), '---');
+  return [...frontmatterLines, '', '# UID projection', '', '## 症状', '', 'Scope text', ''].join('\n');
+}
+
+test('field-level reader preserves canonical UID authority without adding a derived identity field', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
+  await mkdir(directory, { recursive: true });
+  try {
+    const uid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
+    await writeFile(path.join(directory, `pitfall-${uid}.md`), pitfallMarkdownCarrier(uid), 'utf8');
+    const listed = await listLocalFacts('pitfall', scope);
+    assert.equal(listed.items[0]?.fact_object?.object_uid, uid);
+    const retiredField = ['short', 'ref'].join('_');
+    assert.equal(listed.items[0]?.fact_object?.[retiredField], undefined);
+    assert.deepEqual(listed.items[0]?.authority_ref, { object_uid: uid });
+    assert.equal(listed.items[0]?.unparsed_structures.some((item) => item.path === 'object_uid'), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('field-level reader discovers a UID-native Crockford carrier name', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
+  await mkdir(directory, { recursive: true });
+  const objectId = 'pitfall-01KZXN5TXNEBSRC6HHGTBQKAJ4';
+  try {
+    await writeFile(
+      path.join(directory, `${objectId}.md`),
+      pitfallMarkdownCarrier('019ffb52-ebb5-42f3-861a-31869779aa44'),
+      'utf8',
+    );
+    const listed = await listLocalFacts('pitfall', scope);
+    assert.equal(listed.items.length, 1);
+    assert.equal(listed.items[0]?.object_ref.object_id, objectId);
+    assert.equal(listed.items[0]?.fact_object?.object_uid, '019ffb52-ebb5-42f3-861a-31869779aa44');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('field-level reader keeps recoverable field defects separate from unreadable carriers', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
+  await mkdir(directory, { recursive: true });
+  const carrierWith = (frontmatterLines: string[]) => [
+    '---',
+    ...frontmatterLines,
+    ...base.split('\n'),
+    '---',
+    '',
+    '# Field defects',
+    '',
+    '## 症状',
+    '',
+    'Use the current option',
+    '',
+  ].join('\n');
+  try {
+    await writeFile(path.join(directory, 'pitfall-0001.md'), carrierWith([
+      'object_uid: 11111111-2222-4333-8444-555555555555',
+    ]), 'utf8');
+    await writeFile(path.join(directory, 'pitfall-0002.md'), carrierWith([
+      'object_uid: 11111111-2222-4333-8444-555555555556',
+      'title: [not, text]',
+    ]), 'utf8');
+    await writeFile(path.join(directory, 'pitfall-0003.md'), carrierWith([
+      'object_uid: 11111111-2222-4333-8444-555555555557',
+      'title: Legacy',
+      'legacy_owner: old',
+    ]), 'utf8');
+    await writeFile(path.join(directory, 'pitfall-0004.md'), carrierWith([
+      'object_uid: 11111111-2222-4333-8444-555555555558',
+      'title: Nested',
+      'unknown_tree:',
+      '  before: after',
+    ]), 'utf8');
+    await writeFile(path.join(directory, 'pitfall-0005.md'), '---\nobject_id: [unterminated\n', 'utf8');
+
+    const listed = await listLocalFacts('pitfall', scope);
+    assert.equal(listed.status, 'complete');
+    assert.equal(listed.items.length, 5);
+    const byId = new Map(listed.items.map((item) => [item.object_ref.object_id, item]));
+    assert.deepEqual(byId.get('pitfall-0001')?.field_issues.map((issue) => issue.path), ['title']);
+    assert.equal(byId.get('pitfall-0002')?.fact_object?.title, undefined);
+    assert.deepEqual(byId.get('pitfall-0002')?.field_issues.map((issue) => issue.reason), ['type_mismatch']);
+    assert.deepEqual(byId.get('pitfall-0003')?.unparsed_structures, [{ path: 'legacy_owner', reason: 'unconsumed_field', raw_value: 'old' }]);
+    assert.deepEqual(byId.get('pitfall-0004')?.unparsed_structures, [{ path: 'unknown_tree', reason: 'unconsumed_field', raw_value: { before: 'after' } }]);
+    assert.equal(byId.get('pitfall-0005')?.read_status, 'unreadable');
+    assert.equal(byId.get('pitfall-0005')?.issues[0]?.code, 'frontmatter_unclosed');
+
+    const detail = await readLocalFact('pitfall', 'pitfall-0003', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') assert.equal(detail.item.read_status, 'readable');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('unclosed Markdown frontmatter is the only Study field-path failure that becomes unreadable', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'reports');
+  await mkdir(directory, { recursive: true });
+  try {
+    await writeFile(path.join(directory, 'report-0001.md'), '---\nobject_id: report-0001\n', 'utf8');
+    const detail = await readLocalFact('report', 'report-0001', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'unreadable');
+      assert.equal(detail.item.issues[0]?.code, 'frontmatter_unclosed');
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Spark evolution members without a timestamp and forbidden Pitfall tags remain unparsed', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const sparkDir = path.join(root, 'ldvh-base', 'sparks');
+  const pitfallDir = path.join(root, 'ldvh-base', 'pitfalls');
+  await mkdir(sparkDir, { recursive: true });
+  await mkdir(pitfallDir, { recursive: true });
+  try {
+    await writeFile(path.join(sparkDir, 'spark-3f2504e0-4f89-41d3-9a0c-0305e82c3301.md'), [
+      '---',
+      'object_uid: 3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      'fact_type_key: spark',
+      'title: Missing event time',
+      'status: open',
+      'created_at: "2026-01-01"',
+      'question: 何时必须补充演变时间？',
+      'scope_boundary: 只验证成员形态，不验证语义。',
+      'intent: 保留时间戳缺失的可视性。',
+      'summary: Current observation',
+      'evolution:',
+      '  - summary: This entry has no source time',
+      '---',
+      '',
+      '# Missing event time',
+      '',
+      '## 当前理解',
+      '',
+      'Current observation',
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(path.join(pitfallDir, 'pitfall-7f4a5c2e-9d31-4b6f-8a07-3e0f5c91b2d4.md'), [
+      '---',
+      'object_uid: 7f4a5c2e-9d31-4b6f-8a07-3e0f5c91b2d4',
+      'fact_type_key: pitfall', 'title: Forbidden tag',
+      'status: active', 'created_at: "2026-01-01"',
+      'scope: 任何写入遗留 frontmatter 标签的对象。',
+      'tags: [legacy]',
+      '---',
+      '',
+      '# Forbidden tag',
+      '',
+      '## 症状',
+      '',
+      'legacy 标签出现',
+      '',
+      '## 影响与适用范围',
+      '',
+      '任何写入遗留 frontmatter 标签的对象。',
+      '',
+    ].join('\n'), 'utf8');
+
+    const spark = await readLocalFact('spark', 'spark-3f2504e0-4f89-41d3-9a0c-0305e82c3301', scope);
+    const pitfall = await readLocalFact('pitfall', 'pitfall-7f4a5c2e-9d31-4b6f-8a07-3e0f5c91b2d4', scope);
+    assert.equal(spark.status, 'ok');
+    assert.equal(pitfall.status, 'ok');
+    if (spark.status === 'ok') {
+      assert.equal(spark.item.read_status, 'readable');
+      assert.deepEqual(spark.item.unparsed_structures, [{
+        path: 'evolution[0]', reason: 'unparseable_member', raw_value: { summary: 'This entry has no source time' },
+      }]);
+    }
+    if (pitfall.status === 'ok') assert.deepEqual(pitfall.item.unparsed_structures, [{
+      path: 'tags', reason: 'unconsumed_field', raw_value: ['legacy'],
+    }]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('fact_type_key values outside the registered short-name closure surface as identity_mismatch', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'sparks');
+  await mkdir(directory, { recursive: true });
+  try {
+    await writeFile(path.join(directory, 'spark-7c4d5e6f-8a9b-4c0d-9e1f-2b3c4d5e6f7a.md'), [
+      '---',
+      'object_uid: 7c4d5e6f-8a9b-4c0d-9e1f-2b3c4d5e6f7a',
+      'fact_type_key: spark-fact-type',
+      'title: Out-of-closure value',
+      'status: open',
+      'created_at: "2026-01-01"',
+      'question: 值域外的 fact_type_key 是否被如实暴露？',
+      'scope_boundary: 只验证身份校验。',
+      'intent: 锁定对齐后的值域。',
+      'summary: Closure guard fixture.',
+      '---',
+      '',
+      '# Out-of-closure value',
+    ].join('\n'), 'utf8');
+
+    const detail = await readLocalFact('spark', 'spark-7c4d5e6f-8a9b-4c0d-9e1f-2b3c4d5e6f7a', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'readable');
+      assert.ok(detail.item.field_issues.some((issue) => (
+        issue.path === 'fact_type_key'
+        && issue.reason === 'identity_mismatch'
+        && issue.expected === 'spark'
+        && issue.raw_value === 'spark-fact-type'
+      )));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('change_log accepts the current three-field signature shape without retired session_id', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'sparks');
+  await mkdir(directory, { recursive: true });
+  try {
+    await writeFile(path.join(directory, 'spark-0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d.md'), [
+      '---',
+      'object_uid: 0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d',
+      'fact_type_key: spark',
+      'title: Current signature',
+      'status: open',
+      'created_at: "2026-01-01"',
+      'question: 当前署名形态是否可读？',
+      'scope_boundary: 只验证 change_log 成员形态。',
+      'intent: 署名兼容性回归。',
+      'summary: Current observation',
+      'change_log:',
+      '  - signature:', '      product_name: Cindy', '      model_name: gpt-5.6-luna', '      agent_runtime_name: codex-cli',
+      '    at: "2026-01-01T00:00:00+08:00"', '    summary: Current entry',
+      '---',
+      '',
+      '# Current signature',
+    ].join('\n'), 'utf8');
+
+    const detail = await readLocalFact('spark', 'spark-0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'readable');
+      assert.equal(detail.item.fact_object?.fact_type_key, 'spark');
+      assert.equal((detail.item.fact_object?.change_log as unknown[])?.length, 1);
+      assert.deepEqual(detail.item.unparsed_structures, []);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('change_log accepts the canonical and legacy signature shapes', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'sparks');
+  await mkdir(directory, { recursive: true });
+  try {
+    await writeFile(path.join(directory, 'spark-6a1b2c3d-4e5f-4a6b-9c8d-7e6f5a4b3c2d.md'), [
+      '---',
+      'object_uid: 6a1b2c3d-4e5f-4a6b-9c8d-7e6f5a4b3c2d',
+      'fact_type_key: spark',
+      'title: Signature compatibility',
+      'status: open',
+      'created_at: "2026-01-01T00:00:00+08:00"',
+      'question: 历史署名形态是否仍可读？',
+      'scope_boundary: 只验证 change_log 成员形态。',
+      'intent: 署名向后兼容。',
+      'summary: Current observation',
+      'change_log:',
+      '  - signature:', '      model_id: gpt-5', '      agent_workbench: Cindy',
+      '    session_id: canonical-session', '    at: "2026-01-01T00:00:00+08:00"', '    summary: Canonical entry',
+      '  - signature:', '      agent_id: codex', '      host_environment: LegacyHost',
+      '    session_id: legacy-session', '    at: "2026-01-02T00:00:00+08:00"', '    summary: Legacy entry',
+      '  - signature:', '      model_id: gpt-5', '      host_name: InterimHost',
+      '    session_id: interim-session', '    at: "2026-01-03T00:00:00+08:00"', '    summary: Interim entry',
+      '---',
+      '',
+      '# Signature compatibility',
+    ].join('\n'), 'utf8');
+
+    const detail = await readLocalFact('spark', 'spark-6a1b2c3d-4e5f-4a6b-9c8d-7e6f5a4b3c2d', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'readable');
+      assert.equal((detail.item.fact_object?.change_log as unknown[])?.length, 3);
+      assert.deepEqual(detail.item.unparsed_structures, []);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('change_log consumes the two-field signature contract and exposes incomplete records', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'sparks');
+  await mkdir(directory, { recursive: true });
+  try {
+    await writeFile(path.join(directory, 'spark-9f8e7d6c-5b4a-4c3d-8e9f-0a1b2c3d4e5f.md'), [
+      '---',
+      'object_uid: 9f8e7d6c-5b4a-4c3d-8e9f-0a1b2c3d4e5f',
+      'fact_type_key: spark',
+      'title: Trace contract',
+      'status: open',
+      'created_at: "2026-01-01"',
+      'question: 未识别的署名形态是否暴露为未解析？',
+      'scope_boundary: 只验证 change_log 成员形态。',
+      'intent: 防止坏流水静默丢弃。',
+      'summary: Read contract',
+      'change_log:',
+      '  - signature:', '      agent_id: codex', '      host_environment: Cindy',
+      '    session_id: session-one', '    at: "2026-01-01T00:00:00+08:00"', '    summary: Created',
+      '  - signature:', '      agent_id: codex', '      host_environment: Cindy', '      signer_type: ai-agent',
+      '    session_id: session-two', '    at: "2026-01-02T00:00:00+08:00"', '    summary: Retired shape',
+      '---',
+      '',
+      '# Trace contract',
+    ].join('\n'), 'utf8');
+    const detail = await readLocalFact('spark', 'spark-9f8e7d6c-5b4a-4c3d-8e9f-0a1b2c3d4e5f', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal((detail.item.fact_object?.change_log as unknown[])?.length, 2);
+      assert.deepEqual(detail.item.unparsed_structures, [{
+        path: 'change_log[1]', reason: 'unparseable_member', raw_value: {
+          signature: { agent_id: 'codex', host_environment: 'Cindy', signer_type: 'ai-agent' },
+          session_id: 'session-two', at: '2026-01-02T00:00:00+08:00', summary: 'Retired shape',
+        },
+      }]);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('yaml_source carries the verbatim YAML text — unknown fields, order and comments preserved', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'reports');
+  await mkdir(directory, { recursive: true });
+  try {
+    const rawFrontmatter = [
+      '# 顶部注释：机器索引层',
+      'title: 原文保真夹具',
+      'tags: [legacy]', '  # 契约外字段，直显必须保留',
+      'status: active',
+      'fact_type_key: research',
+      'created_at: "2026-01-01"',
+      'research_question: 夹具问题？',
+      'research_purpose: 验证原文透传',
+      'stopping_reason: sufficient',
+    ].join('\n');
+    await writeFile(
+      path.join(directory, 'report-0009.md'),
+      `---\n${rawFrontmatter}\n---\n\n## 研究问题\n\n夹具问题？\n`,
+      'utf8',
+    );
+    const detail = await readLocalFact('report', 'report-0009', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'readable');
+      assert.equal(detail.item.yaml_source, rawFrontmatter);
+      assert.ok(detail.item.yaml_source.includes('# 顶部注释'));
+      assert.ok(detail.item.yaml_source.indexOf('title:') < detail.item.yaml_source.indexOf('tags:'));
+      assert.ok((detail.item.unparsed_structures ?? []).some((s) => s.path === 'tags'));
+      assert.ok(detail.item.yaml_source.includes('tags: [legacy]'));
+      assert.ok(!detail.item.yaml_source.includes('object_id'));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('markdown carriers carry their frontmatter verbatim as yaml_source', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
+  await mkdir(directory, { recursive: true });
+  try {
+    const frontmatter = '# frontmatter 级注释\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc\nfact_type_key: pitfall\ntitle: Markdown carrier\nstatus: open\ncreated_at: "2026-01-01"\nsummary: 验证 frontmatter 直显。\nscope: 做什么：yaml_source 逐字；不做什么：正文。\nplan:\n  - step: one\n    done_criteria: two';
+    await writeFile(path.join(directory, 'pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc.md'), `---\n${frontmatter}\n---\n\n# Markdown carrier\n\n## 摘要\n\n验证 frontmatter 直显。\n`, 'utf8');
+    const detail = await readLocalFact('pitfall', 'pitfall-0198f1c7-8a2b-4c3d-9e4f-123456789abc', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'readable');
+      assert.equal(detail.item.yaml_source, frontmatter);
+      assert.match(String(detail.item.fact_object?.report_body ?? ''), /## 摘要/);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('an unknown frontmatter key surfaces as an unparsed structure instead of being dropped silently', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'pitfalls');
+  await mkdir(directory, { recursive: true });
+  const objectUid = '11111111-3333-4444-8555-666666666666';
+  await writeFile(path.join(directory, `pitfall-${objectUid}.md`), [
+    '---',
+    `object_uid: ${objectUid}`,
+    'fact_type_key: pitfall',
+    'title: 夹具经验',
+    'status: active',
+    'created_at: "2026-01-01"',
+    'scope: 仅用于读取层夹具',
+    'made_up_field: 未登记键 应被如实报告',
+    '---',
+    '',
+    '# 夹具经验',
+    '',
+    '## 症状',
+    '',
+    '夹具症状。',
+    '',
+  ].join('\n'), 'utf8');
+  try {
+    const read = await readLocalFact('pitfall', `pitfall-${objectUid}`, scope);
+    assert.equal(read.status, 'ok');
+    if (read.status !== 'ok') return;
+    assert.ok(
+      read.item.unparsed_structures.some((entry) => entry.path === 'made_up_field'),
+      '未登记键必须进 unparsed_structures，不得被静默丢弃',
+    );
+    assert.equal(
+      read.item.fact_object?.made_up_field,
+      undefined,
+      '未登记键不得进入对象投影',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

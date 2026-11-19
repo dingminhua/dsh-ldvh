@@ -1,0 +1,786 @@
+
+import {
+  createFrictionObject,
+  readFrictionObject,
+  updateFrictionObject,
+  correctFrictionObject,
+  resolveFrictionObjectUid,
+  listFrictionObjects,
+  normalizeAttributionRef,
+  FRICTION_REMOVABLE_FIELDS,
+  CORRECT_REMOVABLE_FIELDS_FOR_TEST as CORRECT_REMOVABLE_FIELDS,
+} from "./friction-writer.js";
+import { defineTool } from "@deepseek-ai/dsh-tools";
+import { toParameterSpec } from "./parameter-spec-adapter.js";
+import { objectRef, objectRefOf } from "./object-reference.js";
+import { currentRouteValues } from "./session-signature.js";
+import { FRONTMATTER_AFTER_DESCRIPTION } from "./after-integrity.js";
+import { authoritativeSignature } from "./signature-channel.js";
+import { resolveGovernanceScope } from "./governance-scope.js";
+import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { registerWriteShapedTool } from "./host-seams.js";
+import { recordObservation } from "./friction-discovery.js";
+
+const OPERATIONS = {
+  "friction-read-object": {
+    toolName: "ldvh_friction_read",
+    summary: "Precise read of one Friction fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/23 §13)",
+    effect: "read"
+  },
+  "friction-list-objects": {
+    toolName: "ldvh_friction_list",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 36 §8.8 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided/accepted only with status=all (specs/03 §8, specs/26 §12)",
+    effect: "read"
+  },
+  "friction-write-object": {
+    toolName: "ldvh_friction_write",
+    writeShaped: true,
+    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided/accepted，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; →accepted needs disposition (non-empty), no informs, and a 处置 section (the 复审触发 inside it is an AI/Human semantic requirement — Code only checks the section is present and disposition is non-empty, 26 §15 内容项); all three terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 36 §8.8 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
+    effect: "may_change_state"
+  }
+};
+
+const FACT_SOURCE_ROOT_DIR = "ldvh-base";
+
+
+function envelope(operationKey, outcome, fields) {
+  return { operation_key: operationKey, outcome, ...fields };
+}
+
+function invalidRequest(operationKey, gap, requested) {
+  return envelope(operationKey, "invalid_request", {
+    result: null,
+    scope: { requested: requested ?? null, completed: [], not_completed: [requested ?? operationKey] },
+    sources: [],
+    gaps: [gap],
+    verification: { checks: [], passed: false },
+    follow_up: []
+  });
+}
+
+async function governedProject(dshHomePath, exec) {
+  const cwd = exec?.agent?.session?.header?.cwd;
+  const scope = await resolveGovernanceScope(dshHomePath, cwd);
+  if (scope.state !== "governed") {
+    return { ok: false, scope };
+  }
+  return { ok: true, scope, project: scope.project };
+}
+
+async function signatureFor(deps, exec) {
+  const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
+  if (!route.ok) return { ok: false, reason: route.reason };
+  return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
+}
+
+
+async function executeReadObject(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("friction-read-object", "unavailable", {
+      result: null,
+      scope: { requested: args?.object_uid ?? null, completed: [], not_completed: [args?.object_uid ?? "friction-read-object"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: fact-object reads serve governed sessions only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const objectUid = args?.object_uid;
+  if (typeof objectUid !== "string" || objectUid.length === 0) {
+    return invalidRequest("friction-read-object", "object_uid is required", null);
+  }
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const read = await readFrictionObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
+  if (!read.ok) {
+    const rejectedCodes = new Set(["friction/invalid_uid", "friction/object_not_found"]);
+    const outcome = rejectedCodes.has(read.error.code) ? "rejected" : "unavailable";
+    return envelope("friction-read-object", outcome, {
+      result: null,
+      scope: { requested: objectUid, completed: [], not_completed: [objectUid] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "frictions") }],
+      gaps: [`${read.error.code}: ${read.error.message}`],
+      verification: { checks: ["precise-read"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = read.value;
+  const fm = value.frontmatter;
+  return envelope("friction-read-object", "completed", {
+    result: {
+      object_uid: value.object_uid,
+      file: value.file,
+      fingerprint: value.fingerprint,
+      title: typeof fm.title === "string" ? fm.title : undefined,
+      status: fm.status,
+      phenomenon: typeof fm.phenomenon === "string" ? fm.phenomenon : undefined,
+      attribution: typeof fm.attribution === "string" ? fm.attribution : undefined,
+      attribution_ref: normalizeAttributionRef(fm.attribution_ref),
+      occurrence: fm.occurrence && typeof fm.occurrence === "object" ? fm.occurrence : undefined,
+      disposition: typeof fm.disposition === "string" ? fm.disposition : undefined,
+      body_valid: value.body_valid,
+      body_issues: value.body_issues,
+      frontmatter: fm,
+      body: value.body,
+    },
+    scope: { requested: objectUid, completed: [objectUid], not_completed: value.body_valid ? [] : ["body-structure (mechanical issues present — see body_issues)"] },
+    sources: [{ kind: "fact-object", path: value.file, content_fingerprint: value.fingerprint }],
+    gaps: value.body_valid ? [] : value.body_issues,
+    verification: { checks: ["frontmatter-parse", "body-structure"], passed: value.body_valid },
+    follow_up: ["friction-write-object action=update with the observed fingerprint when a controlled change is needed"]
+  });
+}
+
+async function executeListObject(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("friction-list-objects", "unavailable", {
+      result: null,
+      scope: { requested: "list", completed: [], not_completed: ["list"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: fact-object discovery serves governed sessions only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const includeResolved = args?.status === "all";
+  const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const listed = await listFrictionObjects({ factSourceRoot, includeResolved, limit });
+  if (!listed.ok) {
+    return envelope("friction-list-objects", "unavailable", {
+      result: null,
+      scope: { requested: "list", completed: [], not_completed: ["list"] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "frictions") }],
+      gaps: [`${listed.error.code}: ${listed.error.message}`],
+      verification: { checks: ["directory-scan"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = listed.value;
+  const gaps = value.invalid.map((entry) => `invalid carrier ${entry.file}: ${entry.reason}`);
+  if (!value.complete) {
+    gaps.push(`projection truncated at limit=${limit} of ${value.total} matching objects — narrow the filter or raise the limit; do not treat this page as the full set (03 §8.1)`);
+  }
+  return envelope("friction-list-objects", value.complete ? "completed" : "partial", {
+    result: {
+      count: value.items.length,
+      total: value.complete ? value.items.length : value.total,
+      filter: includeResolved ? "all" : "open",
+      items: value.items,
+    },
+    scope: {
+      requested: "list",
+      completed: value.complete ? ["list"] : [`first ${value.items.length} of ${value.total}`],
+      not_completed: value.complete ? [] : [`${value.total - value.items.length} objects beyond the limit`],
+    },
+    sources: [{ kind: "fact-object", path: join(factSourceRoot, "frictions") }],
+    gaps,
+    verification: { checks: ["directory-scan", "frontmatter-parse"], passed: gaps.length === 0 },
+    follow_up: [
+      "dedup (26 §6.2) is a semantic comparison over attribution + mechanism pattern (NOT title/phenomenon literal similarity — that anchor was replaced 2026-10-28) — performed by the AI on this projection, never by the tool. This projection carries attribution/attribution_ref precisely so the anchor is executable; cross-type same-root candidates come from the Pitfall side (36 §8.7 第 1 项 第三层)",
+      "friction-read-object for the F3 full content of any candidate",
+    ]
+  });
+}
+
+async function executeWriteObject(args, exec, deps) {
+  const action = args?.action;
+  if (action !== "create" && action !== "update" && action !== "correct") {
+    return invalidRequest("friction-write-object", `action must be create|update|correct; got ${JSON.stringify(action)}`, action ?? null);
+  }
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("friction-write-object", "unavailable", {
+      result: null,
+      scope: { requested: action, completed: [], not_completed: [action] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: controlled writes serve governed projects only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const sig = await signatureFor(deps, exec);
+  if (!sig.ok) {
+    return envelope("friction-write-object", "unavailable", {
+      result: null,
+      scope: { requested: action, completed: [], not_completed: [action] },
+      sources: [],
+      gaps: [`signature_unavailable: the authoritative provider/model could not be read from the DSH session record (${sig.reason}). `
+        + "REFUSE to write an unsigned change_log entry; REPORT TO HUMAN — this write cannot be signed and must not be recorded as a stable fact."],
+      verification: { checks: ["governance-scope", "signature-source"], passed: false },
+      follow_up: ["human must resolve the session signature source, then retry"]
+    });
+  }
+
+  if (action === "create") {
+    const draft = args?.frontmatter_draft;
+    const bodyMarkdown = args?.body_markdown;
+    if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+      return invalidRequest("friction-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 现象') are required for action=create", "create");
+    }
+    const created = await createFrictionObject({
+      factSourceRoot,
+      frontmatterDraft: draft,
+      bodyMarkdown,
+      sessionSignature: sig.ok ? sig.value : null,
+    });
+    if (!created.ok) {
+      return writeRejected("friction-write-object", created, factSourceRoot);
+    }
+    const readBack = await readFrictionObject({ factSourceRoot, objectUid: created.value.object_uid });
+    if (!readBack.ok || readBack.value.fingerprint !== created.value.fingerprint) {
+      return envelope("friction-write-object", "partial", {
+        result: { object_uid: created.value.object_uid, file: created.value.file, fingerprint: created.value.fingerprint, read_back: "failed" },
+        scope: { requested: "create", completed: ["create"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
+        sources: [{ kind: "fact-object", path: created.value.file }],
+        gaps: [`created but read-back failed: ${readBack.ok ? "fingerprint mismatch" : readBack.error.message}`],
+        verification: { checks: ["create"], passed: false },
+        follow_up: ["STOP further writes and success claims (03 §9.4 item 7); re-read and verify the file state before anything else"]
+      });
+    }
+    return envelope("friction-write-object", "completed", {
+      result: {
+        action: "create",
+        object_uid: created.value.object_uid,
+        actual_ref: created.value.file,
+        fingerprint: created.value.fingerprint,
+        read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
+        changes: [{ object_uid: created.value.object_uid, change: "created", carrier: created.value.file }]
+      },
+      scope: { requested: "create", completed: ["create", "read-back"], not_completed: [] },
+      sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
+      gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
+      verification: { checks: ["frontmatter-closed-set", "body-structure", "carrier-coherence", "atomic-write", "read-back"], passed: true },
+      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
+    });
+  }
+
+  if (action === "correct") {
+    const objectUidInput = args?.object_uid;
+    if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+      return invalidRequest("friction-write-object", "object_uid is required for action=correct", "correct");
+    }
+    const uidResolution = await resolveFrictionObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+    if (!uidResolution.ok) {
+      return writeRejected("friction-write-object", uidResolution, factSourceRoot);
+    }
+    const objectUid = uidResolution.objectUid;
+    if (typeof args?.expected_fingerprint !== "string" || args.expected_fingerprint.length === 0) {
+      return invalidRequest("friction-write-object", "expected_fingerprint is required for action=correct (CAS baseline — from your last precise read)", "correct");
+    }
+    if (typeof args?.body_markdown_after !== "string" || args.body_markdown_after.length === 0) {
+      return invalidRequest("friction-write-object", "body_markdown_after (markdown) is required for action=correct (the complete target body starting with '## 现象')", "correct");
+    }
+    if (typeof args?.change_summary !== "string" || args.change_summary.length === 0) {
+      return invalidRequest("friction-write-object", "change_summary (one short semantic summary for the change_log) is required for action=correct", "correct");
+    }
+    const auth = args?.human_authorization;
+    if (typeof auth !== "string" || auth.trim().length === 0) {
+      return invalidRequest("friction-write-object", "human_authorization is required for action=correct (26 §13 终态事实更正：Human 确认；无授权记录的更正请求 fail-closed)", "correct");
+    }
+    const corrected = await correctFrictionObject({
+      factSourceRoot,
+      objectUid,
+      expectedFingerprint: args.expected_fingerprint,
+      relationsAfter: Array.isArray(args?.relations_after) ? args.relations_after : null,
+      frontmatterRemovals: Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : [],
+      bodyMarkdownAfter: args.body_markdown_after,
+      changeSummary: args.change_summary,
+      humanAuthorization: auth,
+      sessionSignature: sig.ok ? sig.value : null,
+      gitCommitResolver: async (hash) => {
+        if (typeof hash !== "string" || !/^[0-9a-f]{40}$/i.test(hash)) return false;
+        return new Promise((resolve) => {
+          execFile("git", ["cat-file", "-e", `${hash}^{commit}`], { cwd: factSourceRoot }, (err) => {
+            resolve(!err);
+          });
+        });
+      },
+      currentProjectId: governed.project.id,
+    });
+    if (!corrected.ok) {
+      return writeRejected("friction-write-object", corrected, factSourceRoot);
+    }
+    const back = await readFrictionObject({ factSourceRoot, objectUid });
+    if (!back.ok || back.value.fingerprint !== corrected.value.fingerprint) {
+      return envelope("friction-write-object", "partial", {
+        result: { object_uid: objectUid, fingerprint: corrected.value.fingerprint, read_back: "failed" },
+        scope: { requested: "correct", completed: ["correct"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
+        sources: [{ kind: "fact-object", path: join(factSourceRoot, "frictions") }],
+        gaps: [`corrected but read-back failed: ${back.ok ? "fingerprint mismatch" : back.error.message}`],
+        verification: { checks: ["correct"], passed: false },
+        follow_up: ["STOP further writes and success claims (03 §9.7); re-read the object before anything else"]
+      });
+    }
+    return envelope("friction-write-object", "completed", {
+      result: {
+        action: "correct",
+        object_uid: objectUid,
+        fingerprint: corrected.value.fingerprint,
+        read_back: { ok: true, fingerprint: back.value.fingerprint, body_valid: back.value.body_valid },
+        changes: [{ object_uid: objectUid, change: "corrected", summary: args.change_summary }]
+      },
+      scope: { requested: "correct", completed: ["correct", "read-back"], not_completed: [] },
+      sources: [{ kind: "fact-object", path: back.value.file, content_fingerprint: corrected.value.fingerprint }],
+      gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
+      verification: { checks: ["cas-baseline", "resolved-required", "relations-contract", "body-structure", "carrier-coherence", "no-op-rejection", "atomic-write", "read-back"], passed: true },
+      follow_up: ["the object stays in its terminal status (resolved or voided) — a correction never reopens a terminal record (26 §13)"]
+    });
+  }
+
+  const objectUidInput = args?.object_uid;
+  if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+    return invalidRequest("friction-write-object", "object_uid is required for action=update", "update");
+  }
+  const uidResolution = await resolveFrictionObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+  if (!uidResolution.ok) {
+    return writeRejected("friction-write-object", uidResolution, factSourceRoot);
+  }
+  const objectUid = uidResolution.objectUid;
+  const expectedFingerprint = args?.expected_fingerprint;
+  const frontmatterAfter = args?.frontmatter_after;
+  const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
+  const bodyMarkdownAfter = args?.body_markdown_after;
+  const changeSummary = args?.change_summary;
+  if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
+    return invalidRequest("friction-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
+  }
+  if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
+    return invalidRequest("friction-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return invalidRequest("friction-write-object", "body_markdown_after is required for action=update — the COMPLETE target body starting at \"## 现象\" (the H1 is generated from title); a partial body, or a body read back with its H1, is refused", "update");
+  }
+  if (typeof changeSummary !== "string" || changeSummary.length === 0) {
+    return invalidRequest("friction-write-object", "change_summary (one short semantic summary for the change_log) is required for action=update", "update");
+  }
+  const updated = await updateFrictionObject({
+    factSourceRoot,
+    objectUid,
+    expectedFingerprint,
+    frontmatterAfter,
+    frontmatterRemovals,
+    bodyMarkdownAfter,
+    changeSummary,
+    sessionSignature: sig.ok ? sig.value : null,
+    gitCommitResolver: async (hash) => {
+      if (typeof hash !== "string" || !/^[0-9a-f]{40}$/i.test(hash)) return false;
+      return new Promise((resolve) => {
+        execFile("git", ["cat-file", "-e", `${hash}^{commit}`], { cwd: factSourceRoot }, (err) => {
+          resolve(!err);
+        });
+      });
+    },
+    currentProjectId: governed.project.id,
+  });
+  if (!updated.ok) {
+    return writeRejected("friction-write-object", updated, factSourceRoot);
+  }
+  const readBack = await readFrictionObject({ factSourceRoot, objectUid });
+  if (!readBack.ok || readBack.value.fingerprint !== updated.value.fingerprint) {
+    return envelope("friction-write-object", "partial", {
+      result: { object_uid: objectUid, fingerprint: updated.value.fingerprint, read_back: "failed" },
+      scope: { requested: "update", completed: ["update"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "frictions") }],
+      gaps: [`updated but read-back failed: ${readBack.ok ? "fingerprint mismatch" : readBack.error.message}`],
+      verification: { checks: ["update"], passed: false },
+      follow_up: ["STOP further writes and success claims (03 §9.7); re-read the object before anything else"]
+    });
+  }
+  return envelope("friction-write-object", "completed", {
+    result: {
+      action: "update",
+      object_uid: objectUid,
+      fingerprint: updated.value.fingerprint,
+      read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
+      changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
+      ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
+        ? { warnings: updated.value.warnings }
+        : {})
+    },
+    scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
+    sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
+    gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
+    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "phenomenon-single-sentence", "body-structure", "carrier-coherence", "occurrence-contract", "relations-contract", "transition-guards", "atomic-write", "read-back"], passed: true },
+    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
+  });
+}
+
+function writeRejected(operationKey, failureResult, factSourceRoot) {
+  const code = failureResult.error.code;
+  const mechanicalCodes = new Set([
+    "friction/frontmatter_invalid", "friction/body_invalid", "friction/coherence_invalid",
+    "friction/initial_state_violation", "friction/status_transition_invalid", "friction/status_terminal",
+    "friction/relations_invalid", "friction/relation_target_unresolvable", "friction/occurrence_invalid",
+    "friction/attribution_ref_unresolvable",
+    "friction/cas_conflict", "friction/change_summary_required", "friction/invalid_uid",
+    "invalid_request",
+  ]);
+  const outcome = mechanicalCodes.has(code) ? "rejected" : "unavailable";
+  const issues = Array.isArray(failureResult.error.details?.issues) ? failureResult.error.details.issues : [];
+  return envelope(operationKey, outcome, {
+    result: null,
+    scope: { requested: "write", completed: [], not_completed: ["write"] },
+    sources: [{ kind: "fact-object", path: join(factSourceRoot, "frictions") }],
+    gaps: [`${code}: ${failureResult.error.message}`, ...issues],
+    verification: { checks: [], passed: false },
+    follow_up: code === "friction/cas_conflict"
+      ? ["re-read the object (friction-read-object), reconcile the concurrent change, and retry with the fresh fingerprint"]
+      : code === "friction/status_terminal"
+        ? ["resolved Frictions are read-only (26 §9.2); a recurring obstacle goes through a NEW ledger entry referencing this uid"]
+        : code === "friction/relations_invalid"
+          ? ["informs 1..n with resolvable fact-object targets is required on the resolving transition (26 §11); paired-with (→ pitfall-<uid> in pitfalls/) is allowed in any state and is NOT a substitute for informs"]
+          : ["fix the reported mechanical issues and retry; zero write has occurred"]
+  });
+}
+
+
+function text(body) {
+  return [{ type: "text", text: body }];
+}
+
+function renderEnvelope(operationKey, value) {
+  const env = value?.envelope ?? {};
+  const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
+  const result = env.result;
+  if (result?.object_uid !== undefined) lines.push(`object: ${objectRef({ object_uid: result.object_uid, fact_type_key: result.fact_type_key ?? "friction" })}`);
+  if (result?.title !== undefined) lines.push(`title: ${result.title}`);
+  if (result?.status !== undefined) lines.push(`status: ${result.status}`);
+  if (result?.scope !== undefined) lines.push(`scope: ${result.scope}`);
+  if (result?.trigger_signal !== undefined) lines.push(`trigger_signal: ${result.trigger_signal}`);
+  if (result?.disposition !== undefined) lines.push(`disposition: ${result.disposition}`);
+  if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
+  if (result?.body_valid !== undefined) lines.push(`body_valid: ${result.body_valid}`);
+  if (result?.read_back?.ok !== undefined) lines.push(`read_back: ${result.read_back.ok ? "ok" : "FAILED"}`);
+  if (result?.actual_ref !== undefined) lines.push(`file: ${result.actual_ref}`);
+  if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
+  if (Array.isArray(result?.items)) {
+    for (const item of result.items) {
+      const paired = Array.isArray(item?.paired_with) && item.paired_with.length > 0
+        ? ` (配对: ${item.paired_with.join(", ")})`
+        : "";
+      lines.push(`- ${objectRef(item)} [${item.status}] ${item.title}${item.trigger_signal ? ` (信号: ${item.trigger_signal})` : ""}${paired}`);
+    }
+  }
+  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "friction")}`);
+  for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
+  for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
+  for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
+  return text(lines.join("\n"));
+}
+
+const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
+
+function parameterSchemaFor(operationKey) {
+  const frictionFrontmatter = {
+    type: "object",
+    description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
+    properties: {
+      title: { type: "string", description: "≤ 30 characters; obstacle short title for locating and Human scanning" },
+      status: { type: "string", enum: ["open", "resolved", "voided", "accepted"], description: "create must be open (26 §9 2026-10 修订：观察态已退出闭集，账目初态即待修态); transitions: →resolved (informs 1..n), →voided (no relations, requires disposition), →accepted (no informs, requires non-empty disposition and a 处置 section; the 复审触发 inside it is AI/Human-verified, not machine-checked — 26 §15 内容项); resolved/voided/accepted terminal & read-only. 机械通道不改变任何既有账目的状态——阈值晋升只发生在观察缓冲侧 (36 §8.8)" },
+      phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section (carrier coherence, 26 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
+      attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; free text — the root is often a spec/tool/process with no object identity; omit when not yet attributable (backfill via supplement update)" },
+      attribution_ref: {
+        oneOf: [
+          { type: "string" },
+          {
+            type: "object",
+            properties: { object_uid: { type: "string" } },
+            required: ["object_uid"],
+            additionalProperties: false
+          }
+        ],
+        description: "precise reference to an existing same-project fact object_uid for the root, as the OBJECT form { object_uid: \"<uuid>\" } (26 §8/§11 锚点型, 2026-10 订正 — the same carrier shape as relations.target); a bare uuid string is accepted for legacy carriers only. Optional — when present Code verifies object_uid resolves (26 §8); enables mechanical aggregation by attribution"
+      },
+      occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create. count = the number of independent sightings CONFIRMED WHEN THE ENTRY CAME INTO BEING (from the observation group size at promotion time; 1 for a Human-entered entry). It is NOT a threshold input any more — the threshold lives in the observation buffer (36 §8.7 第 3 项 / §12bis.1). first_at/last_at = earliest/latest sighting time. Frozen once resolved/voided. 例外: voided 且来源为闭集收缩改判者可缺 (26 §14.2). 2026-10 修订已删除 human_return_at：放回留观流转取消，机械通道不再按 count 改任何既有账目状态" },
+
+      disposition: { type: "string", description: "why this entry was voided; REQUIRED iff status=voided, forbidden otherwise (26 §8) — the list card renders it so Human can read the reason without opening the detail page. resolved carries no such field: its outcome is already carried by the informs relation" },
+      relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs", "paired-with"] }, target: { type: "object", description: "26 §9.2 commit 例外：解药是一次受控提交且没有任何对象身份时，本形态用 `commit`（40 位 hex）代替 `object_uid`——两种形态互斥。此例外只对 informs 开放（paired-with 不采用，commit 不是「同源跨角色的经验」）。", properties: { object_uid: { type: "string" }, commit: { type: "string" } }, additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "closed set {informs, paired-with} (26 §11, 2026-10-28). informs 1..n points at remedy objects (fact-object uids), appears only on resolved; paired-with points at the same-root cross-role Pitfall and may appear in ANY state (a pair exists whether or not the debt is settled). paired-with resolves in pitfalls/, informs resolves across the existing fact-object directories. **Single-sided storage**: the edge lives ONLY here; the Pitfall side does not carry a reverse edge (23 §11 — a mirrored copy would be a second carrier of the same fact that neither side can mechanically verify, and the two could silently diverge). The reverse direction (which debt corresponds to this experience?) is derived by reverse lookup over this field (26 §12 配对反查; ldvh_friction_list exposes paired_with). Do NOT instruct the Pitfall side to write a matching edge — its writer rejects relations outright" },
+      change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
+    },
+    required: ["title", "phenomenon", "occurrence"],
+    additionalProperties: false
+  };
+  switch (operationKey) {
+    case "friction-read-object":
+      return {
+        type: "object",
+        properties: {
+          object_uid: { type: "string", description: "Canonical object_uid of the Friction object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." }
+        },
+        required: ["object_uid"],
+        additionalProperties: false
+      };
+    case "friction-list-objects":
+      return {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["open", "all"], description: "open = default (open 待修账目; 26 §12 2026-10 修订：观察态已退出闭集，账本里不再有 observing); all = include resolved/voided/accepted for historical tracing" },
+          limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
+        },
+        additionalProperties: false
+      };
+    case "friction-write-object":
+      return {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["create", "update", "correct"] },
+          frontmatter_draft: frictionFrontmatter,
+          body_markdown: { type: "string", description: "create: the body markdown starting with '## 现象' (H2 sections 现象/入账依据, plus 处置 iff status resolved/voided; the H1 is generated from title)" },
+          object_uid: { type: "string", description: "update/correct target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
+          expected_fingerprint: { type: "string", description: "update/correct: CAS baseline fingerprint from your last precise read" },
+          frontmatter_after: (() => { const { required: _r, ...rest } = frictionFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
+          body_markdown_after: { type: "string", description: "update/correct: the complete target body markdown (same shape as body_markdown)" },
+          change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
+          relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array (26 §13; every other field is inherited byte-identically unless explicitly removed). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
+          frontmatter_additions: { type: "object", description: "correct ONLY (2026-11): FILL a field newly admitted to the closed set (symmetric to frontmatter_removals). Only for a MISSING field — never to change an existing value; the value must be derivable from existing carriers, never fabricated (26 §13). Currently admits occurrence only.", additionalProperties: true },
+          frontmatter_removals: { type: "array", description: `update/correct: explicit deletion declarations (specs/02 §10.5: 未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-lists (FRICTION_REMOVABLE_FIELDS for update: ${[...FRICTION_REMOVABLE_FIELDS].join("/")}; CORRECT_REMOVABLE_FIELDS for correct: ${[...CORRECT_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...new Set([...FRICTION_REMOVABLE_FIELDS, ...CORRECT_REMOVABLE_FIELDS])] } },
+          human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13). NOTE: this field is a self-report — its presence and content are NOT proof that Human actually consented (the same boundary as 21 §14 correct); the mechanical gate only guarantees the record was supplied." }
+        },
+        required: ["action"],
+        additionalProperties: false
+      };
+    default:
+      return { type: "object", properties: {}, additionalProperties: false };
+  }
+}
+
+export function toolDescriptorFor(operationKey, operation, handler) {
+  return defineTool({
+    name: operation.toolName,
+    description: operation.summary,
+    parameters: toParameterSpec(parameterSchemaFor(operationKey)),
+    timeoutMs: 30000,
+    async execute(args, exec) {
+      try {
+        const result = await handler(args, exec);
+        return { envelope: JSON.parse(JSON.stringify(result)) };
+      } catch (error) {
+        return {
+          envelope: envelope(operationKey, "execution_error", {
+            result: null,
+            scope: { requested: null, completed: [], not_completed: [operationKey] },
+            sources: [],
+            gaps: [String(error?.message ?? error)],
+            verification: { checks: [], passed: false },
+            follow_up: []
+          })
+        };
+      }
+    },
+    output: {
+      schema: OUTPUT_SCHEMA,
+      render: (args, value) => renderEnvelope(operationKey, value)
+    }
+  });
+}
+
+export function registerFrictionTools(ctx, deps) {
+  const handlers = {
+    "friction-read-object": (args, exec) => executeReadObject(args, exec, deps),
+    "friction-list-objects": (args, exec) => executeListObject(args, exec, deps),
+    "friction-write-object": (args, exec) => executeWriteObject(args, exec, deps),
+  };
+  const disposers = [];
+  for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
+    if (operation.writeShaped === true) registerWriteShapedTool(operation.toolName);
+    disposers.push(ctx.tools.register(toolDescriptorFor(operationKey, operation, handlers[operationKey])));
+  }
+  return () => {
+    for (const dispose of disposers) {
+      try { dispose(); } catch {   }
+    }
+  };
+}
+
+export { OPERATIONS };
+
+
+const RECORD_OBSERVATION_OPERATION = Object.freeze({
+  toolName: "ldvh_friction_record_observation",
+  writeShaped: true,
+  childOnly: true,
+  summary:
+    "Record ONE friction observation into the observation buffer (36 §8.8) as the delegate of a main controller that reported an obstacle. Records always; promotion to an open ledger entry happens only when same-group count reaches N=3 within the same dispatch (26 §10). This does NOT create a Friction ledger object and does NOT change any ledger status.",
+  effect: "may_change_state",
+});
+
+export function registerFrictionChildSurface(ctx, deps) {
+  const operation = RECORD_OBSERVATION_OPERATION;
+  registerWriteShapedTool(operation.toolName);
+
+  const descriptor = {
+    name: operation.toolName,
+    description: operation.summary,
+    parameters: toParameterSpec({
+      type: "object",
+      properties: {
+        phenomenon: {
+          type: "string",
+          description:
+            "One sentence stating what was observed — a non-conclusion (e.g. 「CI 平均 8 分钟」, not 「CI 太慢」). Must appear verbatim in the buffer entry's 现象 section (26 §8, §14.1).",
+        },
+        evidence: {
+          type: "string",
+          description:
+            "The verbatim fragment from the material the main controller delivered, plus its source anchor. Must be copied exactly — a paraphrase makes the observation unverifiable (36 §14「逐字引证」).",
+        },
+        group: {
+          type: "string",
+          description:
+            "Aggregation key for the same-root obstacle. Same group ⇒ same obstacle recurring; the threshold N=3 counts per group (36 §8.7 第 3 项). Choose it so that the SAME obstacle seen twice yields the SAME key.",
+        },
+        title: {
+          type: "string",
+          description: "≤ 30 characters; obstacle short title for locating and Human scanning.",
+        },
+        basis: {
+          type: "string",
+          description: "Why this counts as an obstacle (入账依据) — the reasoning, not the quote.",
+        },
+        attribution: {
+          type: "string",
+          description:
+            "Which subsystem/spec/process the obstacle roots in. Free text — the root is often a spec/tool/process with no object identity.",
+        },
+        target_uid: {
+          type: "string",
+          description:
+            "OPTIONAL. When the obstacle already has an OPEN ledger entry, pass its object_uid: the observation then becomes a supplement-level count increment on that entry (36 §8.7 第 4 项) instead of a new group. Omit when this is a new obstacle.",
+        },
+        anchor: {
+          type: "string",
+          description:
+            "Where in the session the material came from (e.g. 「turn 12..18」). Used to locate the observation later.",
+        },
+      },
+      required: ["phenomenon", "evidence", "group", "title", "basis", "attribution"],
+      additionalProperties: false,
+    }),
+    execute: async (args) => {
+      if (typeof deps.isFrictionDiscoveryEnabled === "function"
+        && deps.isFrictionDiscoveryEnabled() === false) {
+        return {
+          ok: false,
+          error: "friction_observation/disabled",
+          message: "发现摩擦已在设置面关闭；本次观察不写入缓冲。",
+        };
+      }
+      const project = await deps.resolveProjectId();
+      const projectId = typeof project === "string" ? project : project?.id;
+      const projectPath = typeof project === "object" ? project?.path : undefined;
+      if (typeof projectId !== "string" || projectId.length === 0) {
+        return {
+          ok: false,
+          error: "friction_observation/no_project",
+          message:
+            "No governed project could be resolved for this session — an observation cannot be recorded without a project partition (36 §8.8).",
+        };
+      }
+      const session = deps.resolveSessionId() ?? undefined;
+      const result = await recordObservation({
+        dshHomePath: deps.dshHomePath,
+        projectId,
+        session,
+        anchor: args.anchor,
+        phenomenon: args.phenomenon,
+        evidence: args.evidence,
+        group: args.group,
+        target_uid: args.target_uid,
+        title: args.title,
+        basis: args.basis,
+        attribution: args.attribution,
+      });
+      if (result?.ok !== true) {
+        return {
+          ok: false,
+          error: result?.error?.code ?? "friction_observation/record_failed",
+          message: result?.error?.message ?? "the observation could not be recorded",
+        };
+      }
+
+      let promotion = { skipped: true, reason: "no-project-path" };
+      if (typeof projectPath === "string" && projectPath.length > 0) {
+        try {
+          const { runFrictionPromotionExclusive } = await import("./friction-promotion-lock.js");
+          const { runFrictionReviewPromotion } = await import("./friction-review-promotion.js");
+          const { resolveSignatureDetailed } = await import("./session-signature.js");
+          const sig = await resolveSignatureDetailed(deps.sessionPersistence?.() ?? null, session ?? null);
+          const locked = await runFrictionPromotionExclusive({
+            dshHomePath: deps.dshHomePath,
+            projectId,
+            sessionId: session ?? null,
+            fn: () => runFrictionReviewPromotion({
+              factSourceRoot: join(projectPath, FACT_SOURCE_ROOT_DIR),
+              dshHomePath: deps.dshHomePath,
+              projectId,
+              sessionSignature: sig.ok ? sig.value : null,
+            }),
+          });
+          if (locked?.skipped) {
+            promotion = { skipped: true, reason: locked.reason ?? "locked" };
+          } else if (locked?.value?.ok) {
+            promotion = {
+              skipped: false,
+              promoted: locked.value.value.promotions.length,
+              supplemented: locked.value.value.supplemented.length,
+            };
+            const residual = locked.value.value.residual ?? [];
+            if (residual.length > 0) promotion.residual = residual;
+          } else {
+            promotion = {
+              skipped: false,
+              failed: true,
+              code: locked?.value?.error?.code ?? "friction-promotion-failed",
+              reason: locked?.value?.error?.message ?? "unknown",
+            };
+          }
+        } catch (error) {
+          promotion = { skipped: false, failed: true, code: "friction-promotion-threw", reason: String(error?.message ?? error) };
+        }
+      }
+
+      return {
+        ok: true,
+        recorded: true,
+        entry_id: result.value?.entry_id ?? null,
+        group_pending_count: result.value?.group_pending_count ?? null,
+        promotion,
+        note:
+          "Observation recorded. Promotion to an open ledger entry was attempted in this same dispatch (36 §8.7 items 3/4); see `promotion` for the outcome. This tool does NOT create a Friction ledger object directly and does NOT change any ledger status.",
+      };
+    },
+    output: {
+      schema: OUTPUT_SCHEMA,
+      render: (args, value) => {
+        const result = value?.envelope ?? value ?? {};
+        const lines = ["LDVH 摩擦观察记录（36 §8.7 第 2 项）"];
+        if (result.ok === false) {
+          lines.push(`result: rejected`);
+          lines.push(`error: ${result.error ?? "friction_observation/failed"}`);
+          if (result.message !== undefined) lines.push(`message: ${result.message}`);
+          return text(lines.join("\n"));
+        }
+        lines.push("result: recorded");
+        if (result.entry_id !== undefined) lines.push(`entry_id: ${result.entry_id}`);
+        if (result.group_pending_count !== undefined) lines.push(`group_pending_count: ${result.group_pending_count}`);
+        if (result.promotion !== undefined) {
+          lines.push(`promotion: ${JSON.stringify(result.promotion)}`);
+        }
+        if (result.note !== undefined) lines.push(`note: ${result.note}`);
+        return text(lines.join("\n"));
+      }
+    }
+  };
+
+  const dispose = ctx.tools.register(descriptor);
+  return () => {
+    try { dispose(); } catch {   }
+  };
+}
+
+export { RECORD_OBSERVATION_OPERATION };

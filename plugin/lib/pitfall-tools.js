@@ -1,0 +1,629 @@
+
+import {
+  createPitfallObject,
+  readPitfallObject,
+  updatePitfallObject,
+  resolvePitfallObjectUid,
+  listPitfallObjects,
+} from "./pitfall-writer.js";
+import { defineTool } from "@deepseek-ai/dsh-tools";
+import { toParameterSpec } from "./parameter-spec-adapter.js";
+import { currentRouteValues } from "./session-signature.js";
+import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
+import { authoritativeSignature } from "./signature-channel.js";
+import { resolveGovernanceScope } from "./governance-scope.js";
+import { join } from "node:path";
+import { registerWriteShapedTool } from "./host-seams.js";
+import { objectRef, objectRefOf } from "./object-reference.js";
+
+const OPERATIONS = {
+  "pitfall-read-object": {
+    toolName: "ldvh_pitfall_read",
+    summary: "Precise read of one Pitfall fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/25 §13)",
+    effect: "read"
+  },
+  "pitfall-list-objects": {
+    toolName: "ldvh_pitfall_list",
+    summary: "Enumerate Pitfall fact objects (F0/F1 discovery): dedup/precheck-relevant projection (title/scope/status/trigger_signal) for the governed project; active-only by default (specs/03 §8, specs/25 §12)",
+    effect: "read"
+  },
+  "pitfall-write-object": {
+    toolName: "ldvh_pitfall_write",
+    writeShaped: true,
+    summary: "Controlled write of Pitfall fact objects: create (受控创建，通道与授权依 25 §13：代理记录通道/Human 入口) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 25 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/25 §13). **A delegated (subagent) caller may only create** — update, errata and terminal transitions are refused for it by this surface (25 §13 代理记录通道边界、Human 2026-11-16)",
+    effect: "may_change_state"
+  },
+  "pitfall-arm-delegate": {
+    toolName: "ldvh_pitfall_arm_delegate",
+    rootOnly: true,
+    summary: "Arm the NEXT delegated subagent of THIS governed root session to record experience (Pitfall) on its own: grant lifetime is one child session and one bounded window (default 15 min). Only the three Pitfall tools reach that child, and it may only create (25 §13 代理记录通道). Root sessions only — a delegated caller is refused",
+    effect: "may_change_state"
+  }
+};
+
+function isDelegatedCaller(header) {
+  if (header === undefined || header === null) return false;
+  if (header.origin === "subagent") return true;
+  const parentSession = header.parentSession;
+  if (typeof parentSession !== "string" || parentSession.trim().length === 0) return false;
+  return !(header.isSeeded === true && header.delegationDepth === 0);
+}
+
+const FACT_SOURCE_ROOT_DIR = "ldvh-base";
+
+
+function envelope(operationKey, outcome, fields) {
+  return { operation_key: operationKey, outcome, ...fields };
+}
+
+function invalidRequest(operationKey, gap, requested) {
+  return envelope(operationKey, "invalid_request", {
+    result: null,
+    scope: { requested: requested ?? null, completed: [], not_completed: [requested ?? operationKey] },
+    sources: [],
+    gaps: [gap],
+    verification: { checks: [], passed: false },
+    follow_up: []
+  });
+}
+
+async function governedProject(dshHomePath, exec) {
+  const cwd = exec?.agent?.session?.header?.cwd;
+  const scope = await resolveGovernanceScope(dshHomePath, cwd);
+  if (scope.state !== "governed") {
+    return { ok: false, scope };
+  }
+  return { ok: true, scope, project: scope.project };
+}
+
+async function signatureFor(deps, exec) {
+  const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
+  if (!route.ok) return { ok: false, reason: route.reason };
+  return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
+}
+
+
+async function executeReadObject(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("pitfall-read-object", "unavailable", {
+      result: null,
+      scope: { requested: args?.object_uid ?? null, completed: [], not_completed: [args?.object_uid ?? "pitfall-read-object"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: fact-object reads serve governed sessions only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const objectUid = args?.object_uid;
+  if (typeof objectUid !== "string" || objectUid.length === 0) {
+    return invalidRequest("pitfall-read-object", "object_uid is required", null);
+  }
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const read = await readPitfallObject({ factSourceRoot, objectUid, currentProjectId: governed.project.id });
+  if (!read.ok) {
+    const rejectedCodes = new Set(["pitfall/invalid_uid", "pitfall/object_not_found"]);
+    const outcome = rejectedCodes.has(read.error.code) ? "rejected" : "unavailable";
+    return envelope("pitfall-read-object", outcome, {
+      result: null,
+      scope: { requested: objectUid, completed: [], not_completed: [objectUid] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "pitfalls") }],
+      gaps: [`${read.error.code}: ${read.error.message}`],
+      verification: { checks: ["precise-read"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = read.value;
+  const fm = value.frontmatter;
+  return envelope("pitfall-read-object", "completed", {
+    result: {
+      object_uid: value.object_uid,
+      file: value.file,
+      fingerprint: value.fingerprint,
+      title: typeof fm.title === "string" ? fm.title : undefined,
+      status: fm.status,
+      scope: typeof fm.scope === "string" ? fm.scope : undefined,
+      trigger_signal: typeof fm.trigger_signal === "string" ? fm.trigger_signal : undefined,
+      disposition: typeof fm.disposition === "string" ? fm.disposition : undefined,
+      body_valid: value.body_valid,
+      body_issues: value.body_issues,
+      frontmatter: fm,
+      body: value.body,
+    },
+    scope: { requested: objectUid, completed: [objectUid], not_completed: value.body_valid ? [] : ["body-structure (mechanical issues present — see body_issues)"] },
+    sources: [{ kind: "fact-object", path: value.file, content_fingerprint: value.fingerprint }],
+    gaps: value.body_valid ? [] : value.body_issues,
+    verification: { checks: ["frontmatter-parse", "body-structure"], passed: value.body_valid },
+    follow_up: ["pitfall-write-object action=update with the observed fingerprint when a controlled change is needed"]
+  });
+}
+
+async function executeListObject(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("pitfall-list-objects", "unavailable", {
+      result: null,
+      scope: { requested: "list", completed: [], not_completed: ["list"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: fact-object discovery serves governed sessions only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const statusFilter = undefined;
+  const includeTerminal = args?.status === "all";
+  const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const listed = await listPitfallObjects({ factSourceRoot, includeTerminal, statusFilter, limit });
+  if (!listed.ok) {
+    return envelope("pitfall-list-objects", "unavailable", {
+      result: null,
+      scope: { requested: "list", completed: [], not_completed: ["list"] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "pitfalls") }],
+      gaps: [`${listed.error.code}: ${listed.error.message}`],
+      verification: { checks: ["directory-scan"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = listed.value;
+  const gaps = value.invalid.map((entry) => `invalid carrier ${entry.file}: ${entry.reason}`);
+  if (!value.complete) {
+    gaps.push(`projection truncated at limit=${limit} of ${value.total} matching objects — narrow the filter or raise the limit; do not treat this page as the full set (03 §8.1)`);
+  }
+  return envelope("pitfall-list-objects", value.complete ? "completed" : "partial", {
+    result: {
+      count: value.items.length,
+      total: value.complete ? value.items.length : value.total,
+      filter: includeTerminal ? "all" : "active",
+      items: value.items,
+    },
+    scope: {
+      requested: "list",
+      completed: value.complete ? ["list"] : [`first ${value.items.length} of ${value.total}`],
+      not_completed: value.complete ? [] : [`${value.total - value.items.length} objects beyond the limit`],
+    },
+    sources: [{ kind: "fact-object", path: join(factSourceRoot, "pitfalls") }],
+    gaps,
+    verification: { checks: ["directory-scan", "frontmatter-parse"], passed: gaps.length === 0 },
+    follow_up: [
+      "dedup (25 §6.2) is a semantic comparison over title/symptoms/root-cause — performed by the AI on this projection, never by the tool",
+      "pitfall-read-object for the F3 full content of any candidate",
+    ]
+  });
+}
+
+async function executeWriteObject(args, exec, deps) {
+  const action = args?.action;
+  if (action !== "create" && action !== "update") {
+    return invalidRequest("pitfall-write-object", `action must be create|update; got ${JSON.stringify(action)}`, action ?? null);
+  }
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("pitfall-write-object", "unavailable", {
+      result: null,
+      scope: { requested: action, completed: [], not_completed: [action] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: controlled writes serve governed projects only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+
+  if (isDelegatedCaller(exec?.agent?.session?.header)) {
+    if (action !== "create") {
+      return envelope("pitfall-write-object", "rejected", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [{ kind: "authorization", path: "experience-arming ledger" }],
+        gaps: [`delegated_caller_may_only_create: 25 §13 代理记录通道的分身只被授权**新建**经验；action=${action}（含唯一的终态流转 active→discarded）不属其授权范围，须由主控或 Human 执行`],
+        verification: { checks: ["governance-scope", "caller-capability"], passed: false },
+        follow_up: ["把该诉求交回主控，由主控经受控入口执行；或由 Human 处置终态流转"]
+      });
+    }
+    const arming = deps.experienceArming;
+    if (arming === undefined) {
+      return envelope("pitfall-write-object", "unavailable", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [],
+        gaps: ["arming_ledger_unavailable: 本组合未装配经验授权账，分身不得写入事实源（fail-closed）"],
+        verification: { checks: ["governance-scope", "arming-ledger"], passed: false },
+        follow_up: ["改由主控经受控入口写入（25 §13 Human 入口/主控路径）"]
+      });
+    }
+    const childSessionId = exec?.agent?.session?.header?.id ?? exec?.agent?.id;
+    const verified = arming.verifyWrite({ childSessionId, projectPath: governed.project.path });
+    if (!verified.ok) {
+      return envelope("pitfall-write-object", "rejected", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [{ kind: "authorization", path: "experience-arming ledger" }],
+        gaps: [`arming_check_failed: ${verified.reason}${verified.detail ? ` — ${verified.detail}` : ""}。无有效开工授权的分身不得写入经验`],
+        verification: { checks: ["governance-scope", "arming-validity", "project-alignment"], passed: false },
+        follow_up: ["把该次发现交回主控，由主控经受控入口写入；不要重试"]
+      });
+    }
+  }
+
+  const sig = await signatureFor(deps, exec);
+  if (!sig.ok) {
+    return envelope("pitfall-write-object", "unavailable", {
+      result: null,
+      scope: { requested: action, completed: [], not_completed: [action] },
+      sources: [],
+      gaps: [`signature_unavailable: the authoritative provider/model could not be read from the DSH session record (${sig.reason}). `
+        + "REFUSE to write an unsigned change_log entry; REPORT TO HUMAN — this write cannot be signed and must not be recorded as a stable fact."],
+      verification: { checks: ["governance-scope", "signature-source"], passed: false },
+      follow_up: ["human must resolve the session signature source, then retry"]
+    });
+  }
+
+  if (action === "create") {
+    const draft = args?.frontmatter_draft;
+    const bodyMarkdown = args?.body_markdown;
+    if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+      return invalidRequest("pitfall-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 症状') are required for action=create", "create");
+    }
+    const created = await createPitfallObject({
+      factSourceRoot,
+      frontmatterDraft: draft,
+      bodyMarkdown,
+      sessionSignature: sig.ok ? sig.value : null,
+    });
+    if (!created.ok) {
+      return writeRejected("pitfall-write-object", created, factSourceRoot);
+    }
+    const readBack = await readPitfallObject({ factSourceRoot, objectUid: created.value.object_uid });
+    if (!readBack.ok || readBack.value.fingerprint !== created.value.fingerprint) {
+      return envelope("pitfall-write-object", "partial", {
+        result: { object_uid: created.value.object_uid, file: created.value.file, fingerprint: created.value.fingerprint, read_back: "failed" },
+        scope: { requested: "create", completed: ["create"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
+        sources: [{ kind: "fact-object", path: created.value.file }],
+        gaps: [`created but read-back failed: ${readBack.ok ? "fingerprint mismatch" : readBack.error.message}`],
+        verification: { checks: ["create"], passed: false },
+        follow_up: ["STOP further writes and success claims (03 §9.4 item 7); re-read and verify the file state before anything else"]
+      });
+    }
+    return envelope("pitfall-write-object", "completed", {
+      result: {
+        action: "create",
+        object_uid: created.value.object_uid,
+        actual_ref: created.value.file,
+        fingerprint: created.value.fingerprint,
+        read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
+        changes: [{ object_uid: created.value.object_uid, change: "created", carrier: created.value.file }]
+      },
+      scope: { requested: "create", completed: ["create", "read-back"], not_completed: [] },
+      sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
+      gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
+      verification: { checks: ["frontmatter-closed-set", "body-structure", "carrier-coherence", "atomic-write", "read-back"], passed: true },
+      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
+    });
+  }
+
+  const objectUidInput = args?.object_uid;
+  if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+    return invalidRequest("pitfall-write-object", "object_uid is required for action=update", "update");
+  }
+  const uidResolution = await resolvePitfallObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+  if (!uidResolution.ok) {
+    return writeRejected("pitfall-write-object", uidResolution, factSourceRoot);
+  }
+  const objectUid = uidResolution.objectUid;
+  const expectedFingerprint = args?.expected_fingerprint;
+  const frontmatterAfter = args?.frontmatter_after;
+  const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
+  const bodyMarkdownAfter = args?.body_markdown_after;
+  const changeSummary = args?.change_summary;
+  if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
+    return invalidRequest("pitfall-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
+  }
+  if (frontmatterAfter === undefined || frontmatterAfter === null || typeof frontmatterAfter !== "object") {
+    return invalidRequest("pitfall-write-object", "frontmatter_after is required for action=update (an EMPTY OBJECT {} is legal and means 'no field changes')", "update");
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return invalidRequest("pitfall-write-object", "body_markdown_after is required for action=update — the COMPLETE target body starting at \"## 症状\" (the H1 is generated from title); a partial body, or a body read back with its H1, is refused", "update");
+  }
+  if (typeof changeSummary !== "string" || changeSummary.length === 0) {
+    return invalidRequest("pitfall-write-object", "change_summary (one short semantic summary for the change_log) is required for action=update", "update");
+  }
+  const updated = await updatePitfallObject({
+    factSourceRoot,
+    objectUid,
+    expectedFingerprint,
+    frontmatterAfter,
+    frontmatterRemovals,
+    bodyMarkdownAfter,
+    changeSummary,
+    sessionSignature: sig.ok ? sig.value : null,
+    currentProjectId: governed.project.id,
+  });
+  if (!updated.ok) {
+    return writeRejected("pitfall-write-object", updated, factSourceRoot);
+  }
+  const readBack = await readPitfallObject({ factSourceRoot, objectUid });
+  if (!readBack.ok || readBack.value.fingerprint !== updated.value.fingerprint) {
+    return envelope("pitfall-write-object", "partial", {
+      result: { object_uid: objectUid, fingerprint: updated.value.fingerprint, read_back: "failed" },
+      scope: { requested: "update", completed: ["update"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "pitfalls") }],
+      gaps: [`updated but read-back failed: ${readBack.ok ? "fingerprint mismatch" : readBack.error.message}`],
+      verification: { checks: ["update"], passed: false },
+      follow_up: ["STOP further writes and success claims (03 §9.7); re-read the object before anything else"]
+    });
+  }
+  return envelope("pitfall-write-object", "completed", {
+    result: {
+      action: "update",
+      object_uid: objectUid,
+      fingerprint: updated.value.fingerprint,
+      read_back: { ok: true, fingerprint: readBack.value.fingerprint, body_valid: readBack.value.body_valid },
+      changes: [{ object_uid: objectUid, change: "updated", summary: changeSummary }],
+      ...(Array.isArray(updated.value.warnings) && updated.value.warnings.length > 0
+        ? { warnings: updated.value.warnings }
+        : {})
+    },
+    scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
+    sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
+    gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
+    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "body-structure", "carrier-coherence", "supplement-boundary", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
+    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
+  });
+}
+
+function writeRejected(operationKey, failureResult, factSourceRoot) {
+  const code = failureResult.error.code;
+  const mechanicalCodes = new Set([
+    "pitfall/frontmatter_invalid", "pitfall/body_invalid", "pitfall/coherence_invalid",
+    "pitfall/initial_state_violation", "pitfall/status_required", "pitfall/status_transition_invalid", "pitfall/status_terminal",
+    "pitfall/supplement_boundary", "pitfall/cas_conflict", "pitfall/change_summary_required", "pitfall/invalid_uid",
+    "invalid_request",
+  ]);
+  const outcome = mechanicalCodes.has(code) ? "rejected" : "unavailable";
+  const issues = Array.isArray(failureResult.error.details?.issues) ? failureResult.error.details.issues : [];
+  return envelope(operationKey, outcome, {
+    result: null,
+    scope: { requested: "write", completed: [], not_completed: ["write"] },
+    sources: [{ kind: "fact-object", path: join(factSourceRoot, "pitfalls") }],
+    gaps: [`${code}: ${failureResult.error.message}`, ...issues],
+    verification: { checks: [], passed: false },
+    follow_up: code === "pitfall/cas_conflict"
+      ? ["re-read the object (pitfall-read-object), reconcile the concurrent change, and retry with the fresh fingerprint"]
+      : code === "pitfall/status_terminal"
+        ? ["discarded Pitfalls are read-only (25 §9.2); a substantively changed mechanism goes through a NEW Pitfall object"]
+        : code === "pitfall/supplement_boundary"
+          ? ["scope changed — create a NEW Pitfall object for the different impact range (25 §9.3)"]
+          : ["fix the reported mechanical issues and retry; zero write has occurred"]
+  });
+}
+
+
+async function executeArmDelegate(args, exec, deps) {
+  const operationKey = "pitfall-arm-delegate";
+  const header = exec?.agent?.session?.header;
+  if (isDelegatedCaller(header) || header === undefined || header === null) {
+    return envelope(operationKey, "rejected", {
+      result: null,
+      scope: { requested: "arm", completed: [], not_completed: ["arm"] },
+      sources: [],
+      gaps: ["root_session_only: 开工授权只能由受管辖的根会话（主控）记下。分身给自己授权等于自造权限，正是本机制要防的形态"],
+      verification: { checks: ["caller-kind"], passed: false },
+      follow_up: ["由主控在当次行动中调用本工具，再派生分身"]
+    });
+  }
+  const purpose = args?.purpose;
+  if (typeof purpose !== "string" || purpose.trim().length === 0) {
+    return invalidRequest(operationKey, "purpose is required (one line stating which experience the delegate is armed to record) — an authorization record without a stated purpose cannot be read back by Human later", null);
+  }
+  const arming = deps.experienceArming;
+  if (arming === undefined) {
+    return envelope(operationKey, "unavailable", {
+      result: null,
+      scope: { requested: "arm", completed: [], not_completed: ["arm"] },
+      sources: [],
+      gaps: ["arming_ledger_unavailable: 本组合未装配经验授权账，不得记授权（fail-closed）"],
+      verification: { checks: ["arming-ledger"], passed: false },
+      follow_up: []
+    });
+  }
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope(operationKey, "unavailable", {
+      result: null,
+      scope: { requested: "arm", completed: [], not_completed: ["arm"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: arming serves governed root sessions only`],
+      verification: { checks: ["caller-kind", "governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const armed = await arming.arm({
+    parentSessionId: header.id,
+    projectPath: governed.project.path,
+    projectId: governed.project.id ?? governed.project.projectId ?? null,
+    purpose,
+    ttlMs: args?.ttl_ms
+  });
+  if (!armed.ok) {
+    return envelope(operationKey, "rejected", {
+      result: null,
+      scope: { requested: "arm", completed: [], not_completed: ["arm"] },
+      sources: [{ kind: "authorization", path: "experience-arming ledger" }],
+      gaps: [`arming_refused: ${armed.reason}${armed.detail ? ` — ${armed.detail}` : ""}`],
+      verification: { checks: ["caller-kind", "governance-scope", "arm-persist"], passed: false },
+      follow_up: []
+    });
+  }
+  const e = armed.value.arming;
+  return envelope(operationKey, "completed", {
+    result: {
+      arming_id: e.arming_id,
+      parent_session_id: e.parent_session_id,
+      project_path: e.project_path,
+      armed_at: e.armed_at,
+      expires_at: e.expires_at,
+      grants: "下一个由本会话派生的分身：ldvh_pitfall_list / read / write，且 write 仅 action=create；有效期至 expires_at，绑定一个分身子会话后即占用",
+      purpose: e.purpose
+    },
+    scope: { requested: "arm", completed: ["arm", "persist"], not_completed: [] },
+    sources: [{ kind: "authorization", path: "experience-arming ledger" }],
+    gaps: [],
+    verification: { checks: ["caller-kind", "governance-scope", "arm-persist"], passed: true },
+    follow_up: ["派生分身并交其任务书；分身写入后主控须精确读回核对存在性与 status，并在当次交还报告（25 §13）"]
+  });
+}
+
+
+function text(body) {
+  return [{ type: "text", text: body }];
+}
+
+function renderEnvelope(operationKey, value) {
+  const env = value?.envelope ?? {};
+  const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
+  const result = env.result;
+  if (result?.object_uid !== undefined) lines.push(`object: ${objectRef({ object_uid: result.object_uid, fact_type_key: result.fact_type_key ?? "pitfall" })}`);
+  if (result?.title !== undefined) lines.push(`title: ${result.title}`);
+  if (result?.status !== undefined) lines.push(`status: ${result.status}`);
+  if (result?.scope !== undefined) lines.push(`scope: ${result.scope}`);
+  if (result?.trigger_signal !== undefined) lines.push(`trigger_signal: ${result.trigger_signal}`);
+  if (result?.disposition !== undefined) lines.push(`disposition: ${result.disposition}`);
+  if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
+  if (result?.body_valid !== undefined) lines.push(`body_valid: ${result.body_valid}`);
+  if (result?.read_back?.ok !== undefined) lines.push(`read_back: ${result.read_back.ok ? "ok" : "FAILED"}`);
+  if (result?.actual_ref !== undefined) lines.push(`file: ${result.actual_ref}`);
+  if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
+  if (Array.isArray(result?.items)) {
+    for (const item of result.items) {
+      lines.push(`- ${objectRef(item)} [${item.status}] ${item.title}${item.trigger_signal ? ` (信号: ${item.trigger_signal})` : ""}`);
+    }
+  }
+  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "pitfall")}`);
+  for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
+  for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
+  for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
+  return text(lines.join("\n"));
+}
+
+const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
+
+function parameterSchemaFor(operationKey) {
+  const pitfallFrontmatter = {
+    type: "object",
+    description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
+    properties: {
+      title: { type: "string", description: "≤ 30 characters; failure-mechanism short title (highlight the platform when environment-specific)" },
+      status: { type: "string", enum: ["active", "discarded"], description: "**REQUIRED on create — there is no default; omitting it is rejected with pitfall/status_required.** create: status=active is the only initial state (25 §13 — both the Human entry and the 25 §13 main-controller channel create active; the draft candidate state was cancelled 2026-11-03); update: the only legal transition is active→discarded (terminal, read-only afterwards) — 25 §9/§13" },
+      scope: { type: "string", description: "impact & applicability statement; must appear verbatim in the 影响与适用范围 body section (carrier coherence, 25 §8, §14.1; frontmatter is the single authoritative text — the body only expands it)" },
+      trigger_signal: { type: "string", description: "when to re-examine this experience (dependency version change, environment migration, etc.); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
+      urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the experience; when non-empty the body must carry a 证据 section" },
+      disposition: { type: "string", description: "terminal destination & reason; required iff status=discarded, forbidden while active (25 §8)" },
+      change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
+    },
+    required: ["title", "scope"],
+    additionalProperties: false
+  };
+  switch (operationKey) {
+    case "pitfall-read-object":
+      return {
+        type: "object",
+        properties: {
+          object_uid: { type: "string", description: "Canonical object_uid of the Pitfall object to read — accepts five written forms and normalizes them to the canonical id: (1) bare canonical UUIDv4; (2) `<type>-<uuid>`; (3) `<type>-<8hex>` (02 §9.3 指称形态) 或裸 `<8hex>`（第五种：无类型前缀，反查时跨类型目录，命中即回填真实类型）; (4) `<projectId>@<any of those>` (what the Web 「复制对象引用」 button produces). A type prefix must match the entry being called; a short id is resolved against this project's carriers and rejected if it matches more than one (02 §9.3 第 4 条). Cross-project prefixes are rejected." }
+        },
+        required: ["object_uid"],
+        additionalProperties: false
+      };
+    case "pitfall-list-objects":
+      return {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["active", "all"], description: "active = default (current experience baseline, 25 §12 — 2026-11-03 起 Pitfall 无 draft 待确认档，候选与已入档是同一批对象); all = include discarded for review/historical tracing" },
+          limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
+        },
+        additionalProperties: false
+      };
+    case "pitfall-write-object":
+      return {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["create", "update"] },
+          frontmatter_draft: pitfallFrontmatter,
+          body_markdown: { type: "string", description: "create: the body markdown starting with '## 症状' (H2 sections 症状/触发条件/根因/解决/规避/验证/影响与适用范围, plus 证据 iff urls non-empty; the H1 is generated from title)" },
+          object_uid: { type: "string", description: "update target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
+          expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
+          frontmatter_after: (() => { const { required: _r, ...rest } = pitfallFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
+          frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
+          body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown)" },
+          change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }
+        },
+        required: ["action"],
+        additionalProperties: false
+      };
+    case "pitfall-arm-delegate":
+      return {
+        type: "object",
+        properties: {
+          purpose: { type: "string", description: "One line stating WHICH experience the delegate is armed to record. Required: an authorization record without a stated purpose cannot be read back later, so it is refused rather than defaulted" },
+          ttl_ms: { type: "number", description: "Optional grant lifetime in milliseconds; defaults to 900000 (15 min) and is clamped to 3600000 (1 h). The grant binds ONE child session and is spent whether it writes or not" }
+        },
+        required: ["purpose"],
+        additionalProperties: false
+      };
+    default:
+      return { type: "object", properties: {}, additionalProperties: false };
+  }
+}
+
+export function toolDescriptorFor(operationKey, operation, handler) {
+  return defineTool({
+    name: operation.toolName,
+    description: operation.summary,
+    parameters: toParameterSpec(parameterSchemaFor(operationKey)),
+    timeoutMs: 30000,
+    async execute(args, exec) {
+      try {
+        const result = await handler(args, exec);
+        return { envelope: JSON.parse(JSON.stringify(result)) };
+      } catch (error) {
+        return {
+          envelope: envelope(operationKey, "execution_error", {
+            result: null,
+            scope: { requested: null, completed: [], not_completed: [operationKey] },
+            sources: [],
+            gaps: [String(error?.message ?? error)],
+            verification: { checks: [], passed: false },
+            follow_up: []
+          })
+        };
+      }
+    },
+    output: {
+      schema: OUTPUT_SCHEMA,
+      render: (args, value) => renderEnvelope(operationKey, value)
+    }
+  });
+}
+
+export function registerPitfallTools(ctx, deps, { surface = "root" } = {}) {
+  const handlers = {
+    "pitfall-read-object": (args, exec) => executeReadObject(args, exec, deps),
+    "pitfall-list-objects": (args, exec) => executeListObject(args, exec, deps),
+    "pitfall-write-object": (args, exec) => executeWriteObject(args, exec, deps),
+    "pitfall-arm-delegate": (args, exec) => executeArmDelegate(args, exec, deps),
+  };
+  const disposers = [];
+  for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
+    if (surface === "child" && operation.rootOnly === true) continue;
+    if (operation.writeShaped === true) registerWriteShapedTool(operation.toolName);
+    disposers.push(ctx.tools.register(toolDescriptorFor(operationKey, operation, handlers[operationKey])));
+  }
+  return () => {
+    for (const dispose of disposers) {
+      try { dispose(); } catch {   }
+    }
+  };
+}
+
+export { OPERATIONS };

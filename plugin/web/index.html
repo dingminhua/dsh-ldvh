@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/ldvh-plugin-icon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/ldvh-plugin-icon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/ldvh-plugin-icon-48.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/ldvh-plugin-icon-180.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/ldvh-plugin-icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/ldvh-plugin-icon-512.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LDVH Cognition Center</title>
+    <script type="module">
+      if (import.meta.hot?.on) {
+        import.meta.hot.on('vite:error', (error) => {
+          if (error.err) {
+            console.error(
+              [error.err.message, error.err.frame].filter(Boolean).join('\n'),
+            )
+          }
+        })
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,144 @@
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, Inbox, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import ProjectIssuesNotice from '@/components/ProjectIssuesNotice';
+import { fetchFederationOverview, type FederationOverviewData, type FederationProjectCard } from '@/utils/api';
+import { formatDateTime } from '@/utils/dateFormat';
+import { useProjectScope } from '@/utils/projectContext';
+import { useI18n } from '@/i18n/context';
+import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
+import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
+
+function countText(value: number | undefined): string {
+  return value === undefined ? '—' : String(value);
+}
+
+export default function Federation() {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const { selectProject } = useProjectScope();
+  const [data, setData] = useState<FederationOverviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchFederationOverview()
+      .then(setData)
+      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const enterProject = (project: FederationProjectCard) => {
+    selectProject(project.id, project.path);
+    navigate('/');
+  };
+
+  return (
+    <div>
+      <PageHeader title={t('federation.title')} subtitle={t('federation.subtitle')}>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={load}
+            className="ldvh-page-toolbar-action"
+          >
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+            {t('federation.refresh')}
+          </button>
+          {data && <span className="ldvh-meta">{formatDateTime(data.generatedAt)}</span>}
+        </div>
+      </PageHeader>
+
+      {loading && !data ? (
+        <div className="ldvh-body-muted flex justify-center py-20"><Loader2 className="animate-spin" /></div>
+      ) : error ? (
+        <div className={`mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border ${LDVH_ERROR_SURFACE_CLASS} p-4 ${LDVH_ERROR_TITLE_CLASS}`}>
+          <span>{error}</span>
+          <button type="button" onClick={load} className={`ldvh-card-title rounded-md border ${LDVH_ERROR_SURFACE_CLASS} px-3 py-2 hover:bg-red-500/10 ${LDVH_ERROR_TITLE_CLASS}`}>{t('federation.retry')}</button>
+        </div>
+      ) : data && (
+        <>
+          {data.projects.length === 0 ? (
+            <div className="ldvh-body-muted py-20 text-center">
+              {t('federation.noProjects')}
+            </div>
+          ) : (
+            <div className="ldvh-section-grid">
+              {data.projects.map((project) => {
+                const colorKey = resolvedProjectColorKey(project.color, project.id);
+                const color = projectColorVar(colorKey);
+                return (
+                  <section key={project.id} className="flex flex-col overflow-hidden rounded-lg border border-ldvh-border bg-ldvh-panel border-l-[3px]" style={{ borderLeftColor: color }}>
+                    <div className="flex min-w-0 items-center gap-2 border-b border-ldvh-border px-3.5 py-3">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span className="ldvh-card-title-prominent truncate max-w-full leading-5 text-ldvh-text-primary">{project.name}</span>
+                          {project.isDefault && <span className="ldvh-pill border-ldvh-accent/30 bg-ldvh-accent/5 text-ldvh-accent">{t('federation.defaultProject')}</span>}
+                        </span>
+                        <span className="ldvh-meta mt-0.5 block truncate">{project.id}</span>
+                      </span>
+                    </div>
+                    <div className="grid flex-1 gap-2 px-3.5 py-3">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-md border border-ldvh-border/60 bg-ldvh-bg/40 px-2.5 py-2">
+                          <p className="ldvh-caption-strong flex items-center gap-1.5"><Sparkles size={12} />{t('federation.sparkOpen')}</p>
+                          <p className="mt-0.5 ldvh-stat-value">
+                            {countText(project.sparkOpen)}
+                          </p>
+                        </div>
+                        <div className="rounded-md border border-ldvh-border/60 bg-ldvh-bg/40 px-2.5 py-2">
+                          <p className="ldvh-caption-strong flex items-center gap-1.5"><Inbox size={12} />{t('federation.pendingDecisions')}</p>
+                          <p className="mt-0.5 ldvh-stat-value">{countText(project.pendingDecisions)}</p>
+                        </div>
+                      </div>
+                      <p className="ldvh-meta">{t('federation.lastActivity')}: {project.lastActivityAt ? formatDateTime(project.lastActivityAt) : '—'}</p>
+                      <ProjectIssuesNotice issues={project.issues} variant="embedded" />
+                    </div>
+                    <div className="border-t border-ldvh-border px-3.5 py-2.5">
+                      <button
+                        type="button"
+                        onClick={() => enterProject(project)}
+                        className="ldvh-card-title inline-flex items-center gap-1.5 rounded-md border border-ldvh-border px-3 py-1.5 text-ldvh-text-secondary transition-colors hover:border-ldvh-accent/40 hover:bg-ldvh-accent/5 hover:text-ldvh-accent"
+                      >
+                        {t('federation.enterProject')}<ArrowRight size={13} />
+                      </button>
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+
+          {data.crossProjectSparks.length > 0 && (
+            <section className="mt-6 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
+              <p className="ldvh-section-title">{t('federation.crossSparks')}</p>
+              <div className="mt-3 grid gap-2">
+                {data.crossProjectSparks.map((spark) => {
+                  const colorKey = resolvedProjectColorKey(spark.color, spark.projectId);
+                  const color = projectColorVar(colorKey);
+                  return (
+                    <div key={`${spark.projectId}/${spark.objectId}`} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-ldvh-border/60 bg-ldvh-bg/40 px-3 py-2">
+                      <span className="ldvh-body min-w-0 flex-1 truncate">{spark.title}</span>
+                      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ldvh-border px-1.5 py-0.5" title={spark.projectId}>
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                        <span className="ldvh-meta">{spark.projectId}</span>
+                      </span>
+                      <span className="ldvh-meta shrink-0">{spark.updatedAt ? formatDateTime(spark.updatedAt) : '—'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
