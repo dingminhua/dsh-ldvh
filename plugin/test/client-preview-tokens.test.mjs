@@ -56,3 +56,9 @@ test("快照本身标注了出处（不是无主的数字）", () => {
 	assert.ok(fixture.resolvedFrom && fixture.resolvedFrom.length > 0);
 	assert.notEqual(fixture.light['--dsw-alias-brand-primary'], fixture.dark['--dsw-alias-brand-primary']);
 });
+
+test("预览器取 SETTINGS_CSS 时不依赖行内写法（改版后会崩）", () => {
+	assert.ok(!previewSource.includes("'var SETTINGS_CSS = '"), "不得再用带空格的旧标记：client.js 的 CSS 语句改成换行写法后它会 indexOf 返 -1 而崩");
+	assert.ok(previewSource.includes("'var SETTINGS_CSS ='"), "须用不带空格的标记");
+	assert.ok(previewSource.includes("if (ch === ';')"), "须按字符串感知的方式扫描语句结尾分号，不得用首个 ';' 定位");
+});

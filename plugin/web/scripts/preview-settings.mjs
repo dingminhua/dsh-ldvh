@@ -205,10 +205,33 @@ async function renderSection() {
 }
 
 function settingsCss() {
-	const start = source.indexOf('var SETTINGS_CSS = ');
-	const body = start + 'var SETTINGS_CSS = '.length;
-	const end = source.indexOf(';\n', body);
-	return vm.runInNewContext(`(${source.slice(body, end)})`);
+	const marker = 'var SETTINGS_CSS =';
+	const start = source.indexOf(marker);
+	if (start < 0) throw new Error(`client 源里找不到 ${marker}（CSS 语句的写法变了？）`);
+	const body = start + marker.length;
+	let quote = null;
+	let escaped = false;
+	for (let i = body; i < source.length; i += 1) {
+		const ch = source[i];
+		if (escaped) {
+			escaped = false;
+			continue;
+		}
+		if (ch === '\\') {
+			escaped = true;
+			continue;
+		}
+		if (quote !== null) {
+			if (ch === quote) quote = null;
+			continue;
+		}
+		if (ch === '"' || ch === "'" || ch === '`') {
+			quote = ch;
+			continue;
+		}
+		if (ch === ';') return vm.runInNewContext(`(${source.slice(body, i)})`);
+	}
+	throw new Error('client 源里找不到 SETTINGS_CSS 语句的结尾分号');
 }
 
 
