@@ -860,6 +860,17 @@ test("排序比较器：每层键都须真的被样本覆盖（无并列组 = �
 		compareFactHits(mk(base), sameEvidenceSpark), 0,
 		"同等证据下 pitfall 与 spark 必须并列（类型轴已删除，不得复活）",
 	);
+
+	const openHit = mk({ weakHit: false, tier: 1, hits: 1, status: "open", type: "friction", path: "a.md", updatedAt: "2026-01-01T00:00:00.000Z" });
+	const acceptedHit = mk({ weakHit: false, tier: 1, hits: 1, status: "accepted", type: "friction", path: "b.md", updatedAt: "2026-12-31T00:00:00.000Z" });
+	assert.equal(
+		compareFactHits(openHit, acceptedHit) < 0, true,
+		"26 §12 召回分层段：同证据强度时 open 先于 accepted（次序是本类型自定规则，不得反向）",
+	);
+	assert.equal(
+		compareFactHits(acceptedHit, openHit) > 0, true,
+		"26 §12 召回分层段：反向比较须对称（accepted 不得排到 open 之前）",
+	);
 	const weakNorm = mk({ weakHit: true, tier: 1, hits: 99, status: "active", type: "norm", path: "c.md" });
 	const strongPitfall = mk({ weakHit: false, tier: 4, hits: 1, status: "active", type: "pitfall", path: "d.md" });
 	assert.equal(
@@ -1392,7 +1403,7 @@ test("trigger_signal 须参与匹配（不得读进变量却不用）", async (t
 test("默认候选状态须按类型取，不得统一写死 active（20–26 各自规定）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.spark], ["open"], "22：默认候选只含 open");
-	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.friction], ["open"], "26：默认只含 open");
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.friction], ["open", "accepted"], "26：默认候选含 open 与 accepted");
 	assert.equal(Object.hasOwn(DEFAULT_STATUSES_BY_TYPE, "adr"), false, "adr 已撤除（无现行编号）：默认状态表不得再含 adr");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.norm], ["active"], "23：默认含 active");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.pitfall], ["active"], "25 §12 / 2026-11-03：Pitfall 无 draft，默认候选只含 active");
@@ -1406,7 +1417,7 @@ test("默认候选状态须按类型取，不得统一写死 active（20–26 �
 	});
 	assert.ok(friction.facts.length > 0, "friction 默认候选须非空");
 	for (const f of friction.facts) {
-		assert.equal(f.status, "open", `friction 默认只应含 open，实际含 ${f.status}`);
+		assert.ok(["open", "accepted"].includes(f.status), `friction 默认只应含 open/accepted，实际含 ${f.status}`);
 	}
 
 	const spark = await recallForAction({

@@ -6,6 +6,7 @@ import {
   correctFrictionObject,
   resolveFrictionObjectUid,
   listFrictionObjects,
+  FRICTION_DEFAULT_CANDIDATE_STATUSES,
   normalizeAttributionRef,
   FRICTION_REMOVABLE_FIELDS,
   CORRECT_REMOVABLE_FIELDS_FOR_TEST as CORRECT_REMOVABLE_FIELDS,
@@ -30,7 +31,7 @@ const OPERATIONS = {
   },
   "friction-list-objects": {
     toolName: "ldvh_friction_list",
-    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 36 §8.8 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided/accepted only with status=all (specs/03 §8, specs/26 §12)",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/attribution/attribution_ref/occurrence) for the governed project; 默认 = 默认候选状态范围 open+accepted（26 §12 召回判据表「默认候选状态」——accepted 进行动前候选面、不进待修聚合），status=open 仅待修账目、status=accepted 仅已接受账目、status=all 含 resolved/voided 全量历史（账本无 observing 状态，观察材料在 36 §8.8 缓冲侧，非事实对象）(specs/03 §8, specs/26 §12)",
     effect: "read"
   },
   "friction-write-object": {
@@ -144,10 +145,13 @@ async function executeListObject(args, exec, deps) {
       follow_up: []
     });
   }
-  const includeResolved = args?.status === "all";
+  const requestedStatus = typeof args?.status === "string" ? args.status : null;
+  const statusFilter = requestedStatus === null
+    ? FRICTION_DEFAULT_CANDIDATE_STATUSES
+    : requestedStatus === "all" ? null : [requestedStatus];
   const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const listed = await listFrictionObjects({ factSourceRoot, includeResolved, limit });
+  const listed = await listFrictionObjects({ factSourceRoot, statusFilter, limit });
   if (!listed.ok) {
     return envelope("friction-list-objects", "unavailable", {
       result: null,
@@ -167,7 +171,7 @@ async function executeListObject(args, exec, deps) {
     result: {
       count: value.items.length,
       total: value.complete ? value.items.length : value.total,
-      filter: includeResolved ? "all" : "open",
+      filter: requestedStatus ?? FRICTION_DEFAULT_CANDIDATE_STATUSES.join(","),
       items: value.items,
     },
     scope: {
@@ -520,7 +524,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["open", "all"], description: "open = default (open 待修账目; 26 §12 2026-10 修订：观察态已退出闭集，账本里不再有 observing); all = include resolved/voided/accepted for historical tracing" },
+          status: { type: "string", enum: ["open", "accepted", "all"], description: "省略 = 默认候选状态范围（open 与 accepted，26 §12 召回判据表「默认候选状态」；accepted 进行动前候选面、不进待修聚合）；open = 仅待修账目；accepted = 仅已接受账目；all = 含 resolved/voided 的全量历史（账本无 observing 状态，观察材料在 36 §8.8 缓冲侧）" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
         },
         additionalProperties: false

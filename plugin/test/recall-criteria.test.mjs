@@ -282,6 +282,7 @@ test("快照：20–26 的默认候选状态与核心语义字段与规范机械
 	assert.equal(valuesOf("pitfall").notApplicable["关系展开"], true);
 	assert.deepEqual(valuesOf("report").coreFields, ["title", "report_form", "research_question", "research_purpose"]);
 	assert.deepEqual(valuesOf("report").relations.find((r) => r.relationKey === "inspired-by").targets, ["spark", "norm", "pitfall", "report", "friction", "subgoal"]);
+	assert.deepEqual(valuesOf("friction").defaultStatuses, ["open", "accepted"]);
 	assert.deepEqual(valuesOf("friction").coreFields, ["title", "phenomenon", "attribution"]);
 	assert.deepEqual(valuesOf("friction").relations.find((r) => r.relationKey === "informs").targets,
 		["spark", "norm", "pitfall", "report", "friction", "subgoal"]);

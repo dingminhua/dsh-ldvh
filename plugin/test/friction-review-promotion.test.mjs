@@ -97,7 +97,7 @@ test("未达阈值：不晋升，且**不是失败**", async () => {
     });
     assert.ok(result.ok, JSON.stringify(result.error));
     assert.equal(result.value.promotions.length, 0, "below threshold nothing is promoted");
-    const ledger = await listFrictionObjects({ factSourceRoot: factRoot(root), includeResolved: true });
+    const ledger = await listFrictionObjects({ factSourceRoot: factRoot(root), statusFilter: null });
     assert.equal(ledger.value.total, 0, "no ledger entry is created below the threshold");
   });
 });

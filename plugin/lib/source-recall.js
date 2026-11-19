@@ -4,6 +4,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
+import { FRICTION_DEFAULT_CANDIDATE_STATUSES } from "./friction-writer.js";
 import { normPositioningOf, positioningExcerptLine } from "./norm-positioning.js";
 
 
@@ -24,7 +25,7 @@ export const MATCHED_FACT_FIELDS = Object.freeze([
 
 export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   spark: ["open"],
-  friction: ["open"],
+  friction: [...FRICTION_DEFAULT_CANDIDATE_STATUSES],
   report: ["active"],
   norm: ["active"],
   pitfall: ["active"],

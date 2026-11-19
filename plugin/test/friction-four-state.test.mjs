@@ -152,7 +152,7 @@ test("26 §12：账本里出现 observing 载体时按闭集外拒收，不被�
       "utf8",
     );
 
-    const all = await listFrictionObjects({ factSourceRoot: root, includeResolved: true });
+    const all = await listFrictionObjects({ factSourceRoot: root, statusFilter: null });
     assert.ok(all.ok, JSON.stringify(all.error));
     assert.deepEqual(
       all.value.items.map((item) => item.status),
@@ -183,7 +183,7 @@ test("26 §8：occurrence 必填——缺失即拒绝创建", async () => {
 });
 
 
-test("26 §12：默认召回只含 open，resolved/voided 仅在 includeResolved 时展开", async () => {
+test("26 §12：默认候选范围（open,accepted）不含 resolved/voided，二者仅在 statusFilter=null 全量枚举时展开", async () => {
   await withTemp("friction-four-state.", async (root) => {
     const keep = draft({ title: "仍待修的摩擦" });
     const k = await createFrictionObject({
@@ -213,12 +213,12 @@ test("26 §12：默认召回只含 open，resolved/voided 仅在 includeResolved
     const statuses = def.value.items.map((item) => item.status);
     assert.deepEqual(statuses, ["open"], `默认候选须排除终态；实际得到 ${JSON.stringify(statuses)}`);
 
-    const all = await listFrictionObjects({ factSourceRoot: root, includeResolved: true });
+    const all = await listFrictionObjects({ factSourceRoot: root, statusFilter: null });
     assert.ok(all.ok, JSON.stringify(all.error));
     assert.deepEqual(
       all.value.items.map((item) => item.status).sort(),
       ["open", "voided"],
-      "includeResolved 须同时展开 resolved 与 voided 两个终态",
+      "statusFilter=null 全量枚举须同时展开 resolved 与 voided 两个终态",
     );
   });
 });
@@ -308,7 +308,7 @@ test("26 §9.2：accepted 为终态——需 disposition 与处置段，informs 
   });
 });
 
-test("26 §12：accepted 不进默认召回，仅 includeResolved 时展开（但仍参与查重）", async () => {
+test("26 §12：accepted 进默认候选面（不进待修聚合），statusFilter=accepted 可单独取（但仍参与查重）", async () => {
   await withTemp("friction-four-state.", async (root) => {
     const d = draft({ title: "已接受的摩擦（默认不召回）" });
     const created = await createFrictionObject({
@@ -327,9 +327,9 @@ test("26 §12：accepted 不进默认召回，仅 includeResolved 时展开（�
 
     const def = await listFrictionObjects({ factSourceRoot: root });
     assert.ok(def.ok);
-    assert.equal(def.value.items.length, 0, "26 §12：accepted 不进默认候选");
+    assert.equal(def.value.items.length, 1, "26 §12：accepted 进默认候选面（默认候选状态 = open,accepted）");
 
-    const all = await listFrictionObjects({ factSourceRoot: root, includeResolved: true });
+    const all = await listFrictionObjects({ factSourceRoot: root, statusFilter: null });
     assert.ok(all.ok);
     assert.equal(all.value.items.length, 1);
     assert.equal(all.value.items[0].status, "accepted");
@@ -472,7 +472,7 @@ test("36 §8.8 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋升�
     assert.ok(carrierPath.startsWith(join(root, "dsh-home")), "缓冲载体须落在 dsh home 下");
     assert.ok(!carrierPath.startsWith(factSourceRoot), "缓冲载体不得落在事实源内（02 §6.1：中间产物不进事实源）");
 
-    const emptyLedger = await listFrictionObjects({ factSourceRoot, includeResolved: true });
+    const emptyLedger = await listFrictionObjects({ factSourceRoot, statusFilter: null });
     assert.ok(emptyLedger.ok, JSON.stringify(emptyLedger.error));
     assert.equal(emptyLedger.value.total, 0, "26 §9/§10：缓冲条目不是账目，不得出现在召回里");
 
@@ -536,7 +536,7 @@ test("36 §8.8 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋升�
       assert.equal(record.promoted_to, created.value.object_uid, "promoted 条目须指向新账目的 object_uid（36 §8.8）");
     }
 
-    const ledger = await listFrictionObjects({ factSourceRoot, includeResolved: true });
+    const ledger = await listFrictionObjects({ factSourceRoot, statusFilter: null });
     assert.ok(ledger.ok, JSON.stringify(ledger.error));
     assert.equal(ledger.value.total, 1);
     assert.equal(ledger.value.items[0].status, "open");
@@ -585,7 +585,7 @@ test("36 §8.8：阈值按 group 独立计算，未达阈值的组不产生就�
     );
     assert.equal(FRICTION_OBSERVATION_THRESHOLD_N, 3, "36 §8.7：阈值 N 固定内嵌为 3，不可配置");
 
-    const ledger = await listFrictionObjects({ factSourceRoot, includeResolved: true });
+    const ledger = await listFrictionObjects({ factSourceRoot, statusFilter: null });
     assert.ok(ledger.ok, JSON.stringify(ledger.error));
     assert.equal(ledger.value.total, 0, "未达阈值的观察留在缓冲，绝不落成账目");
   });

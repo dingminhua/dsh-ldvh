@@ -1493,6 +1493,27 @@ test("read: non-existent uid rejected with object_not_found (26 §13)", async ()
 });
 
 
+test("list: statusFilter=[] 空集 fail-closed（不得静默放大为全量）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const listed = await listFrictionObjects({ factSourceRoot: root, statusFilter: [] });
+    assert.ok(!listed.ok, "空集必须被拒绝，而不是当作不过滤");
+    assert.equal(listed.error.code, "invalid_request");
+  });
+});
+
+test("list: statusFilter 单值形态被规整、闭集外值 fail-closed（R2）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    for (const bad of ["closed", ["closed"], ["open", "closed"], []]) {
+      const listed = await listFrictionObjects({ factSourceRoot: root, statusFilter: bad });
+      assert.ok(!listed.ok, `statusFilter=${JSON.stringify(bad)} 必须被拒绝`);
+      assert.equal(listed.error.code, "invalid_request");
+    }
+    const single = await listFrictionObjects({ factSourceRoot: root, statusFilter: "open" });
+    assert.ok(single.ok, "非数组单值须按单元素规整，不得被当成不过滤");
+    assert.deepEqual(single.value.items, [], "空目录 + statusFilter=open 应得到空结果，而非全量");
+  });
+});
+
 test("list: empty frictions directory is a valid empty state (26 §12)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const listed = await listFrictionObjects({ factSourceRoot: root });
@@ -1504,7 +1525,7 @@ test("list: empty frictions directory is a valid empty state (26 §12)", async (
   });
 });
 
-test("list: 2 live（open）+ 1 resolved——默认召回 2 条，includeResolved 召回 3 条；投影带 uid/title/status/attribution/occurrence（26 §12）", async () => {
+test("list: 2 open + 1 resolved——默认候选范围（open,accepted）2 条，全量 3 条；投影带 uid/title/status/attribution/occurrence（26 §12）", async () => {
   await withTemp("friction-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     const draftA = { ...validFrontmatterDraft(), title: "甲摩擦" };
@@ -1554,14 +1575,14 @@ test("list: 2 live（open）+ 1 resolved——默认召回 2 条，includeResolv
       assert.equal(typeof item.status, "string");
     }
     const statuses = listed.value.items.map((i) => i.status).sort();
-    assert.deepEqual(statuses, ["open", "open"], "默认召回只覆盖 open（26 §12：三值闭集下活账仅 open 一值）");
+    assert.deepEqual(statuses, ["open", "open"], "默认召回覆盖默认候选状态范围（26 §12：open 与 accepted；本夹具只含 open）");
     const withOcc = listed.value.items.find((i) => i.object_uid === a.value.object_uid);
     assert.equal(withOcc.occurrence?.count, 1, "26 §8：occurrence 进F1 投影");
     assert.equal(withOcc.serves, undefined, "serves 已退出闭集，投影中不得出现");
     const withAttr = listed.value.items.find((i) => i.object_uid === b.value.object_uid);
     assert.equal(withAttr.attribution, "外部工具");
 
-    const all = await listFrictionObjects({ factSourceRoot: root, includeResolved: true });
+    const all = await listFrictionObjects({ factSourceRoot: root, statusFilter: null });
     assert.ok(all.ok);
     assert.equal(all.value.items.length, 3);
     const allUids = all.value.items.map((i) => i.object_uid).sort();
