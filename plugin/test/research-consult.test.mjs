@@ -336,6 +336,22 @@ test("internalLookup：弱命中被标出，不与强命中混为一谈", async 
   assert.equal(classified.strong.length, 0);
 });
 
+test("executeResearchConsult：内部命中时须提示「强命中也可能全是词面碰撞」并给出升级入口", async (t) => {
+	const root = await corpusRoot(t);
+	const home = await governedHome(t, root);
+	const out = await executeResearchConsult(
+		{ need: "合成经验条目1 触发条件" },
+		{ agent: agentOf(root) },
+		{
+			dshHomePath: (...segments) => join(home, ...segments),
+			getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
+			hostSeams: { requestResearchConsult: async () => ({ decision: "research", asked: true }) }
+		}
+	);
+	assert.ok(out.follow_up.some((line) => line.includes("词面碰撞")), "须提示命中可能是词面碰撞");
+	assert.ok(out.follow_up.some((line) => line.includes("internal_gap")), "须给出升级入口");
+});
+
 test("executeResearchConsult：只有弱命中时不得硬停，须继续提请", async (t) => {
   const root = await corpusRoot(t);
   const home = await governedHome(t, root);

@@ -132,6 +132,7 @@ function internalFoundEnvelope(args, lookup, classified) {
   const weak = classified.weak;
   const followUp = [
     "先按 object_uid 精确读这些内部对象再判断是否够用；命中是候选不是结论，适用性由你判（02 §9.2）",
+    "命中可能全是**词面碰撞**：逐条看命中词（写在 match_reason 里）是否真的与本次问题相关——「强命中」只说明词面稀有度，不代表语义相关；机械层判不了相关性",
     "内部结论不足以回答本次需要时，带 internal_gap 参数再次调用本工具（写明「内部已有 X 仍缺 Y」），本工具会据此继续提请联网",
     INTERNAL_READING_LINE,
     weak.length > 0
