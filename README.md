@@ -77,16 +77,15 @@ LDVH（LD Vibe Harness）以 **DSH 原生插件为统一交付形态**。人与 
 
 ## 仓库结构
 
+本树为 1.0.0 发布树，只含发布所需内容（见下表）。项目专属事实源（`ldvh-base/`）与开发期文档（`docs/`、`DEVELOPMENT.md`、`RELEASING.md`）不在发布树内，其完整内容在 `dev` 分支。
+
 | 路径 | 内容 |
 |---|---|
 | `specs/` | 规范源（LDVH 自身的元规范：根规范、模型规范、业务系统规范、事实类型规范、附件） |
-| `ldvh-base/` | 事实源（本项目的目标、子目标、火花、规范、报告、经验、摩擦账目） |
 | `plugin/` | DSH 原生插件（Host 侧实现、客户端设置面与会话视图、LDVH Web SPA、测试） |
-| `docs/` | 临时文档（验证记录、调研与评估记录等；不是规范源与事实源） |
 | `icons/` | 插件图标（多尺寸） |
 | `plugin/docs/assets/` | 发布用截图（设置页三屏、LDVH Web、DSH 内面板） |
 | `LICENSE` | MIT 协议 |
-| `DEVELOPMENT.md`、`RELEASING.md` | 历史草稿（过程记录，不具规范效力；现行规则见 `specs/` 与事实源中的 Norm） |
 
 ## 快速开始（开发）
 
