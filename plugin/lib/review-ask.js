@@ -14,6 +14,7 @@ export const REVIEW_ASK_PLACEHOLDER_TASK = "当次任务";
 export const REVIEW_ASK_POINTS = Object.freeze({
   PRE_ACTION: "pre-action",
   POST_WORK: "post-work",
+  RESEARCH: "research",
 });
 
 export const REVIEW_ASK_ANSWERS = Object.freeze({
@@ -119,6 +120,12 @@ export function askEnabledFor(settings, point) {
   return false;
 }
 
+export function isReviewAskPoint(point) {
+  return point === REVIEW_ASK_POINTS.PRE_ACTION
+    || point === REVIEW_ASK_POINTS.POST_WORK
+    || point === REVIEW_ASK_POINTS.RESEARCH;
+}
+
 export function reviewAskFingerprint({ point, task, scope }) {
   const payload = [
     point === undefined ? "" : String(point),
@@ -210,8 +217,8 @@ async function recordReviewAskDecisionInner(dshHomePath, entry) {
     return failure("review-ask/invalid_entry", `answer must be "${REVIEW_ASK_ANSWERS.REVIEW}" or "${REVIEW_ASK_ANSWERS.SKIP}", got ${JSON.stringify(answer ?? null)}`);
   }
   const point = entry?.point;
-  if (point !== REVIEW_ASK_POINTS.PRE_ACTION && point !== REVIEW_ASK_POINTS.POST_WORK) {
-    return failure("review-ask/invalid_entry", `point must be "${REVIEW_ASK_POINTS.PRE_ACTION}" or "${REVIEW_ASK_POINTS.POST_WORK}", got ${JSON.stringify(point ?? null)}`);
+  if (!isReviewAskPoint(point)) {
+    return failure("review-ask/invalid_entry", `point must be one of "${REVIEW_ASK_POINTS.PRE_ACTION}", "${REVIEW_ASK_POINTS.POST_WORK}", "${REVIEW_ASK_POINTS.RESEARCH}", got ${JSON.stringify(point ?? null)}`);
   }
   const path = ledgerPath(dshHomePath);
   if (path === null) {

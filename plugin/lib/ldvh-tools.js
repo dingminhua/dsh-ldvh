@@ -17,6 +17,7 @@ import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { REVIEW_ASK_OPERATION, reviewAskParameterSchema, executeReviewAsk } from "./review-ask-tool.js";
 import { registerReportTools } from "./report-tools.js";
+import { registerResearchConsultTools } from "./research-consult-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
 import { registerFrictionTools } from "./friction-tools.js";
@@ -1126,6 +1127,7 @@ export function registerLdvhTools(ctx, deps) {
     }));
   }
   disposers.push(registerReportTools(ctx, deps));
+  disposers.push(registerResearchConsultTools(ctx, deps));
   disposers.push(registerSparkTools(ctx, deps));
   disposers.push(registerPitfallTools(ctx, deps));
   disposers.push(registerFrictionTools(ctx, deps));

@@ -8,10 +8,15 @@ import { REVIEW_ASK_ANSWERS,
   reviewAskFingerprint,
 } from "./review-ask.js";
 import { askTextDenial, validateAskText, ASK_TEXT_MAX_CHARS as ASK_QUESTION_MAX_CHARS } from "./ask-text-guard.js";
+import { composeConsultQuestion } from "./research-consult.js";
 
 const REVIEW_ASK_QUESTION_ID = "ldvh-review-ask";
 const REVIEW_ASK_REVIEW_LABEL = "安排代理";
 const REVIEW_ASK_SKIP_LABEL = "跳过，直接推进";
+
+const RESEARCH_CONSULT_QUESTION_ID = "ldvh-research-consult";
+const RESEARCH_CONSULT_RESEARCH_LABEL = "联网调查";
+const RESEARCH_CONSULT_SKIP_LABEL = "先不查";
 
 const CONSENT_QUESTION_ID = "ldvh-registration-consent";
 const CONSENT_AFFIRMATIVE_LABEL = "确认";
@@ -422,6 +427,87 @@ export function createHostSeams() {
     }
   }
 
+  async function requestResearchConsult({ need, scope, keywords, internalGap, agent, signal } = {}) {
+    const ask = seams.ask;
+    if (typeof ask !== "function") {
+      return { decision: null, asked: false, reason: "no human-answerer entry is available; the research consult cannot be issued, so no decision is assumed" };
+    }
+    const scopeInfo = reviewAskScopeKey(agent);
+    const scopeKey = scopeInfo.scope;
+    const fingerprintTask = [need, scope, ...(Array.isArray(keywords) ? keywords : [])]
+      .filter((part) => typeof part === "string" && part.trim().length > 0)
+      .map((part) => part.trim())
+      .join(" | ");
+    const fingerprint = reviewAskFingerprint({ point: REVIEW_ASK_POINTS.RESEARCH, task: fingerprintTask, scope: scopeKey });
+    const prior = await findReviewAskDecision(seams.dshHomePath, fingerprint);
+    if (!prior.ok) {
+      return { decision: null, asked: false, reason: `${prior.error.code}: ${prior.error.message}`, fingerprint };
+    }
+    if (prior.value !== null) {
+      const priorTask = prior.value.task;
+      const priorIsPlaceholder = typeof priorTask === "string" && priorTask.trim() === REVIEW_ASK_PLACEHOLDER_TASK;
+      const reusable =
+        scopeInfo.sessionIdentified
+        && typeof priorTask === "string"
+        && priorTask.trim().length > 0
+        && !priorIsPlaceholder;
+      if (reusable) {
+        return {
+          decision: prior.value.answer === REVIEW_ASK_ANSWERS.REVIEW ? "research" : "skip",
+          asked: false,
+          reused: true,
+          fingerprint,
+          reason: `reused the recorded answer from ${prior.value.at} (same content fingerprint — not asked again)`,
+        };
+      }
+    }
+    const composed = composeConsultQuestion({ need, scope });
+    const request = {
+      questions: [{
+        id: RESEARCH_CONSULT_QUESTION_ID,
+        header: "联网调查",
+        question: composed.question,
+        options: [
+          { label: RESEARCH_CONSULT_RESEARCH_LABEL, description: "开一次联网取证：派零上下文调研子代理走 33 号调研会话" },
+          { label: RESEARCH_CONSULT_SKIP_LABEL, description: "本次不联网，按既有路径继续" }
+        ]
+      }],
+      ...(signal === undefined ? {} : { signal })
+    };
+    try {
+      const answer = await ask(request, agent);
+      const answers = Array.isArray(answer?.answers) ? answer.answers : [];
+      const entry = answers.find((a) => a?.id === RESEARCH_CONSULT_QUESTION_ID) ?? null;
+      const selected = selectedLabelOf(entry);
+      const customNote = customTextOf(entry);
+      if (selected !== RESEARCH_CONSULT_RESEARCH_LABEL && selected !== RESEARCH_CONSULT_SKIP_LABEL) {
+        const shape = customNote !== null
+          ? `free-text answer submitted (no option selected): ${JSON.stringify(customNote)}`
+          : `skipped / no option chosen (answer: ${JSON.stringify(selected ?? null)})`;
+        return {
+          decision: null,
+          asked: true,
+          fingerprint,
+          ...(customNote === null ? {} : { custom_note: customNote }),
+          reason: `human did not choose an option — ${shape} — 未决策不是答复，下次仍会问；自由文本作为补充信息回传，不冒充安排／不安排`,
+        };
+      }
+      const decision = selected === RESEARCH_CONSULT_RESEARCH_LABEL ? "research" : "skip";
+      const recorded = await recordReviewAskDecision(seams.dshHomePath, {
+        fingerprint,
+        point: REVIEW_ASK_POINTS.RESEARCH,
+        answer: decision === "research" ? REVIEW_ASK_ANSWERS.REVIEW : REVIEW_ASK_ANSWERS.SKIP,
+        task: typeof fingerprintTask === "string" && fingerprintTask.trim() === REVIEW_ASK_PLACEHOLDER_TASK ? null : fingerprintTask,
+      });
+      if (!recorded.ok) {
+        return { decision, asked: true, fingerprint, ...(customNote === null ? {} : { custom_note: customNote }), recordError: `${recorded.error.code}: ${recorded.error.message}` };
+      }
+      return { decision, asked: true, fingerprint, ...(customNote === null ? {} : { custom_note: customNote }), at: recorded.value.at };
+    } catch (error) {
+      return { decision: null, asked: true, fingerprint, reason: `research consult request failed: ${String(error?.message ?? error)}` };
+    }
+  }
+
 
   const seams = {
     observations: 0,
@@ -451,6 +537,7 @@ export function createHostSeams() {
     requestSparkConsent,
     requestNormConsent,
     requestReviewAsk,
+    requestResearchConsult,
     async observePath(path, { cwd, signal } = {}) {
       const fs = seams.fs;
       if (fs === null || typeof fs.resolve !== "function" || typeof fs.stat !== "function") {
