@@ -522,7 +522,7 @@ export const DEFAULT_INJECTION_BUDGET_TIER = 10;
 
 export const RECALL_LIMIT_BYTES_PER_ITEM = 220;
 
-export const RECALL_LIMIT_MAX = 12;
+export const RECALL_LIMIT_MAX = Math.floor(Math.max(...Object.values(INJECTION_BUDGET_TIERS)) / RECALL_LIMIT_BYTES_PER_ITEM / 2);
 
 export function recallLimitForBudget(budgetBytes) {
   if (!Number.isFinite(budgetBytes) || budgetBytes <= 0) return RECALL_LIMIT_MIN;

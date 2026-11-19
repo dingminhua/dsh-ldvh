@@ -19,6 +19,7 @@ import {
 	tokenSetOf,
 	RECALL_LIMIT_MAX,
 	RECALL_LIMIT_MIN,
+	INJECTION_BUDGET_TIERS,
 	recallLimitForBudget,
 	isWeakToken,
 	statusRank,
@@ -1730,6 +1731,8 @@ test("条数上限须由预算动态导出，不得固定成常量（设置项�
 	}
 	const vals = new Set([2400, 10240, 20480].map(recallLimitForBudget));
 	assert.ok(vals.size > 1, "不同预算不得给出同一个条数上限");
+	const tierVals = Object.values(INJECTION_BUDGET_TIERS).map(recallLimitForBudget);
+	assert.equal(new Set(tierVals).size, Object.keys(INJECTION_BUDGET_TIERS).length, "每个已登记预算档位须给出互异的条数，不得被固定上限压成同值");
 	assert.equal(recallLimitForBudget(0), RECALL_LIMIT_MIN);
 	assert.equal(recallLimitForBudget(null), RECALL_LIMIT_MIN);
 	assert.equal(recallLimitForBudget(Number.NaN), RECALL_LIMIT_MIN);
