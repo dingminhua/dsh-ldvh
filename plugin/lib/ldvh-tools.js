@@ -1364,6 +1364,24 @@ export function renderEnvelope(operationKey, value) {
     for (const item of env.scope?.not_completed ?? []) lines.push(`not_completed: ${item}`);
     for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
   }
+  if (operationKey === "discover-ldvh-capabilities") {
+    const ops = Array.isArray(env.result?.operations) ? env.result.operations : [];
+    lines.push(`operations: ${ops.length}`);
+    for (const op of ops) {
+      const decl = op?.declaration;
+      const anchor = decl?.source_path ?? decl?.source ?? "(no declaration)";
+      lines.push(`- ${op?.operation_key ?? "(?)"} [${op?.availability ?? "?"}] — ${op?.summary ?? ""} (${anchor})`);
+      if (op?.availability_detail) lines.push(`    detail: ${op.availability_detail}`);
+      if (Array.isArray(op?.pending_inputs) && op.pending_inputs.length > 0) {
+        lines.push(`    pending_inputs: ${op.pending_inputs.join(", ")}`);
+      }
+    }
+    for (const diag of env.result?.undeclared_or_unresolvable ?? []) {
+      lines.push(`undeclared: ${diag?.operation_key ?? "(?)"} — ${diag?.reason ?? ""}`);
+    }
+    for (const gap of env.gaps ?? []) lines.push(`gap: ${gap}`);
+    for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
+  }
   if (Array.isArray(env.result?.candidates)) {
     lines.push(`${env.result.candidates.length} candidate(s) at ${env.result.layer}`);
     for (const candidate of env.result.candidates) {
