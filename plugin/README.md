@@ -2,107 +2,107 @@
 
 [English](README.en.md) | 简体中文
 
-> 当前状态：`1.0.0-dev.1` 开发预览。管辖项目管理、Git Gate、LDVH Web 与 `ldvh_*` 工具面均已落地；真实 UI 验收尚未全项完成，**尚未在真实 Windows 主机验证**，故仍不建议普通用户安装或提交市场。
+> 版本 `1.0.0-dev.1`（开发预览）· MIT License · 面向 DSH Desktop `0.2.2-rc.5`
+> **当前为开发预览**：插件尚未发布正式版本，发布门禁仍在收口，暂不建议普通用户安装。
 
-LD Vibe Harness（LDVH）的 DeepSeek Harness 原生插件。目标是在 DSH 内提供：
+**LD Vibe Harness（LDVH）** 是 DeepSeek Harness 的原生插件：把「规范 + 事实 + 机械守护」装进 DSH，让 Human 与 AI 对项目的由来、现状、去向形成一致的认识（对齐 Vibe），并让项目进展更稳定、执行更顺利（协调 Coding）。
 
-- LDVH 会话视图；
-- 管辖项目和默认管辖配置管理；
-- Git Gate 状态、安装、升级和卸载；
-- LDVH Web 信息呈现；
-- AI 工作引导与确定性 LDVH CLI 入口。
+| 设置页 1/3：服务与入口 · 代理辅助 · 召回预算 | 设置页 2/3：把关请示 |
+|---|---|
+| ![LDVH 设置页 1/3](docs/assets/ldvh-settings-1.png) | ![LDVH 设置页 2/3](docs/assets/ldvh-settings-2.png) |
 
-## 当前已实现
+| 设置页 3/3：管辖项目（路径已脱敏） | LDVH Web 信息呈现 |
+|---|---|
+| ![LDVH 设置页 3/3](docs/assets/ldvh-settings-3.png) | ![LDVH Web](docs/assets/ldvh-web.png) |
 
-- Host 侧 `/ldvh` 与 `/ldvh/api` 路由，含 Web 路由启用/停用与插件卸载清理；
-- 管辖项目生命周期：登记载体、安装/检查/卸载 Hook/取消管辖事务；
-- Git Gate：受管 `commit-msg` Hook 与受控提交 message 契约校验；
-- 设置页一节（`Settings → LDVH`）：管辖项目管理与 Web 呈现偏好（2026-11-13 起由 Plugins 页的插件设置卡片迁入设置页，Plugins 页不再保留设置信息）；
-- LDVH Web SPA（v4 迁移第 1 步已落地，含管辖联邦视图与项目色标识）与 LDVH 会话视图；
-- `ldvh_*` 工具面与规则引导注入；
-- Host 路由生命周期测试。
+![DSH 内的 LDVH 面板](docs/assets/ldvh-in-dsh.png)
 
-## 尚未实现
+## 能力
 
-- 真实 UI 验收六项中四项尚未核对（设置页一节、会话视图、停用与重启、卸载清理）；
-- 正式市场截图和发布版本；
-- Windows 真机验收（见下「平台支持」）。
+- **管辖项目**——把一个 Git 仓库登记为受管辖项目；安装即完成登记、初始化 `ldvh-base/` 事实源目录与安装 Git Hook。
+- **Git Gate**——两枚受管 Hook（`commit-msg` 校验受控提交信息、`pre-commit` 跑共享检查），不合规即阻断。
+- **LDVH Web**——项目事实的信息呈现：聚焦（目标与待决定事项）、火花、规范、报告、经验、摩擦、目录、变更、提交、帮助与诊断。
+- **LDVH 会话视图**——在 DSH 对话中以 Tab 形式查看本会话的 LDVH 视图。
+- **`ldvh_*` 工具面**——面向 AI 的确定性服务：管辖判定与登记、规范读取、事实对象受控读写、提交预检、调研会话与联网调查提请等，主控会话可调用 36 个（另有 1 个仅在子代理面注册）。
+- **AI 工作引导**——按会话注入规则引导与最小规则集（含行动前的双源召回候选），让 AI 的行动边界、事实读写方式与交还义务在会话中在场。
 
-## 开发安装
+## 安装
+
+### 插件市场
+
+正式版本发布后可用：
+
+```bash
+dsh plugin add dsh-ldvh
+```
+
+### 本地源码安装（开发与试用）
 
 ```bash
 dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 ```
 
-安装或修改 Host/Client/bundle patch 后需要重启 DSH Desktop。当前开发目标环境（本机观察值，2026-11-05）：
+安装或修改 Host / Client / bundle patch 后需要**重启 DSH Desktop**（这些部分在进程启动时加载）。
 
-- DSH Desktop `0.2.2-rc.1`（`/Applications/DeepSeek Harness.app`）
-- `@deepseek-ai/dsh` `0.2.2-rc.1`
-- Node.js `>=22.15.0`（代码下限；DSH 宿主 `dsh-plugin-desktop` 自身要求 `^22.19.0 || >=24.0.0`）
+### npm 包
 
-> **宿主兼容（自 `1.0.0-dev.1` 起；该断言随本版首次登记）**：本插件只支持 `@deepseek-ai/dsh >= 0.1.7-rc.1 < 0.3.0`（peerDependencies 已收窄）。0.1.7 线（rc.1 与 rc.2）对设置模型（SettingsProvider → 插件 Config + volatile）、客户端设置面（settingsScope / settings.plugin.item 删除 → configForms / plugins.*）、事件（agent/session-start 删除）与工具输出契约的破坏性变更均已适配；0.1.7-rc.2 相对 rc.1 为契约只增不改（服务/事件/槽位零删除），无需额外适配；0.2.0-rc.1 相对 rc.2 亦无契约破坏（服务 89→91 零删除、事件 81→81 零变化、客户端槽位条目 89→89 零增删、模型可见工具零变化，本插件消费的主机侧 11 个宿主服务与八个事件 mode/签名逐字未变）；0.2.0-rc.2 相对 rc.1 同样只增不改（服务 91→91 零增删、事件 81→81 零变化、工具名 65→65 零增删、包集合 325→325 零增删，唯一被改动的服务 `userQuestions` 其既有 `ask` 方法签名逐字未变、新增三方法为并列增量）；0.2.1 线（rc.1–rc.3）相对 0.2.0-rc.2 亦无对本插件的破坏面——本插件消费的服务与事件除下述 `ctx.invariants` 外只增不改（2026-10-19 项目内实测：区间 0.2.0-rc.2→0.2.1-rc.2 消费面 12 服务 / 9 事件逐条比对，唯一被删服务为 `invariants`），本次另行实测 0.2.1-rc.2→0.2.1-rc.3 为**服务端零契约变更**（被消费的宿主服务包在该区间仅 `package.json` 版本行变化）、**客户端槽位纯新增**（槽位键 74→77，新增 `conversation.session.header.views.actions`、`sidebar.panellist.actions`、`sidebar.right.tab.guide.actions`，零删除），本插件使用的四个槽位与所消费服务签名逐字未变，故**无需代码层适配**。**`0.2.1-rc.3`→`0.2.1-rc.5`（2026-10-30 实测，13 commits / 388 文件）同样无需代码层适配**：其中 349 个文件是 `package.json` 的版本行，全区间 39 个非清单变更里（`packages/` 内 34 个）**服务端 src 代码变更仅两处、且都在本插件不消费的面上**（`llm-deepseek-account` 把账户目录加载的日志从 `console.info` 改到 `console.error`——ACP 保留 stdout；`mcp-client` 改为先判服务器是否声明 `resources` 能力再列举，避免 SDK 往 stdout 写 `console.debug`）；服务端侧另有三个包的 README（中/英/i18n 共 9 个文件）与两处测试文件变更，均属文档与测试；本插件消费的宿主服务所在包——`core/tools`、`interaction/user-questions`、`core/system-prompt`、`session/session-persistence`、`fs/fs`、`core/agent`、`interaction/commands`、`util/home-paths`、`util/atomic-write`、`host/webserver`，以及另外四个同样被消费的 `goal/goal`、`schedule/schedule`、`api/session-controller`、`api/workspace-controller`——在该区间的差异**全部仅为 `package.json` 版本行**（逐包核对，每个包只命中自身清单一个文件）；客户端槽位**键** 103→103 逐条全等（无增删、无改名）；条目内容有 9 条变化——8 条只改 `source:` 文档行号引用，1 条是 `conversation.chat.reasoning.body` 的 summary/doc/ownerProps（即下述 rawText）。本插件使用的四个槽位的 registration 与 owner props 逐字未变（经 Cordis Inspect 在运行中的 rc.5 宿主上实测：`conversation.view` 的 `ldvh`、`conversation.chat.node` 的 `ldvh-notice`、`plugins.bundle.config` 与 `plugins.row.config` 的 `dsh-ldvh` 键 occupant 均在且 active）；提问卡 CSS module 的局部名集合（`eyebrow` / `options` / `detail` / `optionLabel` / `pager` 等）与契约属性 `data-question-key` 在 rc.3 与 rc.5 之间**逐字未变**，故 GATE_CSS 覆写选择器的静态命中面不变。另需知悉：本插件在 `dsh.client.inject` 中显式声明的 `@deepseek-ai/dsh-client-ui-conversation` 在该区间有 2 处 src 变更（删除一个 `session.moreViewsCurrent` 文案键、会话视图标签改为仅在溢出时才给 tooltip），二者都不是契约变更，不触及本插件消费的 `uiConversation.events.register` 与 `conversation.chat.node`。**唯一的客户端契约变化是 `conversation.chat.reasoning.body` 新增了 `rawText`**（`text` 语义改为「Chat 处理后的显示文本」）：该变化只影响注册了此槽位的推理渲染器与翻译包装，本插件**未注册该槽位**，故不受影响——它属上游对第三方扩展的迁移提示，本插件无迁移义务。唯一的契约移除是宿主服务 `ctx.invariants`（运行时不变量注册器在上游提交 `f028f25667` 整体退役，自 `0.2.1-alpha.1` 起不再提供）：本插件对该缝的安装期断言在 0.2.1 线宿主上不再部署，插件按 `specs/10` §6 如实报告该缝为未消费，**不主张**其防护已生效，替代方向留待 Spark 裁夺。**`0.2.1-rc.5`→`0.2.2-rc.1` 需要代码层适配（2026-11-05 实测，2623 commits / 8120 文件）**——这是 0.2 线首次出现**对本插件的破坏性变更**，与前述各区间「只增不改」不同：① **`schedule` 服务整体重建**（`packages/schedule/schedule`，+545/−213）：`create(sessionId, request, signal)` 改为 `create(request, actorSessionId?, signal)`，会话改由 `request.target` 承载；计时选择器由 request 顶层的 `every_seconds` 等并列字段收进 `request.timing`（`{ kind: 'every', every_seconds }`）；`delete(request, signal)` **被移除**，删除并入 `edit({ id, action: 'delete' })`。本插件 `lib/host-automation-probe.js` 按旧签名调用，在 rc.1 上会抛错——已按新签名重写（含清理指引改指 `edit` 的 delete 动作），`lib/ldvh-tools.js` 的工具描述同步。真机只读探针实测：`schedule.delete` 返回 `undefined`（确认移除），`schedule.create` 仍为 function。② **`system-prompt/assemble` 载荷收窄**（`packages/core/system-prompt`，+24/−16）：瀑布流签名由 `PromptAssembly` 改为 `PromptPresentation`——`tools` 从瀑布载荷中移出（`PromptAssembly extends PromptPresentation`，工具声明改为 provider-owned，在瀑布之后由 `assemble()` 自行拼回）。本插件 `lib/guidance.js` 的 `createAssembleHandler` 只在 `assembled.sections` 上做替换并以 `{ ...assembled, sections }` 返回，**不读也不写 `tools`**，故结构上兼容；此条属**如实登记的契约变化**，不是本插件的适配动作。③ **提问卡 DOM 结构改变**（`packages/client/ui-user-questions`，CSS +208 行、TSX +175 行）：选项由「单个 `button[role=radio]`」改为「`div.optionRow[data-option-row]` 包 `button.option[role=radio]`」两层，选中态类 `optionSelected` 落在外层行上；另新增 `descriptionToggle` 类（其名含 `description` 子串）。本插件 `GATE_CSS` 原先把卡片边框/底色/hover/选中态全画在 `[role=radio]` 上，在新结构下会形成**内外双边框**且状态只覆盖内框——已改为外观挂 `[data-option-row]`、内层按钮退成内容盒、选中态取 `[data-option-row][class*="optionSelected"]`；`description` 覆写加 `:not([class*="descriptionToggle"])` 排除子串碰撞。新增两条机械守卫（外层行承接边框与最小高度、内层撤边框、选中态落外层；description 排除 toggle），均以变异检验确认可检出回退。**其余消费面在本次区间未变**：`tools.register`/`tools.guard`（`ToolGuard` 签名与 `timeoutMs` 语义逐字未变，`ToolExecutionInput` 仅新增可选 `toolSet`）、`userQuestions.ask`、`sessionPersistence.open`、`agents.get/list`、`goals.*`、`sessionController.list/create`、`commands.*`、`fs` 与三个 `fs/*` 事件、`webServer.register`（`kind:'prefix'` 仍在闭集内，新增 `WebResourceRoute` 为并列形态）、`dshHomePath`、`withFileLock`/`writeFileAtomic`（两个库在区间内 **src 零变化**，仅版本行）；`ctx.invariants` 仍不存在（沿用既有登记）。客户端四个在用槽位经 Cordis Inspect 在运行中的 rc.1 宿主上实测均在且 active（`conversation.view` 的 `ldvh` order=20、`conversation.chat.node` 的 `ldvh-notice`、`plugins.bundle.config` 与 `plugins.row.config` 的 `dsh-ldvh`）——**该四项为 rc.1 时的实测**；2026-11-13 起设置面迁到设置页的 `settings.section`（`plugins.bundle.config` / `plugins.row.config` 两个 keyed 槽位已撤除，`conversation.chat.node` 的自建行亦已交还宿主原生 Context 行），现为 `conversation.view` + `settings.section` / `settings.section.icon` 三项。**依赖对齐**：`dsh-atomic-write`/`dsh-home-paths` 由 `^0.2.1-rc.5` 升至 `^0.2.2-rc.1`（`^0.2.1-rc.5` 在 semver 语义下**不匹配** `0.2.2-rc.1`——预发布版只匹配同一 `major.minor.patch` 的 range），devDependencies 四个 dsh 包与 `@deepseek-ai/cordis`（`~4.1.0`）同步；`peerDependencies` 维持 `>=0.1.7-rc.1 <0.3.0`（已覆盖 rc.1）。**上界取 `< 0.3.0` 的依据是覆盖 `0.2.x` 稳定版**：在宿主判定语义（`includePrerelease: true`）下 `< 0.2.0` 与 `< 0.3.0` 对各自的预发布版结果相同，二者的真实差异只在**非预发布**的 `0.2.0`（前者拒收、后者接纳），故上界推进防范的是上游发布正式版时 bundle 被兼容门禁拒收；0.1.6 及更早宿主不兼容，详见 [CHANGELOG.md](CHANGELOG.md)。
+正式版本发布后可用：
 
-**基线登记已同步（2026-11-05）**：规范源 `local-dev-workflow`（Norm）的支持基线已按 Human 决定由 `0.2.1-rc.5` 推进到 `0.2.2-rc.1`，与上列观察值一致。本节登记的是开发目标基线，不等于已验证支持：`specs/08` §8 要求的真实 UI 验收六项中，`/ldvh` 与 `/ldvh/api/health` 已实证，设置页一节、会话视图、停用与重启、卸载清理尚未核对。
+```bash
+npm install -g dsh-ldvh
+dsh plugin add dsh-ldvh
+```
 
-## 平台支持
+npm 包另带一个命令行入口，供脚本化操作管辖项目与 Hook：
 
-本插件面向 DSH Desktop，**声明的支持平台为 macOS 与 Windows**。Linux 按同一宿主契约运行（CI 在 Ubuntu 上执行全套测试），但无真机桌面验收，不在支持声明内。
+```bash
+dsh-ldvh governed-project <list|inspect|install|uninstall-hook|register|unregister> [--project ABSOLUTE_GIT_ROOT] [--id PROJECT_ID] [--human-confirmed]
+```
 
-`specs/08` §8 要求不得以「已实现」代替「已验收」，故两个状态分开登记：
+## 使用
+
+1. **登记管辖项目**——在 `设置 → LDVH → 管辖项目配置` 中填写项目 ID（唯一、创建后不可修改）与 Git 根目录，点「安装」。安装后该项目即启用事实源与 Git Gate。
+2. **打开信息呈现**——侧边栏或对话 Tab 中的 LDVH 入口（可分别开关），或在浏览器打开 `http://<dsh-host>/ldvh`。
+3. **在 DSH 里干活**——AI 会通过 `ldvh_*` 工具读写规范与事实；受控提交由 Git Gate 把关。
+
+## 配置项
+
+`设置 → LDVH` 一节包含四组：
+
+| 组 | 项 |
+|---|---|
+| 服务与入口 | Web 呈现状态读数、加入到对话 Tab、加入到侧边栏 |
+| 代理辅助 | 积累经验、发现摩擦（关闭后不再自动记录对应的一类） |
+| 召回预算 | 行动前召回的体量上限（10/20/30/40/50 K 字节） |
+| 把关请示 | 行动前：询问是否安排代理审查；行动后：询问是否安排代理复核；静默执行：不问，直接安排；遇难题：联网调查提请；请示倒计时秒数 |
+
+另有「管辖项目配置」组：新增管辖项目、检查、更新修复、取消管辖、项目 ID、Git 根目录、项目颜色。
+
+部分总开关（Web 呈现、代理辅助）当前只能在插件配置文件中调整，设置面不再提供——这是有意为之，避免两处开关互相覆盖。
+
+## 宿主兼容
+
+| 项 | 值 |
+|---|---|
+| 宿主 | DSH Desktop `0.2.2-rc.5`（开发目标基线） |
+| 兼容区间 | `@deepseek-ai/dsh >= 0.1.7-rc.1 < 0.3.0` |
+| Node.js | `>=22.15.0`（宿主自身要求 `^22.19.0 \|\| >=24.0.0`） |
+
+平台验证状态（实现与验收分开登记）：
 
 | 平台 | 实现 | 真机验收 |
 |---|---|---|
-| macOS | 完整 | 已实测：管辖项目生命周期 10 项、`/ldvh`、`/ldvh/api/health` |
-| Windows | 完整（见下） | **已实测：管辖项目生命周期 10 项 + 权限判据**（2026-11-10，见记录文件）；UNC/junction 与 NTFS 占用竞争未覆盖 |
-| Linux | 同一契约下运行 | 仅 CI 覆盖，未验收 |
+| macOS | 完整 | `/ldvh` 路由与 `/ldvh/api/health` 于 `0.2.2-rc.5` 实测通过；管辖项目生命周期 10 项见仓库验证记录 `docs/governed-project-lifecycle-verification.md`（该记录是验证记录，不是规范源与事实源；未载宿主版本与日期） |
+| Windows | 完整 | 管辖项目生命周期 10 项 + 权限判据（2026-11-10 真机实测）；UNC / junction、NTFS 占用竞争、ACL 读不到的构造场景**未覆盖** |
+| Linux | 同一宿主契约下运行 | 仅 CI 覆盖，未验收 |
 
-两个平台各自已实测的 10 项逐条见 `../docs/governed-project-lifecycle-verification.md`：
-候选路径须为实际 Git 根、首次安装建 `ldvh-base/` 各类型目录、首次安装写登记并设默认项目、
-Hook 装入 Git common-dir、Hook bundle 版本可回读且状态为 `managed`、真实提交中非法
-message 被阻断、合规 message 被放行、卸载 Hook 后登记与 `ldvh-base/` 保留、重装可修复
-缺失 Hook 且不重复登记、取消管辖移除登记并自动卸载 Hook。
+## 已知限制
 
-Windows 另有一节**权限判据**记录：经 `Get-Acl` 读结构化 DACL，**目录与载体文件两处**都核验，
-按**白名单**判定（只承认当前用户 / SYSTEM / Administrators / OWNER RIGHTS），越界即拒、
-核验不到即 fail-closed。该行的准确读法是「**已覆盖范围内**越界即拒」，不是全面的 ACL 安全
-证明——它只核对「是否扩大到其它用户」这一条，不核对加密、审计、完整性级别；`Administrators`
-被放行是一处**明示的弱化**（否则 Windows 上任何管理员目录都不可用）。
-
-「未覆盖」项（UNC 共享上的真实核验、junction、NTFS 占用竞争、ACL 读不到的构造场景）同样在
-该文件内如实登记；不得据此宣称 Windows 已完整验收通过。
-
-平台差异集中在三处核心机制，另含一处交互适配：
-
-- **路径语义**：盘符绝对路径（`C:/…`）与 UNC 路径（`//server/share/…`）由 Node/Git realpath 与 Git 根解析承接；包含判定按宿主平台的分隔符与盘符语义进行，不以硬编码 `/` 假设 POSIX；
-- **Git Hook 载体**：Hook 脚本以 `#!/bin/sh` 渲染；`win32` 下预检经 Git for Windows 自带的 `sh`（`bin/sh.exe` → `usr/bin/sh.exe` → PATH）调用，避免直接执行无扩展名脚本；脚本内按 `${1}` 形态识别盘符与 UNC 消息文件路径；可执行位由 Git for Windows 的 shebang 承接（NTFS 上 `chmod` 为惰性）；
-- **文件权限**：管辖登记载体的写入经 DSH atomic-write（同目录临时文件 + 原子 replace）落盘；事实源对象写入由各 writer 自带的同目录临时文件 + 回读校验 + rename 承接。Windows 继承 DSH 用户配置目录 ACL，不伪造 POSIX mode；
-- **目录选择**：Desktop 页面标记 `dsh-desktop-platform=win32` 下走主进程原生弹窗，失败回退宿主 remote 选择器与手动输入。DSH Terminal 的 PowerShell/cmd 启动由 Desktop 宿主实现，LDVH 不自行选择或提权。
-
-Windows 上如实登记的当前限制：
-
-- `ldvh_register_governed_project`（AI 登记入口）在 Windows 返回 `registration_permission_unverified`：本实现尚无 ACL 核验器，而 `specs/07` §5.6 要求 ACL 无法核验时高风险写入 fail-closed。设置页「安装」（Human 明确操作）不受影响。
-- **登记载体所在的 DSH 用户配置根**不得置于网络文件系统或跨 PID namespace 的共享卷（含 UNC 共享）：登记载体的锁接管以 PID 判定持有者，官方不支持跨宿主共享同一文件。事实源 `ldvh-base/` 不经该锁包（各 fact writer 自带无锁原子替换），故该约束的对象是配置根而非项目目录。详见 [CHANGELOG.md](CHANGELOG.md) 的 Known 段。
-- CI 的两个 job 均运行在 Ubuntu，**win32 分支不经 CI 执行**；全套测试中共 5 处断言在 win32 上早退（`plugin/test/` 4 处依赖 POSIX 权限语义，`plugin/web/tests/` 1 处依赖可执行位），即 win32 路径与这些断言在 Windows 上均未被执行。故 win32 路径目前只有代码层实现，没有自动化验证背书。
-- 未验证风险：Git Bash/MSYS `sh` 在目标 Windows 环境的可发现性；NTFS 文件占用导致原子替换失败时的错误呈现；UNC 与 junction 的真实行为。
-
-「支持 Windows」声明的是纳入的平台范围；真机验收完成前，不得据此认为 Windows 已验收通过。
-
-## 验证
-
-```bash
-npm --prefix plugin test
-npm --prefix plugin pack --dry-run
-```
-
-单元测试只证明已覆盖的机械范围，不证明完整产品能力、当前 DSH 兼容或市场发布条件成立。
-
-## 设计边界
-
-- v4 已验证机械核心优先迁入和适配，不从零重写；
-- DSH 提供宿主承载，不取得 LDVH 规范、事实或业务语义权威；
-- 管辖登记和 Git Gate 变更必须经明确 Human 操作；
-- 不覆盖或自动链入未知第三方 `commit-msg` Hook；
-- 不从测试、页面或安装成功推导整体完成。
+- 尚未发布正式版本；`1.0.0-dev.1` 为开发预览。
+- Windows 上未覆盖的场景如上表所列，不得据此认为 Windows 已完整验收通过；2026-11-10 的验收结论此后代码有变动，未在当前代码上重验。
+- Linux 不在支持声明内（仅 CI 覆盖）。
+- 插件包的 CHANGELOG 条目尚未补齐（当前为占位），发布前须按实际已提交变更补写。
+- 测试基线：本次在当前工作树实测 `npm --prefix plugin test` 无失败项（0 失败；19 条跳过，在登记基线 27 以内）。跳过项仍须逐项核对——发布门禁不接受以跳过替代通过结论。
 
 ## License
 
