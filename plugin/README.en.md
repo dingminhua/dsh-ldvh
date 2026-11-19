@@ -5,7 +5,7 @@ English | [简体中文](README.md)
 > Version `1.0.0-dev.1` (development preview) · MIT License · for DSH Desktop `0.2.2-rc.5`
 > **Development preview**: no release version has been published yet and the release gate is still being closed, so installation by ordinary users is not recommended yet.
 
-**LD Vibe Harness (LDVH)** is an AI collaboration governance framework deeply bound to DSH. Its core value is **Align Vibe, Coordinate Coding**.
+**LD Vibe Harness (LDVH)** is an AI collaboration and governance framework deeply bound to DSH. Its core value is **Align Vibe, Coordinate Coding**.
 
 - **Align Vibe**: give the human and the AI a shared understanding of where the project came from, where it stands, and where it is going.
 - **Coordinate Coding**: draw on the host to allocate resources — clarify rights and responsibilities, record sparks, establish norms, build reports, accumulate experience, and discover friction, so the project advances more steadily and execution goes more smoothly.

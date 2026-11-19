@@ -249,7 +249,7 @@ window.__ModuleLoader__.load({
     var LDVH_ZH = {
       "row.title": "LDVH",
       "intro.title": "LD Vibe Harness（LDVH）",
-      "intro.badge": "AI 治理框架",
+      "intro.badge": "AI 协作与治理框架",
       "intro.valueVibe": "**对齐 Vibe**：让人与 AI 对项目的由来、现状、去向形成一致的认识。",
       "intro.valueCoding": "**协调 Coding**：借助宿主调度资源，明晰权责、记录火花、确立规范、构建报告、积累经验、发现摩擦，让项目进展更稳定、执行更顺利。",
       "row.governanceLocation": "管辖项目配置",
@@ -337,7 +337,7 @@ window.__ModuleLoader__.load({
     var LDVH_EN = {
       "row.title": "LDVH",
       "intro.title": "LD Vibe Harness (LDVH)",
-      "intro.badge": "AI governance framework",
+      "intro.badge": "AI collaboration and governance framework",
       "intro.valueVibe": "**Align Vibe**: give the human and the AI a shared understanding of where the project came from, where it stands, and where it is going.",
       "intro.valueCoding": "**Coordinate Coding**: draw on the host to allocate resources — clarify rights and responsibilities, record sparks, establish norms, build reports, accumulate experience, and discover friction, so the project advances more steadily and execution goes more smoothly.",
       "row.governanceLocation": "Governed projects configuration",
