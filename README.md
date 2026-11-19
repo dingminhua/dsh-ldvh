@@ -1,13 +1,14 @@
-# LDVH · LD Vibe Harness
+<p align="center">
+  <img src="plugin/docs/assets/ldvh-web.png" width="640" alt="LDVH Web 信息呈现：聚焦、待决定事项、目标、火花、规范、报告、经验、摩擦等信息呈现" />
+</p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dsh-ldvh"><img src="https://img.shields.io/npm/v/dsh-ldvh?style=flat-square&label=npm&color=cb3837" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/dsh-ldvh"><img src="https://img.shields.io/npm/d18m/dsh-ldvh?style=flat-square&label=downloads&color=cb3837" alt="npm downloads"></a>
-  <a href="https://github.com/dingminhua/dsh-ldvh/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/dingminhua/dsh-ldvh/ci.yml?branch=main&style=flat-square&label=tests" alt="test status"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/dingminhua/dsh-ldvh?style=flat-square" alt="MIT license"></a>
-  <a href="https://github.com/dingminhua/dsh-ldvh/stargazers"><img src="https://img.shields.io/github/stars/dingminhua/dsh-ldvh?style=flat-square" alt="GitHub stars"></a>
-  <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
+  <img src="plugin/docs/assets/ldvh-in-dsh.png" width="640" alt="DSH 桌面中挂载的 LDVH 面板" />
 </p>
+
+<h1 align="center">LDVH · LD Vibe Harness</h1>
+
+<p align="center"><b>一个深度绑定 DSH 的 AI 协作与治理框架，核心价值是对齐 Vibe、协调 Coding——让人与 AI 对项目形成一致认识，让项目进展更稳定、执行更顺利。</b></p>
 
 <p align="center">
   <a href="plugin/README.en.md">English（插件页）</a> ·
@@ -19,13 +20,17 @@
   <a href="https://github.com/dingminhua/dsh-ldvh/issues">问题反馈</a>
 </p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-ldvh"><img src="https://img.shields.io/npm/v/dsh-ldvh?style=flat-square&label=npm&color=cb3837" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/dsh-ldvh"><img src="https://img.shields.io/npm/d18m/dsh-ldvh?style=flat-square&label=downloads&color=cb3837" alt="npm downloads"></a>
+  <a href="https://github.com/dingminhua/dsh-ldvh/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/dingminhua/dsh-ldvh/ci.yml?branch=main&style=flat-square&label=tests" alt="test status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/dingminhua/dsh-ldvh?style=flat-square" alt="MIT license"></a>
+  <a href="https://github.com/dingminhua/dsh-ldvh/stargazers"><img src="https://img.shields.io/github/stars/dingminhua/dsh-ldvh?style=flat-square" alt="GitHub stars"></a>
+  <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
+</p>
+
 > 版本 `1.0.0` ｜ MIT License（与 DSH 本体同协议）
 > 版本 `1.0.0` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
-
-**定位**：一个深度绑定 DSH 的 AI 协作与治理框架，核心价值：**对齐 Vibe、协调 Coding。**
-
-- **对齐 Vibe**：让人与 AI 对项目的由来、现状、去向形成一致的认识。
-- **协调 Coding**：借助宿主调度资源，明晰权责、记录火花、确立规范、构建报告、积累经验、发现摩擦，让项目进展更稳定、执行更顺利。
 
 ## 截图
 
@@ -45,18 +50,6 @@
 
 <p align="center">
   <img src="plugin/docs/assets/ldvh-settings-3.png" width="760" alt="LDVH 设置页 3/3：管辖项目登记与配置，路径已脱敏" />
-</p>
-
-### LDVH Web 信息呈现
-
-<p align="center">
-  <img src="plugin/docs/assets/ldvh-web.png" width="900" alt="LDVH Web：聚焦、待决定事项、目标、火花、规范、报告、经验、摩擦等信息呈现" />
-</p>
-
-### DSH 内的 LDVH 面板
-
-<p align="center">
-  <img src="plugin/docs/assets/ldvh-in-dsh.png" width="900" alt="DSH 桌面中挂载的 LDVH 面板" />
 </p>
 
 ## 这是什么
