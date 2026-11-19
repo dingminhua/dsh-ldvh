@@ -314,6 +314,22 @@ test("两处把关询问：两个开关分属**两行**（不得并排挤成一�
 	}
 });
 
+test("第三处联网调查提请：独立一行、恰有一个开关，且反映配置取值", () => {
+	const tree = renderSettingsSection({});
+	const consult = rowWithTitle(tree, "第三处：联网调查提请");
+	assert.ok(consult, "须有「第三处：联网调查提请」这一行");
+	assert.equal(controlsOf(consult).length, 1, "第三处行须恰有一个开关");
+	const control = controlsOf(consult)[0];
+	assert.equal(control.props.type, "checkbox", "第三处的控件须是开关");
+	assert.ok(hasSwitchShell(consult), "开关须带 .ldv-switch 外壳与 .ldv-switch-track 滑块");
+	const on = renderSettingsSection({ researchConsultAskEnabled: true });
+	const onRow = rowWithTitle(on, "第三处：联网调查提请");
+	assert.equal(controlsOf(onRow)[0].props.checked, true, "配置为开时须显示为开");
+	const off = renderSettingsSection({ researchConsultAskEnabled: false });
+	const offRow = rowWithTitle(off, "第三处：联网调查提请");
+	assert.equal(controlsOf(offRow)[0].props.checked, false, "配置为关时须显示为关");
+});
+
 test("全页的复选框都在开关/色板里（不得退回裸复选框）", () => {
 	const tree = renderSettingsSection({ idleAssistEnabled: true });
 	const bare = [];

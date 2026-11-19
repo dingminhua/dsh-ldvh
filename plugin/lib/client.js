@@ -284,9 +284,11 @@ window.__ModuleLoader__.load({
       "row.reviewAskPreHint": "打开后，AI 判定当次任务属「复杂任务」、**且已形成候选方案时**，会在动手改动之前问你要不要先让一个独立子代理挑错。判定为复杂但还没有任何方案时不会问——那没有可核对的对象（specs/32 §6.4）；**你答与不答都不拦住它动手**（00 §2.5），请示只决定要不要多一双眼睛。**三类情况不问**（specs/32 §4.2，Human 2026-11-14 决定；2026-11-15 随 ADR 事实类型撤除删除第 4 类）：整件只是调研取证与报告、整件只是提交推送已形成的改动、整件只是用受控工具转换既有事实对象的状态——这三类的核对分别已由 33 号审计、Git Gate、受控写入回读承担。判错了或没判，机械层不会拦——这是按开关执行的自律，不是机械保障。",
       "row.reviewAskPost": "行动后：询问是否安排代理复核",
       "row.reviewAskPostHint": "打开后，一件复杂任务做完、准备收口时，AI 会问你要不要让独立子代理逐条核对已发生的工作。与上面那个开关相互独立：只开这个就只在收口前问。同样**你答与不答都不拦住它收口**（00 §2.5）。上面那三类点位排除在这里同样生效——命中时 AI 须在结论里写明命中哪一类与判定理由，不写就按没问过处理。",
+      "row.reviewAskConsult": "第三处：联网调查提请",
+      "row.reviewAskConsultHint": "打开后，AI 判断某事依赖外部信息、而自己并不掌握时，会先在内部的经验、报告与事实规范里查一遍；查不到才来问你要不要联网调查一次。内部命中只是候选、不证明适用（02 §9.2）；**内部未命中也不等于内部没有**——机械召回是词面匹配（34 §12），所以交还里只会写「按机制查过而未命中」，不会写「内部没有相关经验」。**你答与不答都不拦住它推进**（00 §2.5），请示只决定要不要开这一次外部取证。它与上面两处相互独立：只开这个就只在第三处问；关掉时它只交还内部读数、不来打扰你。",
       "row.reviewAskSilent": "静默执行：不问，直接安排",
       "row.reviewAskSilentBadge": "静默",
-      "row.reviewAskSilentHint": "打开后，AI 判定当次属「复杂任务」时不再问你，直接派一个独立子代理做那次审查／复核，做完在结论里留一行「静默执行」的痕迹。**它同样要等方案成形才安排**：判为复杂但还没有任何方案时不派、不跑一次空核对——静默只免掉征询，不免掉「有对象才能核对」这个前提（specs/32 §6.4）。**它只免掉询问，不免掉核对**，也只作用于上面两项；上面那三类点位排除命中时，两处都不派发（免的是询问，前提是该问的那一次）。火花、管辖项目这些真正要你点头的事照旧请示。上面两项都没开时，这项不起作用。",
+      "row.reviewAskSilentHint": "打开后，AI 判定当次属「复杂任务」时不再问你，直接派一个独立子代理做那次审查／复核，做完在结论里留一行「静默执行」的痕迹。**它同样要等方案成形才安排**：判为复杂但还没有任何方案时不派、不跑一次空核对——静默只免掉征询，不免掉「有对象才能核对」这个前提（specs/32 §6.4）。**它只免掉询问，不免掉核对**，也只作用于行动前与行动后这两处（第三处联网调查提请不适用静默档）；上面那三类点位排除命中时，两处都不派发（免的是询问，前提是该问的那一次）。火花、管辖项目这些真正要你点头的事照旧请示。上面两项都没开时，这项不起作用。",
       "row.experienceAccumulation": "积累经验",
       "row.experienceAccumulationHint": "主控在当次行动中发现已查明验证的失败机制时，把上下文交给代理起草一条经验，由主控写入。关掉后不再自动记录经验。",
       "row.idleCapture": "发现摩擦",
@@ -580,6 +582,7 @@ window.__ModuleLoader__.load({
       var experienceAccumulationState = React.useState(value.experienceAccumulationEnabled !== false);
       var preActionReviewState = React.useState(value.preActionReviewAskEnabled === true);
       var postWorkReviewState = React.useState(value.postWorkReviewAskEnabled === true);
+      var researchConsultState = React.useState(value.researchConsultAskEnabled === true);
       var reviewSilentState = React.useState(value.reviewAskSilentRunEnabled === true);
       function idleCaptureValueOf(value) {
         return value.frictionDiscoveryEnabled !== undefined
@@ -653,6 +656,7 @@ window.__ModuleLoader__.load({
         );
         preActionReviewState[1](next.preActionReviewAskEnabled === true);
         postWorkReviewState[1](next.postWorkReviewAskEnabled === true);
+        researchConsultState[1](next.researchConsultAskEnabled === true);
         reviewSilentState[1](next.reviewAskSilentRunEnabled === true);
         idleLimitsState[1](idleLimitsTextOf(next));
         savedState[1](false);
@@ -805,6 +809,7 @@ window.__ModuleLoader__.load({
               { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) },
               { op: "set", path: ["preActionReviewAskEnabled"], value: !!preActionReviewState[0] },
               { op: "set", path: ["postWorkReviewAskEnabled"], value: !!postWorkReviewState[0] },
+              { op: "set", path: ["researchConsultAskEnabled"], value: !!researchConsultState[0] },
               { op: "set", path: ["reviewAskSilentRunEnabled"], value: !!reviewSilentState[0] }
             ];
             IDLE_LIMITS.forEach(function (limit) {
@@ -1087,7 +1092,8 @@ window.__ModuleLoader__.load({
           React.createElement("div", { className: "ldv-block-body" },
             [
               { key: "preActionReviewAskEnabled", state: preActionReviewState, label: "row.reviewAskPre", hint: "row.reviewAskPreHint" },
-              { key: "postWorkReviewAskEnabled", state: postWorkReviewState, label: "row.reviewAskPost", hint: "row.reviewAskPostHint" }
+              { key: "postWorkReviewAskEnabled", state: postWorkReviewState, label: "row.reviewAskPost", hint: "row.reviewAskPostHint" },
+              { key: "researchConsultAskEnabled", state: researchConsultState, label: "row.reviewAskConsult", hint: "row.reviewAskConsultHint" }
             ].map(function (item) {
               return settingRow(item.label, item.hint, switchControl(
                 item.state[0],
