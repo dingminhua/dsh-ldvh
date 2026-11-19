@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
 import { normPositioningOf } from "./norm-positioning.js";
 import { ID_PATTERN } from "./spec-registry.js";
@@ -28,8 +28,6 @@ const MAX_TITLE_LENGTH = 40;
 export const ERR_DIRECTION_ALREADY_EXISTS = "ERR_DIRECTION_ALREADY_EXISTS";
 
 const DIRECTION_KEY_PATTERN = ID_PATTERN;
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
@@ -189,10 +187,6 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-function assertValidUid(objectUid) {
-  return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
-}
-
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
@@ -313,7 +307,7 @@ export async function createNormObject(args) {
 }
 
 
-async function resolveNormObjectUid(factSourceRoot, input, currentProjectId = null) {
+export async function resolveNormObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("norm/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
@@ -372,16 +366,15 @@ export async function readNormObject(args) {
 
 
 export async function updateNormObject(args) {
-  const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null } = args;
+  const { factSourceRoot, objectUid: objectUidInput, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null, currentProjectId = null } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
-  if (!assertValidUid(objectUid)) {
-    const hint = uidRejectionHint(objectUid);
-    return failure("norm/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}${hint.messageSuffix}`, hint.details);
-  }
+  const uidResolution = await resolveNormObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("norm/change_summary_required", "changeSummary is required for update (specs/02 :331: exactly one change_log entry per actual modification)");
   }

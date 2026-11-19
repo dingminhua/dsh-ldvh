@@ -1,24 +1,37 @@
-export type ReportForm = 'research' | 'summary' | 'audit';
+export type ReportForm = 'research' | 'summary' | 'audit' | 'action' | 'reference';
 
-export const FORM_PALETTE: Record<ReportForm, {
+type FormColorToken = 'emerald' | 'amber' | 'violet' | 'rose' | 'sky';
+
+export interface FormPaletteEntry {
   text: string;
   bg: string;
   border: string;
   activeBg: string;
   activeBorder: string;
-}> = {
-  research: {
-    text: '#0f766e', bg: 'rgba(13,148,136,0.13)', border: 'rgba(13,148,136,0.45)',
-    activeBg: 'rgba(13,148,136,0.24)', activeBorder: '#0d9488',
-  },
-  summary: {
-    text: '#b45309', bg: 'rgba(217,119,6,0.13)', border: 'rgba(217,119,6,0.45)',
-    activeBg: 'rgba(217,119,6,0.24)', activeBorder: '#d97706',
-  },
-  audit: {
-    text: '#6d28d9', bg: 'rgba(124,58,237,0.13)', border: 'rgba(124,58,237,0.45)',
-    activeBg: 'rgba(124,58,237,0.24)', activeBorder: '#7c3aed',
-  },
+}
+
+const TEXT_MIX = 100;
+const BG_MIX = 13;
+const BORDER_MIX = 45;
+const ACTIVE_BG_MIX = 24;
+
+function paletteOf(token: FormColorToken): FormPaletteEntry {
+  const color = `var(--ldvh-pj-${token})`;
+  return {
+    text: color,
+    bg: `color-mix(in oklab, ${color} ${BG_MIX}%, transparent)`,
+    border: `color-mix(in oklab, ${color} ${BORDER_MIX}%, transparent)`,
+    activeBg: `color-mix(in oklab, ${color} ${ACTIVE_BG_MIX}%, transparent)`,
+    activeBorder: color,
+  };
+}
+
+export const FORM_PALETTE: Record<ReportForm, FormPaletteEntry> = {
+  research: paletteOf('emerald'),
+  summary: paletteOf('amber'),
+  audit: paletteOf('violet'),
+  action: paletteOf('rose'),
+  reference: paletteOf('sky'),
 };
 
-export const FORM_ORDER: ReportForm[] = ['research', 'summary', 'audit'];
+export const FORM_ORDER: ReportForm[] = ['research', 'summary', 'audit', 'action', 'reference'];

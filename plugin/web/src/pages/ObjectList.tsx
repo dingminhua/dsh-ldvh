@@ -5,7 +5,7 @@ import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import ObjectStatusFilter from '@/components/ObjectStatusFilter';
 import ReportFormFilter from '@/components/ReportFormFilter';
-import { FORM_PALETTE, type ReportForm } from '@/utils/reportFormPalette';
+import { FORM_ORDER, FORM_PALETTE, type ReportForm } from '@/utils/reportFormPalette';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -487,8 +487,8 @@ export default function ObjectList() {
   const formParam = searchParams.get('form');
   const supportsFormNavigation = currentType === 'report';
   const activeForm: ReportForm | null = supportsFormNavigation
-    && (formParam === 'research' || formParam === 'summary' || formParam === 'audit')
-    ? formParam
+    && formParam !== null && (FORM_ORDER as readonly string[]).includes(formParam)
+    ? (formParam as ReportForm)
     : null;
   const priorityParam = searchParams.get('priority');
   const supportsPriorityNavigation = currentType === 'spark';

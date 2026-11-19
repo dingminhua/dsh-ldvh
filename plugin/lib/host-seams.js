@@ -2,6 +2,7 @@
 import { REVIEW_ASK_ANSWERS,
   REVIEW_ASK_PLACEHOLDER_TASK,
   REVIEW_ASK_POINTS,
+  REVIEW_ASK_TIMEOUT_OPTIONS,
   composeReviewAsk,
   findReviewAskDecision,
   recordReviewAskDecision,
@@ -116,7 +117,8 @@ export function createHostSeams() {
   function currentUserQuestions() {
     try {
       const service = questionContext?.get("userQuestions");
-      return typeof service?.ask === "function" ? service : null;
+      const usable = typeof service?.ask === "function" || typeof service?.askTimed === "function";
+      return usable ? service : null;
     } catch {
       return null;
     }
@@ -214,8 +216,10 @@ export function createHostSeams() {
 
   function installUserQuestions(ctx) {
     const userQuestions = ctx.get("userQuestions");
-    if (userQuestions === undefined || typeof userQuestions.ask !== "function") {
-      return { consumed: false, detail: "ctx.userQuestions.ask is unavailable in this composition" };
+    const usable = userQuestions !== undefined
+      && (typeof userQuestions.ask === "function" || typeof userQuestions.askTimed === "function");
+    if (!usable) {
+      return { consumed: false, detail: "ctx.userQuestions.ask / askTimed is unavailable in this composition" };
     }
     return { consumed: false, available: true, detail: "userQuestions service is available; actual use is tracked when a request is sent" };
   }
@@ -342,12 +346,17 @@ export function createHostSeams() {
     return { scope: parts.length === 0 ? undefined : parts.join("|"), sessionIdentified };
   }
 
-  async function requestReviewAsk({ point, task, enabled, agent, signal }) {
+  async function requestReviewAsk({ point, task, enabled, agent, signal, callId, timeoutEnabled, timeoutSeconds }) {
     if (enabled !== true) {
       return { decision: null, asked: false, reason: "the review-ask switch is off for this point — no prompt is issued (2026-11-13 Human decision: 打开才有)" };
     }
     const ask = seams.ask;
-    if (typeof ask !== "function") {
+    const timed = seams.askTimed;
+    const useTimed = timeoutEnabled === true
+      && typeof timed === "function"
+      && typeof callId === "string" && callId.length > 0
+      && REVIEW_ASK_TIMEOUT_OPTIONS.includes(timeoutSeconds);
+    if (!useTimed && typeof ask !== "function") {
       return { decision: null, asked: false, reason: "no human-answerer entry is available; the review-ask cannot be issued, so no decision is assumed" };
     }
     const scopeInfo = reviewAskScopeKey(agent);
@@ -377,24 +386,47 @@ export function createHostSeams() {
       }
     }
     const composed = composeReviewAsk({ point, task });
+    const request = {
+      questions: [{
+        id: REVIEW_ASK_QUESTION_ID,
+        header: point === REVIEW_ASK_POINTS.PRE_ACTION ? "审查" : "复核",
+        question: composed.question,
+        options: [
+          {
+            label: REVIEW_ASK_REVIEW_LABEL,
+            description: point === REVIEW_ASK_POINTS.PRE_ACTION
+              ? "派独立子代理先对这个方案挑错，结论回来后再动手"
+              : "派独立子代理逐条核对这次已做的工作，结论回来后再收口",
+          },
+          { label: REVIEW_ASK_SKIP_LABEL, description: "本次不做独立把关，主控自查仍在" }
+        ]
+      }],
+      ...(signal === undefined ? {} : { signal })
+    };
     try {
-      const answer = await ask({
-        questions: [{
-          id: REVIEW_ASK_QUESTION_ID,
-          header: point === REVIEW_ASK_POINTS.PRE_ACTION ? "审查" : "复核",
-          question: composed.question,
-          options: [
-            {
-              label: REVIEW_ASK_REVIEW_LABEL,
-              description: point === REVIEW_ASK_POINTS.PRE_ACTION
-                ? "派独立子代理先对这个方案挑错，结论回来后再动手"
-                : "派独立子代理逐条核对这次已做的工作，结论回来后再收口",
-            },
-            { label: REVIEW_ASK_SKIP_LABEL, description: "本次不做独立把关，主控自查仍在" }
-          ]
-        }],
-        ...(signal === undefined ? {} : { signal })
-      }, agent);
+      let answer;
+      let timedOut = false;
+      if (useTimed) {
+        const result = await timed(request, callId, timeoutSeconds * 1000, agent);
+        if (result !== null && typeof result === "object" && result.pending === true) {
+          timedOut = true;
+          answer = null;
+        } else {
+          answer = result;
+        }
+      } else {
+        answer = await ask(request, agent);
+      }
+      if (timedOut) {
+        return {
+          decision: null,
+          asked: true,
+          fingerprint,
+          timed_out: true,
+          timeout_seconds: timeoutSeconds,
+          reason: `倒计时 ${timeoutSeconds}s 到点未取得答复，按 specs/32 §3.4「未取得答复按既有路径继续」处理；未取得答复不是答复，不写入答复留痕，不记成 skip 或 review（specs/32 §9.1）。下次同内容仍会问。`,
+        };
+      }
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === REVIEW_ASK_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
@@ -426,6 +458,7 @@ export function createHostSeams() {
       return { decision: null, asked: true, fingerprint, reason: `review-ask request failed: ${String(error?.message ?? error)}` };
     }
   }
+
 
   async function requestResearchConsult({ need, scope, keywords, internalGap, agent, signal } = {}) {
     const ask = seams.ask;
@@ -514,13 +547,35 @@ export function createHostSeams() {
     consumed,
     get ask() {
       const service = currentUserQuestions();
-      if (service === null) return null;
+      if (service === null || typeof service.ask !== "function") return null;
       return (request, agent) => {
         const textCheck = validateAskText(request);
         if (!textCheck.ok) {
           throw new Error(`LDVH ask-text guard (service seam) refused the request: ${textCheck.reason}`);
         }
         const result = service.ask(agent === undefined ? request : { ...request, agent });
+        try {
+          const identity = questionServiceIdentity(service);
+          usedQuestionService = identity === null ? null : new WeakRef(identity);
+        } catch {
+          usedQuestionService = null;
+        }
+        return result;
+      };
+    },
+    get askTimed() {
+      const service = currentUserQuestions();
+      if (service === null || typeof service.askTimed !== "function") return null;
+      return (request, callId, timeoutMs, agent) => {
+        const textCheck = validateAskText(request);
+        if (!textCheck.ok) {
+          throw new Error(`LDVH ask-text guard (timed service seam) refused the request: ${textCheck.reason}`);
+        }
+        const result = service.askTimed(
+          { ...request, ...(agent === undefined ? {} : { agent }) },
+          callId,
+          timeoutMs,
+        );
         try {
           const identity = questionServiceIdentity(service);
           usedQuestionService = identity === null ? null : new WeakRef(identity);

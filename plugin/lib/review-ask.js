@@ -83,11 +83,21 @@ function readSwitchValue(value) {
   return raw === true;
 }
 
+export const REVIEW_ASK_TIMEOUT_OPTIONS = Object.freeze([10, 30, 60]);
+export const REVIEW_ASK_TIMEOUT_DEFAULT = 30;
+
+function readTimeoutSeconds(value) {
+  const raw = value !== null && typeof value === "object" && typeof value.get === "function" ? value.get() : value;
+  const num = typeof raw === "string" ? Number(raw) : raw;
+  return REVIEW_ASK_TIMEOUT_OPTIONS.includes(num) ? num : REVIEW_ASK_TIMEOUT_DEFAULT;
+}
+
 export function resolveReviewAskSettings(config) {
   const pre = readSwitchValue(config?.preActionReviewAskEnabled);
   const post = readSwitchValue(config?.postWorkReviewAskEnabled);
   const consult = readSwitchValue(config?.researchConsultAskEnabled);
   const silent = readSwitchValue(config?.reviewAskSilentRunEnabled);
+  const timeoutEnabled = readSwitchValue(config?.reviewAskTimeoutEnabled);
   return {
     preAction: pre === true,
     postWork: post === true,
@@ -97,6 +107,8 @@ export function resolveReviewAskSettings(config) {
     researchConsultKnown: consult !== undefined,
     silentRun: silent === true,
     silentRunKnown: silent !== undefined,
+    timeoutEnabled: timeoutEnabled === true,
+    timeoutSeconds: readTimeoutSeconds(config?.reviewAskTimeoutSeconds),
   };
 }
 

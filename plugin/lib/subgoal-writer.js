@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
 import { readGoalObject } from "./goal-writer.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -211,10 +211,6 @@ async function atomicWriteFile(filePath, content) {
     throw new Error("atomic write verification failed: written content does not match");
   }
   await rename(tmp, filePath);
-}
-
-function assertValidUid(objectUid) {
-  return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
 }
 
 function assembleBody(title, bodyMarkdown) {
@@ -446,7 +442,7 @@ export async function createSubGoalObject(args) {
 }
 
 
-async function resolveSubGoalObjectUid(factSourceRoot, input, currentProjectId = null) {
+export async function resolveSubGoalObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("subgoal/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
@@ -505,16 +501,15 @@ export async function readSubGoalObject(args) {
 
 
 export async function updateSubGoalObject(args) {
-  const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null } = args;
+  const { factSourceRoot, objectUid: objectUidInput, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null, currentProjectId = null } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
-  if (!assertValidUid(objectUid)) {
-    const hint = uidRejectionHint(objectUid);
-    return failure("subgoal/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}${hint.messageSuffix}`, hint.details);
-  }
+  const uidResolution = await resolveSubGoalObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("subgoal/change_summary_required", "changeSummary is required for update (02 §10.5: exactly one change_log entry per actual modification)");
   }

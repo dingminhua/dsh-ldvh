@@ -119,6 +119,6 @@ export function uidRejectionHint(rawInput) {
   }
   return {
     details: {},
-    messageSuffix: ` — "${shortId}" is a short identifier; the write path requires the FULL canonical UUIDv4 — read the object first and pass its object_uid`,
+    messageSuffix: ` — "${shortId}" is a short identifier; read the object first and pass its canonical object_uid from the precise-read result`,
   };
 }

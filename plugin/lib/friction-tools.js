@@ -4,6 +4,7 @@ import {
   readFrictionObject,
   updateFrictionObject,
   correctFrictionObject,
+  resolveFrictionObjectUid,
   listFrictionObjects,
   normalizeAttributionRef,
   FRICTION_REMOVABLE_FIELDS,
@@ -258,9 +259,15 @@ async function executeWriteObject(args, exec, deps) {
   }
 
   if (action === "correct") {
-    if (typeof args?.object_uid !== "string" || args.object_uid.length === 0) {
+    const objectUidInput = args?.object_uid;
+    if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
       return invalidRequest("friction-write-object", "object_uid is required for action=correct", "correct");
     }
+    const uidResolution = await resolveFrictionObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+    if (!uidResolution.ok) {
+      return writeRejected("friction-write-object", uidResolution, factSourceRoot);
+    }
+    const objectUid = uidResolution.objectUid;
     if (typeof args?.expected_fingerprint !== "string" || args.expected_fingerprint.length === 0) {
       return invalidRequest("friction-write-object", "expected_fingerprint is required for action=correct (CAS baseline — from your last precise read)", "correct");
     }
@@ -276,7 +283,7 @@ async function executeWriteObject(args, exec, deps) {
     }
     const corrected = await correctFrictionObject({
       factSourceRoot,
-      objectUid: args.object_uid,
+      objectUid,
       expectedFingerprint: args.expected_fingerprint,
       relationsAfter: Array.isArray(args?.relations_after) ? args.relations_after : null,
       frontmatterRemovals: Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : [],
@@ -292,14 +299,15 @@ async function executeWriteObject(args, exec, deps) {
           });
         });
       },
+      currentProjectId: governed.project.id,
     });
     if (!corrected.ok) {
       return writeRejected("friction-write-object", corrected, factSourceRoot);
     }
-    const back = await readFrictionObject({ factSourceRoot, objectUid: args.object_uid });
+    const back = await readFrictionObject({ factSourceRoot, objectUid });
     if (!back.ok || back.value.fingerprint !== corrected.value.fingerprint) {
       return envelope("friction-write-object", "partial", {
-        result: { object_uid: args.object_uid, fingerprint: corrected.value.fingerprint, read_back: "failed" },
+        result: { object_uid: objectUid, fingerprint: corrected.value.fingerprint, read_back: "failed" },
         scope: { requested: "correct", completed: ["correct"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
         sources: [{ kind: "fact-object", path: join(factSourceRoot, "frictions") }],
         gaps: [`corrected but read-back failed: ${back.ok ? "fingerprint mismatch" : back.error.message}`],
@@ -310,10 +318,10 @@ async function executeWriteObject(args, exec, deps) {
     return envelope("friction-write-object", "completed", {
       result: {
         action: "correct",
-        object_uid: args.object_uid,
+        object_uid: objectUid,
         fingerprint: corrected.value.fingerprint,
         read_back: { ok: true, fingerprint: back.value.fingerprint, body_valid: back.value.body_valid },
-        changes: [{ object_uid: args.object_uid, change: "corrected", summary: args.change_summary }]
+        changes: [{ object_uid: objectUid, change: "corrected", summary: args.change_summary }]
       },
       scope: { requested: "correct", completed: ["correct", "read-back"], not_completed: [] },
       sources: [{ kind: "fact-object", path: back.value.file, content_fingerprint: corrected.value.fingerprint }],
@@ -323,15 +331,20 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  const objectUid = args?.object_uid;
+  const objectUidInput = args?.object_uid;
+  if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+    return invalidRequest("friction-write-object", "object_uid is required for action=update", "update");
+  }
+  const uidResolution = await resolveFrictionObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+  if (!uidResolution.ok) {
+    return writeRejected("friction-write-object", uidResolution, factSourceRoot);
+  }
+  const objectUid = uidResolution.objectUid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
-  if (typeof objectUid !== "string" || objectUid.length === 0) {
-    return invalidRequest("friction-write-object", "object_uid is required for action=update", "update");
-  }
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("friction-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
@@ -361,6 +374,7 @@ async function executeWriteObject(args, exec, deps) {
         });
       });
     },
+    currentProjectId: governed.project.id,
   });
   if (!updated.ok) {
     return writeRejected("friction-write-object", updated, factSourceRoot);
@@ -517,7 +531,7 @@ function parameterSchemaFor(operationKey) {
           action: { type: "string", enum: ["create", "update", "correct"] },
           frontmatter_draft: frictionFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 现象' (H2 sections 现象/入账依据, plus 处置 iff status resolved/voided; the H1 is generated from title)" },
-          object_uid: { type: "string", description: "update/correct: target object" },
+          object_uid: { type: "string", description: "update/correct target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
           expected_fingerprint: { type: "string", description: "update/correct: CAS baseline fingerprint from your last precise read" },
           frontmatter_after: (() => { const { required: _r, ...rest } = frictionFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
           body_markdown_after: { type: "string", description: "update/correct: the complete target body markdown (same shape as body_markdown)" },
@@ -768,3 +782,5 @@ export function registerFrictionChildSurface(ctx, deps) {
     try { dispose(); } catch {   }
   };
 }
+
+export { RECORD_OBSERVATION_OPERATION };

@@ -212,11 +212,26 @@ test("读取入口：类型前缀与实际类型不符时给出 type_prefix_mism
 });
 
 
-test("其余六个 writer 的写路径仍各自持有 canonical-only 门", () => {
+test("六个 writer 的 update 入口复用统一 uid 解析，不再各自持有 canonical-only 门", () => {
   const writers = ["friction", "norm", "pitfall", "report", "spark", "subgoal"];
+  const exportedResolver = {
+    friction: "resolveFrictionObjectUid",
+    norm: "resolveNormObjectUid",
+    pitfall: "resolvePitfallObjectUid",
+    report: "resolveResearchObjectUid",
+    spark: "resolveSparkObjectUid",
+    subgoal: "resolveSubGoalObjectUid",
+  };
   for (const type of writers) {
     const source = readFileSync(new URL(`../lib/${type}-writer.js`, import.meta.url), "utf8");
-    const uses = source.split("assertValidUid(").length - 1;
-    assert.ok(uses >= 2, `${type}-writer 应至少有「定义 + 一处写路径调用」两处 assertValidUid，实际 ${uses}`);
+    const resolver = exportedResolver[type];
+    assert.match(source, new RegExp(`export async function ${resolver}\\(`), `${type}-writer 应导出 ${resolver} 供写入口复用`);
+    const uidResolutions = source.split("uidResolution = await " + resolver + "(").length - 1;
+    assert.ok(uidResolutions >= 2, `${type}-writer 应在 read 与 update 两处入口调用 ${resolver}，实际 ${uidResolutions}`);
+    const updateStart = source.indexOf("export async function update");
+    const updateBody = source.slice(updateStart);
+    assert.equal(updateBody.includes("assertValidUid(objectUid)"), false, `${type}-writer 的 update 入口不应再有 canonical-only 门`);
+    const codePrefix = type === "report" ? "research" : type;
+    assert.match(source, new RegExp(`"${codePrefix}/invalid_uid"`), `${type}-writer 应保持 ${codePrefix}/invalid_uid 错误码形态`);
   }
 });

@@ -237,6 +237,32 @@ function governedHandlers(home, base) {
   return unwrapped;
 }
 
+test("reference form: tool create succeeds with internal anchor; sufficient is rejected end-to-end", async () => {
+  await withTemp("ldvh-rt.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const handlers = governedHandlers(home, base);
+    const body = [
+      "## 参考内容", "据称 X 支持 Y。",
+      "## 出处与来源", "来源：commit（0123456789abcdef0123456789abcdef01234567）",
+      "## 记录理由", "备查。",
+      "## 未验证与疑点", "未核实。",
+      "## 后续核验方向", "待核。",
+    ].join("\n\n");
+    const draft = { title: "参考报告工具测试", report_form: "reference", stopping_reason: "no-gain", uncertain: [{ issue: "未验证", reason: "测试" }], change_summary: "测试" };
+
+    const ok = await handlers["ldvh_report_write"].execute(
+      { action: "create", frontmatter_draft: draft, analysis_body: body }, exec(repo)
+    );
+    assert.equal(ok.outcome, "completed", JSON.stringify(ok));
+    assert.ok(ok.result.read_back.ok);
+
+    const bad = await handlers["ldvh_report_write"].execute(
+      { action: "create", frontmatter_draft: { ...draft, stopping_reason: "sufficient" }, analysis_body: body }, exec(repo)
+    );
+    assert.equal(bad.outcome, "rejected", JSON.stringify(bad));
+  });
+});
+
 test("write/read round-trip through the tool surface, with read-back", async () => {
   await withTemp("ldvh-rt.", async (base) => {
     const { home, repo } = await governedFixture(base);

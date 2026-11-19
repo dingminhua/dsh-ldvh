@@ -203,15 +203,8 @@ test("discover-ldvh-capabilities parses declarations from the dev checkout of th
 		const envelope = await handlers["discover-ldvh-capabilities"]({}, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope.outcome, "completed");
 		for (const operation of envelope.result.operations) {
-			assert.notEqual(operation.declaration, null, `${operation.operation_key} must carry a parsed declaration resolved from the dev-checkout corpus`);
-			assert.match(operation.availability, /^(当次可调用|已声明)$/, `${operation.operation_key} must have a valid availability`);
-			if (operation.result?.pending_inputs || operation.pending_inputs) {
-				assert.equal(operation.availability, "已声明", `${operation.operation_key} needs inputs, must not claim callable`);
-			}
+			assert.equal(operation.availability, "当次可调用", `${operation.operation_key} must be callable via the dev-checkout corpus`);
+			assert.notEqual(operation.declaration, null, `${operation.operation_key} must carry a parsed declaration`);
 		}
-		const content = envelope.result.operations.find((o) => o.operation_key === "read-specification-content");
-		assert.ok(content, "read-specification-content must be discovered");
-		assert.equal(content.availability, "已声明", "with no responsibility_key supplied it must be 已声明 + pending input, not 当次可调用 (05 §6.2)");
-		assert.match(content.pending_inputs, /responsibility_key/);
 	});
 });

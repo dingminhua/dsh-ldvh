@@ -199,22 +199,12 @@ Enforcement：goal.md 缺失时授权无法受理（授权无锚可引，架构�
 
 ### 公开操作声明（05 §6.1 形状）
 
-| operation_key | summary | effect | arguments_contract | result_contract | required_inputs |
-|---|---|---|---|---|---|
-| `goal-read-object` | 按 object_uid 精确读取一个 Goal 事实对象的身份块、正文与文件指纹 | `read` | `goal-fact-type::13. 受控操作/公开操作的输入与结果契约` | `goal-fact-type::13. 受控操作/公开操作的输入与结果契约` | 无 |
-| `goal-write-object` | 对 Goal 事实对象执行受控创建与 CAS 更新（含 change_log 与写后回读） | `may_change_state` | `goal-fact-type::13. 受控操作/公开操作的输入与结果契约` | `goal-fact-type::13. 受控操作/公开操作的输入与结果契约` | action、expected_fingerprint、frontmatter_after、body_markdown_after |
+| operation_key | summary | effect | arguments_contract | result_contract |
+|---|---|---|---|---|
+| `goal-read-object` | 按 object_uid 精确读取一个 Goal 事实对象的身份块、正文与文件指纹 | `read` | `goal-fact-type::13. 受控操作` | `goal-fact-type::15. 验证与证据边界` |
+| `goal-write-object` | 对 Goal 事实对象执行受控创建与 CAS 更新（含 change_log 与写后回读） | `may_change_state` | `goal-fact-type::13. 受控操作` | `goal-fact-type::15. 验证与证据边界` |
 
-声明的输入章节与结果章节为本规范「受控操作」节下的「公开操作的输入与结果契约」；本节不重复字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
-
-### 公开操作的输入与结果契约
-
-本节的输入与结果契约逐项对应上方声明表的每个公开操作，使 `arguments_contract` 与 `result_contract` 的锚点落到实际承载该契约的正文（05 §6.1）。「必填输入」列给出该操作的必填入参类别；「结果」列给出该操作成功后返回的内容类别。两列只描述契约形态，不构成授权、适用或完成的证明。
-
-| operation_key | 必填输入 | 结果 |
-|---|---|---|
-| `goal-read-object` | 无 | 读回的身份块、正文、指纹与机械问题清单 |
-| `goal-write-object` | action、expected_fingerprint、frontmatter_after、body_markdown_after | 受控写入结果与写后精确回读 |
-
+声明的输入章节与结果章节为本规范自身的「13. 受控操作」与「15. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
 ## 14. 类型特有验证与类型退出（02 §12.1 第 10 项）
 
 ### 14.1 类型特有验证

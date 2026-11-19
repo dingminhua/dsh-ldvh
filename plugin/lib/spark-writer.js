@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { listResolvableSubGoals, resolveSubGoal } from "./subgoal-writer.js";
@@ -495,10 +495,6 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-function assertValidUid(objectUid) {
-  return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
-}
-
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
@@ -686,7 +682,7 @@ export async function createSparkObject(args) {
 }
 
 
-async function resolveSparkObjectUid(factSourceRoot, input, currentProjectId = null) {
+export async function resolveSparkObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("spark/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
@@ -897,9 +893,9 @@ export async function listSparkObjects(args) {
 
 export async function updateSparkObject(args) {
   const {
-    factSourceRoot, objectUid, expectedFingerprint,
+    factSourceRoot, objectUid: objectUidInput, expectedFingerprint,
     frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null,
-    dryRun = false,
+    dryRun = false, currentProjectId = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
@@ -907,10 +903,9 @@ export async function updateSparkObject(args) {
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("spark/change_summary_required", "changeSummary is required for update");
   }
-  if (!assertValidUid(objectUid)) {
-    const hint = uidRejectionHint(objectUid);
-    return failure("spark/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
-  }
+  const uidResolution = await resolveSparkObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter is required (the complete target body starting with '## 当前理解')");
   }

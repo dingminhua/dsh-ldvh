@@ -3,6 +3,7 @@ import {
   createNormObject,
   readNormObject,
   updateNormObject,
+  resolveNormObjectUid,
   listNormObjects,
   ERR_DIRECTION_ALREADY_EXISTS,
   validateNormFrontmatter,
@@ -417,15 +418,20 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  const objectUid = args?.object_uid;
+  const objectUidInput = args?.object_uid;
+  if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+    return invalidRequest("norm-write-object", "object_uid is required for action=update", "update");
+  }
+  const uidResolution = await resolveNormObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+  if (!uidResolution.ok) {
+    return writeRejected("norm-write-object", uidResolution, factSourceRoot, "update");
+  }
+  const objectUid = uidResolution.objectUid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
-  if (typeof objectUid !== "string" || objectUid.length === 0) {
-    return invalidRequest("norm-write-object", "object_uid is required for action=update", "update");
-  }
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("norm-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
@@ -475,6 +481,7 @@ async function executeWriteObject(args, exec, deps) {
     bodyMarkdownAfter,
     changeSummary,
     sessionSignature: sig.value,
+    currentProjectId: governed.project.id,
   });
   if (!updated.ok) {
     return writeRejected("norm-write-object", updated, factSourceRoot, "update");
@@ -652,7 +659,7 @@ function parameterSchemaFor(operationKey) {
       action: { type: "string", enum: ["create", "update"], description: "create: new Norm in status=active (Human decision required, 23 §15); update: CAS write against an existing object" },
       frontmatter_draft: normFrontmatter,
       body_markdown: { type: "string", description: "create: the body markdown starting with '## 方向定位与适用范围' (H2 sections 方向定位与适用范围/核心规则体系/约束与反模式/验证与遵从性检查, all four required and non-empty; the H1 is generated from title)" },
-      object_uid: { type: "string", description: "update: target object" },
+      object_uid: { type: "string", description: "update target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
       expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
       frontmatter_after: normFrontmatterAfter,
       frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },

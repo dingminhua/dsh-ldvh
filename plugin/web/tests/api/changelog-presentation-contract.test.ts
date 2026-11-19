@@ -85,7 +85,11 @@ test('breaking and push-state badges use one presentation in list and detail ide
   assert.match(badge, /t\('changelog\.breakingChange'\)/);
   assert.match(list, /entry\.isBreaking && \(\s*<CommitBreakingBadge \/>/);
   assert.match(list, /getOptionColor=\{\(value\) => CATEGORY_COLORS\[value\] \|\| CATEGORY_COLORS\.other\}/);
-  assert.match(list, /style=\{getOptionColor \? \{ color: getOptionColor\(option\) \} : undefined\}/);
+  assert.match(list, /style=\{tintedStyle\}/);
+  assert.match(list, /backgroundColor: active \? `\$\{color\}30` : `\$\{color\}18`/);
+  assert.match(list, /borderColor: active \? `\$\{color\}99` : `\$\{color\}55`/);
+  assert.match(list, /getOptionCount && <span className="ldvh-tab-count">\{getOptionCount\(option\)\}<\/span>/);
+  assert.match(list, /allCount=\{entries\.length\}/);
   assert.match(list, /style=\{\{ backgroundColor: `\$\{typeColor\}18`, borderColor: `\$\{typeColor\}55`, color: typeColor \}\}/);
   assert.match(list, /<ObjectUpdatedMeta source=\{\{\}\} updatedAt=\{entry\.date\} signature=\{entry\.signature\} \/>/);
   assert.match(panel, /entry\?\.isBreaking && \(\s*<CommitBreakingBadge \/>/);

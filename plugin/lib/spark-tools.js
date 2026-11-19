@@ -6,6 +6,7 @@ import {
   readSparkObject,
   updateSparkObject,
   listSparkObjects,
+  resolveSparkObjectUid,
   resolveRefsTargets,
   SPARK_DIRECTORY,
   SPARK_REMOVABLE_FIELDS,
@@ -478,15 +479,20 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  const objectUid = args?.object_uid;
+  const objectUidInput = args?.object_uid;
+  if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+    return invalidRequest("spark-write-object", "object_uid is required for action=update", "update");
+  }
+  const uidResolution = await resolveSparkObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+  if (!uidResolution.ok) {
+    return writeRejected("spark-write-object", uidResolution, factSourceRoot);
+  }
+  const objectUid = uidResolution.objectUid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
-  if (typeof objectUid !== "string" || objectUid.length === 0) {
-    return invalidRequest("spark-write-object", "object_uid is required for action=update", "update");
-  }
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("spark-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
@@ -525,6 +531,7 @@ async function executeWriteObject(args, exec, deps) {
       changeSummary,
       sessionSignature: sig.ok ? sig.value : null,
       dryRun: true,
+      currentProjectId: governed.project.id,
     });
     if (!updateDry.ok) {
       return writeRejected("spark-write-object", updateDry, factSourceRoot);
@@ -556,6 +563,7 @@ async function executeWriteObject(args, exec, deps) {
     bodyMarkdownAfter,
     changeSummary,
     sessionSignature: sig.ok ? sig.value : null,
+    currentProjectId: governed.project.id,
   });
   if (!updated.ok) {
     return writeRejected("spark-write-object", updated, factSourceRoot);
@@ -754,7 +762,7 @@ function parameterSchemaFor(operationKey) {
           dedup_result: { type: "string", description: "create (required): the semantic dedup conclusion against existing open and terminal Sparks (20 §6.2/§17.7 — 03 §8.2 forbids a mechanical similarity verdict, so the conclusion stays with you, but it is required and is presented to the Human at the 20 §16 Gate). An unrecorded dedup is a Stop Condition." },
           frontmatter_draft: sparkFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 当前理解' (H2 sections 当前理解/调查问题/调查边界, plus 演变 iff evolution non-empty; the H1 is generated from title)" },
-          object_uid: { type: "string", description: "update: target object" },
+          object_uid: { type: "string", description: "update target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
           expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
           frontmatter_after: (() => { const { required: _r, ...rest } = sparkFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
           frontmatter_removals: { type: "array", description: `update: explicit deletion declarations (specs/02 §10.5: 未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-list (SPARK_REMOVABLE_FIELDS for update: ${[...SPARK_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...SPARK_REMOVABLE_FIELDS] } },

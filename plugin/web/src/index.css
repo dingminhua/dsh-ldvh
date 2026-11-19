@@ -243,6 +243,187 @@
 
 }
 
+/* ── 帮助页版式（2026-11-19 重构：由「卡片地毯」改为「一章一张纸」）──────────
+   本块**只写排布与线**：字号、字重、字色一律取 §1.4 的语义角色（.ldvh-body、
+   .ldvh-caption-strong…），这里不出现任何 font-size / color，故不构成第五套
+   排版。五个构件的分工：
+
+   · .ldvh-help-column —— 一条文档列：章节内容与页头共用同一个右缘。手册的
+                          读法是「一列往下读」，铺满 1210px 的正文每行五十余
+                          汉字，眼睛要来回扫；收在 52rem 里，行宽落在 40 字上下。
+   · .ldvh-help-sheet  —— 一张「纸」：章节里同一类东西的容器，最多两张。
+   · .ldvh-help-entry  —— 纸上的一行账：行与行之间只有一条发丝线，没有框。
+   · .ldvh-help-fields —— 行内的「标签栏 + 值」两列：标签栏宽度固定，于是
+                          七行账的标签竖成一条竖线，可以跨条目往下扫。
+   · .ldvh-help-stage  —— 并列的一格：只给一条上边线，不分框（两条起点用它
+                          区分「这是并列的一格」而不是「一张卡」）。
+   主线五段不走网格，直接复用 .ldvh-help-entry——见该条之下的说明。
+
+   窄容器下标签栏折到值上方（容器查询，非视口断点；§1.6.1 第 3 条）。     */
+.ldvh-help-column {
+  width: 100%;
+  max-width: 52rem;
+  margin-inline: auto;
+}
+
+
+.ldvh-help-sheet {
+  overflow: hidden;
+  /* 纸的边要比纸内的行线重一档：页面底色 248/249/251 与白面只差七点，
+     若边还用 --ldvh-border（229/231/235），纸根本就没有轮廓，「纸」退成
+     一片白雾。0.28 的次级灰落在 196 上下，才看得出这是一块独立的底面。
+     浅投影只补 1px 的托起感，不做浮雕（本仓既有写法规格：shadow-sm + black/5）。 */
+  border: 1px solid rgb(var(--ldvh-text-secondary) / 0.28);
+  border-radius: 0.75rem;
+  background: rgb(var(--ldvh-panel));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  /* 纸也是容器：窄处对照表要整行收掉表头（三列已折成一列，表头只会变成
+     三行互不相干的标签）。行内标签栏查的是最近的容器 .ldvh-help-entry，
+     不受这一层影响。 */
+  container-type: inline-size;
+}
+
+.ldvh-help-entry {
+  padding: 0.875rem 1rem;
+  /* 容器查询的「容器」必须是祖先：把 inline-size 挂在行上，行内的标签栏才
+     能按**这一行**的宽度决定折不折——挂在 .ldvh-help-fields 自己身上的话，
+     它查的是自己的祖先，永远查不出结果（第一版就是这么错的）。 */
+  container-type: inline-size;
+}
+
+.ldvh-help-entry:not(:first-child) {
+  border-top: 1px solid rgb(var(--ldvh-border) / 0.75);
+}
+
+.ldvh-help-fields {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  column-gap: 1rem;
+  row-gap: 0.375rem;
+  margin-top: 0.625rem;
+}
+
+.ldvh-help-fields > dt,
+.ldvh-help-fields > dd {
+  min-width: 0;
+}
+
+@container (max-width: 27rem) {
+  .ldvh-help-fields {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.0625rem;
+  }
+
+  .ldvh-help-fields > dd + dt {
+    margin-top: 0.5rem;
+  }
+
+  /* 三列折成一列后表头失去列，只剩三个不知道在标什么的标签 */
+  .ldvh-help-compare-head {
+    display: none;
+  }
+}
+
+/* 边界行（它不保证什么）：沿用同一套标签栏，只多加一条上边线并退半步成
+   脚注——它若另起一套「标签在上、值在下」的排布，读起来就像另一张表。 */
+.ldvh-help-limit {
+  margin-top: 0.75rem;
+  padding-top: 0.6875rem;
+  border-top: 1px solid rgb(var(--ldvh-border) / 0.75);
+}
+
+/* 线分两档：纸外的一条要比纸内的行线重——248/249/251 的页底上，--ldvh-border
+   （229/231/235）画出来几乎看不见，等于没画；纸内的行线可以更淡，因为纸自己
+   已经有边了。 */
+.ldvh-help-stage {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgb(var(--ldvh-text-secondary) / 0.3);
+}
+
+/* 主线的五行直接复用「纸上的一行账」（.ldvh-help-entry）：五段排进网格会折成
+   2+2+1，末段悬在左半边，读起来是「表格」而不是「往下读」；而它们之间没有
+   来源已成立的先后序号（01 §1.5 第 12 条），所以也不排成流水线、不给编号。 */
+
+/* 开篇带：章首一块淡强调底，把「从这里开始读」画出来。它是全页唯一染色的
+   大块（对照表的结论列是窄条），一章一块，页面的节奏由它分段。 */
+.ldvh-help-opener {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  background: rgb(var(--ldvh-accent) / 0.07);
+  padding: 1.125rem 1.25rem;
+}
+
+/* 章末出口：一条线 + 「下一章」 */
+.ldvh-help-chapter-foot {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 2.5rem;
+  border-top: 1px solid rgb(var(--ldvh-text-secondary) / 0.3);
+  padding-top: 0.875rem;
+}
+
+/* 声明条：页头下的眉注，**不套框**。套了框它就是首屏唯一有边的东西，
+   读者的第一眼会落在一句免责声明上——而这一屏该被先看到的是章节标题。
+   现在只留一条上边线把它和页面说明分开，文字回到正文档。 */
+.ldvh-help-scope {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.625rem;
+  border-top: 1px solid rgb(var(--ldvh-text-secondary) / 0.3);
+  padding-top: 0.625rem;
+}
+
+/* 分区切换区：窄容器不折成三行（七个分区折行会把首屏吃掉），改为横向滚动；
+   溢出处停着半枚按钮，读者看得出后面还有。 */
+.ldvh-help-index {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.ldvh-help-index::-webkit-scrollbar {
+  display: none;
+}
+
+.ldvh-help-index > .ldvh-tab-list {
+  width: max-content;
+  flex-wrap: nowrap;
+}
+
+/* 阶梯的层标记：实心 / 空心 / 虚线，形状先分级，颜色再补语义（不只靠色相） */
+.ldvh-help-mark {
+  height: 10px;
+  width: 10px;
+  border-radius: 2px;
+}
+
+/* 提示条：一块**灰底小卡**，不是「一条线 + 一段正文」。
+   此前它只有一条上边线，读完和正文分不开——读者会把「切换器里没有？」当成
+   上一步的续句。给它一个底面，它就成了页面上的第三种质地（正文 / 纸 / 灰卡），
+   眼睛有地方停。它不用强调色：强调色是「结论」和「章首」的，提示是旁注。 */
+.ldvh-help-note {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.625rem;
+  margin-top: 0.875rem;
+  border-radius: 0.5rem;
+  background: rgb(var(--ldvh-border) / 0.5);
+  padding: 0.6875rem 0.8125rem;
+}
+
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   line-height: 1.5;

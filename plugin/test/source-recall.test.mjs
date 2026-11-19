@@ -191,7 +191,11 @@ test("recallForAction：返回 specs 与 facts，且不声称适用（34 §13）
 
 test("recallForAction：经验（Pitfall）能被召回到", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	const r = await recallForAction({ action: "验证手段在骗我，校验假定与语义不对应", root: ROOT });
+	const r = await recallForAction({
+		action: "验证手段在骗我，校验假定与语义不对应",
+		root: ROOT,
+		excludeTypes: INJECTION_EXCLUDED_TYPES,
+	});
 	const pitfallHits = r.facts.filter((f) => f.type === "pitfall");
 	assert.ok(pitfallHits.length > 0, `经验应被召回到，实际 facts=${r.facts.length}`);
 });

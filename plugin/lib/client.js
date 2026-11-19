@@ -37,6 +37,16 @@ window.__ModuleLoader__.load({
 
     var SETTINGS_CSS =
       ".ldv-settings{--ldv-ink:var(--dsw-alias-label-primary,currentColor);--ldv-body:var(--dsw-alias-label-secondary,currentColor);--ldv-meta:var(--dsw-alias-label-tertiary,currentColor);--ldv-accent:var(--dsw-alias-state-business-primary,#4176e6);--ldv-silent:var(--dsw-alias-state-warning-primary,#f59e0b);--ldv-hair:color-mix(in srgb,var(--ldv-ink) 8%,transparent);display:flex;flex-direction:column;gap:16px;margin:0;padding:0 0 4px;color:var(--ldv-ink);container-type:inline-size;container-name:ldv-settings}" +
+      ".ldv-intro{position:relative;display:flex;align-items:flex-start;gap:12px;padding:2px 2px 15px}" +
+      ".ldv-intro:after{content:'';position:absolute;left:2px;right:2px;bottom:0;height:1px;background:var(--ldv-hair)}" +
+      ".ldv-intro-icon{width:32px;height:32px;flex:none;border-radius:8px;display:block;box-shadow:0 0 0 1px color-mix(in srgb,var(--ldv-ink) 10%,transparent)}" +
+      ".ldv-intro-body{display:flex;flex-direction:column;gap:3px;min-width:0}" +
+      ".ldv-intro-title-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}" +
+      ".ldv-intro-title{font-size:18px;font-weight:600;line-height:24px;letter-spacing:.01em;color:var(--ldv-ink)}" +
+      ".ldv-intro-badge{font-size:11px;font-weight:600;line-height:16px;padding:1px 8px;border-radius:999px;color:color-mix(in srgb,var(--ldv-accent) 62%,var(--ldv-ink));background:color-mix(in srgb,var(--ldv-accent) 12%,transparent);white-space:nowrap}" +
+      ".ldv-intro-values{display:flex;flex-direction:column;gap:4px;margin-top:7px}" +
+      ".ldv-intro-value{font-size:12px;font-weight:400;line-height:19px;color:var(--ldv-body);text-wrap:pretty}" +
+      ".ldv-intro-value strong{font-weight:600;color:var(--ldv-ink)}" +
       ".ldv-block{position:relative;display:flex;flex-direction:column;min-width:0;padding:0;border:1px solid color-mix(in srgb,var(--ldv-ink) 7%,transparent);border-radius:12px;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,currentColor 4%,transparent));box-shadow:none;overflow:hidden}" +
       ".ldv-block-head{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:9px;padding:15px 16px 13px;background:transparent}" +
       ".ldv-block-head:after{content:'';position:absolute;left:16px;right:16px;bottom:0;height:1px;background:var(--ldv-hair)}" +
@@ -238,6 +248,10 @@ window.__ModuleLoader__.load({
     }
     var LDVH_ZH = {
       "row.title": "LDVH",
+      "intro.title": "LD Vibe Harness（LDVH）",
+      "intro.badge": "AI 治理框架",
+      "intro.valueVibe": "**对齐 Vibe**：让人与 AI 对项目的由来、现状、去向形成一致的认识。",
+      "intro.valueCoding": "**协调 Coding**：借助宿主调度资源，明晰权责、记录火花、确立规范、构建报告、积累经验、发现摩擦，让项目进展更稳定、执行更顺利。",
       "row.governanceLocation": "管辖项目配置",
       "row.governanceLocationHint": "由 LDVH 自动保存在 DSH 用户配置目录下的 ldvh/governed-projects.yaml。",
       "row.projectsPanelTitle": "管辖项目",
@@ -246,7 +260,7 @@ window.__ModuleLoader__.load({
       "group.budget": "召回预算",
       "row.addProject": "新增管辖项目",
       "row.addProjectTitle": "新增管辖项目",
-      "row.addProjectHint": "选择或手动输入一个 Git 仓库根目录（绝对路径），安装会同时完成登记、初始化 ldvh-base/ 并安装 Git Hook。",
+      "row.addProjectHint": "选 Git 仓库根目录或输入绝对路径，安装即完成登记与 Hook。",
       "row.cancelAdd": "取消",
       "row.projectsEmptyTitle": "还没有管辖项目",
       "row.projectsEmptyText": "新增后，LDVH 才会在该项目中启用事实源与 Git Gate。",
@@ -277,24 +291,26 @@ window.__ModuleLoader__.load({
       "row.colorAuto": "自动取色",
       "row.mountConversationTab": "加入到对话 Tab",
       "row.mountSidebarTab": "加入到侧边栏",
-      "row.mountHint": "保存后刷新页面生效；两项可分别关闭，关掉哪一项，对应位置就不再出现 LDVH 入口。",
-      "row.idleAssistHint": "主控在干活时发现值得记的事，就把上下文交给代理去处理，主控只转发、不亲自整理。两项分别管「积累经验」与「发现摩擦」，关掉哪个就不再自动记哪一类。",
+      "row.idleAssistHint": "发现值得记的事就交给代理处理，主控只转发。两项分别管积累经验与发现摩擦。",
       "row.reviewAsk": "把关请示",
       "row.reviewAskPre": "行动前：询问是否安排代理审查",
-      "row.reviewAskPreHint": "打开后，AI 判定当次任务属「复杂任务」、**且已形成候选方案时**，会在动手改动之前问你要不要先让一个独立子代理挑错。判定为复杂但还没有任何方案时不会问——那没有可核对的对象（specs/32 §6.4）；**你答与不答都不拦住它动手**（00 §2.5），请示只决定要不要多一双眼睛。**三类情况不问**（specs/32 §4.2，Human 2026-11-14 决定；2026-11-15 随 ADR 事实类型撤除删除第 4 类）：整件只是调研取证与报告、整件只是提交推送已形成的改动、整件只是用受控工具转换既有事实对象的状态——这三类的核对分别已由 33 号审计、Git Gate、受控写入回读承担。判错了或没判，机械层不会拦——这是按开关执行的自律，不是机械保障。",
+      "row.reviewAskPreHint": "**第一次给出方案后**（判定复杂且已形成候选方案时），动手前问要不要独立子代理审核。",
       "row.reviewAskPost": "行动后：询问是否安排代理复核",
-      "row.reviewAskPostHint": "打开后，一件复杂任务做完、准备收口时，AI 会问你要不要让独立子代理逐条核对已发生的工作。与上面那个开关相互独立：只开这个就只在收口前问。同样**你答与不答都不拦住它收口**（00 §2.5）。上面那三类点位排除在这里同样生效——命中时 AI 须在结论里写明命中哪一类与判定理由，不写就按没问过处理。",
+      "row.reviewAskPostHint": "**执行完成后**（复杂任务做完、准备收口时）问要不要逐条复核。",
       "row.reviewAskConsult": "遇难题：联网调查提请",
-      "row.reviewAskConsultHint": "打开后，AI 判断某事依赖外部信息、而自己并不掌握时，会先在内部的经验、报告与事实规范里查一遍；查不到才来问你要不要联网调查一次。内部命中只是候选、不证明适用（02 §9.2）；**内部未命中也不等于内部没有**——机械召回是词面匹配（34 §12），所以交还里只会写「按机制查过而未命中」，不会写「内部没有相关经验」。**你答与不答都不拦住它推进**（00 §2.5），请示只决定要不要开这一次外部取证。它与上面两处相互独立：只开这个就只在遇难题时问；关掉时它只交还内部读数、不来打扰你。",
+      "row.reviewAskConsultHint": "**执行过程中遇到难题时**——依赖外部信息又不掌握、内部查不到，才问要不要联网调查。",
       "row.reviewAskSilent": "静默执行：不问，直接安排",
       "row.reviewAskSilentBadge": "静默",
-      "row.reviewAskSilentHint": "打开后，AI 判定当次属「复杂任务」时不再问你，直接派一个独立子代理做那次审查／复核，做完在结论里留一行「静默执行」的痕迹。**它同样要等方案成形才安排**：判为复杂但还没有任何方案时不派、不跑一次空核对——静默只免掉征询，不免掉「有对象才能核对」这个前提（specs/32 §6.4）。**它只免掉询问，不免掉核对**，也只作用于行动前与行动后这两处（第三处联网调查提请不适用静默档）；上面那三类点位排除命中时，两处都不派发（免的是询问，前提是该问的那一次）。火花、管辖项目这些真正要你点头的事照旧请示。上面两项都没开时，这项不起作用。",
+      "row.reviewAskSilentHint": "**判为复杂后不问你，直接派代理审核/复核**，结果里留一行静默痕迹。",
+      "row.reviewAskTimeout": "倒计时：超时自动推进",
+      "row.reviewAskTimeoutSeconds": "倒计时秒数",
+      "row.reviewAskTimeoutHint": "**请示卡片显示倒计时**（10/30/60 秒），到点未选按未答复直接推进。",
       "row.experienceAccumulation": "积累经验",
       "row.experienceAccumulationHint": "主控在当次行动中发现已查明验证的失败机制时，把上下文交给代理起草一条经验，由主控写入。关掉后不再自动记录经验。",
       "row.idleCapture": "发现摩擦",
-      "row.idleCaptureHint": "主控在行动中发现阻碍时，交派一个代理把该次观察**只写进观察缓冲**。**同一次派发内直接结算**：同源阻碍攒够 3 次即建成待修账目，不再另派一个代理。攒不够 3 次就留在缓冲里，不算失败。",
+      "row.idleCaptureHint": "发现阻碍时交给代理，同源攒够 3 次即建待修账目，不够留在缓冲。",
 "row.injectionBudgetTier": "召回预算档位（K 字节）",
-      "row.injectionBudgetTierHint": "行动前召回的体量上限，可选 10/20/30/40/50（K 字节）。档位值本身是受控常量（改档位集合须走受控提交），此处只做选择；提高上限属 Human 决定事项。引导面（管辖判定与最小规则引导）是固定内容，不参与本档位。",
+      "row.injectionBudgetTierHint": "行动前召回的体量上限，10/20/30/40/50 KB 可选。",
       "row.idleLimitInvalid": "请填入整数；配额上限填 0 表示不限。",
       "row.webHint": "插件自带的页面与 API；是否可用见标题旁的读数，两项投放决定入口出现在哪里。",
       "row.webDisabledNote": "配置文件里关掉了 Web 呈现（webEnabled: false），故两项投放不可用。设置面已不再提供这个开关；需要时请在插件配置文件中改回 true。",
@@ -320,6 +336,10 @@ window.__ModuleLoader__.load({
     };
     var LDVH_EN = {
       "row.title": "LDVH",
+      "intro.title": "LD Vibe Harness (LDVH)",
+      "intro.badge": "AI governance framework",
+      "intro.valueVibe": "**Align Vibe**: give the human and the AI a shared understanding of where the project came from, where it stands, and where it is going.",
+      "intro.valueCoding": "**Coordinate Coding**: draw on the host to allocate resources — clarify rights and responsibilities, record sparks, establish norms, build reports, accumulate experience, and discover friction, so the project advances more steadily and execution goes more smoothly.",
       "row.governanceLocation": "Governed projects configuration",
       "row.governanceLocationHint": "LDVH stores it automatically at ldvh/governed-projects.yaml under the DSH user-config directory.",
       "row.projectsPanelTitle": "Governed projects",
@@ -328,7 +348,7 @@ window.__ModuleLoader__.load({
       "group.budget": "Recall budget",
       "row.addProject": "Add governed project",
       "row.addProjectTitle": "Add governed project",
-      "row.addProjectHint": "Pick a Git repository root, or type its absolute path manually. Installing registers the project, initializes ldvh-base/, and installs the Git Hook in one step.",
+      "row.addProjectHint": "Pick a Git root or type its path; installing registers it and sets up the Hook.",
       "row.cancelAdd": "Cancel",
       "row.projectsEmptyTitle": "No governed project yet",
       "row.projectsEmptyText": "Add one to enable the fact source and Git Gate for that project.",
@@ -359,26 +379,28 @@ window.__ModuleLoader__.load({
       "row.colorAuto": "Auto color",
       "row.mountConversationTab": "Add to conversation tab",
       "row.mountSidebarTab": "Add to sidebar",
-      "row.mountHint": "Takes effect after saving and reloading the page; either mount can be turned off independently — the matching LDVH entry then stops appearing.",
-      "row.idleAssistHint": "When the main controller spots something worth recording during its own work, it hands the context to a delegate; the controller only forwards. The two switches cover accumulating experience and discovering friction.",
+      "row.idleAssistHint": "Hands worth-recording things to a delegate; the controller only forwards. Two switches: accumulate experience / discover friction.",
       "row.reviewAsk": "Review checkpoints",
       "row.reviewAskPre": "Before acting: ask whether to arrange an agent review",
-      "row.reviewAskPreHint": "When on, and the AI judges the task to be a complex task **and a candidate plan has taken shape**, it will ask you — before it starts changing anything — whether an independent subagent should look for problems first. It does not ask while it is still judging and no plan exists yet: there would be nothing to check (specs/32 §6.4). **Whether you answer or not does not hold it back** (00 §2.5); the ask only decides whether a second pair of eyes is added. **Three cases are not asked** (specs/32 §4.2, Human decision 2026-11-14; the fourth case was deleted on 2026-11-15 together with the ADR fact type): when the whole piece of work is only research evidence-gathering and reporting, only committing and pushing changes already made, or only a controlled-tool operation on an existing fact object — their checking is already carried by spec 33's citation audit, the Git Gate, and controlled-write read-back. If it judges wrongly or not at all, nothing blocks it — this is self-discipline driven by a switch, not a mechanical guarantee.",
+      "row.reviewAskPreHint": "**After the first plan is given** (complex task with a candidate plan), asks before acting whether to arrange an independent agent review.",
       "row.reviewAskPost": "After the work: ask whether to arrange an agent re-check",
-      "row.reviewAskPostHint": "When on, and a complex task is done and about to be closed out, the AI will ask whether an independent subagent should check the work item by item. Independent of the switch above: enabling only this one asks only before closing out. Here too **whether you answer or not does not hold the close-out back** (00 §2.5). The same three point-level exclusions apply here — when one is hit, the AI must name which one and why in the handover; without that line it counts as not having asked.",
+      "row.reviewAskPostHint": "**After execution completes** (complex task done, about to close), asks whether to check the work item by item.",
 "row.reviewAskConsult": "When stuck: ask about an online investigation",
-"row.reviewAskConsultHint": "When on, and the AI finds that something depends on external information it does not have, it first looks through internal experience, reports and fact specifications; only when nothing turns up does it ask whether to run one online investigation. An internal hit is a candidate, not proof of applicability (02 §9.2); **an internal miss is not the same as 「there is nothing internal」** — the recall is lexical (34 §12), so the handover says 「searched by mechanism, no match」, never 「there is no related experience internally」. **Whether you answer or not does not hold it back** (00 §2.5); the question only decides whether to open this one external investigation. It is independent of the two above: enabling only this one asks only when the AI hits a hard problem; when it is off it only hands back the internal reading and does not disturb you.",
+"row.reviewAskConsultHint": "**When a hard problem is hit during execution** — depends on external info not at hand and internal search found nothing — asks whether to investigate online.",
       "row.reviewAskSilent": "Silent run: skip the question, arrange it directly",
       "row.reviewAskSilentBadge": "silent",
-      "row.reviewAskSilentHint": "When on, and the AI judges the task to be a complex task, it no longer asks you: it dispatches an independent subagent for that review directly and leaves a one-line “silent run” trace in the result. **It also waits until a plan has taken shape**: when the task is judged complex but no plan exists yet, it dispatches nothing and runs no empty check — silent mode removes the question, not the precondition that there must be an object to check (specs/32 §6.4). **It removes the question, not the check**, and applies only to the two items above — Sparks and project registration, which genuinely need your yes, are still asked. When one of the three point-level exclusions above is hit, neither item dispatches an agent: the exclusion governs whether that check happens at all, and it takes precedence over this setting. With both items above off, this switch has nothing to act on.",
+      "row.reviewAskSilentHint": "**When judged complex, no question — directly arranges the review**, leaving a silent-run trace.",
+      "row.reviewAskTimeout": "Countdown: auto-proceed on timeout",
+      "row.reviewAskTimeoutSeconds": "Countdown seconds",
+      "row.reviewAskTimeoutHint": "**Checkpoint cards show a countdown** (10/30/60s); on timeout it proceeds as unanswered.",
       "row.frictionDiscovery": "Friction discovery",
       "row.frictionDiscoveryHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
       "row.experienceAccumulation": "Accumulate experience",
       "row.experienceAccumulationHint": "When the main controller spots a verified failure mechanism during its own work, it hands the context to a delegate that drafts the experience entry. Turn off to stop recording automatically.",
       "row.idleCapture": "Discover friction",
-      "row.idleCaptureHint": "When the main controller spots an obstacle during its own work, it dispatches a delegate that writes that one observation into the observation buffer only. **Settled inside the same dispatch**: a group reaching 3 sightings becomes a to-be-fixed ledger entry, with no second delegate. Fewer than 3 simply stays in the buffer — that is not a failure.",
+      "row.idleCaptureHint": "Hands obstacles to a delegate; 3 same-source sightings build a to-be-fixed entry, fewer stay in the buffer.",
 "row.injectionBudgetTier": "Recall budget tier (KiB)",
-      "row.injectionBudgetTierHint": "Size cap for pre-action recall: choose 10/20/30/40/50 (KiB). The tier set itself is a controlled constant (changing it requires a controlled commit); this field only selects. Raising the cap is a Human decision. The guidance surface (jurisdiction verdict + minimal guidance) is fixed and does not share this tier.",
+      "row.injectionBudgetTierHint": "Size cap for pre-action recall: 10/20/30/40/50 KiB.",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "The plugin's own page and API; availability shows in the readout beside the title, and the two placements decide where the entry appears.",
       "row.webDisabledNote": "Web presentation is switched off in the config file (webEnabled: false), so both placements are unavailable. This switch is no longer offered in Settings; set it back to true in the plugin config file if you need it.",
@@ -586,6 +608,10 @@ window.__ModuleLoader__.load({
       var postWorkReviewState = React.useState(value.postWorkReviewAskEnabled === true);
       var researchConsultState = React.useState(value.researchConsultAskEnabled === true);
       var reviewSilentState = React.useState(value.reviewAskSilentRunEnabled === true);
+      var reviewTimeoutState = React.useState(value.reviewAskTimeoutEnabled === true);
+      var reviewTimeoutSecondsState = React.useState(
+        [10, 30, 60].indexOf(Number(value.reviewAskTimeoutSeconds)) >= 0 ? Number(value.reviewAskTimeoutSeconds) : 30
+      );
       function idleCaptureValueOf(value) {
         return value.frictionDiscoveryEnabled !== undefined
           ? value.frictionDiscoveryEnabled !== false
@@ -660,6 +686,10 @@ window.__ModuleLoader__.load({
         postWorkReviewState[1](next.postWorkReviewAskEnabled === true);
         researchConsultState[1](next.researchConsultAskEnabled === true);
         reviewSilentState[1](next.reviewAskSilentRunEnabled === true);
+        reviewTimeoutState[1](next.reviewAskTimeoutEnabled === true);
+        reviewTimeoutSecondsState[1](
+          [10, 30, 60].indexOf(Number(next.reviewAskTimeoutSeconds)) >= 0 ? Number(next.reviewAskTimeoutSeconds) : 30
+        );
         idleLimitsState[1](idleLimitsTextOf(next));
         savedState[1](false);
         saveErrorState[1](false);
@@ -812,7 +842,9 @@ window.__ModuleLoader__.load({
               { op: "set", path: ["preActionReviewAskEnabled"], value: !!preActionReviewState[0] },
               { op: "set", path: ["postWorkReviewAskEnabled"], value: !!postWorkReviewState[0] },
               { op: "set", path: ["researchConsultAskEnabled"], value: !!researchConsultState[0] },
-              { op: "set", path: ["reviewAskSilentRunEnabled"], value: !!reviewSilentState[0] }
+              { op: "set", path: ["reviewAskSilentRunEnabled"], value: !!reviewSilentState[0] },
+              { op: "set", path: ["reviewAskTimeoutEnabled"], value: !!reviewTimeoutState[0] },
+              { op: "set", path: ["reviewAskTimeoutSeconds"], value: Number(reviewTimeoutSecondsState[0]) }
             ];
             IDLE_LIMITS.forEach(function (limit) {
               operations.push({ op: "set", path: [limit.key], value: idleLimitToStored(idleLimitsState[0][limit.key], limit.scale) });
@@ -843,7 +875,12 @@ window.__ModuleLoader__.load({
         idleCaptureState[1](idleCaptureValueOf(next));
         preActionReviewState[1](next.preActionReviewAskEnabled === true);
         postWorkReviewState[1](next.postWorkReviewAskEnabled === true);
+        researchConsultState[1](next.researchConsultAskEnabled === true);
         reviewSilentState[1](next.reviewAskSilentRunEnabled === true);
+        reviewTimeoutState[1](next.reviewAskTimeoutEnabled === true);
+        reviewTimeoutSecondsState[1](
+          [10, 30, 60].indexOf(Number(next.reviewAskTimeoutSeconds)) >= 0 ? Number(next.reviewAskTimeoutSeconds) : 30
+        );
         injectionBudgetState[1](injectionBudgetTierOk(next.injectionBudgetTier) ? Number(next.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT);
         idleLimitsState[1](idleLimitsTextOf(next));
         dirtyState[1](false);
@@ -990,6 +1027,19 @@ window.__ModuleLoader__.load({
         );
       }
       return React.createElement("section", { className: "ldv-settings" },
+        React.createElement("header", { className: "ldv-intro" },
+          React.createElement("img", { className: "ldv-intro-icon", src: LDVH_ICON, width: 32, height: 32, alt: "" }),
+          React.createElement("div", { className: "ldv-intro-body" },
+            React.createElement("div", { className: "ldv-intro-title-line" },
+              React.createElement("span", { className: "ldv-intro-title" }, t("intro.title")),
+              React.createElement("span", { className: "ldv-intro-badge" }, t("intro.badge"))
+            ),
+            React.createElement("div", { className: "ldv-intro-values" },
+              React.createElement("span", { className: "ldv-intro-value" }, emphasis(t("intro.valueVibe"))),
+              React.createElement("span", { className: "ldv-intro-value" }, emphasis(t("intro.valueCoding")))
+            )
+          )
+        ),
         React.createElement("section", { className: "ldv-block" },
           cardHead("services", "group.services", "row.webHint",
             serviceStatus,
@@ -1011,7 +1061,6 @@ window.__ModuleLoader__.load({
               t("row.mountSidebarTab"),
               !webOn
             )),
-            React.createElement("span", { className: "ldv-note" }, React.createElement("span", { className: "ldv-note-text" }, emphasis(t("row.mountHint"))))
           )
         ),
         React.createElement("section", { className: "ldv-block" },
@@ -1112,6 +1161,26 @@ window.__ModuleLoader__.load({
                   t("row.reviewAskSilent"),
                   false,
                   "silent"
+                )
+              )
+            ),
+            settingRow("row.reviewAskTimeout", "row.reviewAskTimeoutHint",
+              React.createElement("span", { className: "ldv-silent-control" },
+                React.createElement("select", {
+                  className: "ldv-settings-input ldv-field-select",
+                  value: String(reviewTimeoutSecondsState[0]),
+                  disabled: !reviewTimeoutState[0],
+                  "aria-label": t("row.reviewAskTimeoutSeconds"),
+                  onChange: function (e) { reviewTimeoutSecondsState[1](Number(e.target.value)); markDirty(); }
+                },
+                  [10, 30, 60].map(function (sec) {
+                    return React.createElement("option", { key: String(sec), value: String(sec) }, String(sec) + "s");
+                  })
+                ),
+                switchControl(
+                  reviewTimeoutState[0],
+                  function (e) { reviewTimeoutState[1](e.target.checked); markDirty(); },
+                  t("row.reviewAskTimeout")
                 )
               )
             )

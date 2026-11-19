@@ -239,14 +239,14 @@ export function contentFingerprint(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-export function parseOperationDeclarations(specText, resolveAnchor, sourceResponsibilityKey = null) {
+export function parseOperationDeclarations(specText, resolveAnchor) {
   const rows = new Map();
   if (typeof specText !== "string" || specText.length === 0) {
     Object.defineProperty(rows, "reason", { value: "declaring source text is unavailable", enumerable: false });
     return rows;
   }
   const lines = specText.split("\n");
-  const header = /^\|\s*operation_key\s*\|\s*summary\s*\|\s*effect\s*\|\s*arguments_contract\s*\|\s*result_contract\s*(\|\s*required_inputs\s*)?\|\s*$/;
+  const header = /^\|\s*operation_key\s*\|\s*summary\s*\|\s*effect\s*\|\s*arguments_contract\s*\|\s*result_contract\s*\|\s*$/;
   const tableStarts = [];
   for (let i = 0; i < lines.length; i += 1) {
     if (header.test(lines[i].trim())) tableStarts.push(i + 2);
@@ -262,7 +262,6 @@ export function parseOperationDeclarations(specText, resolveAnchor, sourceRespon
     const cells = line.split("|").slice(1, -1).map((cell) => cell.trim().replace(/^`(.*)`$/s, "$1").trim());
     if (cells.length < 5) continue;
     const [operationKey, summary, effect, argumentsContract, resultContract] = cells;
-    const requiredInputs = cells.length >= 6 ? cells[5] : "";
     if (operationKey === "" || /^-+$/.test(operationKey)) continue;
     if (operationKey.startsWith("<")) continue;
     const effectValid = effect === "read" || effect === "may_change_state";
@@ -273,16 +272,12 @@ export function parseOperationDeclarations(specText, resolveAnchor, sourceRespon
         anchorErrors.push(`${label} does not use the <source>::<heading path> form`);
         continue;
       }
-      const prefix = contract.slice(0, contract.indexOf("::")).trim();
-      if (typeof sourceResponsibilityKey === "string" && sourceResponsibilityKey.length > 0 && prefix !== sourceResponsibilityKey) {
-        anchorErrors.push(`${label} points at another source ("${prefix}") instead of this one ("${sourceResponsibilityKey}")`);
-      }
       if (typeof resolveAnchor === "function") {
         const headingPath = contract.slice(contract.indexOf("::") + 2).trim();
         if (!resolveAnchor(headingPath)) anchorErrors.push(`${label} heading path does not resolve: ${headingPath}`);
       }
     }
-    rows.set(operationKey, { operation_key: operationKey, summary, effect, arguments_contract: argumentsContract, result_contract: resultContract, required_inputs: requiredInputs, anchor_errors: anchorErrors });
+    rows.set(operationKey, { operation_key: operationKey, summary, effect, arguments_contract: argumentsContract, result_contract: resultContract, anchor_errors: anchorErrors });
   }
   }
   if (rows.size === 0) {

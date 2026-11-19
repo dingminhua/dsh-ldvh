@@ -62,6 +62,8 @@ export const Config = z.object({
   postWorkReviewAskEnabled: volatileField(z.boolean().default(false)),
   researchConsultAskEnabled: volatileField(z.boolean().default(false)),
   reviewAskSilentRunEnabled: volatileField(z.boolean().default(false)),
+  reviewAskTimeoutEnabled: volatileField(z.boolean().default(false)),
+  reviewAskTimeoutSeconds: volatileField(z.union([10, 30, 60]).default(30)),
 
   });
 

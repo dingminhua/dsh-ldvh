@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, h3TitlesInSection, sectionContent } from "./markdown-structure.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -21,10 +21,12 @@ const MAIN_H2_EXPLORATORY = ["研究问题", "输入与边界", "调查阶段", 
 const SURVEY_H3 = ["调查问题与范围", "调查方法与来源", "调查发现", "调查停止与交接"];
 const MAIN_H2_SUMMARY = ["范围与目的", "工作与结论", "证据摘录", "遗留与下一步"];
 const MAIN_H2_AUDIT = ["被审对象与背景", "审核结论", "证据性发现", "未覆盖范围与保证边界", "后续处置"];
+const MAIN_H2_ACTION = ["行动目标与背景", "执行过程", "结果与结论", "证据摘录", "遗留与下一步"];
+const MAIN_H2_REFERENCE = ["参考内容", "出处与来源", "记录理由", "未验证与疑点", "后续核验方向"];
 
 const PRIORITY_VALUES = new Set(["high", "medium", "low"]);
 const STOPPING_REASONS = new Set(["sufficient", "no-gain", "round-cap"]);
-const REPORT_FORMS = new Set(["research", "summary", "audit"]);
+const REPORT_FORMS = new Set(["research", "summary", "audit", "action", "reference"]);
 const STATUSES = new Set(["active", "retired"]);
 const ANSWERED_BY = new Set(["human", "external", "ai"]);
 const RETIREMENT_REASONS = new Set(["outdated", "superseded", "out-of-scope", "rejected"]);
@@ -151,10 +153,22 @@ export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing
     const hasHighGap = gaps.some((g) => g.priority === "high");
     if (hasHighGap) issues.push("stopping consistency: sufficient must not have an open high-priority gap");
   }
-  if (frontmatter.stopping_reason === "round-cap" && gaps.length === 0) {
+  if (frontmatter.stopping_reason === "round-cap" && gaps.length === 0 && form !== "reference") {
     const diversion = sectionContent(body ?? "", "后续分流");
     if (diversion === null || diversion.length === 0) {
       issues.push("stopping consistency: round-cap must declare unmet scope in gaps or in the body's 后续分流 section");
+    }
+  }
+
+  if (form === "reference") {
+    if (confirmed_statements.length > 0) {
+      issues.push("report_form=reference is for unverified content: confirmed_statements must be empty");
+    }
+    if (uncertain.length === 0 && gaps.length === 0) {
+      issues.push("report_form=reference requires at least one uncertain or gaps entry to record what is unverified");
+    }
+    if (frontmatter.stopping_reason === "sufficient") {
+      issues.push("report_form=reference forbids stopping_reason=sufficient (content is explicitly unverified)");
     }
   }
 
@@ -282,8 +296,9 @@ function updatesTargetUid(frontmatter, selfUid) {
 export function validateBodyStructure(body, retirementMode = false, reportForm = "research") {
   const issues = [];
   const h2 = h2Titles(body);
-  if (reportForm === "summary" || reportForm === "audit") {
-    const expected = reportForm === "summary" ? MAIN_H2_SUMMARY : MAIN_H2_AUDIT;
+  const INTERNAL_FORM_H2 = { summary: MAIN_H2_SUMMARY, audit: MAIN_H2_AUDIT, action: MAIN_H2_ACTION, reference: MAIN_H2_REFERENCE };
+  if (INTERNAL_FORM_H2[reportForm]) {
+    const expected = INTERNAL_FORM_H2[reportForm];
     if (h2.includes("调查阶段")) {
       issues.push(`body: 「调查阶段」H2 is forbidden for report_form=${reportForm} (sub-stage belongs to research only, 24 §7)`);
     }
@@ -511,17 +526,16 @@ export const RESEARCH_CORRECTABLE_FIELDS = new Set([
 
 export async function correctResearchObject(args) {
   const {
-    factSourceRoot, objectUid, expectedFingerprint,
+    factSourceRoot, objectUid: objectUidInput, expectedFingerprint,
     frontmatterAfter = null, analysisBodyAfter, surveyBodyAfter = null,
-    changeSummary, humanAuthorization, sessionSignature = null,
+    changeSummary, humanAuthorization, sessionSignature = null, currentProjectId = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
 
-  if (!assertValidUid(objectUid)) {
-    const hint = uidRejectionHint(objectUid);
-    return failure("research/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
-  }
+  const uidResolution = await resolveResearchObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   if (typeof changeSummary !== "string" || changeSummary.trim().length === 0) {
     return failure("research/change_summary_required", "changeSummary is required for correct");
   }
@@ -733,13 +747,6 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-function assertValidUid(objectUid) {
-  if (typeof objectUid !== "string" || !UUID_PATTERN.test(objectUid)) {
-    return false;
-  }
-  return true;
-}
-
 
 export async function createResearchObject(args) {
   const { factSourceRoot, frontmatterDraft, analysisBody, surveyBody = null, sessionSignature = null } = args;
@@ -804,7 +811,7 @@ export async function createResearchObject(args) {
     return failure("research/substage_mismatch", `body structure implies ${bodyCheck.exploratory ? "exploratory" : "directed"} but surveyBody says ${exploratory ? "exploratory" : "directed"}`);
   }
 
-  if (frontmatter.report_form === "summary" || frontmatter.report_form === "audit") {
+  if (frontmatter.report_form === "summary" || frontmatter.report_form === "audit" || frontmatter.report_form === "action" || frontmatter.report_form === "reference") {
     const anchorCheck = validateInternalSourceAnchors(body, { requireAny: true });
     const resolved = await resolveInternalObjectLocators(factSourceRoot, anchorCheck.anchors);
     const allIssues = [...anchorCheck.issues, ...resolved];
@@ -840,7 +847,7 @@ function insertSurveySection(analysisBody, surveyH3Content) {
 }
 
 
-async function resolveResearchObjectUid(factSourceRoot, input, currentProjectId = null) {
+export async function resolveResearchObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("research/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
@@ -909,17 +916,16 @@ export async function readResearchObject(args) {
 
 
 export async function updateResearchObject(args) {
-  const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, analysisBodyAfter, surveyBodyAfter = null, changeSummary, sessionSignature = null } = args;
+  const { factSourceRoot, objectUid: objectUidInput, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, analysisBodyAfter, surveyBodyAfter = null, changeSummary, sessionSignature = null, currentProjectId = null } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
 
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("research/change_summary_required", "changeSummary is required for update");
   }
-  if (!assertValidUid(args.objectUid)) {
-    const hint = uidRejectionHint(args.objectUid);
-    return failure("research/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
-  }
+  const uidResolution = await resolveResearchObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
 
   const current = await readResearchObject({ factSourceRoot, objectUid });
   if (!current.ok) return current;
@@ -1001,7 +1007,7 @@ export async function updateResearchObject(args) {
     return failure("research/substage_mismatch", "updated body structure does not match declared sub-stage");
   }
 
-  if (fm.report_form === "summary" || fm.report_form === "audit") {
+  if (fm.report_form === "summary" || fm.report_form === "audit" || fm.report_form === "action" || fm.report_form === "reference") {
     const anchorCheck = validateInternalSourceAnchors(body, { requireAny: true });
     const resolved = await resolveInternalObjectLocators(factSourceRoot, anchorCheck.anchors);
     const allIssues = [...anchorCheck.issues, ...resolved];

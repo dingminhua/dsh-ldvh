@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -402,9 +402,9 @@ function requireBodyWithoutH1(bodyMarkdown, fieldName) {
     return {
       ok: false,
       message: `${fieldName} must NOT carry the generated H1 — the body starts at "## 现象" and the H1 is generated from title (26 §8). `
-        + "The value looks like it came straight from readFrictionObject().body, which DOES include the H1; "
-        + "strip it first (import { stripLeadingH1 } from \"./friction-discovery.js\") before passing it back — "
-        + "otherwise every write appends one more H1 to the carrier.",
+        + "The value looks like it came straight from a precise read, whose body DOES include the H1. "
+        + "Fix it by deleting the FIRST line that starts with '# ' (keep everything from '## 现象' onward) "
+        + "and submit that text as " + fieldName + " — otherwise every write appends one more H1 to the carrier.",
     };
   }
   return { ok: true };
@@ -509,10 +509,6 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-function assertValidUid(objectUid) {
-  return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
-}
-
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
@@ -595,7 +591,7 @@ export async function createFrictionObject(args) {
 }
 
 
-async function resolveFrictionObjectUid(factSourceRoot, input, currentProjectId = null) {
+export async function resolveFrictionObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("friction/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
@@ -665,9 +661,9 @@ export async function readFrictionObject(args) {
 
 export async function updateFrictionObject(args) {
   const {
-    factSourceRoot, objectUid, expectedFingerprint,
+    factSourceRoot, objectUid: objectUidInput, expectedFingerprint,
     frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null,
-    gitCommitResolver = null,
+    gitCommitResolver = null, currentProjectId = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
@@ -675,10 +671,9 @@ export async function updateFrictionObject(args) {
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("friction/change_summary_required", "changeSummary is required for update");
   }
-  if (!assertValidUid(objectUid)) {
-    const hint = uidRejectionHint(objectUid);
-    return failure("friction/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
-  }
+  const uidResolution = await resolveFrictionObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter is required (the complete target body starting with '## 现象')");
   }
@@ -819,17 +814,20 @@ export async function updateFrictionObject(args) {
 
 export async function correctFrictionObject(args) {
   const {
-    factSourceRoot, objectUid, expectedFingerprint,
+    factSourceRoot, objectUid: objectUidInput, expectedFingerprint,
     relationsAfter = null, bodyMarkdownAfter, changeSummary, humanAuthorization,
     frontmatterRemovals = [],
     frontmatterAdditions = null,
-    sessionSignature = null, gitCommitResolver = null,
+    sessionSignature = null, gitCommitResolver = null, currentProjectId = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("invalid_request", "changeSummary is required (03 §10.5: 每次实际修改恰好一条 change_log)");
   }
+  const uidResolution = await resolveFrictionObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
     return failure("invalid_request", "humanAuthorization is required for a terminal fact correction (26 §13 终态事实更正；Human 确认；无授权记录的更正请求 fail-closed)");
   }

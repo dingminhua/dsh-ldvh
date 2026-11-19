@@ -38,7 +38,7 @@ function fingerprintText(text) {
 
 export function stripLeadingH1(body) {
   if (typeof body !== "string") return "";
-  return body.replace(/^\s*#\s+.*(\n+|$)/, "").replace(/^\s+/, "");
+  return body.replace(/^\s*#\s+[^\r\n]*(?:\r?\n)+/, "").replace(/^\s+/, "");
 }
 
 

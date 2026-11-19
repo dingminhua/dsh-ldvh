@@ -26,6 +26,8 @@ function CommitFilterGroup({
   onChange,
   getLabel,
   getOptionColor,
+  getOptionCount,
+  allCount,
 }: {
   allLabel: string;
   options: string[];
@@ -33,6 +35,8 @@ function CommitFilterGroup({
   onChange: (value: string | null) => void;
   getLabel: (value: string) => string;
   getOptionColor?: (value: string) => string | undefined;
+  getOptionCount?: (value: string) => number;
+  allCount?: number;
 }) {
   return (
     <div className="ldvh-tab-list min-w-0">
@@ -42,18 +46,31 @@ function CommitFilterGroup({
         className={`ldvh-tab-button ${activeValue === null ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`}
       >
         {allLabel}
+        {typeof allCount === 'number' && <span className="ldvh-tab-count">{allCount}</span>}
       </button>
-      {options.map((option) => (
-        <button
-          key={option}
-          type="button"
-          onClick={() => onChange(option)}
-          style={getOptionColor ? { color: getOptionColor(option) } : undefined}
-          className={`ldvh-tab-button ${activeValue === option ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`}
-        >
-          {getLabel(option)}
-        </button>
-      ))}
+      {options.map((option) => {
+        const color = getOptionColor?.(option);
+        const active = activeValue === option;
+        const tintedStyle = color
+          ? {
+              backgroundColor: active ? `${color}30` : `${color}18`,
+              borderColor: active ? `${color}99` : `${color}55`,
+              color,
+            }
+          : undefined;
+        return (
+          <button
+            key={option}
+            type="button"
+            onClick={() => onChange(option)}
+            style={tintedStyle}
+            className={`ldvh-tab-button ${active ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`}
+          >
+            {getLabel(option)}
+            {getOptionCount && <span className="ldvh-tab-count">{getOptionCount(option)}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -96,6 +113,13 @@ export default function Changelog() {
       .sort((a, b) => getCommitTypeLabel(a, locale).localeCompare(getCommitTypeLabel(b, locale))),
     [entries, locale],
   );
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of entries) {
+      counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1);
+    }
+    return counts;
+  }, [entries]);
   const filteredEntries = useMemo(() => entries.filter((entry) => {
     if (activeType && entry.category !== activeType) return false;
     return true;
@@ -168,6 +192,8 @@ export default function Changelog() {
           }}
           getLabel={(value) => getCommitTypeLabel(value, locale)}
           getOptionColor={(value) => CATEGORY_COLORS[value] || CATEGORY_COLORS.other}
+          getOptionCount={(value) => categoryCounts.get(value) ?? 0}
+          allCount={entries.length}
         />
         { }
       </div>

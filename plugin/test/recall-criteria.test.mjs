@@ -247,7 +247,7 @@ test("快照：各类型别名集合恰为规范所载（20 goal 为「不采用
 	};
 	assert.deepEqual(aliasesOf("spark"), new Set(["火花"]));
 	assert.deepEqual(aliasesOf("pitfall"), new Set(["踩坑经验"]));
-	assert.deepEqual(aliasesOf("report"), new Set(["报告", "调研报告", "总结报告", "审核报告"]));
+	assert.deepEqual(aliasesOf("report"), new Set(["报告", "调研报告", "总结报告", "审核报告", "行动报告", "参考报告"]));
 	assert.deepEqual(aliasesOf("friction"), new Set(["摩擦账本", "摩擦"]));
 	assert.deepEqual(aliasesOf("norm"), new Set(["事实规范"]));
 	assert.deepEqual(aliasesOf("subgoal"), new Set(["子目标"]));

@@ -77,7 +77,7 @@ export interface ObjectItem {
   change_log?: unknown;
   disposition_summary?: string;
   relations?: Array<Record<string, unknown>>;
-  report_form?: 'research' | 'summary' | 'audit';
+  report_form?: 'research' | 'summary' | 'audit' | 'action' | 'reference';
   report_kind?: 'external_research' | 'internal_audit' | 'technical_assessment' | 'comparison';
   input_refs?: Array<Record<string, unknown>>;
   sourceBranch?: string;

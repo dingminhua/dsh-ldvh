@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { buildUpdateFrontmatter, uidRejectionHint } from "./after-integrity.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -24,8 +24,6 @@ const STATUSES = new Set(["active", "discarded"]);
 const MAX_TITLE_LENGTH = 30;
 
 const MAX_DISPOSITION_LENGTH = 200;
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
@@ -227,10 +225,6 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
-function assertValidUid(objectUid) {
-  return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
-}
-
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
@@ -297,7 +291,7 @@ export async function createPitfallObject(args) {
 }
 
 
-async function resolvePitfallObjectUid(factSourceRoot, input, currentProjectId = null) {
+export async function resolvePitfallObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
     return { ok: false, error: failure("pitfall/invalid_uid", `${parsed.error.code}: ${parsed.error.message}`) };
@@ -367,8 +361,9 @@ export async function readPitfallObject(args) {
 
 export async function updatePitfallObject(args) {
   const {
-    factSourceRoot, objectUid, expectedFingerprint,
+    factSourceRoot, objectUid: objectUidInput, expectedFingerprint,
     frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null,
+    currentProjectId = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
@@ -376,10 +371,9 @@ export async function updatePitfallObject(args) {
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("pitfall/change_summary_required", "changeSummary is required for update");
   }
-  if (!assertValidUid(objectUid)) {
-    const hint = uidRejectionHint(objectUid);
-    return failure("pitfall/invalid_uid", `objectUid must be a valid UUID${hint.messageSuffix}`, hint.details);
-  }
+  const uidResolution = await resolvePitfallObjectUid(factSourceRoot, objectUidInput, currentProjectId);
+  if (!uidResolution.ok) return uidResolution.error;
+  const objectUid = uidResolution.objectUid;
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter is required (the complete target body starting with '## 症状')");
   }

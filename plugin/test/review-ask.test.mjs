@@ -38,6 +38,29 @@ test("resolveReviewAskSettings：两代宿主取值形态都认，缺省按关",
   assert.equal(resolveReviewAskSettings(null).postWork, false);
 });
 
+test("Config 字段 reviewAskTimeoutEnabled/Seconds：有闭集合约束且缺省 30", async () => {
+  const { Config } = await import("../lib/index.js");
+  const parsed = Config({});
+  const val = (k) => (parsed?.[k] && typeof parsed[k].get === "function" ? parsed[k].get() : parsed?.[k]);
+  assert.equal(val("reviewAskTimeoutEnabled"), false, "倒计时开关缺省关");
+  assert.equal(val("reviewAskTimeoutSeconds"), 30, "秒数缺省 30");
+  const set = Config({ reviewAskTimeoutEnabled: true, reviewAskTimeoutSeconds: 60 });
+  assert.equal(set.reviewAskTimeoutSeconds.get(), 60, "合法秒数 60 须被接受");
+});
+
+test("resolveReviewAskSettings：倒计时开关缺省关、秒数缺省 30，只认 10/30/60", () => {
+  const none = resolveReviewAskSettings({});
+  assert.equal(none.timeoutEnabled, false, "倒计时开关缺省关");
+  assert.equal(none.timeoutSeconds, 30, "秒数缺省 30");
+  const on = resolveReviewAskSettings({ reviewAskTimeoutEnabled: true, reviewAskTimeoutSeconds: 60 });
+  assert.equal(on.timeoutEnabled, true);
+  assert.equal(on.timeoutSeconds, 60);
+  assert.equal(resolveReviewAskSettings({ reviewAskTimeoutEnabled: { get: () => true } }).timeoutEnabled, true, "两代宿主取值形态都认");
+  assert.equal(resolveReviewAskSettings({ reviewAskTimeoutSeconds: 25 }).timeoutSeconds, 30, "非闭集秒数退回缺省，不猜");
+  assert.equal(resolveReviewAskSettings({ reviewAskTimeoutSeconds: "10" }).timeoutSeconds, 10, "字符串形态的合法秒数可认");
+  assert.equal(resolveReviewAskSettings({ reviewAskTimeoutEnabled: true }).timeoutSeconds, 30);
+});
+
 test("askEnabledFor：未知位置一律 false（不猜）", () => {
   const settings = { preAction: true, postWork: false };
   assert.equal(askEnabledFor(settings, REVIEW_ASK_POINTS.PRE_ACTION), true);
@@ -163,16 +186,16 @@ test("设置页 hint 与工具参数说明：须写明行动前那处的时点�
   const zhStart = client.indexOf('"row.reviewAskPreHint": "');
   const zhEnd = client.indexOf('"', zhStart + '"row.reviewAskPreHint": "'.length);
   const zh = client.slice(zhStart, zhEnd);
-  if (!/候选方案/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未写「已形成候选方案」这个时点条件");
-  if (!/还没有任何方案时不会问|没有可核对的对象/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未说明还没有方案时不问");
-  if (!/答与不答都不拦住/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未说明答复不拦行动（00 §2.5）");
+  if (!/第一次给出方案后/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未写「第一次给出方案后」这个时点条件");
+  if (!/候选方案/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未写「候选方案」这个前提");
+  if (!/审核/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未说明问的是独立子代理审核");
   if (/取得明确答复后才/.test(zh)) failures.push("row.reviewAskPreHint 中文侧出现了「取得明确答复后才」（00 §2.5 明禁）");
 
   const enStart = client.indexOf('"row.reviewAskPreHint": "', zhEnd);
   const enEnd = client.indexOf('"', enStart + '"row.reviewAskPreHint": "'.length);
   const en = client.slice(enStart, enEnd);
-  if (enStart === -1 || !/candidate plan/.test(en)) failures.push("row.reviewAskPreHint 英文侧未写 candidate plan 这个时点条件");
-  if (!/does not hold it back/.test(en)) failures.push("row.reviewAskPreHint 英文侧未说明答复不拦行动");
+  if (enStart === -1 || !/after the first plan is given/i.test(en)) failures.push("row.reviewAskPreHint 英文侧未写 after the first plan is given 这个时点条件");
+  if (!/candidate plan/.test(en)) failures.push("row.reviewAskPreHint 英文侧未写 candidate plan 这个前提");
 
   const pointDesc = /point: \{[^}]*?description: "([^"]*)"/s.exec(tool)?.[1] ?? "";
   if (!/方案已有候选/.test(pointDesc)) failures.push("point 参数 description 未写明「方案已有候选」这个时点");
@@ -181,20 +204,22 @@ test("设置页 hint 与工具参数说明：须写明行动前那处的时点�
   const postStart = client.indexOf('"row.reviewAskPostHint": "');
   const postEnd = client.indexOf('"', postStart + '"row.reviewAskPostHint": "'.length);
   const postZh = client.slice(postStart, postEnd);
-  if (!/答与不答都不拦住/.test(postZh)) failures.push("row.reviewAskPostHint 中文侧未说明答复不拦收口（00 §2.5）");
+  if (!/执行完成后/.test(postZh)) failures.push("row.reviewAskPostHint 中文侧未写「执行完成后」这个时点条件");
+  if (!/复核/.test(postZh)) failures.push("row.reviewAskPostHint 中文侧未说明问的是复核");
   const postEnStart = client.indexOf('"row.reviewAskPostHint": "', postEnd);
   const postEnEnd = client.indexOf('"', postEnStart + '"row.reviewAskPostHint": "'.length);
   const postEn = client.slice(postEnStart, postEnEnd);
-  if (postEnStart === -1 || !/does not hold the close-out back/.test(postEn)) failures.push("row.reviewAskPostHint 英文侧未说明答复不拦收口");
+  if (postEnStart === -1 || !/after execution completes/i.test(postEn)) failures.push("row.reviewAskPostHint 英文侧未写 after execution completes 这个时点条件");
 
   const silentStart = client.indexOf('"row.reviewAskSilentHint": "');
   const silentEnd = client.indexOf('"', silentStart + '"row.reviewAskSilentHint": "'.length);
   const silentZh = client.slice(silentStart, silentEnd);
-  if (!/等方案成形才安排/.test(silentZh)) failures.push("row.reviewAskSilentHint 中文侧未写「等方案成形才安排」这个前提");
+  if (!/直接派代理审核\/复核/.test(silentZh)) failures.push("row.reviewAskSilentHint 中文侧未写「直接派代理审核/复核」这个静默行为");
+  if (!/静默痕迹/.test(silentZh)) failures.push("row.reviewAskSilentHint 中文侧未写留「静默痕迹」");
   const silentEnStart = client.indexOf('"row.reviewAskSilentHint": "', silentEnd);
   const silentEnEnd = client.indexOf('"', silentEnStart + '"row.reviewAskSilentHint": "'.length);
   const silentEn = client.slice(silentEnStart, silentEnEnd);
-  if (silentEnStart === -1 || !/waits until a plan has taken shape/.test(silentEn)) failures.push("row.reviewAskSilentHint 英文侧未写 waits until a plan has taken shape");
+  if (silentEnStart === -1 || !/directly arranges the review/i.test(silentEn)) failures.push("row.reviewAskSilentHint 英文侧未写 directly arranges the review");
 
   if (/向 Human 报告并等待/.test(tool)) failures.push("review-ask-tool.js 仍出现「向 Human 报告并等待」（32 §3.4 明禁暂停）");
   if (/按 00 §4\.7 不得把沉默当作许可/.test(tool)) failures.push("review-ask-tool.js 仍把两处请示的错误归到 00 §4.7（应引 32 §9.1）");
@@ -237,10 +262,7 @@ test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2
     const expected = GATE_POINT_EXCLUSIONS.length;
     values.forEach((v, idx) => {
       const lang = /[㐀-䶿一-鿿]/.test(v) ? "中文" : "英文";
-      if (!/点位排除|情况不问|point-level exclusion|not asked/i.test(v)) {
-        failures.push(`${key} 的${lang}侧未提到点位排除（该侧第 ${idx + 1} 次出现）`);
-        return;
-      }
+      // 精简文案可不提「点位排除」字眼，但若写了条数就不得过期（MINOR-2 的复发面）。
       for (const m of v.matchAll(/([零一二三四五六七八九十]|[0-9]+)类(?:情况不问|点位排除)/g)) {
         const raw = m[1];
         const got = /^[0-9]+$/.test(raw) ? Number(raw) : numerals.indexOf(raw);

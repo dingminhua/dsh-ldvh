@@ -13,6 +13,7 @@ import {
   listResearchObjects,
   readResearchObject,
   updateResearchObject,
+  resolveResearchObjectUid,
   correctResearchObject,
   REPORT_DIRECTORY,
   RESEARCH_CORRECTABLE_FIELDS as RESEARCH_CORRECTABLE_FIELDS_FOR_TEST,
@@ -536,9 +537,15 @@ async function executeWriteObject(args, exec, deps) {
   }
 
   if (action === "correct") {
-    if (typeof args?.object_uid !== "string" || args.object_uid.length === 0) {
+    const objectUidInput = args?.object_uid;
+    if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
       return invalidRequest("report-write-object", "object_uid is required for action=correct", "correct");
     }
+    const uidResolution = await resolveResearchObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+    if (!uidResolution.ok) {
+      return writeRejected("report-write-object", uidResolution, factSourceRoot);
+    }
+    const objectUid = uidResolution.objectUid;
     if (typeof args?.expected_fingerprint !== "string" || args.expected_fingerprint.length === 0) {
       return invalidRequest("report-write-object", "expected_fingerprint is required for action=correct (CAS baseline — from your last precise read)", "correct");
     }
@@ -554,7 +561,7 @@ async function executeWriteObject(args, exec, deps) {
     }
     const corrected = await correctResearchObject({
       factSourceRoot,
-      objectUid: args.object_uid,
+      objectUid,
       expectedFingerprint: args.expected_fingerprint,
       frontmatterAfter: args.frontmatter_after ?? null,
       analysisBodyAfter: args.analysis_body_after,
@@ -562,14 +569,15 @@ async function executeWriteObject(args, exec, deps) {
       changeSummary: args.change_summary,
       humanAuthorization: auth,
       sessionSignature: sig.ok ? sig.value : null,
+      currentProjectId: governed.project.id,
     });
     if (!corrected.ok) {
       return writeRejected("report-write-object", corrected, factSourceRoot);
     }
-    const back = await readResearchObject({ factSourceRoot, objectUid: args.object_uid });
+    const back = await readResearchObject({ factSourceRoot, objectUid });
     if (!back.ok || back.value.fingerprint !== corrected.value.fingerprint) {
       return envelope("report-write-object", "partial", {
-        result: { object_uid: args.object_uid, fingerprint: corrected.value.fingerprint, read_back: "failed" },
+        result: { object_uid: objectUid, fingerprint: corrected.value.fingerprint, read_back: "failed" },
         scope: { requested: "correct", completed: ["correct"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
         sources: [{ kind: "fact-object", path: join(factSourceRoot, REPORT_DIRECTORY) }],
         gaps: [`corrected but read-back failed: ${back.ok ? "fingerprint mismatch" : back.error.message}`],
@@ -580,10 +588,10 @@ async function executeWriteObject(args, exec, deps) {
     return envelope("report-write-object", "completed", {
       result: {
         action: "correct",
-        object_uid: args.object_uid,
+        object_uid: objectUid,
         fingerprint: corrected.value.fingerprint,
         read_back: { ok: true, fingerprint: back.value.fingerprint, body_valid: back.value.body_valid },
-        changes: [{ object_uid: args.object_uid, change: "corrected", summary: args.change_summary }]
+        changes: [{ object_uid: objectUid, change: "corrected", summary: args.change_summary }]
       },
       scope: { requested: "correct", completed: ["correct", "read-back"], not_completed: [] },
       sources: [{ kind: "fact-object", path: back.value.file, content_fingerprint: corrected.value.fingerprint }],
@@ -593,16 +601,21 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  const objectUid = args?.object_uid;
+  const objectUidInput = args?.object_uid;
+  if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+    return invalidRequest("report-write-object", "object_uid is required for action=update", "update");
+  }
+  const uidResolution = await resolveResearchObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+  if (!uidResolution.ok) {
+    return writeRejected("report-write-object", uidResolution, factSourceRoot);
+  }
+  const objectUid = uidResolution.objectUid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const analysisBodyAfter = args?.analysis_body_after;
   const surveyBodyAfter = args?.survey_body_after ?? null;
   const changeSummary = args?.change_summary;
-  if (typeof objectUid !== "string" || objectUid.length === 0) {
-    return invalidRequest("report-write-object", "object_uid is required for action=update", "update");
-  }
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("report-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
@@ -625,6 +638,7 @@ async function executeWriteObject(args, exec, deps) {
     surveyBodyAfter,
     changeSummary,
     sessionSignature: sig.ok ? sig.value : null,
+    currentProjectId: governed.project.id,
   });
   if (!updated.ok) {
     return writeRejected("report-write-object", updated, factSourceRoot);
@@ -779,12 +793,12 @@ function parameterSchemaFor(operationKey) {
     properties: {
       title: { type: "string" },
       status: { type: "string", enum: ["active", "retired"], description: "create must be active; update may transition to retired (24 §9)" },
-      report_form: { type: "string", enum: ["research", "summary", "audit"], description: "来源形态（24 §5/§8）：research=对外部对象取证（要求 urls）；summary=对内部过程的阶段性总结（内部来源逐字摘录进正文，禁 urls）；audit=一次独立审核/复核的完整结论（四项门槛见 24 §6.3）。创建必填；存量缺失按 research 认定（24 §8.2 过渡条款）。创建后不可变更" },
-      serves: { type: "string", description: "所服务的 SubGoal 对象 object_uid（28 §12.3）；须解析到 active/achieved 的 SubGoal，失败零写入（24 §8 不变量 11）。可选，三类通用" },
+      report_form: { type: "string", enum: ["research", "summary", "audit", "action", "reference"], description: "来源形态（24 §5/§8）：research=对外部对象取证（要求 urls）；summary=对内部过程的阶段性总结（内部来源逐字摘录进正文，禁 urls）；audit=一次独立审核/复核的完整结论（四项门槛见 24 §6.3）；action=一次已完成行动的执行过程与结论（一次行动一条，内部来源锚点，禁 urls）；reference=未验证但需记录的参考内容（confirmed 必空、内容进 uncertain/gaps、禁 sufficient、内部锚点、禁 urls）。创建必填；存量缺失按 research 认定（24 §8.2 过渡条款）。创建后不可变更" },
+      serves: { type: "string", description: "所服务的 SubGoal 对象 object_uid（28 §12.3）；须解析到 active/achieved 的 SubGoal，失败零写入（24 §8 不变量 11）。可选，五形态通用" },
       research_question: { type: "string", description: "the research question under study. Must appear VERBATIM in the 研究问题 body section (carrier coherence, 24 §8 invariant 10; frontmatter is the single authoritative text — the body only expands it). Rejected as question-coherence when the section does not contain this string" },
       research_purpose: { type: "string" },
       stopping_reason: { type: "string", enum: ["sufficient", "no-gain", "round-cap"] },
-      urls: { type: "array", items: urlEntry, description: "external sources (at least one) — REQUIRED for report_form=research; FORBIDDEN for summary/audit (internal sources use §10.2 anchors)" },
+      urls: { type: "array", items: urlEntry, description: "external sources (at least one) — REQUIRED for report_form=research; FORBIDDEN for summary/audit/action/reference (internal sources use §10.2 anchors)" },
       confirmed_statements: { type: "array", items: { type: "string" }, description: "finding-unit declaration index (verbatim H3 titles of the 关键发现 section)" },
       uncertain: { type: "array", items: uncertainEntry },
       gaps: { type: "array", items: gapEntry },
@@ -923,9 +937,9 @@ function parameterSchemaFor(operationKey) {
         properties: {
           action: { type: "string", enum: ["create", "update", "correct"] },
           frontmatter_draft: researchFrontmatter,
-          analysis_body: { type: "string", description: "create: the analysis markdown (研究问题/输入与边界/关键发现/未证实与缺口/建议/后续分流 H2)" },
+          analysis_body: { type: "string", description: "create: the analysis markdown — research 型 H2 为研究问题/输入与边界/关键发现/未证实与缺口/建议/后续分流；action 型 H2 为行动目标与背景/执行过程/结果与结论/证据摘录/遗留与下一步" },
           survey_body: { type: "string", description: "create, exploratory only: the survey-stage markdown (四个固定 H3); omit for directed" },
-          object_uid: { type: "string", description: "update/correct: target object" },
+          object_uid: { type: "string", description: "update/correct target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
           expected_fingerprint: { type: "string", description: "update/correct: CAS baseline fingerprint from your last precise read" },
           frontmatter_after: (() => { const { required: _r, ...rest } = researchFrontmatter; return { ...rest, description: `update: full frontmatter. correct: WHITELISTED SUBSET ONLY — ${[...RESEARCH_CORRECTABLE_FIELDS_FOR_TEST].join("/")} — every other key is refused with its own failure code (status/retirement_reason/retired_at are terminal and immutable; stopping_reason is a stopping JUDGMENT, not a misstatement, 24 §13). ${FRONTMATTER_AFTER_DESCRIPTION}` }; })(),
           frontmatter_removals: { type: "array", items: { type: "string" }, description: `update ONLY — not accepted by action=correct (24 §13: 终态事实更正不新增也不删除字段). ${FRONTMATTER_REMOVALS_DESCRIPTION}` },

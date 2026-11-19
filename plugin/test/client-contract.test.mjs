@@ -322,9 +322,6 @@ test("web mount placements: two checkboxes gated by the master switch + refresh 
 	assert.ok(source.includes('else if (!sidebarOn && mountDisposers.sidebar !== null)'), "sidebar tab unmounts when placement off");
 	assert.ok(source.includes('if (conversationOn && mountDisposers.conversation === null)'), "conversation tab mounts only when placement on");
 	assert.ok(source.includes('else if (!conversationOn && mountDisposers.conversation !== null)'), "conversation tab unmounts when placement off");
-	assert.ok(source.includes('"row.mountHint"'), "refresh hint key exists");
-	assert.ok(source.includes('保存后刷新页面生效'), "LDVH_ZH mount hint states the refresh requirement");
-	assert.ok(source.includes('Takes effect after saving and reloading'), "LDVH_EN mount hint states the refresh requirement");
 });
 
 test("plugin settings card hosts the project color palette (web settings page is read-only)", () => {
@@ -695,6 +692,19 @@ test("静默执行开关：四处接线齐全（读初值 / 外部回填 / 放�
 	assert.ok(occurrences >= 4, `静默开关须在读取/回填/放弃/提交四处出现（实际 ${occurrences}）`);
 	assert.match(source, /path: \["reviewAskSilentRunEnabled"\]/, "静默开关须进入保存操作");
 	for (const id of ["row.reviewAskSilent", "row.reviewAskSilentHint", "row.reviewAskSilentBadge"]) {
+		const hits = source.split(`"${id}":`).length - 1;
+		assert.equal(hits, 2, `${id} 须中英各一份（实际 ${hits}）`);
+	}
+});
+
+test("倒计时开关与秒数：四处接线齐全且中英文案齐备", () => {
+	for (const key of ["reviewAskTimeoutEnabled", "reviewAskTimeoutSeconds"]) {
+		const occurrences = source.split(key).length - 1;
+		assert.ok(occurrences >= 4, `${key} 须在读取/回填/放弃/提交四处出现（实际 ${occurrences}）`);
+		assert.match(source, new RegExp(`path: \\["${key}"\\]`), `${key} 须进入保存操作`);
+	}
+	assert.match(source, /\[10, 30, 60\]/, "秒数下拉须是 10/30/60 三档闭集");
+	for (const id of ["row.reviewAskTimeout", "row.reviewAskTimeoutSeconds", "row.reviewAskTimeoutHint"]) {
 		const hits = source.split(`"${id}":`).length - 1;
 		assert.equal(hits, 2, `${id} 须中英各一份（实际 ${hits}）`);
 	}

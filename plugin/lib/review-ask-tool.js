@@ -22,6 +22,7 @@ export const REVIEW_ASK_OPERATION = Object.freeze({
     + "① **没有候选就没有可核对的对象**——行动前那处只在方案已成形时发起；尚无候选时发起是空问，specs/32 §6.4 明禁「为规避判断而一律请示（那会使机制退化为噪音）」。读规范、查事实、收敛方案本身不产生副作用，都在适用面内；"
     + "② **答复不构成动手前提**——specs/00 §2.5 原文「请示本身不是行动放行的前提，也不使行动在取得答复前暂停」，specs/32 §3.4 明禁把「未取得答复」处置为「必须暂停」。请示未获答复时按既有路径继续并如实说明。"
     + "\n\nRETURNS decision: \"review\"（安排代理）| \"skip\"（不安排，明确答复）| \"silent\"（静默执行开着：没问，直接给你派发模板）| null（未取得答复）。"
+    + "倒计时开关打开时，请示卡片显示 10/30/60s 倒计时；到点未选则返回 decision=null 且 result.timed_out=true，按「未取得答复、直接推进」处理——这不是 Human 的 skip/review 决定，不写答复留痕（32 §9.1）。"
     + "**switch_off 时不会提问**，直接返回 decision=null 并说明原因——那是设计，不是失败。"
     + "\nsilent 是**配置决定的自动安排**，不是 Human 的答复：拿到它就去派代理，并把 result.notice 原样写进交付说明（静默不等于无痕）。"
     + "\n\nNOT A GATE: skip 是合法答复，不阻断任何后续动作；本工具不返回 granted。"
@@ -238,6 +239,9 @@ export async function executeReviewAsk(args, exec, deps) {
     enabled,
     agent: exec?.agent,
     signal: exec?.signal,
+    callId: exec?.callId,
+    timeoutEnabled: settings?.timeoutEnabled === true,
+    timeoutSeconds: settings?.timeoutSeconds,
   });
 
   const asked = outcome?.asked === true;
@@ -257,6 +261,7 @@ export async function executeReviewAsk(args, exec, deps) {
       decision,
       asked,
       reused: outcome?.reused === true,
+      ...(outcome?.timed_out === true ? { timed_out: true, timeout_seconds: outcome.timeout_seconds } : {}),
       ...(outcome?.custom_note === undefined ? {} : { custom_note: outcome.custom_note }),
       ...(outcome?.fingerprint === undefined ? {} : { fingerprint: outcome.fingerprint }),
       switch_enabled: enabled,
@@ -287,12 +292,18 @@ export async function executeReviewAsk(args, exec, deps) {
       ]
       : decision === "skip"
         ? ["Human 明确选择不安排独立把关；直接推进，主控自查仍在（04 §6.1）"]
-        : outcome?.custom_note !== undefined
+        : outcome?.timed_out === true
           ? [
-            "未取得答复（32 §9.1：答复只表明「被问过并给出安排／不安排」，没有答复即没有决定，不得读成 skip）；但 Human 在自由输入框写了字，见 result.custom_note —— 逐字读它并纳入本轮判断，不要当成跳过",
-            "该自由文本不是 review/skip 答复，不改变 decision=null；如需明确决定请重新提请",
-            "未取得答复**不放行也不暂停**（00 §2.5、32 §3.4、32 §9.1）：按既有路径继续，并在交付说明中如实写明「未取得该处答复」；不得把沉默当作 skip，也不得据此停下整件工作",
+            `倒计时 ${outcome.timeout_seconds}s 到点，未取得答复——这不是 Human 的 skip 或 review 决定，未写入答复留痕（specs/32 §9.1）；按既有路径直接推进，主控自查仍在（00 §2.5、32 §3.4）`,
+            "在交付说明中如实写明「该处倒计时到点、未取得答复、已直接推进」；不得把超时当作 Human 的明确答复，也不得据此停下整件工作",
+            "同内容下次仍会问（未取得答复不是答复）；若 Human 事后在残留卡片上点了选项，因 LDVH 自有工具的晚到答复不在宿主投影内，可能投递不到——如需明确决定请重新提请",
           ]
+          : outcome?.custom_note !== undefined
+            ? [
+              "未取得答复（32 §9.1：答复只表明「被问过并给出安排／不安排」，没有答复即没有决定，不得读成 skip）；但 Human 在自由输入框写了字，见 result.custom_note —— 逐字读它并纳入本轮判断，不要当成跳过",
+              "该自由文本不是 review/skip 答复，不改变 decision=null；如需明确决定请重新提请",
+              "未取得答复**不放行也不暂停**（00 §2.5、32 §3.4、32 §9.1）：按既有路径继续，并在交付说明中如实写明「未取得该处答复」；不得把沉默当作 skip，也不得据此停下整件工作",
+            ]
           : ["未取得答复：按 32 §9.1 不得把沉默当作 skip（没有答复即没有决定）；也**不得据此暂停**——两处请示是 00 §2.5 明定的 Human Gate 之外征询，答复不是行动放行的前提；按既有路径继续，并在交付说明中如实写明「未取得该处答复」"],
   });
 }

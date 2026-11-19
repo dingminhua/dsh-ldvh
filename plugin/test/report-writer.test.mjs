@@ -1039,3 +1039,157 @@ test("internal-source: create summary 缺锚点被拒绝，带合法锚点通过
   });
   assert.ok(ok.ok, JSON.stringify(ok.error));
 });
+
+test("report_form: 闭集四值含 action", () => {
+  const actionFm = {
+    object_uid: "a1b559a6-6c13-494b-974a-a9368686bc7b",
+    fact_type_key: "report",
+    title: "行动报告形态测试",
+    created_at: "2026-11-19T00:00:00.000Z",
+    status: "active",
+    report_form: "action",
+    stopping_reason: "sufficient",
+    uncertain: [{ issue: "仅测试形状", reason: "非真实行动" }],
+  };
+  const fm = validateResearchFrontmatter(actionFm);
+  assert.ok(!fm.issues.some((i) => i.includes("report_form: must be one of")), JSON.stringify(fm.issues));
+});
+
+test("action: 正文骨架 5 H2 合法、缺一 H2 或含调查阶段均被拒绝", () => {
+  const good = ["## 行动目标与背景", "目标。", "## 执行过程", "过程。", "## 结果与结论", "结论。", "## 证据摘录", "摘录。", "## 遗留与下一步", "无。"].join("\n\n");
+  const ok = validateBodyStructure(good, false, "action");
+  assert.ok(ok.ok, JSON.stringify(ok.issues));
+  assert.equal(ok.exploratory, false);
+
+  const missing = good.replace("## 结果与结论\n\n结论。\n\n", "");
+  const bad = validateBodyStructure(missing, false, "action");
+  assert.ok(!bad.ok);
+  assert.ok(bad.issues.some((i) => i.includes("expected 5 H2")));
+
+  const withSurvey = good.replace("## 执行过程", "## 调查阶段\nX\n\n## 执行过程");
+  const surveyBad = validateBodyStructure(withSurvey, false, "action");
+  assert.ok(!surveyBad.ok);
+  assert.ok(surveyBad.issues.some((i) => i.includes("调查阶段") && i.includes("forbidden")));
+});
+
+test("action: 禁 urls、走内部锚点；create 缺锚点拒绝、带合法锚点通过", async () => {
+  const actionDraft = {
+    title: "修复登录超时行动报告",
+    status: "active",
+    report_form: "action",
+    research_purpose: "验证行动报告创建",
+    stopping_reason: "no-gain",
+    uncertain: [{ issue: "仅测试锚点校验", reason: "非真实行动" }],
+    change_summary: "测试 action 创建",
+  };
+  const body = [
+    "## 行动目标与背景", "修复登录超时。",
+    "## 执行过程", "改超时阈值并重测。",
+    "## 结果与结论", "超时不再复现。",
+    "## 证据摘录", "摘录内容。",
+    "## 遗留与下一步", "无。",
+  ].join("\n\n");
+
+  const withUrls = { ...actionDraft, urls: [{ ref: "https://example.com" }] };
+  const urlsFm = validateResearchFrontmatter({ ...withUrls, object_uid: "a1b559a6-6c13-494b-974a-a9368686bc7b", fact_type_key: "report", created_at: "2026-11-19T00:00:00.000Z" });
+  assert.ok(urlsFm.issues.some((i) => i.includes("urls: forbidden")));
+
+  const noAnchor = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: actionDraft,
+    analysisBody: body,
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(!noAnchor.ok, JSON.stringify(noAnchor));
+  assert.equal(noAnchor.error.code, "research/internal_source_anchor_invalid");
+
+  const withAnchor = body.replace(
+    "摘录内容。",
+    "摘录内容。\n来源：commit（0123456789abcdef0123456789abcdef01234567）"
+  );
+  const ok = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: actionDraft,
+    analysisBody: withAnchor,
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(ok.ok, JSON.stringify(ok.error));
+  const back = await readResearchObject({ factSourceRoot: root, objectUid: ok.value.object_uid });
+  assert.equal(back.value.frontmatter.report_form, "action");
+});
+
+function referenceBody(anchorLine) {
+  return [
+    "## 参考内容", "据称 X 库支持 Y。",
+    "## 出处与来源", "记录于某处。",
+    "## 记录理由", "备查。",
+    "## 未验证与疑点", "版本与真伪未核。",
+    "## 后续核验方向", anchorLine,
+  ].join("\n\n");
+}
+
+test("reference: 正文骨架 5 H2 合法、含调查阶段被拒绝", () => {
+  const good = referenceBody("略。");
+  const ok = validateBodyStructure(good, false, "reference");
+  assert.ok(ok.ok, JSON.stringify(ok.issues));
+  assert.equal(ok.exploratory, false);
+  const withSurvey = good.replace("## 记录理由", "## 调查阶段\nX\n\n## 记录理由");
+  const bad = validateBodyStructure(withSurvey, false, "reference");
+  assert.ok(!bad.ok);
+  assert.ok(bad.issues.some((i) => i.includes("调查阶段") && i.includes("forbidden")));
+});
+
+test("reference: confirmed 必须为空、禁 sufficient、须有 uncertain/gaps", () => {
+  const base = {
+    object_uid: "b1b559a6-6c13-494b-974a-a9368686bc7b",
+    fact_type_key: "report",
+    title: "参考报告形态测试",
+    created_at: "2026-11-19T00:00:00.000Z",
+    status: "active",
+    report_form: "reference",
+    stopping_reason: "no-gain",
+    uncertain: [{ issue: "未验证", reason: "仅测试" }],
+  };
+  const ok = validateResearchFrontmatter(base);
+  assert.ok(ok.ok, JSON.stringify(ok.issues));
+
+  const withConfirmed = validateResearchFrontmatter({ ...base, confirmed_statements: ["某声明"] });
+  assert.ok(withConfirmed.issues.some((i) => i.includes("confirmed_statements must be empty")));
+
+  const sufficient = validateResearchFrontmatter({ ...base, stopping_reason: "sufficient" });
+  assert.ok(sufficient.issues.some((i) => i.includes("forbids stopping_reason=sufficient")));
+
+  const noUnverified = validateResearchFrontmatter({ ...base, uncertain: undefined, gaps: undefined });
+  assert.ok(noUnverified.issues.some((i) => i.includes("at least one uncertain or gaps")));
+});
+
+test("reference: 禁 urls、走内部锚点；create 缺锚点拒绝、带合法锚点通过", async () => {
+  const draft = {
+    title: "未验证的材料备查",
+    status: "active",
+    report_form: "reference",
+    research_purpose: "验证参考报告创建",
+    stopping_reason: "no-gain",
+    uncertain: [{ issue: "未验证", reason: "仅测试" }],
+    change_summary: "测试 reference 创建",
+  };
+  const noAnchor = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: draft,
+    analysisBody: referenceBody("尚未核验。"),
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(!noAnchor.ok, JSON.stringify(noAnchor));
+  assert.equal(noAnchor.error.code, "research/internal_source_anchor_invalid");
+
+  const withAnchor = referenceBody("来源：commit（0123456789abcdef0123456789abcdef01234567）");
+  const ok = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: draft,
+    analysisBody: withAnchor,
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+  });
+  assert.ok(ok.ok, JSON.stringify(ok.error));
+  const back = await readResearchObject({ factSourceRoot: root, objectUid: ok.value.object_uid });
+  assert.equal(back.value.frontmatter.report_form, "reference");
+});

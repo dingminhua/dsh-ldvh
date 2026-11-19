@@ -3,6 +3,7 @@ import {
   createPitfallObject,
   readPitfallObject,
   updatePitfallObject,
+  resolvePitfallObjectUid,
   listPitfallObjects,
 } from "./pitfall-writer.js";
 import { defineTool } from "@deepseek-ai/dsh-tools";
@@ -301,15 +302,20 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  const objectUid = args?.object_uid;
+  const objectUidInput = args?.object_uid;
+  if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+    return invalidRequest("pitfall-write-object", "object_uid is required for action=update", "update");
+  }
+  const uidResolution = await resolvePitfallObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+  if (!uidResolution.ok) {
+    return writeRejected("pitfall-write-object", uidResolution, factSourceRoot);
+  }
+  const objectUid = uidResolution.objectUid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
-  if (typeof objectUid !== "string" || objectUid.length === 0) {
-    return invalidRequest("pitfall-write-object", "object_uid is required for action=update", "update");
-  }
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("pitfall-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
@@ -331,6 +337,7 @@ async function executeWriteObject(args, exec, deps) {
     bodyMarkdownAfter,
     changeSummary,
     sessionSignature: sig.ok ? sig.value : null,
+    currentProjectId: governed.project.id,
   });
   if (!updated.ok) {
     return writeRejected("pitfall-write-object", updated, factSourceRoot);
@@ -544,7 +551,7 @@ function parameterSchemaFor(operationKey) {
           action: { type: "string", enum: ["create", "update"] },
           frontmatter_draft: pitfallFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 症状' (H2 sections 症状/触发条件/根因/解决/规避/验证/影响与适用范围, plus 证据 iff urls non-empty; the H1 is generated from title)" },
-          object_uid: { type: "string", description: "update: target object" },
+          object_uid: { type: "string", description: "update target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
           expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
           frontmatter_after: (() => { const { required: _r, ...rest } = pitfallFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
           frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },

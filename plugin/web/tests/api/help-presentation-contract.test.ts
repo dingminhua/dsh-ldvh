@@ -472,3 +472,63 @@ test('帮助页的图标与文字必须落在同一条基线上：容器等高�
   );
 });
 
+test('帮助页的分组手段只有「纸」与「行」：不回退卡片地毯，标签栏固定成一条竖线', () => {
+  // 2026-11-19 版式重构的核心：分组不再靠一张张等重的卡片（十四张卡同屏，
+  // 眼睛分不出谁和谁一组），改为「一章一两张纸 + 纸上用发丝线分行」。这条
+  // 守卫钉住两件事：页面里不得再出现卡片壳；纸与标签栏只在 index.css 定义。
+  assert.doesNotMatch(
+    helpCode,
+    /rounded-(?:xl|lg)\b/,
+    '帮助页不得再出现卡片壳（rounded-xl / rounded-lg）——白纸只由 .ldvh-help-sheet 给，' +
+      '页面另写一套圆角边框就会退回「卡片地毯」：十几个等重盒子同屏，分组关系反而读不出来',
+  );
+
+  const sheetBlock = /\.ldvh-help-sheet\s*\{([^}]*)\}/.exec(indexCss);
+  assert.ok(sheetBlock, 'index.css 须定义 .ldvh-help-sheet（一章里承载同类东西的那张纸）');
+  for (const decl of ['border:', 'border-radius:', 'background:', 'overflow: hidden']) {
+    assert.match(
+      sheetBlock[1],
+      new RegExp(decl),
+      `.ldvh-help-sheet 须写出 ${decl.trim()}——纸是「一块有边的白面」，缺一条就读不成纸`,
+    );
+  }
+
+  const columnBlock = /\.ldvh-help-column\s*\{([^}]*)\}/.exec(indexCss);
+  assert.ok(columnBlock, 'index.css 须定义 .ldvh-help-column（一条文档列）');
+  assert.match(
+    columnBlock[1],
+    /max-width:/,
+    '文档列须有 max-width——整页铺满 1210px 时每行五十余汉字，眼睛要来回扫；' +
+      '收在一列里，行宽才落在 40 字上下（与页面内 max-w-[40rem] 同一口径）',
+  );
+
+  const fieldsBlock = /\.ldvh-help-fields\s*\{([^}]*)\}/.exec(indexCss);
+  assert.ok(fieldsBlock, 'index.css 须定义 .ldvh-help-fields（行内的标签栏 + 值两列）');
+  assert.match(
+    fieldsBlock[1],
+    /grid-template-columns:\s*6\.5rem/,
+    '标签栏宽度必须固定（6.5rem）——卡片网格里每条账各写一遍「它是什么」，标签对不齐；' +
+      '固定成一列，七条账的标签才竖成一条竖线，能跨条目往下扫',
+  );
+
+  // 容器查询的「容器」必须是祖先：把 inline-size 挂在字段区自己身上，
+  // 它查到的是自己的祖先，窄容器下永远不折（第一版就是这么错的）。
+  const entryBlock = /\.ldvh-help-entry\s*\{([^}]*)\}/.exec(indexCss);
+  assert.ok(entryBlock, 'index.css 须定义 .ldvh-help-entry（纸上的一行账）');
+  assert.match(
+    entryBlock[1],
+    /container-type:\s*inline-size/,
+    '行须是容器查询的容器（container-type: inline-size 挂在行上）——' +
+      '行内的标签栏才能按这一行的宽度决定折不折',
+  );
+  assert.doesNotMatch(
+    fieldsBlock[1],
+    /container-type/,
+    '标签栏自己不得做容器——它查的是祖先宽度，挂在自身上时窄容器下永远不会折',
+  );
+  assert.match(
+    indexCss,
+    /@container \(max-width: 27rem\)/,
+    '窄容器的降级须走容器查询而不是视口断点（docs/01 §1.6.1 第 3 条）',
+  );
+});

@@ -4,6 +4,7 @@ import {
   precheckSubGoalCreate,
   readSubGoalObject,
   updateSubGoalObject,
+  resolveSubGoalObjectUid,
   listSubGoalObjects,
 } from "./subgoal-writer.js";
 import { defineTool } from "@deepseek-ai/dsh-tools";
@@ -362,15 +363,20 @@ async function executeWriteObject(args, exec, deps) {
     });
   }
 
-  const objectUid = args?.object_uid;
+  const objectUidInput = args?.object_uid;
+  if (typeof objectUidInput !== "string" || objectUidInput.length === 0) {
+    return invalidRequest("subgoal-write-object", "object_uid is required for action=update", "update");
+  }
+  const uidResolution = await resolveSubGoalObjectUid(factSourceRoot, objectUidInput, governed.project.id);
+  if (!uidResolution.ok) {
+    return writeRejected("subgoal-write-object", uidResolution, factSourceRoot);
+  }
+  const objectUid = uidResolution.objectUid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
   const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
-  if (typeof objectUid !== "string" || objectUid.length === 0) {
-    return invalidRequest("subgoal-write-object", "object_uid is required for action=update", "update");
-  }
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
     return invalidRequest("subgoal-write-object", "expected_fingerprint is required for action=update (CAS baseline — from your last precise read)", "update");
   }
@@ -392,6 +398,7 @@ async function executeWriteObject(args, exec, deps) {
     bodyMarkdownAfter,
     changeSummary,
     sessionSignature: sig.value,
+    currentProjectId: governed.project.id,
   });
   if (!updated.ok) {
     return writeRejected("subgoal-write-object", updated, factSourceRoot, "update");
@@ -575,7 +582,7 @@ function parameterSchemaFor(operationKey) {
       action: { type: "string", enum: ["create", "update"], description: "create: new SubGoal in status=active (Human decision required, 28 §16); update: CAS write against an existing object" },
       frontmatter_draft: subgoalFrontmatter,
       body_markdown: { type: "string", description: "create: the body markdown starting with '## 达成条件' (H2 sections 达成条件/对齐说明, both required and non-empty; criterion and alignment must appear VERBATIM inside them; the H1 is generated from title)" },
-      object_uid: { type: "string", description: "update: target object" },
+      object_uid: { type: "string", description: "update target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
       expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
       frontmatter_after: subgoalFrontmatterAfter,
       frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },

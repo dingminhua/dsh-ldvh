@@ -6,13 +6,17 @@ import { join } from "node:path";
 
 import { createHostSeams } from "../lib/host-seams.js";
 
-function installWith(ask, home) {
+function installWith(ask, home, askTimed) {
   const seams = createHostSeams();
+  const userQuestions = ask === null && askTimed === undefined ? undefined : {
+    ...(ask === null ? {} : { ask }),
+    ...(askTimed === undefined ? {} : { askTimed }),
+  };
   const ctx = {
     get: (key) => ({
       tools: { guard: () => () => {} },
       invariants: { register: () => () => {} },
-      userQuestions: ask === null ? undefined : { ask },
+      userQuestions,
       fs: {
         resolve: async (p) => ({ targetKey: `tk:${p}`, displayPath: p }),
         stat: async () => ({ version: "v", type: "file" }),
@@ -277,4 +281,105 @@ test("review-ask seam: 占位词在载体里归一为 null", async () => {
 	const entry = parsed.decisions[parsed.decisions.length - 1];
 	assert.notEqual(entry.task, "当次任务", "占位词不得写进载体——它标识不了「是哪件事」");
 	install.dispose();
+});
+
+
+test("review-ask seam: 倒计时开启且超时 → decision=null、timed_out、不写答复账（B 语义）", async () => {
+  const home = await freshHome();
+  let asked = 0;
+  const askTimed = async (request, callId, timeoutMs, agent) => {
+    asked += 1;
+    assert.equal(callId, "call-7");
+    assert.equal(timeoutMs, 10000, "10s 须换算成毫秒");
+    return { pending: true, callId };
+  };
+  const { seams, install } = installWith(async () => { throw new Error("倒计时开启时不应走阻塞 ask"); }, home, askTimed);
+  const out = await seams.requestReviewAsk({
+    point: PRE, task: "加倒计时", enabled: true, agent: agentOf("s1", "/p"),
+    callId: "call-7", timeoutEnabled: true, timeoutSeconds: 10,
+  });
+  assert.equal(asked, 1);
+  assert.equal(out.decision, null, "超时不是答复");
+  assert.equal(out.timed_out, true);
+  assert.equal(out.timeout_seconds, 10);
+  assert.match(out.reason, /未取得答复/);
+  const ledger = await readFile(join(home, "ldvh", "review-ask-decisions.json"), "utf8").catch(() => "");
+  assert.equal(ledger, "", "超时不得写进答复账（否则下次被误当决定复用）");
+  install.dispose();
+});
+
+test("review-ask seam: 倒计时窗口内选了「安排代理」→ 正常记决定 review", async () => {
+  const home = await freshHome();
+  const askTimed = async () => ({ answers: [{ id: "ldvh-review-ask", selected: ["安排代理"] }] });
+  const { seams, install } = installWith(null, home, askTimed);
+  const out = await seams.requestReviewAsk({
+    point: PRE, task: "加倒计时", enabled: true, agent: agentOf("s1", "/p"),
+    callId: "call-8", timeoutEnabled: true, timeoutSeconds: 30,
+  });
+  assert.equal(out.decision, "review");
+  assert.equal(out.timed_out, undefined);
+  const raw = await readFile(join(home, "ldvh", "review-ask-decisions.json"), "utf8");
+  assert.equal(JSON.parse(raw).decisions[0].answer, "review", "窗口内答复与无倒计时时一样记入账");
+  install.dispose();
+});
+
+test("review-ask seam: 倒计时未开 / 无 askTimed / 无 callId → 降级走阻塞 ask", async () => {
+  for (const variant of [
+    { name: "未开", args: { timeoutEnabled: false, timeoutSeconds: 30, callId: "c" }, withTimed: true },
+    { name: "宿主无 askTimed", args: { timeoutEnabled: true, timeoutSeconds: 30, callId: "c" }, withTimed: false },
+    { name: "无 callId", args: { timeoutEnabled: true, timeoutSeconds: 30 }, withTimed: true },
+    { name: "非法秒数", args: { timeoutEnabled: true, timeoutSeconds: 25, callId: "c" }, withTimed: true },
+  ]) {
+    const home = await freshHome();
+    let blocked = 0;
+    let timed = 0;
+    const ask = async () => { blocked += 1; return answerSelecting("跳过，直接推进")(); };
+    const askTimed = async () => { timed += 1; return { pending: true, callId: "c" }; };
+    const { seams, install } = installWith(ask, home, variant.withTimed ? askTimed : undefined);
+    const out = await seams.requestReviewAsk({
+      point: PRE, task: "x", enabled: true, agent: agentOf("s1", "/p"), ...variant.args,
+    });
+    assert.equal(blocked, 1, `${variant.name}: 应降级走阻塞 ask`);
+    assert.equal(timed, 0, `${variant.name}: 不应走 askTimed`);
+    assert.equal(out.decision, "skip");
+    install.dispose();
+  }
+});
+
+test("review-ask seam: 超时未写账 → 下次同内容仍会照常提问（不破坏复用语义）", async () => {
+  const home = await freshHome();
+  let asked = 0;
+  const askTimed = async () => { asked += 1; return { pending: true, callId: "c" }; };
+  const { seams, install } = installWith(null, home, askTimed);
+  const agent = agentOf("s1", "/p");
+  await seams.requestReviewAsk({ point: PRE, task: "同一件事", enabled: true, agent, callId: "c1", timeoutEnabled: true, timeoutSeconds: 10 });
+  const second = await seams.requestReviewAsk({ point: PRE, task: "同一件事", enabled: true, agent, callId: "c2", timeoutEnabled: true, timeoutSeconds: 10 });
+  assert.equal(asked, 2, "超时未取得答复，下次同内容必须重新问");
+  assert.equal(second.reused, undefined);
+  install.dispose();
+});
+
+test("review-ask seam: 倒计时请求同样带 signal 与 agent 透传（守卫与记账在 askTimed seam 上生效）", async () => {
+  const home = await freshHome();
+  let seen = null;
+  const askTimed = async (request, callId, timeoutMs) => {
+    seen = { request, callId, timeoutMs, agent: request.agent };
+    return { pending: true, callId };
+  };
+  const { seams, install } = installWith(null, home, askTimed);
+  const agent = agentOf("s1", "/p");
+  const controller = new AbortController();
+  await seams.requestReviewAsk({
+    point: PRE, task: "加倒计时", enabled: true, agent, signal: controller.signal,
+    callId: "c", timeoutEnabled: true, timeoutSeconds: 30,
+  });
+  assert.equal(seen.callId, "c");
+  assert.equal(seen.timeoutMs, 30000);
+  assert.equal(seen.agent, agent, "agent 须透传给 askTimed（assertLiveRoot 需要它）");
+  assert.equal(seen.request.signal, controller.signal, "signal 须透传");
+  assert.equal(seen.request.questions[0].id, "ldvh-review-ask");
+  assert.equal(seen.request.questions[0].options.length, 2);
+  const snap = seams.snapshot().find((s) => s.seam === "ctx.userQuestions.ask");
+  assert.equal(snap.consumed, true, "走 askTimed 也要记 usedQuestionService，快照不得误报未使用");
+  install.dispose();
 });
