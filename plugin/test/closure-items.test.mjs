@@ -504,6 +504,21 @@ test("item1: absent evidence produces gaps, never a silent pass", async () => {
 	});
 });
 
+test("item1: evidence records missing carriers or null never count as a hit and never throw", async () => {
+	await withTemp("ldvh-ev-malformed.", async (base) => {
+		const { root, markdown, repoPath } = await fixtureMember(base);
+		const identity = { spec_key: "demo-spec" };
+		for (const malformed of [[{}], [null], { bad: true }, [42]]) {
+			const report = await bindMembershipEvidence(root, [{ identity, markdownText: markdown, repoPath }], {
+				reviews: malformed,
+				decisions: malformed,
+			});
+			assert.equal(report.carriers[0].items["8"].satisfied, false, `reviews=${JSON.stringify(malformed)} must not satisfy item 8`);
+			assert.equal(report.carriers[0].items["9"].satisfied, false, `decisions=${JSON.stringify(malformed)} must not satisfy item 9`);
+		}
+	});
+});
+
 test("item1: a stale fingerprint binding fails item 12", async () => {
 	await withTemp("ldvh-ev-stale.", async (base) => {
 		const { root, markdown, repoPath } = await fixtureMember(base);

@@ -181,7 +181,7 @@ function toIssue(record: Record<string, unknown>): CognitionIssue {
 
 function parseRecentActivityWindow(value: unknown): RecentActivityWindow | null {
   if (value === undefined || value === '') return '1d'
-  return typeof value === 'string' && value in RECENT_ACTIVITY_WINDOWS
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(RECENT_ACTIVITY_WINDOWS, value)
     ? value as RecentActivityWindow
     : null
 }

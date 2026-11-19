@@ -286,6 +286,7 @@ async function executeWriteObject(args, exec, deps) {
       objectUid,
       expectedFingerprint: args.expected_fingerprint,
       relationsAfter: Array.isArray(args?.relations_after) ? args.relations_after : null,
+      frontmatterAdditions: args?.frontmatter_additions !== null && typeof args?.frontmatter_additions === "object" && !Array.isArray(args?.frontmatter_additions) ? args.frontmatter_additions : null,
       frontmatterRemovals: Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : [],
       bodyMarkdownAfter: args.body_markdown_after,
       changeSummary: args.change_summary,

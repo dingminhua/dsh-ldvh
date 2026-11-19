@@ -221,6 +221,10 @@ test('recent activity accepts only explicit windows and groups fact change-log e
 
   const response = await fetch(`${baseUrl}/api/cognition?locale=zh&window=30d`)
   assert.equal(response.status, 400)
+  for (const inherited of ['toString', 'constructor', 'valueOf']) {
+    const inheritedResponse = await fetch(`${baseUrl}/api/cognition?locale=zh&window=${inherited}`)
+    assert.equal(inheritedResponse.status, 400, `window=${inherited} must be rejected, not treated as a valid window`)
+  }
 })
 
 test('recent activity aggregation retains the newest fact event and counts complete signature usage', async () => {

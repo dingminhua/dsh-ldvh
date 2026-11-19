@@ -370,8 +370,7 @@ export async function installHook({ projectRoot, runnerPath, workspaceRoot }) {
 
 export async function uninstallHook(projectRoot) {
   const status = await inspectHook(projectRoot);
-  if (status.state === "absent") return { ok: true, value: status };
-  if (!['managed', 'outdated'].includes(status.state)) return { ok: false, error: { code: "hook_conflict", message: status.detail, details: status } };
+  if (status.hooks.every((hook) => hook.state === "absent")) return { ok: true, value: status };
   const removable = [];
   for (const hook of status.hooks) {
     if (hook.state === "absent") continue;
