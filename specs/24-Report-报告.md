@@ -464,6 +464,7 @@ F4 来源展开发生在需要核对具体观察、版本或观察时点时：�
 
 | operation_key | summary | effect | arguments_contract | result_contract | required_inputs |
 |---|---|---|---|---|---|
+| `report-session-machine` | 驱动调研会话状态机：澄清问题、提交证据轮次、引用与收敛核对、定稿证据包（33 号 §7–§10） | `read` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | action、question|session_id |
 | `report-read-object` | 按 object_uid 精确读取一个 Report 事实对象的身份块、正文与文件指纹 | `read` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | object_uid |
 | `report-list-objects` | 枚举 Report 事实对象的 F0/F1 投影（标题、研究问题与停止理由） | `read` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | 无 |
 | `report-write-object` | 对 Report 事实对象执行受控创建、勘误与 CAS 更新（含写后回读） | `may_change_state` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | action、frontmatter_draft|object_uid、analysis_body|analysis_body_after |
@@ -476,6 +477,7 @@ F4 来源展开发生在需要核对具体观察、版本或观察时点时：�
 
 | operation_key | 必填输入 | 结果 |
 |---|---|---|
+| `report-session-machine` | action、question|session_id | 会话状态、证据轮次回执与定稿证据包 |
 | `report-read-object` | object_uid | 读回的身份块、正文、指纹与机械问题清单 |
 | `report-list-objects` | 无 | 枚举投影条目与总数 |
 | `report-write-object` | action、frontmatter_draft|object_uid、analysis_body|analysis_body_after | 受控写入结果与写后精确回读 |

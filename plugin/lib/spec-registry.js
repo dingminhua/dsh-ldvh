@@ -246,7 +246,7 @@ export function parseOperationDeclarations(specText, resolveAnchor) {
     return rows;
   }
   const lines = specText.split("\n");
-  const header = /^\|\s*operation_key\s*\|\s*summary\s*\|\s*effect\s*\|\s*arguments_contract\s*\|\s*result_contract\s*\|\s*$/;
+  const header = /^\|\s*operation_key\s*\|\s*summary\s*\|\s*effect\s*\|\s*arguments_contract\s*\|\s*result_contract\s*(\|\s*required_inputs\s*)?\|\s*$/;
   const tableStarts = [];
   for (let i = 0; i < lines.length; i += 1) {
     if (header.test(lines[i].trim())) tableStarts.push(i + 2);
