@@ -101,7 +101,6 @@ Platform verification status (implementation and acceptance are recorded separat
 - No release version has been published; `1.0.0-dev.1` is a development preview.
 - The uncovered Windows scenarios are listed above — they must not be read as "Windows fully accepted"; the code has changed since the 2026-11-10 run and that conclusion has not been re-verified against the current code.
 - Linux is outside the support declaration (CI coverage only).
-- The CHANGELOG entries of the plugin package are still placeholders and must be written from the actually committed changes before publishing.
 - Test baseline: a run of `npm --prefix plugin test` on the current working tree reported no failures (0 failed; 19 skipped, within the registered skip baseline of 27). The skipped cases still have to be checked one by one — the release gate does not accept skips in place of a passing result.
 
 ## License

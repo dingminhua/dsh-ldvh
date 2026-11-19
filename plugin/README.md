@@ -101,7 +101,6 @@ dsh-ldvh governed-project <list|inspect|install|uninstall-hook|register|unregist
 - 尚未发布正式版本；`1.0.0-dev.1` 为开发预览。
 - Windows 上未覆盖的场景如上表所列，不得据此认为 Windows 已完整验收通过；2026-11-10 的验收结论此后代码有变动，未在当前代码上重验。
 - Linux 不在支持声明内（仅 CI 覆盖）。
-- 插件包的 CHANGELOG 条目尚未补齐（当前为占位），发布前须按实际已提交变更补写。
 - 测试基线：本次在当前工作树实测 `npm --prefix plugin test` 无失败项（0 失败；19 条跳过，在登记基线 27 以内）。跳过项仍须逐项核对——发布门禁不接受以跳过替代通过结论。
 
 ## License
