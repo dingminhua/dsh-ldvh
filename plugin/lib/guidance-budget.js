@@ -58,7 +58,7 @@ export const GUIDANCE_BILLING_BASIS = Object.freeze({
 });
 
 export const GUIDANCE_MEASURED_LENGTH = Object.freeze({
-  governed: 1652,
+  governed: 2143,
   unavailable: 323,
   not_governed: 90,
 });
