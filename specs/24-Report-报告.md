@@ -407,15 +407,24 @@ F4 来源展开发生在需要核对具体观察、版本或观察时点时：�
 迁移边界：v4 `report_kind=external_research` 对象与 docs/ 既有调研备忘是迁移输入，须逐份重满足本文 §6 准入并补全三态证据与引用闭环后，经受控创建按实际子阶段进入 `researches/` 类型目录（单文件：探索型含 `调查阶段` H2，明确方向型不含）；v4 frontmatter 中本文不承载的字段（如 `abstract`、`recommendation_summary`）在迁移创建时删除，不进入 canonical frontmatter，如需保留迁移历史可在 `change_log` 摘要中说明；v4 `technical_assessment` 不迁入本类型（不设产物类型，按主控方案收敛本职分流处置，04 §6.1）；v4 `internal_audit` 的完整结论报告由本类型的审核型（`report_form=audit`）承载，按 §6.3 的四项准入门槛准入；v4 Study 类型名废弃、不设单独类型规范；legacy `object_id` 只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（02 §7.1、§7.2）。删除边界按 02 §11 承接。
 ### 公开操作声明（05 §6.1 形状）
 
-| operation_key | summary | effect | arguments_contract | result_contract |
-|---|---|---|---|---|
-| `report-session-machine` | 驱动调研会话状态机：澄清问题、提交证据轮次、审计引用闭环与核对交付 | `read` | `report-fact-type::13. 受控操作` | `report-fact-type::15. 验证与证据边界` |
-| `report-read-object` | 按 object_uid 精确读取一个 Report 事实对象的身份块、正文与文件指纹 | `read` | `report-fact-type::13. 受控操作` | `report-fact-type::15. 验证与证据边界` |
-| `report-list-objects` | 枚举 Report 事实对象的 F0/F1 投影（标题、研究问题与停止理由） | `read` | `report-fact-type::13. 受控操作` | `report-fact-type::15. 验证与证据边界` |
-| `report-write-object` | 对 Report 事实对象执行受控创建、勘误与 CAS 更新（含写后回读） | `may_change_state` | `report-fact-type::13. 受控操作` | `report-fact-type::15. 验证与证据边界` |
+| operation_key | summary | effect | arguments_contract | result_contract | required_inputs |
+|---|---|---|---|---|---|
+| `report-read-object` | 按 object_uid 精确读取一个 Report 事实对象的身份块、正文与文件指纹 | `read` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | object_uid |
+| `report-list-objects` | 枚举 Report 事实对象的 F0/F1 投影（标题、研究问题与停止理由） | `read` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | 无 |
+| `report-write-object` | 对 Report 事实对象执行受控创建、勘误与 CAS 更新（含写后回读） | `may_change_state` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | `report-fact-type::13. 受控操作/公开操作的输入与结果契约` | action、frontmatter_draft|object_uid、analysis_body|analysis_body_after |
 
-声明的输入章节与结果章节为本规范自身的「13. 受控操作」与「15. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
-## 14. 类型特有验证与类型退出
+声明的输入章节与结果章节为本规范「受控操作」节下的「公开操作的输入与结果契约」；本节不重复字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
+
+### 公开操作的输入与结果契约
+
+本节的输入与结果契约逐项对应上方声明表的每个公开操作，使 `arguments_contract` 与 `result_contract` 的锚点落到实际承载该契约的正文（05 §6.1）。「必填输入」列给出该操作的必填入参类别；「结果」列给出该操作成功后返回的内容类别。两列只描述契约形态，不构成授权、适用或完成的证明。
+
+| operation_key | 必填输入 | 结果 |
+|---|---|---|
+| `report-read-object` | object_uid | 读回的身份块、正文、指纹与机械问题清单 |
+| `report-list-objects` | 无 | 枚举投影条目与总数 |
+| `report-write-object` | action、frontmatter_draft|object_uid、analysis_body|analysis_body_after | 受控写入结果与写后精确回读 |
+ 类型特有验证与类型退出
 
 类型特有验证对象为三态一致性、溯源锚点完整性、单文件载体结构与正文结构：机械层验证三态与 `stopping_reason` 的闭集与存在性、`confirmed_statements` 与正文发现单元的逐字对应、正文"研究问题"段逐字包含 `research_question` 原文（不变量 10）、溯源锚点格式与 `ref` 回指、`relations` 的 key 与目标类型闭集、`调查阶段` H2 存在性与子阶段一致、正文 H2（及探索型 H3）的顺序与唯一性；逐字摘录是否真实、来源是否仍当前、缺口优先级是否阻塞 `research_purpose` 判断、三态归类是否据实、子阶段判定是否据实，属 AI 语义审核与独立复核范围，机械结果与语义判断互不替代（02 §8.1）。
 

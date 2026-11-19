@@ -24,6 +24,12 @@ import { OPERATIONS as SPARK_OPERATIONS } from "./spark-tools.js";
 import { OPERATIONS as PITFALL_OPERATIONS } from "./pitfall-tools.js";
 import { OPERATIONS as NORM_OPERATIONS } from "./norm-tools.js";
 import { OPERATIONS as FRICTION_OPERATIONS } from "./friction-tools.js";
+
+const FRICTION_CHILD_OPERATION = Object.freeze({
+  toolName: "ldvh_friction_record_observation",
+  summary: "由代理把一次摩擦观察写入观察缓冲（36 §8.8），不建账目、不改账目状态",
+  effect: "may_change_state"
+});
 import { OPERATIONS as SUBAGENT_RESULT_OPERATIONS } from "./subagent-result.js";
 import { registerSparkTools } from "./spark-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
@@ -52,7 +58,7 @@ const OPERATIONS = {
   },
   "discover-ldvh-capabilities": {
     toolName: "ldvh_discover_capabilities",
-    summary: "Discover every LDVH public capability (all registered LDVH tools) with declared/implemented/callable availability (specs/05 §6.2); a capability that is implemented but absent from the 05 §6.1 declaration table is reported as 已实现 with its service contract, never as 当次可调用",
+    summary: "Discover every LDVH public capability (all registered LDVH tools) with declared/implemented/callable availability (specs/05 §6.2). A capability absent from the 05 §6.1 declaration table is reported as 不可用 with a diagnostic and its service-contract location; one whose declared 必填输入 were not supplied is reported as 已声明 together with the pending inputs",
     effect: "read"
   },
   "inspect-loaded-modules": {
@@ -89,11 +95,13 @@ const TOOL_LAYER_CATALOG = Object.freeze([
   { layer: "subgoal", operations: SUBGOAL_OPERATIONS, spec_key: "subgoal-fact-type", source_path: "specs/21-SubGoal-子目标.md", arguments: "13. 受控操作" },
   { layer: "spark", operations: SPARK_OPERATIONS, spec_key: "spark-fact-type", source_path: "specs/22-Spark-火花.md", arguments: "13. 受控操作" },
   { layer: "norm", operations: NORM_OPERATIONS, spec_key: "norm-fact-type", source_path: "specs/23-Norm-事实规范.md", arguments: "11. 受控操作" },
-  { layer: "report", operations: REPORT_OPERATIONS, spec_key: "report-fact-type", source_path: "specs/24-Report-报告.md", arguments: "13. 受控操作" },
+  { layer: "report", operations: REPORT_OPERATIONS, spec_key: "report-fact-type", source_path: "specs/24-Report-报告.md", arguments: "13. 受控操作",
+    sources: { "report-session-machine": { spec_key: "research-system-foundation", source_path: "specs/33-调研吸收系统规范.md", arguments: "7. 输入与前置条件/7.5 公开操作声明与契约" } } },
   { layer: "pitfall", operations: PITFALL_OPERATIONS, spec_key: "pitfall-fact-type", source_path: "specs/25-Pitfall-踩坑经验.md", arguments: "13. 受控操作" },
   { layer: "friction", operations: FRICTION_OPERATIONS, spec_key: "friction-fact-type", source_path: "specs/26-Friction-摩擦账本.md", arguments: "13. 受控操作" },
   { layer: "research-consult", operations: RESEARCH_CONSULT_OPERATIONS, spec_key: "gate-consult-system-foundation", source_path: "specs/32-把关请示系统规范.md", arguments: "7. 输入与前置条件" },
-  { layer: "subagent-result", operations: SUBAGENT_RESULT_OPERATIONS, spec_key: "check-auxiliary-mechanism-foundation", source_path: "specs/04-检查与辅助机制规范.md", arguments: "9. 协同、接管与交还" },
+  { layer: "subagent-result", operations: SUBAGENT_RESULT_OPERATIONS, spec_key: "check-auxiliary-mechanism-foundation", source_path: "specs/04-检查与辅助机制规范.md", arguments: "9. 协同、接管与交还", implementedWhen: (dep) => dep?.children !== undefined },
+  { layer: "friction-child-surface", operations: { "friction-record-observation": FRICTION_CHILD_OPERATION }, spec_key: "friction-settlement-system-foundation", source_path: "specs/36-摩擦销账系统规范.md", arguments: "8. 过程机制与分支/8.8.1 观察记录公开操作契约", surface: "child-only" },
 ]);
 
 const COMMON_RESPONSE_CONTRACT = "helper-service-contract::8. 最小共同响应语义";
@@ -494,17 +502,24 @@ function makeExecute(deps) {
           result_contract: COMMON_RESPONSE_CONTRACT
         }
       },
-      ...TOOL_LAYER_CATALOG.flatMap((entry) => Object.entries(entry.operations).map(([key, operation]) => ({
-        key,
-        operation,
-        implemented: true,
-        contract: {
-          spec_key: entry.spec_key,
-          source_path: entry.source_path,
-          arguments_contract: `${entry.spec_key}::${entry.arguments}`,
-          result_contract: COMMON_RESPONSE_CONTRACT
-        }
-      })))
+      ...TOOL_LAYER_CATALOG.flatMap((entry) => Object.entries(entry.operations).map(([key, operation]) => {
+        const override = entry.sources?.[key] ?? null;
+        const spec_key = override?.spec_key ?? entry.spec_key;
+        const source_path = override?.source_path ?? entry.source_path;
+        const argumentsPath = override?.arguments ?? entry.arguments;
+        return {
+          key,
+          operation,
+          surface: entry.surface ?? "main",
+          implemented: typeof entry.implementedWhen === "function" ? entry.implementedWhen(deps) === true : true,
+          contract: {
+            spec_key,
+            source_path,
+            arguments_contract: `${spec_key}::${argumentsPath}`,
+            result_contract: COMMON_RESPONSE_CONTRACT
+          }
+        };
+      }))
     ];
     const undeclared = [];
     const entries = catalog
@@ -531,22 +546,34 @@ function makeExecute(deps) {
             detail: "05 §6.1: a contract that cannot be resolved mechanically equals an undeclared operation"
           });
         }
+        const requiredInputs = anchorsOk ? String(declaration.required_inputs ?? "") : "";
+        const needsInputs = requiredInputs !== "" && requiredInputs !== "无";
         const availability = !anchorsOk
           ? "不可用"
-          : (implemented ? (callableHere ? "当次可调用" : "不可用") : "已声明");
+          : (!implemented
+            ? "已声明"
+            : (!callableHere
+              ? "不可用"
+              : (needsInputs ? "已声明" : "当次可调用")));
         const availabilityDetail = !anchorsOk
           ? (declarationReporter[declarationReporter.length - 1]?.reason ?? "declaration could not be parsed")
-          : (callableHere ? null : `session governance state is ${governed.state}; this operation serves governed sessions`);
+          : (!implemented
+            ? "实现未在当前环境注册"
+            : (!callableHere
+              ? `session governance state is ${governed.state}; this operation serves governed sessions`
+              : (needsInputs ? `需要补充的输入：${requiredInputs}` : null)));
         return {
           operation_key: key,
           dsh_tool_name: operation.toolName,
           summary: operation.summary,
           effect: operation.effect,
+          surface: item.surface ?? "main",
           availability,
           availability_detail: availabilityDetail,
           declaration: anchorsOk
-            ? { source: declaration.source, source_path: declaration.source_path, arguments_contract: declaration.arguments_contract, result_contract: declaration.result_contract }
+            ? { source: declaration.source, source_path: declaration.source_path, arguments_contract: declaration.arguments_contract, result_contract: declaration.result_contract, required_inputs: requiredInputs }
             : null,
+          pending_inputs: needsInputs ? requiredInputs : null,
           service_contract: anchorsOk ? null : item.contract
         };
       });
@@ -568,7 +595,11 @@ function makeExecute(deps) {
         ...(governed.state === "unavailable" ? [`governance registration unavailable: ${governed.detail}`] : []),
         ...declarationReporter.map((entry) => `${entry.operation_key}: ${entry.reason}`),
         ...(undeclared.length > 0
-          ? [`${undeclared.length} 项能力未在 05 §6.1 声明表登记（按 05 §6.1 不得被当作已声明或当次可调用；其服务契约位置见条目里的 service_contract）：${undeclared.join("、")}`]
+          ? [
+            (declarations.reason !== undefined
+              ? `声明来源解析不到（${declarations.reason}），本次未能核对 ${undeclared.length} 项能力是否已登记：${undeclared.join("、")}`
+              : `${undeclared.length} 项能力未在 05 §6.1 声明表登记（按 05 §6.1 不得被当作已声明或当次可调用；其服务契约位置见条目里的 service_contract）：${undeclared.join("、")}`)
+          ]
           : [])
       ],
       verification: {
@@ -1146,7 +1177,11 @@ async function parseOperationDeclarations(projectRoot, workspaceRoot) {
   }
   const reasons = [];
   for (const member of scan.members) {
-    const rows = parseDeclarationTable(member.markdownText, (headingPath) => resolveHeadingPath(member.markdownText, headingPath).ok);
+    const rows = parseDeclarationTable(
+      member.markdownText,
+      (headingPath) => resolveHeadingPath(member.markdownText, headingPath).ok,
+      member.identity?.responsibilityKey ?? null
+    );
     if (rows.size === 0) {
       if (rows.reason !== undefined) reasons.push(`${member.repoPath}: ${rows.reason}`);
       continue;

@@ -148,11 +148,16 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 
 ### 公开操作声明（05 §6.1 形状）
 
-| operation_key | summary | effect | arguments_contract | result_contract |
-|---|---|---|---|---|
-| `probe-host-automation` | 只读探测宿主的自动化能力是否可用（调度与会话创建），不创建任何对象 | `read` | `dsh-environment-integration::5. DSH 插件身份与接入` | `dsh-environment-integration::8. 验证与证据边界` |
+| operation_key | summary | effect | arguments_contract | result_contract | required_inputs |
+|---|---|---|---|---|---|
+| `probe-host-automation` | 探测宿主自动化能力（调度与会话创建）是否可用；默认只读，write=true 时会创建一次会话与一条调度 | `may_change_state` | `dsh-environment-integration::5. DSH 插件身份与接入/5.1 宿主自动化探测契约` | `dsh-environment-integration::5. DSH 插件身份与接入/5.1 宿主自动化探测契约` | 无 |
 
-声明的输入章节与结果章节为本规范自身的「5. DSH 插件身份与接入」与「8. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
+声明的输入章节与结果章节为本规范自身「5. DSH 插件身份与接入」下的「5.1 宿主自动化探测契约」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
+
+### 5.1 宿主自动化探测契约
+
+`probe-host-automation` 用于诊断宿主自动化接缝是否可用：**无必填输入**；`write` 为可选开关，缺省只读。只读时返回 `schedule.create`／`sessionController.create`／会话标题读取三项各自的可用性判定与原因；`write=true` 时**真实创建**一个会话与一条调度，并返回其精确清理参数（0.2.2-rc.1 无 `schedule.delete`，清理用 `edit({action:'delete'})`）。因该开关会产生副作用，其 effect 为 `may_change_state`，不得声明为只读；只读是**缺省形态**，不是该操作的全部语义。本操作只作诊断，LDVH 不再依赖周期任务做摩擦发现（36 §7.6）。
+
 ## 6. 机械守护部署
 
 - **运行时不变量**：经 DSH 正式不变量注册器 `ctx.invariants.register(packageName, installer)` 在装载完成、受控写入前和会话交还前执行来源已定义的断言（InvariantInstaller = (ctx, fail) => void|Promise，fail 抛 InvariantError code='INVARIANT' 带 packageName 归因；官方包 permission-presets 以 inject: ['invariants'] 同法消费）；不替代 00 §2.7 三层防线。

@@ -111,20 +111,24 @@ LDVH CLI 是 LDVH 确定性服务的规范形态与契约的唯一实现形态�
 
 **声明形状（模板，不是声明）**——下列行的字段位置以尖括号占位，表示形状而非任何具体操作；机械解析须把以 `<` 起首的措辞视为占位符并跳过，不得当作已声明操作：
 
-| operation_key | summary | effect | arguments_contract | result_contract |
-|---|---|---|---|---|
-| `<小写 ASCII kebab-case，全局唯一>` | `<操作提供什么服务，不声明可用或完成>` | `<read 或 may_change_state>` | `<本来源或其授权附件的唯一输入章节>` | `<本来源或其授权附件的唯一结果章节>` |
+| operation_key | summary | effect | arguments_contract | result_contract | required_inputs |
+|---|---|---|---|---|---|
+| `<小写 ASCII kebab-case，全局唯一>` | `<操作提供什么服务，不声明可用或完成>` | `<read 或 may_change_state>` | `<本来源或其授权附件的唯一输入章节>` | `<本来源或其授权附件的唯一结果章节>` | `<该操作的必填输入类别；无必填输入时写「无」>` |
 
-`operation_key` 只稳定识别服务行为，不能从名称推导适用、授权、实现、验证或完成。`arguments_contract` 和 `result_contract` 必须以 `<spec_key 或 attachment_key>::<精确标题文本>` 回指同一当前来源或其已授权附件中的唯一章节。**标题文本须采用可机械寻址的层级路径形**（`<H2 标题>` 或 `<H2 标题>/<H3 标题>`，各级标题均含其编号前缀、逐字一致）；只写 H3 或更深标题而省略其 H2 祖先不构成可寻址锚点，等于未声明。解析失败、重复 key、来源未生效、输入/结果章节缺失或与声明不符时，必须暂停发现并按 00 §4.7 暂停调用。
+`operation_key` 只稳定识别服务行为，不能从名称推导适用、授权、实现、验证或完成。`arguments_contract` 和 `result_contract` 必须以 `<spec_key 或 attachment_key>::<精确标题文本>` 回指同一当前来源或其已授权附件中的唯一章节。**标题文本须采用可机械寻址的层级路径形**（`<H2 标题>` 或 `<H2 标题>/<H3 标题>`，各级标题均含其编号前缀、逐字一致）；只写 H3 或更深标题而省略其 H2 祖先不构成可寻址锚点，等于未声明。**锚点的前缀必须是声明它的那个来源自己的 `spec_key`（或 `attachment_key`）**——前缀写别处即视为未声明，不得只靠标题在本文件内碰巧解析成功蒙混过去。解析失败、重复 key、来源未生效、输入/结果章节缺失或与声明不符时，必须暂停发现并按 00 §4.7 暂停调用。
+
+**`required_inputs` 承载「所需输入类别」**：它是本操作的**必填输入**的类别清单（域对象标识、候选内容、期望指纹、Human 确认等），供 §6.2 的可用性判定与「需要补充的输入」交还使用；无必填输入的服务级操作写「无」。该列只描述输入类别，不构成授权，也不表示这些输入已被提供。
+
+**承载公开操作的来源不止一种**：服务级来源（如本规范、08、09、10）承载跨域的服务操作；各事实类型规范承载该类型域内的受控操作（如 20–26 号的读写与枚举）。**凡已注册为 LDVH 工具的能力，都须由承担其语义的来源按本节形状声明**——工具面不留例外，否则能力发现无法回答「LDVH 到底有哪些能力」。
 
 **05 自身承载的公开操作声明**（管辖范围规范与受控提交与机械守护规范的操作在各自规范声明，此处不重复）：
 
-| operation_key | summary | effect | arguments_contract | result_contract |
-|---|---|---|---|---|
-| `resolve-governance-scope` | 解析当前会话工作目录的管辖状态（governed/not_governed/unavailable） | `read` | `helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现` | `helper-service-contract::8. 最小共同响应语义` |
-| `read-specification-candidates` | 按职责标识符或全量读取 L0–L2 层的规范与授权附件候选 | `read` | `helper-service-contract::9. 读取、预热与事实操作协作/9.1 规范读取` | `helper-service-contract::8. 最小共同响应语义` |
-| `read-specification-content` | 读取单份规范或附件的 L3（精确标题路径）或 L4（全文），并交还指纹与范围 | `read` | `helper-service-contract::9. 读取、预热与事实操作协作/9.1 规范读取` | `helper-service-contract::8. 最小共同响应语义` |
-| `discover-ldvh-capabilities` | 枚举 LDVH 公开操作及其声明、实现与当次可调用状态 | `read` | `helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现` | `helper-service-contract::8. 最小共同响应语义` |
+| operation_key | summary | effect | arguments_contract | result_contract | required_inputs |
+|---|---|---|---|---|---|
+| `resolve-governance-scope` | 解析当前会话工作目录的管辖状态（governed/not_governed/unavailable） | `read` | `helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现` | `helper-service-contract::8. 最小共同响应语义` | 无 |
+| `read-specification-candidates` | 按职责标识符或全量读取 L0–L2 层的规范与授权附件候选 | `read` | `helper-service-contract::9. 读取、预热与事实操作协作/9.1 规范读取` | `helper-service-contract::8. 最小共同响应语义` | 无 |
+| `read-specification-content` | 读取单份规范或附件的 L3（精确标题路径）或 L4（全文），并交还指纹与范围 | `read` | `helper-service-contract::9. 读取、预热与事实操作协作/9.1 规范读取` | `helper-service-contract::8. 最小共同响应语义` | responsibility_key |
+| `discover-ldvh-capabilities` | 枚举 LDVH 公开操作及其声明、实现与当次可调用状态 | `read` | `helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现` | `helper-service-contract::8. 最小共同响应语义` | 无 |
 
 上述四项的输入与结果章节即为本规范 §6.2、§8、§9.1；本节不复制其字段与语义。`resolve-governance-scope` 的判定语义归管辖范围规范，本条只声明其公开服务身份。
 
@@ -144,7 +148,7 @@ LDVH CLI 必须提供一个只读的能力发现入口，返回当前规则源�
 
 以上是能力发现的 `availability` 描述，不是调用结果分类；发现入口可枚举全体操作或针对单一操作检查。每次调用的 `outcome` 仅使用 §8 的 `completed`、`partial`、`unavailable`、`rejected`、`invalid_request` 或 `execution_error` 分类，两者不得混用。
 
-未提供完整领域输入时，能力发现只能报告已声明/已实现与需要补充的输入，不能把未知写成不可用或可调用。当次可调用只证明 LDVH CLI 可以尝试按服务契约处理请求，不证明领域适用、Human 授权、技术验证或上层完成。
+未提供完整领域输入时，能力发现只能报告已声明/已实现与需要补充的输入，不能把未知写成不可用或可调用。**判据**：声明的 `required_inputs` 列出必填输入且本次请求未提供时，该操作只能报「已声明」并列出待补输入；只有无必填输入的操作，才可能报「当次可调用」。当次可调用只证明 LDVH CLI 可以尝试按服务契约处理请求，不证明领域适用、Human 授权、技术验证或上层完成。
 
 操作目录不是行动许可白名单：操作不存在、未实现、不可用或请求无效，只说明 LDVH CLI 无法按该操作承接请求；不自动禁止适用规则允许的普通求解或其它能力。反之，来源明确要求某操作且它不可用时，按该来源暂停、缩小或分流。
 

@@ -279,13 +279,24 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 
 ### 公开操作声明（05 §6.1 形状）
 
-| operation_key | summary | effect | arguments_contract | result_contract |
-|---|---|---|---|---|
-| `norm-read-object` | 按 object_uid 精确读取一个 Norm 事实对象的身份块、正文与文件指纹 | `read` | `norm-fact-type::11. 受控操作` | `norm-fact-type::14. 验证与证据边界` |
-| `norm-list-objects` | 枚举 Norm 事实对象的 F1 目录（方向键、定位句与查阅时机） | `read` | `norm-fact-type::11. 受控操作` | `norm-fact-type::14. 验证与证据边界` |
-| `norm-write-object` | 对 Norm 事实对象执行受控创建与 CAS 更新（含 Human Gate 确认与写后回读） | `may_change_state` | `norm-fact-type::11. 受控操作` | `norm-fact-type::14. 验证与证据边界` |
+| operation_key | summary | effect | arguments_contract | result_contract | required_inputs |
+|---|---|---|---|---|---|
+| `norm-read-object` | 按 object_uid 精确读取一个 Norm 事实对象的身份块、正文与文件指纹 | `read` | `norm-fact-type::11. 受控操作/公开操作的输入与结果契约` | `norm-fact-type::11. 受控操作/公开操作的输入与结果契约` | object_uid |
+| `norm-list-objects` | 枚举 Norm 事实对象的 F1 目录（方向键、定位句与查阅时机） | `read` | `norm-fact-type::11. 受控操作/公开操作的输入与结果契约` | `norm-fact-type::11. 受控操作/公开操作的输入与结果契约` | 无 |
+| `norm-write-object` | 对 Norm 事实对象执行受控创建与 CAS 更新（含 Human Gate 确认与写后回读） | `may_change_state` | `norm-fact-type::11. 受控操作/公开操作的输入与结果契约` | `norm-fact-type::11. 受控操作/公开操作的输入与结果契约` | action、object_uid|frontmatter_draft、expected_fingerprint、body_markdown_after |
 
-声明的输入章节与结果章节为本规范自身的「11. 受控操作」与「14. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
+声明的输入章节与结果章节为本规范「受控操作」节下的「公开操作的输入与结果契约」；本节不重复字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
+
+### 公开操作的输入与结果契约
+
+本节的输入与结果契约逐项对应上方声明表的每个公开操作，使 `arguments_contract` 与 `result_contract` 的锚点落到实际承载该契约的正文（05 §6.1）。「必填输入」列给出该操作的必填入参类别；「结果」列给出该操作成功后返回的内容类别。两列只描述契约形态，不构成授权、适用或完成的证明。
+
+| operation_key | 必填输入 | 结果 |
+|---|---|---|
+| `norm-read-object` | object_uid | 读回的身份块、正文、指纹与机械问题清单 |
+| `norm-list-objects` | 无 | 枚举投影条目与总数 |
+| `norm-write-object` | action、object_uid|frontmatter_draft、expected_fingerprint、body_markdown_after | 受控写入结果与写后精确回读 |
+
 ## 12. 授权附件
 
 本节承担 23 号的授权附件结构角色。本规范授权以下附件，其内容由本文 §5（类型定位与价值）、§6.1（对象边界与消歧判据）、§11（受控操作与唯一性三层设计契约）已经定义并授权：

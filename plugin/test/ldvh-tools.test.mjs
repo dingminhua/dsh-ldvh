@@ -530,7 +530,10 @@ test("discover-ldvh-capabilities：未在 05 §6.1 声明表登记者报「不�
 	assert.equal(op.declaration, null);
 	assert.equal(op.service_contract.arguments_contract, "gate-consult-system-foundation::7. 输入与前置条件");
 	assert.equal(op.service_contract.result_contract, "helper-service-contract::8. 最小共同响应语义");
-	assert.ok(envelope.gaps.some((gap) => /未在 05 §6.1 声明表登记/.test(gap)));
+	assert.ok(
+		envelope.gaps.some((gap) => /未在 05 §6.1 声明表登记/.test(gap) || /声明来源解析不到/.test(gap)),
+		"未登记与解析不到两种情形都须给出诊断，不得静默"
+	);
 });
 
 test("discover-ldvh-capabilities returns a single operation when operation_key is supplied", async () => {
