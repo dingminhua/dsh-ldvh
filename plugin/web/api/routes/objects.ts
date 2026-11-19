@@ -122,7 +122,7 @@ function getStatusOptions(items: ListedObject[]): StatusOption[] {
 
 const SPARK_PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3'] as const
 
-const REPORT_FORMS = ['research', 'summary', 'audit'] as const
+const REPORT_FORMS = ['research', 'summary', 'audit', 'action', 'reference'] as const
 
 function getFormOptions(items: ListedObject[]): StatusOption[] {
   const counts = new Map<string, number>()
