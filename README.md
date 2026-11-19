@@ -9,6 +9,16 @@
   <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
 </p>
 
+<p align="center">
+  <a href="plugin/README.en.md">English（插件页）</a> ·
+  <a href="#截图">截图</a> ·
+  <a href="#这是什么">这是什么</a> ·
+  <a href="#快速开始开发">快速开始（开发）</a> ·
+  <a href="#版本号双轨">版本</a> ·
+  <a href="plugin/CHANGELOG.md">更新日志</a> ·
+  <a href="https://github.com/dingminhua/dsh-ldvh/issues">问题反馈</a>
+</p>
+
 > 版本 `1.0.0` ｜ MIT License（与 DSH 本体同协议）
 > 版本 `1.0.0` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
 
