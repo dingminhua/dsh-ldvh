@@ -197,6 +197,14 @@ Enforcement：goal.md 缺失时授权无法受理（授权无锚可引，架构�
 
 升级路径（存量管辖项目无 goal.md）：「更新修复」入口扩展 goal 检测；首次 AI 会话检测缺失时主动引导。Web 横幅持续显示直至补齐。
 
+### 公开操作声明（05 §6.1 形状）
+
+| operation_key | summary | effect | arguments_contract | result_contract |
+|---|---|---|---|---|
+| `goal-read-object` | 按 object_uid 精确读取一个 Goal 事实对象的身份块、正文与文件指纹 | `read` | `goal-fact-type::13. 受控操作` | `goal-fact-type::15. 验证与证据边界` |
+| `goal-write-object` | 对 Goal 事实对象执行受控创建与 CAS 更新（含 change_log 与写后回读） | `may_change_state` | `goal-fact-type::13. 受控操作` | `goal-fact-type::15. 验证与证据边界` |
+
+声明的输入章节与结果章节为本规范自身的「13. 受控操作」与「15. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
 ## 14. 类型特有验证与类型退出（02 §12.1 第 10 项）
 
 ### 14.1 类型特有验证

@@ -481,12 +481,12 @@ test("read-specification-content returns rejected for an ambiguous heading path"
 });
 
 
-test("discover-ldvh-capabilities enumerates all operations", async () => {
+test("discover-ldvh-capabilities enumerates every registered capability", async () => {
 	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
 	const envelope = await handlers["discover-ldvh-capabilities"]({}, {});
 	assertEnvelopeShape(envelope, "discover-ldvh-capabilities", "completed");
 	const keys = envelope.result.operations.map((o) => o.operation_key).sort();
-	assert.deepEqual(keys, [
+	for (const key of [
 		"discover-ldvh-capabilities",
 		"precheck-git-commit",
 		"read-specification-candidates",
@@ -494,11 +494,43 @@ test("discover-ldvh-capabilities enumerates all operations", async () => {
 		"register-governed-project",
 		"resolve-governance-scope",
 		"unregister-governed-project",
+		"review-ask",
+		"research-consult",
+	]) {
+		assert.ok(keys.includes(key), `能力发现必须能发现 ${key}`);
+	}
+	const layers = await Promise.all([
+		import("../lib/goal-tools.js"),
+		import("../lib/subgoal-tools.js"),
+		import("../lib/spark-tools.js"),
+		import("../lib/norm-tools.js"),
+		import("../lib/report-tools.js"),
+		import("../lib/pitfall-tools.js"),
+		import("../lib/friction-tools.js"),
+		import("../lib/research-consult-tools.js"),
 	]);
+	for (const layer of layers) {
+		for (const key of Object.keys(layer.OPERATIONS)) {
+			assert.ok(keys.includes(key), `能力发现必须能发现工具层操作 ${key}`);
+		}
+	}
 	for (const op of envelope.result.operations) {
 		assert.ok(typeof op.dsh_tool_name === "string" && op.dsh_tool_name.startsWith("ldvh_"));
-		assert.match(op.availability, /^(当次可调用|不可用|已声明)$/);
+		assert.match(op.availability, /^(当次可调用|不可用|已声明|已实现)$/);
 	}
+});
+
+test("discover-ldvh-capabilities：未在 05 §6.1 声明表登记者报「不可用」+ 诊断，并给出其服务契约位置", async () => {
+	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
+	const envelope = await handlers["discover-ldvh-capabilities"]({ operation_key: "research-consult" }, {});
+	assert.equal(envelope.outcome, "completed");
+	const op = envelope.result.operations[0];
+	assert.equal(op.operation_key, "research-consult");
+	assert.equal(op.availability, "不可用");
+	assert.equal(op.declaration, null);
+	assert.equal(op.service_contract.arguments_contract, "gate-consult-system-foundation::7. 输入与前置条件");
+	assert.equal(op.service_contract.result_contract, "helper-service-contract::8. 最小共同响应语义");
+	assert.ok(envelope.gaps.some((gap) => /未在 05 §6.1 声明表登记/.test(gap)));
 });
 
 test("discover-ldvh-capabilities returns a single operation when operation_key is supplied", async () => {

@@ -197,3 +197,5 @@ export function registerSubagentResultTool(ctx, deps) {
     }
   }));
 }
+
+export { OPERATIONS };

@@ -277,6 +277,15 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 
 **判据的机械可实现性边界（条件式）**：本判据可机械化者**仅限于字面 `direction_key` 的互斥**。以下情形**机械层无法识别**，须由 §6.2 创建前查重（AI 语义比对）与 Human Gate 承担，**不得声称已由机械校验覆盖**：同义异名（如 `web` 与 `frontend` 指向同一方向）、上下位重叠（如 `backend` 与 `api`）。因此「一方向一规范」是**字面层可机械、语义层不可机械**的判据，**任何情形下均不得表述为已获完整机械保障**。
 
+### 公开操作声明（05 §6.1 形状）
+
+| operation_key | summary | effect | arguments_contract | result_contract |
+|---|---|---|---|---|
+| `norm-read-object` | 按 object_uid 精确读取一个 Norm 事实对象的身份块、正文与文件指纹 | `read` | `norm-fact-type::11. 受控操作` | `norm-fact-type::14. 验证与证据边界` |
+| `norm-list-objects` | 枚举 Norm 事实对象的 F1 目录（方向键、定位句与查阅时机） | `read` | `norm-fact-type::11. 受控操作` | `norm-fact-type::14. 验证与证据边界` |
+| `norm-write-object` | 对 Norm 事实对象执行受控创建与 CAS 更新（含 Human Gate 确认与写后回读） | `may_change_state` | `norm-fact-type::11. 受控操作` | `norm-fact-type::14. 验证与证据边界` |
+
+声明的输入章节与结果章节为本规范自身的「11. 受控操作」与「14. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
 ## 12. 授权附件
 
 本节承担 23 号的授权附件结构角色。本规范授权以下附件，其内容由本文 §5（类型定位与价值）、§6.1（对象边界与消歧判据）、§11（受控操作与唯一性三层设计契约）已经定义并授权：

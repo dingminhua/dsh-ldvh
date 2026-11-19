@@ -146,6 +146,13 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 
 插件的受控写入点须接入宿主 `goals` 服务（`ctx.get("goals")`，可选依赖，取用前须做未定义检查）：`get`／`create`／`edit`／`resume`／`pause`／`complete`／`clear`／`disarm`，其 `ref` 取 `{id, revision}`。**服务不可用时按 fail-closed 拒绝该写入**，不得静默跳过，也不得以本地状态冒充宿主目标——**何种写入点必须拒绝、何种可降级为「不做任何事」并如实登记，由使用该能力的事实类型规范定义**。**该服务由会话日志背书**（不落事实源），故其状态**不构成事实对象的回读依据**，也不得据此建立第二账本或状态登记。谁在哪个动作点调用、目标文本的形式要求与冲突处置，同样由该事实类型规范定义；本节只定义接入形态与失败处置。
 
+### 公开操作声明（05 §6.1 形状）
+
+| operation_key | summary | effect | arguments_contract | result_contract |
+|---|---|---|---|---|
+| `probe-host-automation` | 只读探测宿主的自动化能力是否可用（调度与会话创建），不创建任何对象 | `read` | `dsh-environment-integration::5. DSH 插件身份与接入` | `dsh-environment-integration::8. 验证与证据边界` |
+
+声明的输入章节与结果章节为本规范自身的「5. DSH 插件身份与接入」与「8. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
 ## 6. 机械守护部署
 
 - **运行时不变量**：经 DSH 正式不变量注册器 `ctx.invariants.register(packageName, installer)` 在装载完成、受控写入前和会话交还前执行来源已定义的断言（InvariantInstaller = (ctx, fail) => void|Promise，fail 抛 InvariantError code='INVARIANT' 带 packageName 归因；官方包 permission-presets 以 inject: ['invariants'] 同法消费）；不替代 00 §2.7 三层防线。

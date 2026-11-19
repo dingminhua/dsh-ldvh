@@ -322,3 +322,5 @@ export function registerGoalTools(ctx, deps) {
     }
   };
 }
+
+export { OPERATIONS };

@@ -16,8 +16,15 @@ import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_F
 import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { REVIEW_ASK_OPERATION, reviewAskParameterSchema, executeReviewAsk } from "./review-ask-tool.js";
-import { registerReportTools } from "./report-tools.js";
-import { registerResearchConsultTools } from "./research-consult-tools.js";
+import { registerReportTools, OPERATIONS as REPORT_OPERATIONS } from "./report-tools.js";
+import { registerResearchConsultTools, OPERATIONS as RESEARCH_CONSULT_OPERATIONS } from "./research-consult-tools.js";
+import { OPERATIONS as GOAL_OPERATIONS } from "./goal-tools.js";
+import { OPERATIONS as SUBGOAL_OPERATIONS } from "./subgoal-tools.js";
+import { OPERATIONS as SPARK_OPERATIONS } from "./spark-tools.js";
+import { OPERATIONS as PITFALL_OPERATIONS } from "./pitfall-tools.js";
+import { OPERATIONS as NORM_OPERATIONS } from "./norm-tools.js";
+import { OPERATIONS as FRICTION_OPERATIONS } from "./friction-tools.js";
+import { OPERATIONS as SUBAGENT_RESULT_OPERATIONS } from "./subagent-result.js";
 import { registerSparkTools } from "./spark-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
 import { registerFrictionTools } from "./friction-tools.js";
@@ -45,7 +52,7 @@ const OPERATIONS = {
   },
   "discover-ldvh-capabilities": {
     toolName: "ldvh_discover_capabilities",
-    summary: "Discover LDVH public operations with declared/implemented/callable availability (specs/05 §6.2)",
+    summary: "Discover every LDVH public capability (all registered LDVH tools) with declared/implemented/callable availability (specs/05 §6.2); a capability that is implemented but absent from the 05 §6.1 declaration table is reported as 已实现 with its service contract, never as 当次可调用",
     effect: "read"
   },
   "inspect-loaded-modules": {
@@ -76,6 +83,20 @@ const OPERATIONS = {
     effect: "may_change_state"
   }
 };
+
+const TOOL_LAYER_CATALOG = Object.freeze([
+  { layer: "goal", operations: GOAL_OPERATIONS, spec_key: "goal-fact-type", source_path: "specs/20-Goal-项目目标.md", arguments: "13. 受控操作" },
+  { layer: "subgoal", operations: SUBGOAL_OPERATIONS, spec_key: "subgoal-fact-type", source_path: "specs/21-SubGoal-子目标.md", arguments: "13. 受控操作" },
+  { layer: "spark", operations: SPARK_OPERATIONS, spec_key: "spark-fact-type", source_path: "specs/22-Spark-火花.md", arguments: "13. 受控操作" },
+  { layer: "norm", operations: NORM_OPERATIONS, spec_key: "norm-fact-type", source_path: "specs/23-Norm-事实规范.md", arguments: "11. 受控操作" },
+  { layer: "report", operations: REPORT_OPERATIONS, spec_key: "report-fact-type", source_path: "specs/24-Report-报告.md", arguments: "13. 受控操作" },
+  { layer: "pitfall", operations: PITFALL_OPERATIONS, spec_key: "pitfall-fact-type", source_path: "specs/25-Pitfall-踩坑经验.md", arguments: "13. 受控操作" },
+  { layer: "friction", operations: FRICTION_OPERATIONS, spec_key: "friction-fact-type", source_path: "specs/26-Friction-摩擦账本.md", arguments: "13. 受控操作" },
+  { layer: "research-consult", operations: RESEARCH_CONSULT_OPERATIONS, spec_key: "gate-consult-system-foundation", source_path: "specs/32-把关请示系统规范.md", arguments: "7. 输入与前置条件" },
+  { layer: "subagent-result", operations: SUBAGENT_RESULT_OPERATIONS, spec_key: "check-auxiliary-mechanism-foundation", source_path: "specs/04-检查与辅助机制规范.md", arguments: "9. 协同、接管与交还" },
+]);
+
+const COMMON_RESPONSE_CONTRACT = "helper-service-contract::8. 最小共同响应语义";
 
 function envelope(operationKey, outcome, fields) {
   return {
@@ -459,16 +480,45 @@ function makeExecute(deps) {
     const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
     const declarations = await parseOperationDeclarations(governed.state === "governed" ? governed.project.path : null, workspaceRoot);
     const declarationReporter = [];
-    const entries = Object.entries(OPERATIONS)
-      .filter(([key]) => key !== "probe-host-automation" && key !== "inspect-loaded-modules")
-      .filter(([key]) => requestedOperation === null || key === requestedOperation)
-      .map(([key, operation]) => {
+    const catalog = [
+      ...Object.entries(OPERATIONS)
+        .map(([key, operation]) => ({ key, operation, implemented: typeof handlers[key] === "function", contract: null })),
+      {
+        key: "review-ask",
+        operation: { toolName: REVIEW_ASK_OPERATION.toolName, summary: REVIEW_ASK_OPERATION.summary, effect: REVIEW_ASK_OPERATION.effect },
+        implemented: true,
+        contract: {
+          spec_key: "gate-consult-system-foundation",
+          source_path: "specs/32-把关请示系统规范.md",
+          arguments_contract: "gate-consult-system-foundation::7. 输入与前置条件",
+          result_contract: COMMON_RESPONSE_CONTRACT
+        }
+      },
+      ...TOOL_LAYER_CATALOG.flatMap((entry) => Object.entries(entry.operations).map(([key, operation]) => ({
+        key,
+        operation,
+        implemented: true,
+        contract: {
+          spec_key: entry.spec_key,
+          source_path: entry.source_path,
+          arguments_contract: `${entry.spec_key}::${entry.arguments}`,
+          result_contract: COMMON_RESPONSE_CONTRACT
+        }
+      })))
+    ];
+    const undeclared = [];
+    const entries = catalog
+      .filter((item) => requestedOperation === null || item.key === requestedOperation)
+      .map((item) => {
+        const key = item.key;
+        const operation = item.operation;
         const declaration = declarations.get(key) ?? null;
         const declared = declaration !== null;
-        const implemented = typeof handlers[key] === "function";
+        const implemented = item.implemented;
         const callableHere = governed.state === "governed";
         const anchorsOk = declared && declaration.anchor_errors.length === 0;
         if (!declared) {
+          undeclared.push(key);
           declarationReporter.push({
             operation_key: key,
             reason: declarations.reason ?? "no declaration table found in the declaring source",
@@ -484,18 +534,20 @@ function makeExecute(deps) {
         const availability = !anchorsOk
           ? "不可用"
           : (implemented ? (callableHere ? "当次可调用" : "不可用") : "已声明");
+        const availabilityDetail = !anchorsOk
+          ? (declarationReporter[declarationReporter.length - 1]?.reason ?? "declaration could not be parsed")
+          : (callableHere ? null : `session governance state is ${governed.state}; this operation serves governed sessions`);
         return {
           operation_key: key,
           dsh_tool_name: operation.toolName,
           summary: operation.summary,
           effect: operation.effect,
           availability,
-          availability_detail: !anchorsOk
-            ? (declarationReporter[declarationReporter.length - 1]?.reason ?? "declaration could not be parsed")
-            : (callableHere ? null : `session governance state is ${governed.state}; this operation serves governed sessions`),
-          declaration: declared && anchorsOk
+          availability_detail: availabilityDetail,
+          declaration: anchorsOk
             ? { source: declaration.source, source_path: declaration.source_path, arguments_contract: declaration.arguments_contract, result_contract: declaration.result_contract }
-            : null
+            : null,
+          service_contract: anchorsOk ? null : item.contract
         };
       });
     if (requestedOperation !== null && entries.length === 0) {
@@ -514,7 +566,10 @@ function makeExecute(deps) {
       sources: sources({ kind: "tool-batch", module: "plugin/lib/ldvh-tools.js" }),
       gaps: [
         ...(governed.state === "unavailable" ? [`governance registration unavailable: ${governed.detail}`] : []),
-        ...declarationReporter.map((entry) => `${entry.operation_key}: ${entry.reason}`)
+        ...declarationReporter.map((entry) => `${entry.operation_key}: ${entry.reason}`),
+        ...(undeclared.length > 0
+          ? [`${undeclared.length} 项能力未在 05 §6.1 声明表登记（按 05 §6.1 不得被当作已声明或当次可调用；其服务契约位置见条目里的 service_contract）：${undeclared.join("、")}`]
+          : [])
       ],
       verification: {
         checks: ["declaration-table-parse", "declaration-anchor-resolution", "governance-scope"],

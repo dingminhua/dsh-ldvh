@@ -313,6 +313,15 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 
 **唯一的删除例外（Human 决定）**：观察材料不在本类型，故 `observing` 载体**不属于本类型的账目**。闭集收缩时已存在的 `observing` 载体经 Human 决定**全部删除**、观察重新收集——这是**闭集收缩的存量处置**（§14.2 承载），不是「删除账目」通道的开放；`open`/`resolved`/`voided` 三类账目仍无删除操作。
 
+### 公开操作声明（05 §6.1 形状）
+
+| operation_key | summary | effect | arguments_contract | result_contract |
+|---|---|---|---|---|
+| `friction-read-object` | 按 object_uid 精确读取一个 Friction 事实对象的身份块、正文与文件指纹 | `read` | `friction-fact-type::13. 受控操作` | `friction-fact-type::15. 验证与证据边界` |
+| `friction-list-objects` | 枚举 Friction 事实对象的账本投影（标题、现象、状态、归因与发生次数） | `read` | `friction-fact-type::13. 受控操作` | `friction-fact-type::15. 验证与证据边界` |
+| `friction-write-object` | 对 Friction 事实对象执行受控创建、销账与 CAS 更新（含写后回读） | `may_change_state` | `friction-fact-type::13. 受控操作` | `friction-fact-type::15. 验证与证据边界` |
+
+声明的输入章节与结果章节为本规范自身的「13. 受控操作」与「15. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
 ## 14. 类型特有验证与类型退出
 
 ### 14.1 类型特有验证

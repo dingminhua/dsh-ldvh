@@ -316,6 +316,16 @@ frontmatter 闭集：
 
   本表为**入口参数必填面**（02 §10.1）；字段级必填项取 §8 字段契约条。工具入参声明与本表不一致时的处置按 02 §10.1 的规定执行（以本表为准并报告实现漂移）。本类型 update 通道**不提供公开只读预检入口**，也不产出可携带的候选指纹（写入前的内部干跑不构成跨调用同一性证据）；这一事实须在该次写入交还的 **scope 与未完成范围**中如实登记（05 §8 的 `scope.not_completed`；未兑现范围的口径见 02 §10.8）。
 
+### 公开操作声明（05 §6.1 形状）
+
+| operation_key | summary | effect | arguments_contract | result_contract |
+|---|---|---|---|---|
+| `spark-read-object` | 按 object_uid 精确读取一个 Spark 事实对象的身份块、正文与文件指纹 | `read` | `spark-fact-type::13. 受控操作` | `spark-fact-type::15. 验证与证据边界` |
+| `spark-list-objects` | 枚举 Spark 事实对象的 F0/F1 投影（标题、问题、状态、归属与档位） | `read` | `spark-fact-type::13. 受控操作` | `spark-fact-type::15. 验证与证据边界` |
+| `spark-precheck-create` | 只读机械预检一份 Spark 创建候选，跑与受控创建相同的求值器 | `read` | `spark-fact-type::13. 受控操作` | `spark-fact-type::15. 验证与证据边界` |
+| `spark-write-object` | 对 Spark 事实对象执行受控创建与 CAS 更新（含 change_log 与写后回读） | `may_change_state` | `spark-fact-type::13. 受控操作` | `spark-fact-type::15. 验证与证据边界` |
+
+声明的输入章节与结果章节为本规范自身的「13. 受控操作」与「15. 验证与证据边界」；本节不复制其字段与语义（05 §6.1）。声明本身不证明该操作当次可调用、适用、获授权或已完成。
 ## 14. 类型特有验证与类型退出
 
 ### 14.1 类型特有验证
