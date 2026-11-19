@@ -1,6 +1,6 @@
 ---
 title: 助手回复正文混入默认提示残片
-status: open
+status: accepted
 phenomenon: 助手本轮回复的正文中出现了与任务无关的默认提示文本行「You are a helpful assistant.」，位置在两段中文正文之间。
 object_uid: 9f07a3f5-9cd1-4db1-a233-f11f84b93d4f
 fact_type_key: friction
@@ -58,10 +58,15 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-19T21:04:35.266Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: 接受（Human Gate，老丁 2026-11-20 决定）：语义纪律类（机械层无判据，靠经验缓解）；不可清偿理由+复审触发写入处置段，无解药、计数冻结
 occurrence:
   count: 10
   first_at: 2026-10-21T16:09:26.654Z
   last_at: 2026-10-21T19:41:43.523Z
+disposition: 回复正文混入与任务无关的默认提示残片；语义纪律类（机械层无判据，靠经验缓解）
 ---
 
 # 助手回复正文混入默认提示残片
@@ -89,3 +94,9 @@ occurrence:
 补充观察（2026-10-21T19:29:12.960Z）：材料中助手回复正文多处出现孤立插入的「You are a helpful assistant.」「You are an assistant.」「You are a helpful assistant.」以及带零宽字符的变体（如「You are a helpful assistant.」），这些文本不是对用户的叙述，而是模板/默认提示残片混入了正文，且在同一轮内反复出现多次（turn 50 内至少 10 处）。这与账本 friction-9f07a3f5「助手回复正文混入默认提示残片」是同一阻碍，故报 same-obstacle 并指向该 uid；本次仅补充了新的例证，不改变任何已记内容。注意材料经长度上限截断，判断仅基于所见部分。
 
 补充观察（2026-10-21T19:41:43.523Z）：材料中 assistant 正文里三次出现逐字残留 "You are a helpful assistant."，位于自然语言回复之间（分别为「机械扫描完成。」后、「两个审核体正在运行。我同时自查」前、以及「继续核查」段之间），说明助手回复正文混入默认系统提示残片。该现象与既有账目 friction-9f07a3f5「助手回复正文混入默认提示残片」是同一阻碍，故判 same-obstacle 并填其 uid；不自行计数、不改评级。
+
+
+## 处置
+接受（open → accepted，Human 老丁 2026-11-20 本会话决定：35 条按四组处置，本笔属『语义纪律类（机械层无判据，靠经验缓解）』）。不可清偿理由：36 §9.4 第三类——Human 已定决策关闭消除途径：判断前取证与成文纪律属语义判断，04 §6.3 明文机械层只管确定性校验，此类无确定机械判据，靠同源经验与自查缓解，Human 决定不再作为待修项跟踪（老丁 2026-11-20）。
+同源规避经验（若有配对）按未清偿处理、配对保留；本笔无配对。现象与 occurrence 计数冻结。
+复审触发：① 出现能机械判定该类语义失守（取证绑定/复述/数量对齐/答复绑定）的门禁并经实测不再复发；② Human 改变决定重新要求跟踪；③ 因该类失守造成实质错误交付或返工。触发出现时由 Human 走 26 §10 Human 入口新建 open 账目并在正文接续本 uid（26 §9.2：accepted 不重开）。

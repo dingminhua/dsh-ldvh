@@ -1,6 +1,6 @@
 ---
 title: 并行会话未提交改动致召回用例失效
-status: open
+status: accepted
 phenomenon: 本次改动提交前的测试中，plugin/lib/source-recall.js 与 plugin/lib/recall-injection.js 里他人尚未提交的改动使 4 条用例失败，变异锚点因源码被改写、缓存断言因新的解析路径而失效。
 attribution: 多代理共享同一工作树（本仓 dev）且并行会话的在途未提交改动无隔离——同一根源另有 open 账目 friction-68e6f33e（其观察对象是合并前提被推翻、需重做），本条观察到的落点是召回用例集变异锚点与缓存断言失效，故归入既有观察组 `mutation-check-restore-clobbers-concurrent-edits` 而不是新建组。
 object_uid: 451c4a7d-a14f-4e2f-af1c-9911d3c80fd6
@@ -59,10 +59,15 @@ change_log:
     provider: workbuddy
     model: hy4free
     summary: 补充观察：count 13 → 14（11 §9 第 2 项）
+  - at: 2026-11-19T21:04:35.321Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: 接受（Human Gate，老丁 2026-11-20 决定）：多会话协作类（宿主工作树隔离，不在本项目可动范围）；不可清偿理由+复审触发写入处置段，无解药、计数冻结
 occurrence:
   count: 14
   first_at: 2026-11-02T20:15:51.816Z
   last_at: 2026-11-13T19:58:48.482Z
+disposition: 并行会话未提交改动致召回用例失效；多会话协作类（宿主工作树隔离，不在本项目可动范围）
 ---
 
 # 并行会话未提交改动致召回用例失效
@@ -128,3 +133,9 @@ occurrence:
 补充观察（2026-11-13T19:58:48.482Z）：材料中出现的机械校验失败，其根源是共享工作树上并行会话的在途未提交改动（本批为 `host-seams.js` 引用未跟踪的 `ask-text-guard.js`）落在本会话的测试运行范围内，使本会话的全量测试多出一条与自身改动无关的失败用例；这与 open 账目 friction-451c4a7d 的归因落点与机制模式完全一致——多代理共享同一工作树且并行会话在途未提交改动无隔离，表现为「他人尚未提交的改动使本会话的用例失败」，故并入该条而非新建。未见本层缓冲中的组与此条根因相同。Pitfall 侧候选只交付 40/74，跨类型查重不完整，本次未发现同源 Pitfall 不等于跨类型重复已排除。
 逐字引证：并行会话在途的 `host-seams.js` import 了未跟踪的 `ask-text-guard.js`——与本批无关，我没代扫也没代提交
 （来源：15）
+
+
+## 处置
+接受（open → accepted，Human 老丁 2026-11-20 本会话决定：35 条按四组处置，本笔属『多会话协作类（宿主工作树隔离，不在本项目可动范围）』）。不可清偿理由：36 §9.4 第二类——消除途径不在本项目可动范围：六笔同源于多会话共享工作树缺会话级隔离，须 DSH 宿主 worktree 能力，本仓授权与能力触及不到；已有调研报告（report-e8112a5c）但隔离边界未定义，只能靠提交前挑文件/等对方收口缓解，Human 决定不再作为待修项跟踪（老丁 2026-11-20）。
+同源规避经验（若有配对）按未清偿处理、配对保留；本笔无配对。现象与 occurrence 计数冻结。
+复审触发：① DSH 宿主提供会话级工作树隔离（worktree）能力并在本仓落地；② Human 改变决定重新跟踪；③ 并发冲突造成实质数据丢失或错误提交。触发出现时由 Human 走 26 §10 Human 入口新建 open 账目并在正文接续本 uid（26 §9.2：accepted 不重开）。
