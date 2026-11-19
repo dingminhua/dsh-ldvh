@@ -1,6 +1,6 @@
 ---
 title: L0 索引预算截断致尾部条目失联
-status: open
+status: voided
 phenomenon: 本轮交付的 Pitfall L0 索引只列出 55 条中的前 48 条，末尾 7 条未出现在交付文本中。
 attribution: 根在 Pitfall L0 索引的生成流程与其预算约束之间的接缝：索引在容量预算内只选取前缀条目承载，截断发生时未生成被省略条目的标识清单或计数以外的定位信息，导致索引对「未列出的条目」既不留痕也不可回查。
 object_uid: 5dbfe305-99fc-4e3c-99ee-2b3827ca7b81
@@ -55,10 +55,15 @@ change_log:
     provider: workbuddy
     model: hy4free
     summary: 补充观察：count 12 → 13（11 §9 第 2 项）
+  - at: 2026-11-19T20:13:13.605Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: 废弃（Human Gate，老丁 2026-11-20 决定）：现象描述失真/根本不再是系统性阻碍；disposition 如实保留仍成立的边界与新账接续提示
 occurrence:
   count: 13
   first_at: 2026-11-04T11:49:00.414Z
   last_at: 2026-11-10T12:34:25.257Z
+disposition: 逐条 Pitfall L0 索引已被设计取消，改为计数行+ldvh_pitfall_list 按需入口，现象不再可能发生（老丁 2026-11-20 决定废弃）
 ---
 
 # L0 索引预算截断致尾部条目失联
@@ -116,3 +121,9 @@ occurrence:
 补充观察（2026-11-10T12:34:25.257Z）：本轮交付的 Pitfall L0 索引只列出 62 条中的前 51 条，尾部 11 条未出现在交付文本中。
 逐字引证：本档预算仅容前 51 条，共 62 条；全量用 ldvh_pitfall_list。
 来源：本轮材料 turn 1 的 user 行「【双源召回 · 行动前候选】」中「经验 · active Pitfall（23 §12 L0 枚举）」清单末尾的括注
+
+
+## 处置
+废弃（open → voided，Human 老丁 2026-11-20 本会话决定三条都废弃）。废弃理由（36 §9.2，Human 判断）：现象描述失真/根本不再是系统性阻碍。
+现码 L0_SEGMENT_ORDER=["norm"]，经验不逐条常驻列出（specs/25 §227）；注入面改 renderPitfallOnDemandLine 计数行+按需入口；截断披露（本档预算仅容前 N 条，共 M 条…全量用 X）已在 source-recall.js 到位。账目所述『逐条索引只列前 48 条、尾部 7 条无标识』的形态在当前设计下不可能再发生。
+本笔无 informs、无 paired-with，无配对复审义务；occurrence 与历史保留供回查。若上列仍成立或新现的阻碍再现，由 Human 新建 open 账目并在正文接续本 uid（26 §9.2：voided 不重开、且 voided 不参与查重，同类真实现象应重新入账）。
