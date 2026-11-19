@@ -1,8 +1,12 @@
 ---
 title: ADR 类型退场跨载体无受控入口留半完成态
-status: open
+status: resolved
 phenomenon: ADR 类型退场在规范层与 Web 层已提交完成后，代码层的 3 行工具注册删除仍未提交、召回/注入/Gate 代码与注入文案仍带 ADR 逻辑、事实源 17 条原件未删，且工作树因已删模块仍被 17 个测试文件 import 而全量测试不可通过。
 attribution: ADR 类型退场的执行流程（跨规范源、Web 呈现、工具注册、召回/注入/Gate 代码、注入文案、事实源原件六类载体的撤除）：退场被切成手工批次推进，无单一受控入口与跨载体完成判据，规范侧已退与实现侧未退之间没有机械绑定（材料自述 batch3-plan §H 第 93 行登记该缺口尚未闭合）。
+relations:
+  - relation_key: informs
+    target:
+      commit: d8e0b6802f6ad23901c765a655cebfbba68fc474
 object_uid: 385b0992-8fb6-4e82-99a9-aa0efecd27b1
 fact_type_key: friction
 created_at: 2026-11-15T16:31:29.899Z
@@ -31,6 +35,10 @@ change_log:
     provider: minmax
     model: MiniMax-M3.1-Flash
     summary: 补充观察：count 7 → 8（11 §9 第 2 项）
+  - at: 2026-11-19T00:03:33.383Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: 销账：commit d8e0b680 闭合 ADR 退场最后缺口，实测半完成态已消失；informs 指向该 commit
 occurrence:
   count: 8
   first_at: 2026-11-15T09:36:43.848Z
@@ -72,3 +80,11 @@ ADR 类型退场在规范层与 Web 层已提交完成后，代码层的 3 行�
 补充观察（2026-11-15T17:52:43.199Z）：测试文件仍 import 已删除的 adr-writer.js 模块，导致当前全量测试套件已转红
 逐字引证：当前测试套件已因它而红
 来源：本会话 turn 3 的 user 段（agent-4 独立审核报告 §3「次要（不阻断，但须在提交前逐条核）」段）：plugin/test/schema-writer-agreement.test.mjs:34 仍 import 已删的 adr-writer.js → 当前测试套件已因它而红；本批落盘后不得声称「全绿」
+
+## 处置
+
+已销账（2026-11-19）：逐条核实当前代码与事实源，现象所述过时状态已由解药 commit `d8e0b6802f6ad23901c765a655cebfbba68fc474` 消除。
+
+核实依据：ADR 类型退场已在 2026-11-16 完成：代码层 ADR 活机制与专属模块撤除（c9b236b6）、17 条原件物理删除（d8d75e85）、测试替身/召回注入/Gate 指向清零，本解药提交订正最后的 F10 过渡缺口句并登记『缺口对象消失』。当前实测：ldvh-base/adrs 目录不存在、plugin 内无 adr-writer import、无 ldvh_adr 注册、全量测试不再因已删模块而失败——账目所述『半完成态』已闭合。
+
+解药为 commit 级变更、无对应事实对象，按 26 §9.2 commit 例外以 `informs.target.commit` 承载。本轮无 `paired-with`，无配对复审义务。
