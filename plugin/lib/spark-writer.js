@@ -174,6 +174,11 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     issues.push(`status: must be one of ${[...STATUSES].join("/")}`);
   }
 
+  if (frontmatter.status === "open" && frontmatter.priority === undefined) {
+    issues.push(
+      "priority: required when status=open (20 §8 — 悬置必须带处置档位；AI 出初值, Human 可调整)",
+    );
+  }
   if (frontmatter.priority !== undefined) {
     if (
       typeof frontmatter.priority !== "string" ||

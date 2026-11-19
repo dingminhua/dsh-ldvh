@@ -126,6 +126,7 @@ test("spark list: every item line carries a type-prefixed reference, and the pro
         scope_boundary: "仅以本仓库单元测试为证据。",
         intent: "钉住 02 §9.3 的指称形态。",
         summary: "工具响应已按形态渲染。",
+        priority: "P2",
         change_summary: "受控创建（测试夹具）",
       },
       body_markdown: [
@@ -203,6 +204,7 @@ test("spark read: refs targets carry type + title, unresolvable ones keep their 
         scope_boundary: "仅以本仓库单元测试为证据。",
         intent: "钉住 refs 目标的指称形态。",
         summary: "refs 目标已按形态渲染。",
+        priority: "P2",
         change_summary: "受控创建（测试夹具）",
         refs: [{ object_uid: targetUid }],
       },

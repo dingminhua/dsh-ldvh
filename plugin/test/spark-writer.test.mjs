@@ -59,10 +59,18 @@ function validFrontmatterDraft(overrides = {}) {
     scope_boundary: "仅以本仓库规范与单元测试为证据，不运行外部系统，不扩大调研范围。",
     intent: "验证机械层正确性，为后续自动化覆盖保留事实依据。",
     summary: "Spark 机械层已实现基本验证；未决事项是边界用例的自动化覆盖。",
+    priority: "P2",
     change_summary: "受控创建（测试）",
     ...overrides,
   };
 }
+
+function terminalAfter(frontmatter, status, disposition, extra = {}) {
+  const { priority: _priority, ...rest } = frontmatter;
+  return { ...rest, status, disposition, ...extra };
+}
+
+const REMOVE_PRIORITY = ["priority"];
 
 function validBodyMarkdown(draft = validFrontmatterDraft()) {
   const sections = [
@@ -264,6 +272,40 @@ test("create: missing or empty question/scope_boundary/intent/summary rejected (
   }
 });
 
+test("create: open Spark without priority rejected (20 §8 open 必填)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const draft = validFrontmatterDraft();
+    delete draft.priority;
+    const result = await createSparkObjectWithCandidate({
+      factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok, "status=open 缺 priority 必须拒绝");
+    assert.equal(result.error.code, "spark/frontmatter_invalid");
+    assert.ok(
+      result.error.details.issues.some((i) => i.includes("priority") && i.includes("status=open")),
+      JSON.stringify(result.error.details.issues),
+    );
+  });
+});
+
+test("create: invalid priority value rejected (20 §8 闭集 P0–P3)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const result = await createSparkObjectWithCandidate({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({ priority: "P9" }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok, "闭集外档位必须拒绝");
+    assert.equal(result.error.code, "spark/frontmatter_invalid");
+    assert.ok(
+      result.error.details.issues.some((i) => i.includes("priority") && i.includes("P0")),
+      JSON.stringify(result.error.details.issues),
+    );
+  });
+});
+
 test("create: serves declared but goal.md missing rejected (20 §17.1 stop condition)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const result = await createSparkObjectWithCandidate({
@@ -455,12 +497,14 @@ test("update: open→implemented requires disposition (20 §8/§14.1); succeeds 
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.ok(read1.ok);
 
-    const noDisposition = { ...read1.value.frontmatter, status: "implemented" };
+    const { priority: _noPriority, ...noPriority } = read1.value.frontmatter;
+    const noDisposition = { ...noPriority, status: "implemented" };
     const r1 = await updateSparkObject({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: noDisposition,
+      frontmatterRemovals: REMOVE_PRIORITY,
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "转入 implemented",
       sessionSignature: TEST_SIGNATURE,
@@ -469,16 +513,17 @@ test("update: open→implemented requires disposition (20 §8/§14.1); succeeds 
     assert.equal(r1.error.code, "spark/frontmatter_invalid");
     assert.ok(r1.error.details.issues.some((i) => i.includes("disposition")), JSON.stringify(r1.error.details.issues));
 
-    const withDisposition = {
-      ...read1.value.frontmatter,
-      status: "implemented",
-      disposition: "已落实：该问题已由直接调研工作承接，仅结束本 Spark 入口，不代表下游完成。",
-    };
+    const withDisposition = terminalAfter(
+      read1.value.frontmatter,
+      "implemented",
+      "已落实：该问题已由直接调研工作承接，仅结束本 Spark 入口，不代表下游完成。",
+    );
     const r2 = await updateSparkObject({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: withDisposition,
+      frontmatterRemovals: REMOVE_PRIORITY,
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "转入 implemented",
       sessionSignature: TEST_SIGNATURE,
@@ -500,12 +545,13 @@ test("update: disposition longer than 200 characters is rejected (20 §9.1)", as
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.ok(read1.ok);
 
-    const overCap = { ...read1.value.frontmatter, status: "implemented", disposition: "x".repeat(201) };
+    const overCap = terminalAfter(read1.value.frontmatter, "implemented", "x".repeat(201));
     const r = await updateSparkObject({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: overCap,
+      frontmatterRemovals: REMOVE_PRIORITY,
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "超限终态说明",
       sessionSignature: TEST_SIGNATURE,
@@ -521,12 +567,13 @@ test("update: disposition longer than 200 characters is rejected (20 §9.1)", as
     assert.equal(read2.value.frontmatter.status, "open");
     assert.equal(read2.value.fingerprint, read1.value.fingerprint);
 
-    const atCap = { ...read2.value.frontmatter, status: "implemented", disposition: "y".repeat(200) };
+    const atCap = terminalAfter(read2.value.frontmatter, "implemented", "y".repeat(200));
     const okUpdate = await updateSparkObject({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: read2.value.fingerprint,
       frontmatterAfter: atCap,
+      frontmatterRemovals: REMOVE_PRIORITY,
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "边界内终态说明",
       sessionSignature: TEST_SIGNATURE,
@@ -547,16 +594,17 @@ test("update: open→discarded plain (no relations) succeeds (20 §9.2)", async 
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     assert.ok(read1.ok);
 
-    const discarding = {
-      ...read1.value.frontmatter,
-      status: "discarded",
-      disposition: "不再跟踪：该问题已无独立承接价值，终止跟踪。",
-    };
+    const discarding = terminalAfter(
+      read1.value.frontmatter,
+      "discarded",
+      "不再跟踪：该问题已无独立承接价值，终止跟踪。",
+    );
     const updated = await updateSparkObject({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: discarding,
+      frontmatterRemovals: REMOVE_PRIORITY,
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "转入 discarded",
       sessionSignature: TEST_SIGNATURE,
@@ -597,10 +645,11 @@ test("update: terminal implemented object allows content correction with a chang
     const uid = created.value.object_uid;
 
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
-    const toImpl = { ...read1.value.frontmatter, status: "implemented", disposition: "已落实。" };
+    const toImpl = terminalAfter(read1.value.frontmatter, "implemented", "已落实。");
     const r1 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
-      frontmatterAfter: toImpl, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "转入 implemented",
+      frontmatterAfter: toImpl, frontmatterRemovals: REMOVE_PRIORITY,
+      bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "转入 implemented",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
@@ -638,10 +687,11 @@ test("update: terminal discarded object allows content correction but not reopen
     const uid = created.value.object_uid;
 
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
-    const toDiscard = { ...read1.value.frontmatter, status: "discarded", disposition: "不再跟踪。" };
+    const toDiscard = terminalAfter(read1.value.frontmatter, "discarded", "不再跟踪。");
     const r1 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
-      frontmatterAfter: toDiscard, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "转入 discarded",
+      frontmatterAfter: toDiscard, frontmatterRemovals: REMOVE_PRIORITY,
+      bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "转入 discarded",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
@@ -733,8 +783,9 @@ test("update: merged-into with cardinality 2 rejected (20 §11 cardinality 1)", 
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const result = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
+      frontmatterRemovals: REMOVE_PRIORITY,
       frontmatterAfter: {
-        ...read1.value.frontmatter, status: "discarded", disposition: "合并到两个目标",
+        ...terminalAfter(read1.value.frontmatter, "discarded", "合并到两个目标"),
         relations: [
           { relation_key: "merged-into", target: { object_uid: "11111111-1111-4111-8111-111111111111" } },
           { relation_key: "merged-into", target: { object_uid: "22222222-2222-4222-8222-222222222222" } },
@@ -758,8 +809,9 @@ test("update: merged-into and split-into mixed rejected (20 §9.3/§11 no mixing
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const result = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
+      frontmatterRemovals: REMOVE_PRIORITY,
       frontmatterAfter: {
-        ...read1.value.frontmatter, status: "discarded", disposition: "又合并又拆分",
+        ...terminalAfter(read1.value.frontmatter, "discarded", "又合并又拆分"),
         relations: [
           { relation_key: "merged-into", target: { object_uid: "11111111-1111-4111-8111-111111111111" } },
           { relation_key: "split-into", target: { object_uid: "22222222-2222-4222-8222-222222222222" } },
@@ -783,8 +835,9 @@ test("update: merge target that does not exist rejected (20 §11 目标可解析
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const result = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
+      frontmatterRemovals: REMOVE_PRIORITY,
       frontmatterAfter: {
-        ...read1.value.frontmatter, status: "discarded", disposition: "合并到不存在的对象",
+        ...terminalAfter(read1.value.frontmatter, "discarded", "合并到不存在的对象"),
         relations: [{ relation_key: "merged-into", target: { object_uid: "99999999-9999-4999-8999-999999999999" } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "合并",
@@ -808,7 +861,8 @@ test("update: merge target exists but is not open rejected (20 §11 target must 
     const readB1 = await readSparkObject({ factSourceRoot: root, objectUid: bUid });
     const bImpl = await updateSparkObject({
       factSourceRoot: root, objectUid: bUid, expectedFingerprint: readB1.value.fingerprint,
-      frontmatterAfter: { ...readB1.value.frontmatter, status: "implemented", disposition: "已落实。" },
+      frontmatterAfter: terminalAfter(readB1.value.frontmatter, "implemented", "已落实。"),
+      frontmatterRemovals: REMOVE_PRIORITY,
       bodyMarkdownAfter: validBodyMarkdown(), changeSummary: "目标转入 implemented",
       sessionSignature: TEST_SIGNATURE,
     });
@@ -819,8 +873,9 @@ test("update: merge target exists but is not open rejected (20 §11 target must 
     const readA = await readSparkObject({ factSourceRoot: root, objectUid: a.value.object_uid });
     const result = await updateSparkObject({
       factSourceRoot: root, objectUid: a.value.object_uid, expectedFingerprint: readA.value.fingerprint,
+      frontmatterRemovals: REMOVE_PRIORITY,
       frontmatterAfter: {
-        ...readA.value.frontmatter, status: "discarded", disposition: "合并到已终态目标",
+        ...terminalAfter(readA.value.frontmatter, "discarded", "合并到已终态目标"),
         relations: [{ relation_key: "merged-into", target: { object_uid: bUid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(), changeSummary: "合并",
@@ -840,8 +895,9 @@ test("update: implemented with split-into relations rejected (20 §9.1/§14.1 im
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const result = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
+      frontmatterRemovals: REMOVE_PRIORITY,
       frontmatterAfter: {
-        ...read1.value.frontmatter, status: "implemented", disposition: "已落实。",
+        ...terminalAfter(read1.value.frontmatter, "implemented", "已落实。"),
         relations: [{ relation_key: "split-into", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "拆分却写成 implemented",
@@ -875,8 +931,9 @@ test("merge: A read-back then discarded+merged-into→B (B stays open) succeeds"
 
     const updated = await updateSparkObject({
       factSourceRoot: root, objectUid: a.value.object_uid, expectedFingerprint: readA.value.fingerprint,
+      frontmatterRemovals: REMOVE_PRIORITY,
       frontmatterAfter: {
-        ...readA.value.frontmatter, status: "discarded", disposition: "合并：议题收敛进 B。",
+        ...terminalAfter(readA.value.frontmatter, "discarded", "合并：议题收敛进 B。"),
         relations: [{ relation_key: "merged-into", target: { object_uid: b.value.object_uid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(),
@@ -922,8 +979,9 @@ test("split: A discarded+split-into→B,C (both open) succeeds (20 §9.3 拆分)
     const readA = await readSparkObject({ factSourceRoot: root, objectUid: a.value.object_uid });
     const updated = await updateSparkObject({
       factSourceRoot: root, objectUid: a.value.object_uid, expectedFingerprint: readA.value.fingerprint,
+      frontmatterRemovals: REMOVE_PRIORITY,
       frontmatterAfter: {
-        ...readA.value.frontmatter, status: "discarded", disposition: "拆分：分化出 B、C 两个独立子议题。",
+        ...terminalAfter(readA.value.frontmatter, "discarded", "拆分：分化出 B、C 两个独立子议题。"),
         relations: [
           { relation_key: "split-into", target: { object_uid: b.value.object_uid } },
           { relation_key: "split-into", target: { object_uid: c.value.object_uid } },
@@ -1288,10 +1346,9 @@ async function seedDiscardedParentWithRelation(root, targetUid) {
   const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
   const r = await updateSparkObject({
     factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
+    frontmatterRemovals: REMOVE_PRIORITY,
     frontmatterAfter: {
-      ...read1.value.frontmatter,
-      status: "discarded",
-      disposition: "已拆往子议题，本对象不再以原形态存在。",
+      ...terminalAfter(read1.value.frontmatter, "discarded", "已拆往子议题，本对象不再以原形态存在。"),
       relations: [{ relation_key: "split-into", target: { object_uid: targetUid } }],
     },
     bodyMarkdownAfter: validBodyMarkdown(draft),
@@ -1306,7 +1363,8 @@ async function terminateObject(root, uid, status, disposition, draft) {
   const read = await readSparkObject({ factSourceRoot: root, objectUid: uid });
   const r = await updateSparkObject({
     factSourceRoot: root, objectUid: uid, expectedFingerprint: read.value.fingerprint,
-    frontmatterAfter: { ...read.value.frontmatter, status, disposition },
+    frontmatterAfter: terminalAfter(read.value.frontmatter, status, disposition),
+    frontmatterRemovals: REMOVE_PRIORITY,
     bodyMarkdownAfter: validBodyMarkdown(draft),
     changeSummary: `终态转换 open→${status}`,
     sessionSignature: TEST_SIGNATURE,
@@ -1335,8 +1393,9 @@ test("关系目标写入时须 open（写入前置条件）：指向已终态目
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const bad = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
+      frontmatterRemovals: REMOVE_PRIORITY,
       frontmatterAfter: {
-        ...read1.value.frontmatter, status: "discarded", disposition: "拆往子议题。",
+        ...terminalAfter(read1.value.frontmatter, "discarded", "拆往子议题。"),
         relations: [{ relation_key: "split-into", target: { object_uid: childUid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(parentDraft),

@@ -16,6 +16,7 @@ function sparkCase(summary) {
     scope_boundary: "当上限行为被验证时停止。",
     intent: "验证上限",
     summary,
+    priority: "P2",
     status: "open",
   };
 }

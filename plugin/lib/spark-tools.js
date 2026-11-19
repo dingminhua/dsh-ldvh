@@ -705,7 +705,7 @@ function parameterSchemaFor(operationKey) {
       evolution: { type: "array", items: evolutionEntry, description: "substantive-pivot log (cap 20); when non-empty the body must carry a 演变 H2 section" },
       serves: { type: "string", description: "SubGoal object_uid (canonical UUIDv4, 28 §12.3); must resolve to an active/achieved SubGoal object; omit when not applicable" },
       refs: { type: "array", items: refsEntry, description: "related fact objects (03 §7.2 关联引用型, 20 §8): any type; target status is NOT checked (an association survives the target closing); every target must resolve to an existing, readable, same-project object_uid or the write is rejected; cap 10; state-neutral; omit when none. Surfaced on the F1 list card for Human scanning." },
-      priority: { type: "string", enum: ["P0", "P1", "P2", "P3"], description: "suspension ordering tier (20 §8): closed set P0–P3, may appear only while status=open, terminal must omit it; optional — an untiered Spark is equally valid" },
+      priority: { type: "string", enum: ["P0", "P1", "P2", "P3"], description: "suspension ordering tier (20 §8): closed set P0–P3; REQUIRED when status=open (AI proposes an initial tier, Human may adjust), terminal must omit it" },
       disposition: { type: "string", description: "terminal destination and scope; required iff status is implemented/discarded, forbidden while open" },
       relations: { type: "array", items: relationEntry, description: "merged-into (cardinality 1) / split-into (1..n); only on discarded, targets must be existing open sparks (20 §11)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }

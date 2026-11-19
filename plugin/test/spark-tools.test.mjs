@@ -32,6 +32,11 @@ function bodyWithoutH1(body) {
   return body.replace(/^#\s.*\n+/, "");
 }
 
+function withoutPriority(frontmatter) {
+  const { priority: _priority, ...rest } = frontmatter;
+  return rest;
+}
+
 function makeDescriptors(deps) {
   const registered = [];
   const ctx = {
@@ -106,6 +111,7 @@ function validFrontmatterDraft(overrides = {}) {
     scope_boundary: "仅以本仓库规范与单元测试为证据，不运行外部系统。",
     intent: "验证工具层机械通道，为后续自动化覆盖保留依据。",
     summary: "工具层已完成注册与封装；未决事项是边界用例的覆盖。",
+    priority: "P2",
     change_summary: "受控创建（测试夹具）",
     ...overrides,
   };
@@ -574,8 +580,9 @@ test("list: open-only by default, status=all includes terminal; projection carri
     assert.equal(terminal.outcome, "completed", JSON.stringify(terminal));
     const readTerminal = await run(descriptors, "ldvh_spark_read", { object_uid: terminal.result.object_uid }, repo);
     assert.equal(readTerminal.outcome, "completed");
+    const { priority: _terminalPriority, ...terminalRest } = readTerminal.result.frontmatter;
     const toImpl = {
-      ...readTerminal.result.frontmatter,
+      ...terminalRest,
       status: "implemented",
       disposition: "已落实：该问题由清单验证工作承接，仅结束本 Spark 入口。",
     };
@@ -584,6 +591,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
       object_uid: terminal.result.object_uid,
       expected_fingerprint: terminal.result.fingerprint,
       frontmatter_after: toImpl,
+      frontmatter_removals: ["priority"],
       body_markdown_after: validBodyMarkdown(mkDraft("悬置丙（工具清单）", "问题丙如何进入清单投影？")),
       change_summary: "转入 implemented",
     }, repo);
@@ -940,7 +948,8 @@ test("gate: terminal transition requires confirmation; a non-terminal update doe
       action: "update",
       object_uid: uid,
       expected_fingerprint: read2.result.fingerprint,
-      frontmatter_after: { ...read2.result.frontmatter, status: "implemented", disposition },
+      frontmatter_after: { ...withoutPriority(read2.result.frontmatter), status: "implemented", disposition },
+      frontmatter_removals: ["priority"],
       body_markdown_after: bodyWithoutH1(read2.result.body),
       change_summary: "转终态 implemented",
     }, repo);
@@ -1195,7 +1204,7 @@ test("list: keyword / priorities / serves narrow the result set (filter before l
 
     const a = await make("召回范围甲", "甲问题怎么收窄？", { priority: "P1", serves: subGoalUid(1) });
     const b = await make("召回范围乙", "乙问题怎么收窄？", { priority: "P2", serves: subGoalUid(3) });
-    const c = await make("无关方向丙", "丙问题怎么收窄？", { serves: subGoalUid(1) });
+    const c = await make("无关方向丙", "丙问题怎么收窄？", { serves: subGoalUid(1), priority: "P3" });
 
     const p1 = await run(descriptors, "ldvh_spark_list", { priorities: ["P1"] }, repo);
     assert.equal(p1.outcome, "completed", JSON.stringify(p1));
