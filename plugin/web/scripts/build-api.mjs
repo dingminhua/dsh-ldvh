@@ -26,8 +26,8 @@ function rewriteTsExtensions(dir) {
 }
 
 rmSync(stage, { recursive: true, force: true });
-const tsc = join(webRoot, "node_modules", ".bin", "tsc");
-execFileSync(tsc, ["-p", "tsconfig.api.json"], { cwd: webRoot, stdio: "inherit" });
+const tsc = join(webRoot, "node_modules", "typescript", "bin", "tsc");
+execFileSync(process.execPath, [tsc, "-p", "tsconfig.api.json"], { cwd: webRoot, stdio: "inherit" });
 
 for (const { from, to } of targets) {
   const src = join(stage, from);
@@ -38,6 +38,22 @@ for (const { from, to } of targets) {
   cpSync(src, dest, { recursive: true });
 }
 rmSync(stage, { recursive: true, force: true });
+
+function assertRewritten(dir, label) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      assertRewritten(full, label);
+      continue;
+    }
+    if (!entry.name.endsWith(".js")) continue;
+    const text = readFileSync(full, "utf8");
+    if (/\.ts["']/.test(text) || /shared\/[A-Za-z0-9_-]+\.js["']/.test(text)) {
+      throw new Error(`build-api: ${label}/${entry.name} 仍有未改写的 .ts 或 shared/ 引用`);
+    }
+  }
+}
+for (const { to } of targets) assertRewritten(join(webRoot, to), to);
 
 const server = join(webRoot, "api-js", "server.js");
 if (!existsSync(server)) throw new Error(`build-api: 缺少后端入口 ${server}`);
