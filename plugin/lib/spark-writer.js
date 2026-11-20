@@ -8,6 +8,7 @@ import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
+import { repairedLengthMessage } from "./write-diagnostics.js";
 import { listResolvableSubGoals, resolveSubGoal } from "./subgoal-writer.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
@@ -108,7 +109,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
   if (typeof frontmatter.title !== "string" || frontmatter.title.length === 0) {
     issues.push("title: required non-empty string");
   } else if (frontmatter.title.length > MAX_TITLE_LENGTH) {
-    issues.push(`title: must be ≤ ${MAX_TITLE_LENGTH} characters (20 §8), got ${frontmatter.title.length}`);
+    issues.push(repairedLengthMessage("title", frontmatter.title, MAX_TITLE_LENGTH, "20 §8"));
   }
   if (typeof frontmatter.created_at !== "string" || frontmatter.created_at.length === 0) {
     issues.push("created_at: required non-empty string (Code-assigned)");
@@ -226,7 +227,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     if (typeof frontmatter.disposition !== "string" || frontmatter.disposition.length === 0) {
       issues.push("disposition: required non-empty when status is implemented/discarded (20 §8/§14.1)");
     } else if (frontmatter.disposition.length > MAX_DISPOSITION_LENGTH) {
-      issues.push(`disposition: must be ≤ ${MAX_DISPOSITION_LENGTH} characters (20 §9.1), got ${frontmatter.disposition.length}`);
+      issues.push(repairedLengthMessage("disposition", frontmatter.disposition, MAX_DISPOSITION_LENGTH, "20 §9.1"));
     }
   }
 

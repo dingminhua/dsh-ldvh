@@ -12,6 +12,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
+import { appendReadBody } from "./read-body-render.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
 import { objectRef, objectRefOf } from "./object-reference.js";
@@ -501,6 +502,9 @@ function renderEnvelope(operationKey, value) {
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "pitfall")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  if ((operationKey === "pitfall-read-object" || env.operation_key === "pitfall-read-object") && env.outcome === "completed") {
+    appendReadBody(lines, result);
+  }
   const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
   for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);

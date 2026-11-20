@@ -7,6 +7,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
+import { repairedLengthMessage } from "./write-diagnostics.js";
 import { readGoalObject } from "./goal-writer.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
@@ -68,7 +69,7 @@ export function validateSubGoalFrontmatter(frontmatter) {
   if (typeof frontmatter.title !== "string" || frontmatter.title.trim().length === 0) {
     issues.push("title: required and non-empty (28 §8)");
   } else if (frontmatter.title.trim().length > MAX_TITLE_LENGTH) {
-    issues.push(`title: must be ≤ ${MAX_TITLE_LENGTH} characters (28 §8, same counting as 20 §9.1)`);
+    issues.push(repairedLengthMessage("title", frontmatter.title.trim(), MAX_TITLE_LENGTH, "28 §8, same counting as 20 §9.1"));
   }
 
   if (frontmatter.order !== undefined) {

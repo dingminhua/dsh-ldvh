@@ -7,6 +7,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { listResolvableSubGoals } from "./subgoal-writer.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
+import { repairedLengthMessage } from "./write-diagnostics.js";
 
 
 const GOAL_KEY = "project-goal";
@@ -195,9 +196,7 @@ export function validateGoalBodyStructure(body) {
     issues.push("body: 目标陈述 section must be present and non-empty (25 §12 创建检查)");
   } else if (target.text.length > MAX_STATEMENT_LENGTH) {
     issues.push(
-      `body: 目标陈述 must be ≤ ${MAX_STATEMENT_LENGTH} characters (25 §7), got ${target.text.length} — `
-      + "move implementation detail / acceptance criteria to the downstream object that owns it "
-      + "(SubGoal criterion, plan) instead of truncating",
+      repairedLengthMessage("body: 目标陈述", target.text, MAX_STATEMENT_LENGTH, "25 §7") + " — move implementation detail / acceptance criteria to the downstream object that owns it (SubGoal criterion, plan)",
     );
   }
   return { ok: issues.length === 0, issues };

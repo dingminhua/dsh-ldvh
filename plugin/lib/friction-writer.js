@@ -8,6 +8,7 @@ import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
+import { repairedLengthMessage } from "./write-diagnostics.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
 
@@ -172,7 +173,7 @@ export function validateFrictionFrontmatter(frontmatter) {
   if (typeof frontmatter.title !== "string" || frontmatter.title.length === 0) {
     issues.push("title: required non-empty string");
   } else if (frontmatter.title.length > MAX_TITLE_LENGTH) {
-    issues.push(`title: must be ≤ ${MAX_TITLE_LENGTH} characters (26 §8), got ${frontmatter.title.length}`);
+    issues.push(repairedLengthMessage("title", frontmatter.title, MAX_TITLE_LENGTH, "26 §8"));
   }
   if (typeof frontmatter.created_at !== "string" || frontmatter.created_at.length === 0) {
     issues.push("created_at: required non-empty string (Code-assigned)");
