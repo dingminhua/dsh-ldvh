@@ -29,10 +29,16 @@ export function assertWebApi(root) {
     }
   }
   const files = manifest.files ?? [];
-  for (const dir of ["web/api", "web/shared"]) {
+  for (const dir of ["web/dist", "web/api", "web/shared"]) {
     if (!files.includes(dir)) {
-      throw new Error(`pack gate: files 未列入 ${dir}——该目录不进包则后端运行物缺失`);
+      throw new Error(`pack gate: files 未列入 ${dir}——该目录不进包则运行物缺失`);
     }
+  }
+  // #1 的承重件：web/.gitignore 的 dist 规则会被 npm-packlist 读取并把 web/dist
+  // 连带排除；同目录的 .npmignore 阻断该回退。缺它时 files 写了 web/dist 也不进包。
+  const npmignore = join(root, "web", ".npmignore");
+  if (!existsSync(npmignore)) {
+    throw new Error(`pack gate: ${npmignore} 不存在——缺它则 web/.gitignore 的 dist 规则会把 web/dist 连带排除出包`);
   }
   return server;
 }

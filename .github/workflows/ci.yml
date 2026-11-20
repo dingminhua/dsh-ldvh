@@ -34,10 +34,10 @@ jobs:
         run: npm ci
 
       # web-routes 测试会加载真实插件并 spawn web/api 子进程（node --import tsx
-      # api/server.ts），tsx 是 plugin/web 的 pnpm 依赖、不在 plugin 的 npm 树内。
-      # 缺少它时子进程启动即退出，pollReadiness 抛 "web api child exited during
-      # startup"，本 job 长期全红（本机因已装 web 依赖而全绿，形成环境漂移）。
-      # 版本与 web job 对齐（pnpm 10 / --frozen-lockfile）。
+      # api/server.ts）。tsx 等后端运行时依赖已在 plugin/package.json 的
+      # dependencies 中声明，npm ci 即装入 plugin 的 npm 树；此处 pnpm install
+      # 只为 web 前端的 type-check/build 提供 devDependencies，版本与 web job
+      # 对齐（pnpm 10 / --frozen-lockfile）。
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -67,6 +67,13 @@ jobs:
       - name: Build SPA so the pack gate sees web/dist
         working-directory: plugin/web
         run: pnpm build:dsh
+
+      # 发布包曾两次缺件（#1 web/dist、#2 web/api+运行时依赖）。prepack 已会
+      # 在 pack 时执行 require-web-dist.mjs；此步不在该处增加覆盖，而是把同一
+      # 脚本作为独立命名的预检信号显式跑一遍，使失败归因直观指向「运行时产物
+      # 未就位」而非混在 pack 步骤里。须在 Build SPA 之后，否则 dist 缺失假红。
+      - name: Verify web runtime is packaged
+        run: node scripts/require-web-dist.mjs
 
       - name: Verify package contents
         run: npm pack --dry-run
