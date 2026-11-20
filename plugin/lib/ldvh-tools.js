@@ -1287,6 +1287,14 @@ function parameterSchemaFor(operationKey) {
       };
     case "inspect-loaded-modules":
       return { type: "object", properties: {}, additionalProperties: false };
+    case "precheck-git-commit":
+      return {
+        type: "object",
+        properties: {
+          message: { type: "string", description: "The full candidate commit message text (09 §5.3); the handler refuses an absent or empty message with invalid_request" }
+        },
+        additionalProperties: false
+      };
     default:
       return { type: "object", properties: {}, additionalProperties: false };
   }

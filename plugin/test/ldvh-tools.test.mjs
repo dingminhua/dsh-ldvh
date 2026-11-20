@@ -568,6 +568,14 @@ test("precheck-git-commit returns invalid_request when message is missing", asyn
 	assert.ok(envelope.gaps.some((g) => g.includes("message")));
 });
 
+test("precheck-git-commit 参数 schema 暴露 message:string，与执行体读取的字段一致", async () => {
+	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
+	const descriptor = toolDescriptor("precheck-git-commit", OPERATIONS["precheck-git-commit"], handlers["precheck-git-commit"]);
+	const messageSpec = descriptor.parameters?.properties?.message;
+	assert.ok(messageSpec, "schema 必须声明 message 字段，否则宿主无法传 message、工具恒返回 invalid_request");
+	assert.equal(messageSpec.type, "string");
+});
+
 test("precheck-git-commit returns unavailable when the session is not governed", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
