@@ -94,11 +94,16 @@ LDVH（LD Vibe Harness）以 **DSH 原生插件为统一交付形态**。人与 
 # 安装插件到本机 desktop profile（link: 方式，不复制文件）
 dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 
+# 安装 web 依赖并构建后端编译产物（全新检出必做；发布包已内置，无需此步）
+cd plugin/web && pnpm install --frozen-lockfile && pnpm build:dsh && cd ../..
+
 # 日常验证
 npm --prefix plugin ci
 npm --prefix plugin test
 cd plugin && npm pack --dry-run
 ```
+
+源码 link 安装的后端走 TypeScript 源码（需 web 的 pnpm 依赖含 tsx，保留热重载）；registry 安装的后端走随包发布的预编译产物 `web/api-js`，无需 tsx。`web/dist` 与 `api-js`/`shared-js` 均为构建产物、不入库。
 
 安装或修改 Host / Client / bundle patch 后需要重启 DSH Desktop（这些部分在进程启动时加载）。目标宿主基线见 `plugin/README.md` 的「宿主兼容」。
 
