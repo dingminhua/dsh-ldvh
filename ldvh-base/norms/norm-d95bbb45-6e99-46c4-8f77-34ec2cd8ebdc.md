@@ -1,7 +1,9 @@
 ---
 title: 分支载体纪律：只推 dev，main 无事实对象
-status: active
+status: retired
 direction_key: release-branch-discipline
+retirement_reason: superseded
+retired_at: 2026-11-20T19:38:55.384Z
 object_uid: d95bbb45-6e99-46c4-8f77-34ec2cd8ebdc
 fact_type_key: norm
 created_at: 2026-11-14T14:58:27.447Z
@@ -26,6 +28,10 @@ change_log:
     provider: workbuddy
     model: hy4flash-free
     summary: 勘误级（27 §13.2 第 1 类：载体与现实的事实性漂移修正，规则语义不变）：「不管什么」节对 release-gate 门禁清单的举例删去「真实安装验收」（该门禁已由 Human 2026-11-20 决定取消，见 norm-773cc0bc 同日实质变更），举例仍以「等」收尾、分工结论不变。direction_key、核心规则 5 条、定位两句、反模式与验证表均逐字未动。
+  - at: 2026-11-20T19:38:55.384Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: 按 Human 决定（2026-11-21「就一个发布规范、其他退役掉」）以 superseded 退役：五条分支载体纪律（含 dev/main 树内容边界、main 无事实对象、发布产物无事实对象、规则本体在 main 不可读以 CI 保障）已并入新建 norm-80c95693「dsh-ldvh 发布规范」第四部分并回读确认；本对象保留为历史档案，不再作为当前规则消费。承接者已存在可解析。
 ---
 
 # 分支载体纪律：只推 dev，main 无事实对象
