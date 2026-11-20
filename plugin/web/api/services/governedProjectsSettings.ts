@@ -3,7 +3,7 @@ import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import yaml from 'js-yaml'
 import { LDVH_WORKSPACE_ROOT } from './pytools.js'
-import { isProjectColorKey } from '../../shared/projectColors.ts'
+import { isProjectColorKey } from '../../shared/projectColors.js'
 import { verifyWebGovernanceConfiguration } from './governanceScope.js'
 
 export type GovernedProjectSetting = { id: string; path: string; name?: string; color?: string }

@@ -49,7 +49,9 @@
     "README.md",
     "README.en.md",
     "CHANGELOG.md",
-    "screenshots.json"
+    "screenshots.json",
+    "web/api-js",
+    "web/shared-js"
   ],
   "scripts": {
     "test": "node scripts/run-tests.mjs",
@@ -80,7 +82,6 @@
     "dotenv": "^17.2.1",
     "express": "^4.21.2",
     "js-yaml": "^4.1.1",
-    "tsx": "^4.20.3",
     "yaml": "^2.8.1"
   },
   "peerDependencies": {

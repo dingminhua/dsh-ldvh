@@ -1,5 +1,5 @@
 
-import { compareRfc3339Timestamps, parseRfc3339Timestamp } from '../../shared/timestamp.ts'
+import { compareRfc3339Timestamps, parseRfc3339Timestamp } from '../../shared/timestamp.js'
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
