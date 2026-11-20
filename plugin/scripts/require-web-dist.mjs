@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const WEB_RUNTIME_DEPS = ["tsx", "express", "cors", "compression", "dotenv", "js-yaml"];
+const WEB_RUNTIME_DEPS = ["express", "cors", "compression", "dotenv", "js-yaml"];
 
 export function assertWebDist(root) {
   const entry = join(root, "web", "dist", "index.html");
@@ -13,13 +13,13 @@ export function assertWebDist(root) {
 }
 
 export function assertWebApi(root) {
-  const server = join(root, "web", "api", "server.ts");
+  const server = join(root, "web", "api-js", "server.js");
   if (!existsSync(server)) {
-    throw new Error(`pack gate: ${server} 不存在——web-api 子进程默认以 --import tsx api/server.ts 启动，缺此入口则面板不可用`);
+    throw new Error(`pack gate: ${server} 不存在——web-api 子进程改为直接执行编译产物，缺此入口则面板不可用`);
   }
-  const shared = join(root, "web", "shared");
+  const shared = join(root, "web", "shared-js");
   if (!existsSync(shared)) {
-    throw new Error(`pack gate: ${shared} 不存在——web/api 运行时从 ../shared 读取通用实现`);
+    throw new Error(`pack gate: ${shared} 不存在——web/api 运行时从 ../shared-js 读取通用实现`);
   }
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const declared = manifest.dependencies ?? {};
@@ -28,11 +28,18 @@ export function assertWebApi(root) {
       throw new Error(`pack gate: dependencies 未声明 ${name}——web-api 运行时需要它，缺此声明则安装后子进程启动失败`);
     }
   }
+  if (declared.tsx !== undefined) {
+    throw new Error(`pack gate: dependencies 不应含 tsx——tsx 带入 esbuild 构建脚本，会被 pnpm 11 默认审批门拒绝（issue #3）；后端已改为编译产物直跑`);
+  }
   const files = manifest.files ?? [];
-  for (const dir of ["web/api", "web/shared"]) {
+  for (const dir of ["web/dist", "web/api-js", "web/shared-js"]) {
     if (!files.includes(dir)) {
-      throw new Error(`pack gate: files 未列入 ${dir}——该目录不进包则后端运行物缺失`);
+      throw new Error(`pack gate: files 未列入 ${dir}——该目录不进包则运行物缺失`);
     }
+  }
+  const npmignore = join(root, "web", ".npmignore");
+  if (!existsSync(npmignore)) {
+    throw new Error(`pack gate: ${npmignore} 不存在——缺它则 web/.gitignore 的 dist 规则会把 web/dist 连带排除出包`);
   }
   return server;
 }

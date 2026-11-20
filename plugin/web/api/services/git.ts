@@ -2,7 +2,7 @@
 import { execFile } from 'child_process'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { canonicalizeRfc3339Timestamp, normalizeGitTimestampInput } from '../../shared/timestamp.ts'
+import { canonicalizeRfc3339Timestamp, normalizeGitTimestampInput } from '../../shared/timestamp.js'
 import { normalizeSignature } from '../../shared/signature.js'
 import { getRelativeTime as sharedGetRelativeTime } from './time.js'
 

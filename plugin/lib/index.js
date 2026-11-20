@@ -1,5 +1,6 @@
 
 import z from "@deepseek-ai/schemastery";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureRegistrationCarrier, setCarrierObserver } from "./governed-projects.js";
@@ -31,6 +32,15 @@ function webApiBridgeEnv(dshHomePath) {
   } catch {
   }
   return env;
+}
+
+export function resolveWebApiCommand(webRoot, { hasTsx = undefined } = {}) {
+  const sourceEntry = join(webRoot, "api", "server.ts");
+  const tsxPresent = hasTsx ?? (existsSync(join(webRoot, "node_modules", "tsx")) || existsSync(join(PACKAGE_ROOT, "node_modules", "tsx")));
+  if (tsxPresent && existsSync(sourceEntry)) {
+    return { mode: "source", command: { exec: process.execPath, argv: ["--import", "tsx", "api/server.ts"] } };
+  }
+  return { mode: "compiled", command: { exec: process.execPath, argv: ["api-js/server.js"] } };
 }
 
 export const name = "dsh-ldvh";
@@ -243,11 +253,17 @@ export function apply(ctx, config) {
     if (webServer === undefined) return;
     const disposeStateRoute = registerStateRoute(webServer, sessionScopes, dshHomePath);
     webCtx.logger.info("[dsh-ldvh] governance-state route registered under %s", STATE_PREFIX);
+    const webRoot = join(PACKAGE_ROOT, "web");
+    const { mode, command } = resolveWebApiCommand(webRoot);
+    if (mode === "source" && existsSync(join(webRoot, "api-js", "server.js"))) {
+      webCtx.logger.info("[dsh-ldvh] 源码态与编译产物并存，按源码态运行（tsx 可用，保留后端热重载）");
+    }
     const webApiProcess = createWebApiProcess({
-      webRoot: join(PACKAGE_ROOT, "web"),
+      webRoot,
       port: WEB_API_PORT,
       env: webApiBridgeEnv(dshHomePath),
       logger: webCtx.logger,
+      command,
     });
     void webApiProcess.ensureReady().then(() => {
       webCtx.logger.info("[dsh-ldvh] web api child warmed up on port %s", WEB_API_PORT);
