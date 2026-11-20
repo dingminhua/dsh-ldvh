@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { testSignature, withTemp } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, testSignature, withTemp } from "./helpers.mjs";
 import {
   createSparkObject,
   readSparkObject,
@@ -22,6 +22,7 @@ function draft() {
     scope_boundary: "仅以自造夹具与受控写入接缝为证据，不触碰仓库活载体。",
     intent: "固定住已修复的失败形态，作为回归基准（代理指标，非语料级失败率）。",
     summary: "形态回归基准：覆盖 uid 多形态、跨项目拒绝、H1 剥离。",
+    serves: subGoalUid(1),
     priority: "P2",
     change_summary: "基准夹具创建",
   };
@@ -36,6 +37,7 @@ function body(d = draft()) {
 }
 
 async function seed(root) {
+  await seedSubGoals(root, ["SG-1", "SG-2"]);
   const d = draft();
   const created = await createSparkObject({
     factSourceRoot: root,

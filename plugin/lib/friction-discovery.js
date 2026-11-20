@@ -43,7 +43,7 @@ export function stripLeadingH1(body) {
 
 
 export async function loadDedupCandidates(factSourceRoot) {
-  const listed = await listFrictionObjects({ factSourceRoot, includeResolved: true, limit: 200 });
+  const listed = await listFrictionObjects({ factSourceRoot, statusFilter: null, limit: 200 });
   if (!listed.ok) return listed;
   const candidates = listed.value.items.filter((item) => item.status === "open" || item.status === "accepted");
   return success({

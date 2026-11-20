@@ -18,9 +18,10 @@
 ## 2. 当前页面结构
 
 ```text
-浏览筛选（使用 ObjectStatusFilter，Spark 另有 ObjectPriorityFilter）
+浏览筛选（使用 ObjectStatusFilter，Spark 另有 ObjectPriorityFilter 与 ObjectServesFilter）
 对象卡片自适应网格（ldvh-section-grid）
   通用卡片：ID + 优先级字符徽标 + 状态徽章 + 标题 + 信号标签 + 更新时间
+  Spark 卡片：另有 serves 徽标（SubGoalOrderBadge：ListOrdered 图标 + 所服务 SubGoal 的次序数字 1/2/3…）
   对象卡片：对象身份 + 状态 + 该类型的专属正文
 加载态 / 错误态 / 空态
 ```
@@ -34,6 +35,8 @@
 - 浏览筛选由 `ObjectStatusFilter` 展示该类型的来源状态闭集losed` 五个进展分组及“全部”，数量读取 API 的 `progressOptions`；五个值的显示顺序固定，“全部”放在最后。
 - 筛选写入 `?status=<来源状态>`；未选筛选时展示全部对象。
 - 其它对象由 `ObjectStatusFilter` 根据各自状态契约展示“各状态 + 全部 + 数量”，并把选择写入 `?status=<status>`。
+- **Spark 的 SubGoal 筛选（Human 2026-11-20 决定，恢复此前 2026-11-01 的退出）**：Spark 列表在优先级筛选之外另有 `ObjectServesFilter`，按对象 `serves` 指向的 SubGoal 分组，选择写入 `?serves=<subgoal_uid>`；选项与计数取自 API 的 `servesOptions`，筛选项显示该 SubGoal 的 `order` 次序数字（取自 `servesOrders`，uid→order），**不带「子目标」字样、不显示标题**，tooltip 保留 uid 供核对。该筛选只属 Spark——serves 是 Spark 专有字段（22 §8 必填），其它类型不设此筛选。
+- **Spark 卡片的 serves 徽标**：Spark 卡片在优先级徽标之后复用 `SubGoalOrderBadge`（与 SubGoal 卡片次序徽标、P0/P1 的 `PriorityIcon` 徽标同构：带边框与底色的 chip + `ListOrdered` 图标 + `serves` 指向 SubGoal 的 `order` 次序数字，如 `≡ 1`／`≡ 2`／`≡ 3`）；解析不到次序时省略该徽标，不用 uid 标题占位。此徽标只属 Spark。
 - 两类筛选都使用全局 tab 样式：`ldvh-tab-list`、`ldvh-tab-button`、`ldvh-tab-button-active` 和 `ldvh-tab-button-idle`，与提交记录页加载范围、type、scope 筛选保持一致。
 - 数据返回前先渲染稳定的筛选占位，数字位置使用轻量加载动画，避免对象卡片先出现、顶部筛选后插入造成页面跳动。
 - 无法判定分类的对象仍属于“全部”的读取范围，但不能被猜入既有分组；界面应如实保留其不可判定状态，不能用已退出显示词补造分组。

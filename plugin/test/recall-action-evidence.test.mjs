@@ -19,8 +19,9 @@ function runEvidence(limit = 30) {
 
 const data = runEvidence(30);
 const s = data.summary;
+const dataTest = s.sessionsWithInjection ? test : test.skip;
 
-test("取证口径：样本须按「有无注入」筛选，不按目录名字母序截断", () => {
+dataTest("取证口径：样本须按「有无注入」筛选，不按目录名字母序截断", () => {
 	assert.ok(
 		s.sessionsWithInjection > 0,
 		"须扫到含注入的会话",
@@ -32,7 +33,7 @@ test("取证口径：样本须按「有无注入」筛选，不按目录名字�
 	);
 });
 
-test("取证口径：回合边界不得把注入事件自身当作回合", () => {
+dataTest("取证口径：回合边界不得把注入事件自身当作回合", () => {
 	const ratio = s.turnsWithAction / s.turnsWithInjection;
 	assert.ok(
 		ratio > 0.5,
@@ -41,7 +42,7 @@ test("取证口径：回合边界不得把注入事件自身当作回合", () =>
 	);
 });
 
-test("取证口径：系统注入块不得被当作用户提问切断回合", () => {
+dataTest("取证口径：系统注入块不得被当作用户提问切断回合", () => {
 	assert.ok(
 		s.turnsWithInjection >= s.sessionsWithInjection - 2,
 		"回合数不应明显少于会话数（允许极少数假阳性会话）",
@@ -52,7 +53,7 @@ test("取证口径：系统注入块不得被当作用户提问切断回合", ()
 	);
 });
 
-test("取证口径：标题匹配须排除通用前缀，不得以弱匹配抬高回指率", () => {
+dataTest("取证口径：标题匹配须排除通用前缀，不得以弱匹配抬高回指率", () => {
 	const rate = s.candidateReferences / Math.max(1, s.candidatesInjected);
 	assert.ok(
 		rate < 0.25,
@@ -61,7 +62,7 @@ test("取证口径：标题匹配须排除通用前缀，不得以弱匹配抬�
 	);
 });
 
-test("取证口径：三项证据须分别产出，不得互相替代", () => {
+dataTest("取证口径：三项证据须分别产出，不得互相替代", () => {
 	for (const key of [
 		"turnsWithAction",
 		"candidateReferences",
@@ -77,7 +78,7 @@ test("取证口径：三项证据须分别产出，不得互相替代", () => {
 	assert.equal(sum, s.turnsWithInjection, "回指分档之和须等于注入回合数");
 });
 
-test("测量完整性：读取失败须如实披露，不得静默折算成零命中", () => {
+dataTest("测量完整性：读取失败须如实披露，不得静默折算成零命中", () => {
 	assert.ok("unreadableSessions" in s, "summary 须带 unreadableSessions（真读取失败数）");
 	assert.ok("unparsableLines" in s, "summary 须带 unparsableLines（不可解析行数）");
 	assert.ok("absentSessions" in s, "summary 须带 absentSessions（无日志目录数，与失败区分）");

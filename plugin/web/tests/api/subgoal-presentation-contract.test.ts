@@ -255,7 +255,7 @@ test('近期动态覆盖 subgoal（加入 OBJECT_TYPES 时不得遗漏）', () =
   assert.match(cognition, /\['subgoal', subGoalResult\]/, '近期动态取数范围应含 subgoal');
 });
 
-test('serves 不参与 Web 呈现：解析组件与筛选组件都已撤除', () => {
+test('Spark 卡片与列表支持 serves 呈现与筛选（Human 新决定），详情头/认知中心仍不回归 serves 徽章', () => {
   const objectList = read('src/pages/ObjectList.tsx');
   const objectDetail = read('src/pages/ObjectDetail.tsx');
   const cognition = read('src/pages/CognitionCenter.tsx');
@@ -269,17 +269,18 @@ test('serves 不参与 Web 呈现：解析组件与筛选组件都已撤除', ()
     assert.equal(
       fs.existsSync(path.resolve(removed)),
       false,
-      `${removed} 应已撤除——serves 不再参与 Web 呈现（2026-11-01 定案）`,
+      `${removed} 应已撤除——旧 serves 呈现形态不再使用`,
     );
   }
 
-  assert.doesNotMatch(objectList, /ServesSgBadge|ServesSgFilter|servesSg/,
-    '列表页不得回归 serves 呈现或筛选');
+  assert.match(objectList, /ObjectServesFilter/, 'Spark 列表应有 serves 筛选控件');
+  assert.match(objectList, /servesOrder/, 'Spark 卡片应有 serves 胶囊（按 SubGoal 次序数字呈现）');
+  assert.match(objectList, /servesOptions/, 'Spark 列表应消费 serves 选项');
+  assert.doesNotMatch(read('src/components/ObjectServesFilter.tsx'), /servesFilterLabel/,
+    'serves 筛选项不得带「子目标」文字标签');
+  assert.doesNotMatch(objectList, /removesRetiredServes/, '退役的 serves 参数清理逻辑应已撤销');
   assert.doesNotMatch(objectDetail, /ServesSgBadge/, '详情头不得回归 serves 徽章');
   assert.doesNotMatch(cognition, /ServesSgBadge/, '认知中心不得回归 serves 徽章');
-
-  assert.match(objectList, /if \(removesRetiredServes\) nextParams\.delete\('serves'\);/,
-    '退役的 serves 查询参数应被清理');
 
   const auxTable = model.slice(
     model.indexOf('AUXILIARY_META_KEYS_BY_TYPE'),

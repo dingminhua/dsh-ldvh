@@ -393,8 +393,6 @@ window.__ModuleLoader__.load({
       "row.reviewAskTimeout": "Countdown: auto-proceed on timeout",
       "row.reviewAskTimeoutSeconds": "Countdown seconds",
       "row.reviewAskTimeoutHint": "**Checkpoint cards show a countdown** (10/30/60s); on timeout it proceeds as unanswered.",
-      "row.frictionDiscovery": "Friction discovery",
-      "row.frictionDiscoveryHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
       "row.experienceAccumulation": "Accumulate experience",
       "row.experienceAccumulationHint": "When the main controller spots a verified failure mechanism during its own work, it hands the context to a delegate that drafts the experience entry. Turn off to stop recording automatically.",
       "row.idleCapture": "Discover friction",

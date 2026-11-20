@@ -22,6 +22,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
+import { appendReadBody } from "./read-body-render.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
 
@@ -731,6 +732,9 @@ function renderEnvelope(operationKey, value) {
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "research")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  if ((operationKey === "report-read-object" || env.operation_key === "report-read-object") && env.outcome === "completed") {
+    appendReadBody(lines, result);
+  }
   const __warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of __warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
   for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
@@ -794,7 +798,6 @@ function parameterSchemaFor(operationKey) {
       title: { type: "string" },
       status: { type: "string", enum: ["active", "retired"], description: "create must be active; update may transition to retired (24 §9)" },
       report_form: { type: "string", enum: ["research", "summary", "audit", "action", "reference"], description: "来源形态（24 §5/§8）：research=对外部对象取证（要求 urls）；summary=对内部过程的阶段性总结（内部来源逐字摘录进正文，禁 urls）；audit=一次独立审核/复核的完整结论（四项门槛见 24 §6.3）；action=一次已完成行动的执行过程与结论（一次行动一条，内部来源锚点，禁 urls）；reference=未验证但需记录的参考内容（confirmed 必空、内容进 uncertain/gaps、禁 sufficient、内部锚点、禁 urls）。创建必填；存量缺失按 research 认定（24 §8.2 过渡条款）。创建后不可变更" },
-      serves: { type: "string", description: "所服务的 SubGoal 对象 object_uid（28 §12.3）；须解析到 active/achieved 的 SubGoal，失败零写入（24 §8 不变量 11）。可选，五形态通用" },
       research_question: { type: "string", description: "the research question under study. Must appear VERBATIM in the 研究问题 body section (carrier coherence, 24 §8 invariant 10; frontmatter is the single authoritative text — the body only expands it). Rejected as question-coherence when the section does not contain this string" },
       research_purpose: { type: "string" },
       stopping_reason: { type: "string", enum: ["sufficient", "no-gain", "round-cap"] },

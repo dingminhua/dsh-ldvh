@@ -4,6 +4,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
+import { FRICTION_DEFAULT_CANDIDATE_STATUSES } from "./friction-writer.js";
 import { normPositioningOf, positioningExcerptLine } from "./norm-positioning.js";
 
 
@@ -24,7 +25,7 @@ export const MATCHED_FACT_FIELDS = Object.freeze([
 
 export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   spark: ["open"],
-  friction: ["open"],
+  friction: [...FRICTION_DEFAULT_CANDIDATE_STATUSES],
   report: ["active"],
   norm: ["active"],
   pitfall: ["active"],
@@ -522,7 +523,7 @@ export const DEFAULT_INJECTION_BUDGET_TIER = 10;
 
 export const RECALL_LIMIT_BYTES_PER_ITEM = 220;
 
-export const RECALL_LIMIT_MAX = 12;
+export const RECALL_LIMIT_MAX = Math.floor(Math.max(...Object.values(INJECTION_BUDGET_TIERS)) / RECALL_LIMIT_BYTES_PER_ITEM / 2);
 
 export function recallLimitForBudget(budgetBytes) {
   if (!Number.isFinite(budgetBytes) || budgetBytes <= 0) return RECALL_LIMIT_MIN;

@@ -1,0 +1,14 @@
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+node_modules
+dist-ssr
+*.local
+.env
+.vscode/*
+.idea
+.DS_Store
+.vite
+preview-settings.html
+preview-settings*.png

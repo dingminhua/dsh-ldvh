@@ -8,6 +8,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
+import { repairedLengthMessage } from "./write-diagnostics.js";
 import { normPositioningOf } from "./norm-positioning.js";
 import { ID_PATTERN } from "./spec-registry.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
@@ -64,7 +65,7 @@ export function validateNormFrontmatter(frontmatter) {
   if (typeof frontmatter.title !== "string" || frontmatter.title.length === 0) {
     issues.push("title: required non-empty string");
   } else if (frontmatter.title.length > MAX_TITLE_LENGTH) {
-    issues.push(`title: must be ≤ ${MAX_TITLE_LENGTH} characters (23 §8), got ${frontmatter.title.length}`);
+    issues.push(repairedLengthMessage("title", frontmatter.title, MAX_TITLE_LENGTH, "23 §8"));
   }
   if (typeof frontmatter.created_at !== "string" || frontmatter.created_at.length === 0) {
     issues.push("created_at: required non-empty string (Code-assigned)");

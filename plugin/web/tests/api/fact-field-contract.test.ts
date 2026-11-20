@@ -66,7 +66,7 @@ test('report: report_form is the only unconditionally required typed field (24 �
   assert.equal(FACT_FIELD_CONTRACT.report.report_form.required, true);
   assert.equal(FACT_FIELD_CONTRACT.report.research_question.required, false);
   assert.equal(FACT_FIELD_CONTRACT.report.research_purpose.required, false);
-  assert.equal(FACT_FIELD_CONTRACT.report.serves.required, false);
+  assert.ok(!('serves' in FACT_FIELD_CONTRACT.report), 'report 不应登记 serves（Human 决定：仅 Spark 关联 SubGoal）');
 });
 
 test('spark carries the 20-spec field closure without v4 leftovers', () => {

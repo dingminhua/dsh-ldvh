@@ -16,7 +16,7 @@ import {
 import { createHostSeams, recordJudgementForGuard, observedVersionFor, resetObservations, writeShapedTools, registerWriteShapedTool } from "../lib/host-seams.js";
 import { bindMembershipEvidence } from "../lib/membership-evidence.js";
 import { makeExecute } from "../lib/ldvh-tools.js";
-import { git, initRepo, withTemp } from "./helpers.mjs";
+import { git, initRepo, seedSubGoals, subGoalUid, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
@@ -504,6 +504,21 @@ test("item1: absent evidence produces gaps, never a silent pass", async () => {
 	});
 });
 
+test("item1: evidence records missing carriers or null never count as a hit and never throw", async () => {
+	await withTemp("ldvh-ev-malformed.", async (base) => {
+		const { root, markdown, repoPath } = await fixtureMember(base);
+		const identity = { spec_key: "demo-spec" };
+		for (const malformed of [[{}], [null], { bad: true }, [42]]) {
+			const report = await bindMembershipEvidence(root, [{ identity, markdownText: markdown, repoPath }], {
+				reviews: malformed,
+				decisions: malformed,
+			});
+			assert.equal(report.carriers[0].items["8"].satisfied, false, `reviews=${JSON.stringify(malformed)} must not satisfy item 8`);
+			assert.equal(report.carriers[0].items["9"].satisfied, false, `decisions=${JSON.stringify(malformed)} must not satisfy item 9`);
+		}
+	});
+});
+
 test("item1: a stale fingerprint binding fails item 12", async () => {
 	await withTemp("ldvh-ev-stale.", async (base) => {
 		const { root, markdown, repoPath } = await fixtureMember(base);
@@ -808,10 +823,11 @@ test("signature: updates land a signed change_log entry through the real writer"
 		const { authoritativeSignature } = await import("../lib/signature-channel.js");
 		const root = join(base, "root");
 		await mkdir(root, { recursive: true });
+		await seedSubGoals(root, ["SG-1", "SG-2"]);
 
 		const branded = authoritativeSignature({ provider: "workbuddy", model: "deepseek-v4.1-flash" });
 		const q = "这个字段该叫什么？", sb = "定名后即停", sm = "当前理解快照";
-		const draftT = { title: "T", question: q, scope_boundary: sb, intent: "I", summary: sm, priority: "P2", change_summary: "init" };
+		const draftT = { title: "T", question: q, scope_boundary: sb, intent: "I", summary: sm, serves: subGoalUid(1), priority: "P2", change_summary: "init" };
 		const bodyT = `## 当前理解\n\n${sm}\n\n## 调查问题\n\n${q}\n\n## 调查边界\n\n${sb}\n`;
 		const created = await createSparkObject({
 			factSourceRoot: root,

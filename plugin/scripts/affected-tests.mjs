@@ -319,7 +319,7 @@ async function runTests(relTests) {
       process.stdout.write(chunk);
       tail = (tail + chunk.toString()).slice(-131072);
     });
-    child.on("exit", (code, signal) => {
+    child.on("close", (code, signal) => {
       if (signal !== null) {
         process.stderr.write(`test runner terminated by signal ${signal}\n`);
         process.exitCode = 1;

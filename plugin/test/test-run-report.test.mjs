@@ -8,6 +8,7 @@ import {
 	classifyTestRun,
 	countTestBlocks,
 	isUsableForVerdict,
+	observedCountDialect,
 	observedTestCount,
 	observedSkippedCount,
 	reconcileTestCount,
@@ -93,12 +94,28 @@ test("单一实现：三态判定只在 test-run-report.js 内实现一次", asy
 	}
 });
 
-test("报告块标记只认本次运行的汇总行，不靠退出码", async () => {
+test("报告块标记只认本次运行的汇总行（spec ℹ 与 TAP # 两方言），不靠退出码", async () => {
 	const src = await readFile(join(PLUGIN, "lib/test-run-report.js"), "utf8");
-	assert.match(src, /\^ℹ \(tests\|pass\|fail\) \\d\+\$/m, "报告标记须为「ℹ tests/pass/fail N」的显式多行匹配");
+	assert.match(src, /\^ℹ \(tests\|pass\|fail\) \\d\+\$/m, "须认 spec reporter 的「ℹ tests/pass/fail N」汇总行");
+	assert.match(src, /\^# \(tests\|pass\|fail\) \\d\+\$/m, "须认 TAP reporter 的「# tests/pass/fail N」汇总行");
 	assert.ok(!/exitCode|signal\s*===\s*null\s*&&/.test(src), "不得以退出码充当运行发生与否的证据");
 });
 
+test("计数方言：spec 与 TAP 汇总行都能读出条数，方言缺失给 null 而不是 0", () => {
+	const TAP_OUTPUT = ["TAP version 13", "ok 1 - a", "# tests 7", "# pass 6", "# fail 1", "# skipped 0"].join("\n");
+	assert.equal(observedTestCount({ stdout: TAP_OUTPUT }), 7);
+	assert.equal(observedCountDialect({ stdout: TAP_OUTPUT }), "tap");
+	assert.equal(observedTestCount({ stdout: PASS_OUTPUT }), 1);
+	assert.equal(observedCountDialect({ stdout: PASS_OUTPUT }), "spec");
+	assert.equal(observedSkippedCount({ stdout: TAP_OUTPUT }), 0);
+	assert.equal(observedTestCount({ stdout: "" }), null);
+	assert.equal(observedTestCount({ stdout: "TAP version 13\nok 1 - a\n" }), null, "TAP 流无汇总行即 fail-closed，不数 ok 行");
+	assert.equal(observedCountDialect({ stdout: "" }), null);
+	// 汇总行在场时以它为唯一判据：顶层 ok 行数与汇总行冲突也不受影响
+	const conflict = ["ok 1 - a", "ok 2 - b", "# tests 2", "# skipped 1"].join("\n");
+	assert.equal(observedTestCount({ stdout: conflict }), 2);
+	assert.equal(observedSkippedCount({ stdout: conflict }), 1);
+});
 
 test("observedTestCount 取出汇总行里的条数，取不到时给 null 而不是 0", () => {
 	assert.equal(observedTestCount({ stdout: PASS_OUTPUT }), 1);

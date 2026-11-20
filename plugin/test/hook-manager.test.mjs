@@ -316,6 +316,21 @@ test("uninstallHook is a no-op success on an absent Hook", async () => {
 	});
 });
 
+test("uninstallHook removes the surviving managed Hook in a mixed managed/absent state", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
+		const hooksDir = join(root, ".git", "hooks");
+		await rm(join(hooksDir, "pre-commit"), { force: true });
+
+		const status = await inspectHook(root);
+		assert.equal(status.state, "absent", "aggregated state collapses to absent when one Hook is missing");
+		const removed = await uninstallHook(root);
+		assert.equal(removed.ok, true);
+		await assert.rejects(readFile(join(hooksDir, "commit-msg")), (error) => error?.code === "ENOENT", "surviving managed Hook must be removed");
+	});
+});
+
 test("uninstallHook removes only commit-msg and keeps the hooks directory", async () => {
 	await withTemp("ldvh-hm.", async (base) => {
 		const root = await initRepo(base);

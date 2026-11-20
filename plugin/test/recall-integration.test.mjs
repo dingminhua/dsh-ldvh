@@ -120,7 +120,7 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	const friction = await q({ action: "这条 friction 该销账吗", limit: 5, types: ["friction"], budgetBytes: 40000 });
 	assert.ok(friction.facts.length > 0, "friction 默认候选须非空");
 	for (const f of friction.facts) {
-		assert.ok(["open", "observing"].includes(f.status), `friction 默认不应含 ${f.status}`);
+		assert.ok(["open", "accepted", "observing"].includes(f.status), `friction 默认不应含 ${f.status}`);
 	}
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.spark], ["open"], "spark 默认候选是 open");
 

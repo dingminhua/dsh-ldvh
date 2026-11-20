@@ -137,6 +137,26 @@ async function seedResolvedFriction(root, informsTargetUid) {
   return { draft, created, read, updated };
 }
 
+async function seedAcceptedFriction(root, overrides = {}) {
+  const { draft, created } = await seedFriction(root, { title: "已接受摩擦", ...overrides });
+  const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  const updated = await updateFrictionObject({
+    factSourceRoot: root,
+    objectUid: created.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    frontmatterAfter: {
+      ...read.value.frontmatter,
+      status: "accepted",
+      disposition: "消除途径不在本项目可动范围",
+    },
+    bodyMarkdownAfter: validBodyMarkdown(draft) + "\n\n## 处置\n不可清偿。复审触发：宿主版本升级。",
+    changeSummary: "接受",
+    sessionSignature: testSignature(),
+  });
+  assert.ok(updated.ok, JSON.stringify(updated.error));
+  return { draft, created };
+}
+
 async function seedOpenFriction(root, overrides = {}) {
   const { draft, created } = await seedFriction(root, overrides);
   const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -279,7 +299,7 @@ test("friction-read-object: object_uid omitted → invalid_request envelope", as
 });
 
 
-test("friction-list-objects: default (open only) filter and full projection", async () => {
+test("friction-list-objects: default = 默认候选状态范围（open+accepted），status 可收窄", async () => {
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const deps = makeDeps(home, base);
@@ -287,22 +307,35 @@ test("friction-list-objects: default (open only) filter and full projection", as
 
     const first = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦甲" });
     const second = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦乙" });
+    const accepted = await seedAcceptedFriction(join(repo, "ldvh-base"));
     const informsTargetUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createInformsTargetFixture(join(repo, "ldvh-base"), informsTargetUid);
-    const resolved = await seedResolvedFriction(join(repo, "ldvh-base"), informsTargetUid);
+    await seedResolvedFriction(join(repo, "ldvh-base"), informsTargetUid);
 
     const env = await run(desc, "ldvh_friction_list", {}, repo);
     assert.equal(env.outcome, "completed");
-    assert.equal(env.result.filter, "open");
-    assert.equal(env.result.count, 2);
-    assert.equal(env.result.total, 2);
-    assert.equal(env.result.items.length, 2);
+    assert.equal(env.result.filter, "open,accepted");
+    assert.equal(env.result.count, 3);
+    assert.equal(env.result.total, 3);
+    assert.equal(env.result.items.length, 3);
     for (const item of env.result.items) assert.notEqual(item.status, "resolved");
 
     const itemUids = env.result.items.map((i) => i.object_uid).sort();
-    const expected = [first.created.value.object_uid, second.created.value.object_uid].sort();
+    const expected = [first.created.value.object_uid, second.created.value.object_uid, accepted.created.value.object_uid].sort();
     assert.deepEqual(itemUids, expected);
-    assert.deepEqual(env.result.items.map((i) => i.status).sort(), ["open", "open"]);
+    assert.deepEqual(env.result.items.map((i) => i.status).sort(), ["accepted", "open", "open"]);
+
+    const openOnly = await run(desc, "ldvh_friction_list", { status: "open" }, repo);
+    assert.equal(openOnly.result.filter, "open");
+    assert.equal(openOnly.result.count, 2);
+    assert.deepEqual(openOnly.result.items.map((i) => i.status), ["open", "open"]);
+
+    const acceptedOnly = await run(desc, "ldvh_friction_list", { status: "accepted" }, repo);
+    const noFilterNoParams = await run(desc, "ldvh_friction_list", {}, repo);
+    assert.equal(noFilterNoParams.result.filter, "open,accepted", "filter 回显须与判据表机械值同形");
+    assert.equal(acceptedOnly.result.filter, "accepted");
+    assert.equal(acceptedOnly.result.count, 1);
+    assert.equal(acceptedOnly.result.items[0].object_uid, accepted.created.value.object_uid);
 
     assert.ok(env.follow_up.some((s) => s.includes("dedup")));
     assert.ok(env.follow_up.some((s) => s.includes("friction-read-object")));
@@ -311,7 +344,7 @@ test("friction-list-objects: default (open only) filter and full projection", as
   });
 });
 
-test("friction-list-objects: includeResolved=all returns all, including resolved", async () => {
+test("friction-list-objects: status=all returns all, including resolved", async () => {
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const deps = makeDeps(home, base);
@@ -737,9 +770,10 @@ test("tool schema: friction-list-objects status open is valid, invalid status re
     assert.ok(desc);
 
     assert.equal(validateJsonSchemaValue(desc.parameters, { status: "open" }, "args").length, 0);
+    assert.equal(validateJsonSchemaValue(desc.parameters, { status: "accepted" }, "args").length, 0);
     assert.equal(validateJsonSchemaValue(desc.parameters, { status: "all" }, "args").length, 0);
     const bad = validateJsonSchemaValue(desc.parameters, { status: "closed" }, "args");
-    assert.ok(bad.length > 0, "status must be one of open|all");
+    assert.ok(bad.length > 0, "status must be one of open|accepted|all");
   });
 });
 

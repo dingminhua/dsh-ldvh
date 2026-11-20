@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { seedSubGoals, subGoalUid, testSignature, withTemp, UNKNOWN_SUBGOAL_UID } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, testSignature, withTemp as rawWithTemp, UNKNOWN_SUBGOAL_UID } from "./helpers.mjs";
+
+async function withTemp(prefix, fn) {
+  return rawWithTemp(prefix, async (root) => {
+    await seedSubGoals(root, ["SG-1", "SG-2", "SG-3", "SG-4"]);
+    return fn(root);
+  });
+}
 
 const TEST_SIGNATURE = testSignature();
 import {
@@ -59,6 +66,7 @@ function validFrontmatterDraft(overrides = {}) {
     scope_boundary: "仅以本仓库规范与单元测试为证据，不运行外部系统，不扩大调研范围。",
     intent: "验证机械层正确性，为后续自动化覆盖保留事实依据。",
     summary: "Spark 机械层已实现基本验证；未决事项是边界用例的自动化覆盖。",
+    serves: subGoalUid(1),
     priority: "P2",
     change_summary: "受控创建（测试）",
     ...overrides,
@@ -306,8 +314,8 @@ test("create: invalid priority value rejected (20 §8 闭集 P0–P3)", async ()
   });
 });
 
-test("create: serves declared but goal.md missing rejected (20 §17.1 stop condition)", async () => {
-  await withTemp("spark-writer.", async (root) => {
+test("create: serves declared but no SubGoal carrier exists rejected (22 §8 serves must resolve)", async () => {
+  await rawWithTemp("spark-writer.", async (root) => {
     const result = await createSparkObjectWithCandidate({
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: subGoalUid(1) },
@@ -334,15 +342,20 @@ test("create: serves=SG-99 not present in goal.md rejected (20 §13)", async () 
   });
 });
 
-test("create: serves undeclared succeeds even when goal.md is missing (20 §17.1: 未声明时不停止)", async () => {
+test("create: serves is required — undeclared rejected (22 §8; Human decision)", async () => {
   await withTemp("spark-writer.", async (root) => {
+    await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
+    await seedGoalAnchorObjects(root);
+    const { serves: _serves, ...withoutServes } = validFrontmatterDraft();
     const result = await createSparkObjectWithCandidate({
       factSourceRoot: root,
-      frontmatterDraft: validFrontmatterDraft(),
+      frontmatterDraft: withoutServes,
       bodyMarkdown: validBodyMarkdown(),
       sessionSignature: TEST_SIGNATURE,
     });
-    assert.ok(result.ok, JSON.stringify(result.error));
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "spark/frontmatter_invalid");
+    assert.ok(result.error.details.issues.some((issue) => issue.includes("serves: required")));
   });
 });
 

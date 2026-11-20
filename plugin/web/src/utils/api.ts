@@ -415,6 +415,7 @@ export async function fetchObjects(
   lifecycle?: string,
   priority?: string,
   form?: string,
+  serves?: string,
 ): Promise<{
   ok: boolean;
   summary: { count: number; coverage_status?: FactCoverageStatus };
@@ -426,6 +427,8 @@ export async function fetchObjects(
     statusOptions?: ObjectStatusOption[];
     formOptions?: ObjectStatusOption[];
     priorityOptions?: ObjectStatusOption[];
+    servesOptions?: ObjectStatusOption[];
+    servesOrders?: Record<string, number>;
     statusTotal?: number;
   };
 }> {
@@ -434,6 +437,7 @@ export async function fetchObjects(
   if (lifecycle) params.set('lifecycle', lifecycle);
   if (priority) params.set('priority', priority);
   if (form) params.set('form', form);
+  if (serves) params.set('serves', serves);
   const qs = params.toString();
   return request(`/objects/${type}${qs ? `?${qs}` : ''}`);
 }

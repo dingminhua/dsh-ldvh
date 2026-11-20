@@ -142,7 +142,7 @@ const LISTS = [
   ["spark", SPARK_DIRECTORY, listSparkObjects, { includeTerminal: true }],
   ["pitfall", PITFALL_DIRECTORY, listPitfallObjects, { includeTerminal: true }],
   ["report", REPORT_DIRECTORY, listResearchObjects, { includeTerminal: true }],
-  ["friction", FRICTION_DIRECTORY, listFrictionObjects, { includeResolved: true }],
+  ["friction", FRICTION_DIRECTORY, listFrictionObjects, { statusFilter: null }],
 ];
 
 const BODIES = {

@@ -20,6 +20,7 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
 import { objectRef, objectRefOf, shortUid } from "./object-reference.js";
+import { appendReadBody } from "./read-body-render.js";
 
 const OPERATIONS = {
   "spark-read-object": {
@@ -667,6 +668,9 @@ function renderEnvelope(operationKey, value) {
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "spark")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  if ((operationKey === "spark-read-object" || env.operation_key === "spark-read-object") && env.outcome === "completed") {
+    appendReadBody(lines, result);
+  }
   const warnings = Array.isArray(env.result?.warnings) ? env.result.warnings : (Array.isArray(env.warnings) ? env.warnings : []);
   for (const w of warnings) lines.push(`warning: ${typeof w === "string" ? w : JSON.stringify(w)}`);
   for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);

@@ -147,7 +147,7 @@ Human 2026-11-03 定案两条，本区据此收密度：
 | 待确认经验 | Pitfall `status = draft` | 与对象列表共享普通 Pitfall Card；正文显示可读的 `symptoms`、`trigger_conditions`、`resolution`、`avoidance`、`validation_summary`、`applicability` |
 | 待修摩擦 | Friction `status = open` | 与对象列表共享普通 Friction Card；卡体留空（与列表卡一致），身份与状态由卡头托承载：类型、`occurrence` 重复观察、修改次数；标题即现象单句的浓缩，现象全文与入账依据住详情页（原卡头的 `impact` 轻/中/重 chip 已于 2026-11-02 随 26 §8 撤销分级制度移除） |
 
-- 待修摩擦的收录口径（26 §12「Web 账本呈现」，Human 2026-10-19 决定）：**只收 `open`**。26 §9 的状态闭集为四值 `open` / `resolved` / `voided` / `accepted`（2026-10 修订：原第四值 `observing` 已退出闭集；`accepted` 为「已接受、不可清偿」，记录一次即不再报告，「已看见但尚未攒够」的观察改由 11 §12bis.1 的摩擦观察缓冲承载——非事实对象、不进事实源、不参与 F0–F4 召回，故账本里本就没有「攒熟中的活账」可铺）；`resolved` / `voided` 是终态，同样不进默认候选。不呈现「攒熟进度」，以免把观察噪声读成待修规模。
+- 待修摩擦的收录口径（26 §12「Web 账本呈现」，Human 2026-10-19 决定）：**只收 `open`**。26 §9 的状态闭集为四值 `open` / `resolved` / `voided` / `accepted`（2026-10 修订：原第四值 `observing` 已退出闭集；`accepted` 为「已接受、不可清偿」，记录一次即不再作为待修项报告；Web 待修列表只收 `open`，`accepted` 按 26 §12 进行动前默认候选面（不进待修聚合），「已看见但尚未攒够」的观察改由 11 §12bis.1 的摩擦观察缓冲承载——非事实对象、不进事实源、不参与 F0–F4 召回，故账本里本就没有「攒熟中的活账」可铺）；`resolved` / `voided` 是终态，同样不进默认候选。不呈现「攒熟进度」，以免把观察噪声读成待修规模。
 - 待修摩擦卡头的 `occurrence` 重复观察 chip 呈现**频次事实**（26 §8 的机械权威源），**不**呈现阈值进度（如 `1/3`）：阈值 N 固定在观察缓冲侧（11 §12bis.1），其权威源是规范而非界面；`count` 也不再是任何状态流转的判据。
 - 待修摩擦不是 Human Gate：本页不新增任何授权动作，流转由 26 §9 的 Human Gate 与补充级更新承载。其 `inboxKind` 取 `friction_repair`，模块摘要标签为「待修摩擦」而非「待确认」——避免 Human 在页面上寻找一个不存在的批准按钮。
 - `occurrence` 由服务端**平铺到条目根**（`CognitionFrictionInboxItem`），不要求客户端翻 `card`：卡头徽标读对象根字段，只投影进 `card` 会让徽标在聚焦页静默消失（近期动态投影当初即踩此坑）。

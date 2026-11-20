@@ -77,7 +77,6 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   report: {
     ...common,
     report_form: field('report-form', 'string', true),
-    serves: field('report-serves-sg', 'string', false),
     research_question: field('research-question', 'string', false),
     research_purpose: field('research-purpose', 'string', false),
     stopping_reason: field('report-stopping-reason', 'string', false),

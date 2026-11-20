@@ -1287,6 +1287,14 @@ function parameterSchemaFor(operationKey) {
       };
     case "inspect-loaded-modules":
       return { type: "object", properties: {}, additionalProperties: false };
+    case "precheck-git-commit":
+      return {
+        type: "object",
+        properties: {
+          message: { type: "string", description: "The full candidate commit message text (09 §5.3); the handler refuses an absent or empty message with invalid_request" }
+        },
+        additionalProperties: false
+      };
     default:
       return { type: "object", properties: {}, additionalProperties: false };
   }
@@ -1362,6 +1370,24 @@ export function renderEnvelope(operationKey, value) {
       if (typeof env.result.source_fingerprint === "string") lines.push(`source_fingerprint: ${env.result.source_fingerprint} (protocol tag, not a source-code fingerprint)`);
     }
     for (const item of env.scope?.not_completed ?? []) lines.push(`not_completed: ${item}`);
+    for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
+  }
+  if (operationKey === "discover-ldvh-capabilities") {
+    const ops = Array.isArray(env.result?.operations) ? env.result.operations : [];
+    lines.push(`operations: ${ops.length}`);
+    for (const op of ops) {
+      const decl = op?.declaration;
+      const anchor = decl?.source_path ?? decl?.source ?? "(no declaration)";
+      lines.push(`- ${op?.operation_key ?? "(?)"} [${op?.availability ?? "?"}] — ${op?.summary ?? ""} (${anchor})`);
+      if (op?.availability_detail) lines.push(`    detail: ${op.availability_detail}`);
+      if (Array.isArray(op?.pending_inputs) && op.pending_inputs.length > 0) {
+        lines.push(`    pending_inputs: ${op.pending_inputs.join(", ")}`);
+      }
+    }
+    for (const diag of env.result?.undeclared_or_unresolvable ?? []) {
+      lines.push(`undeclared: ${diag?.operation_key ?? "(?)"} — ${diag?.reason ?? ""}`);
+    }
+    for (const gap of env.gaps ?? []) lines.push(`gap: ${gap}`);
     for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
   }
   if (Array.isArray(env.result?.candidates)) {

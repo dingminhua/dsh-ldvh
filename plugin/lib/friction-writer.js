@@ -8,6 +8,7 @@ import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { scanCarrierDirectory } from "./carrier-scan.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
+import { repairedLengthMessage } from "./write-diagnostics.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
 
@@ -20,6 +21,8 @@ const BODY_H2_REQUIRED = ["现象", "入账依据"];
 const BODY_H2_DISPOSITION = "处置";
 
 const STATUSES = new Set(["open", "resolved", "voided", "accepted"]);
+
+export const FRICTION_DEFAULT_CANDIDATE_STATUSES = Object.freeze(["open", "accepted"]);
 
 const CORRECT_ADDABLE_FIELDS = new Set(["occurrence", "disposition"]);
 
@@ -170,7 +173,7 @@ export function validateFrictionFrontmatter(frontmatter) {
   if (typeof frontmatter.title !== "string" || frontmatter.title.length === 0) {
     issues.push("title: required non-empty string");
   } else if (frontmatter.title.length > MAX_TITLE_LENGTH) {
-    issues.push(`title: must be ≤ ${MAX_TITLE_LENGTH} characters (26 §8), got ${frontmatter.title.length}`);
+    issues.push(repairedLengthMessage("title", frontmatter.title, MAX_TITLE_LENGTH, "26 §8"));
   }
   if (typeof frontmatter.created_at !== "string" || frontmatter.created_at.length === 0) {
     issues.push("created_at: required non-empty string (Code-assigned)");
@@ -1012,12 +1015,18 @@ async function isNonDirectoryAncestor(dir) {
 }
 
 export async function listFrictionObjects(args) {
-  const { factSourceRoot, includeResolved = false, limit = 200 } = args;
+  const { factSourceRoot, limit = 200, statusFilter = FRICTION_DEFAULT_CANDIDATE_STATUSES } = args;
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
   if (!Number.isInteger(limit) || limit < 1) {
     return failure("invalid_request", "limit must be a positive integer");
+  }
+  if (statusFilter !== null) {
+    const values = Array.isArray(statusFilter) ? statusFilter : [statusFilter];
+    if (values.length === 0 || values.some((value) => typeof value !== "string" || !STATUSES.has(value))) {
+      return failure("invalid_request", "statusFilter must be null (all) or a non-empty array of closed-set statuses; invalid values are refused (fail-closed)");
+    }
   }
 
   const typeDir = join(factSourceRoot, FRICTION_DIRECTORY);
@@ -1056,7 +1065,8 @@ export async function listFrictionObjects(args) {
       invalid.push({ file: carrier.file, reason: `status ${JSON.stringify(status)} outside the closed set` });
       continue;
     }
-    if (!includeResolved && (status === "resolved" || status === "voided" || status === "accepted")) continue;
+    if (Array.isArray(statusFilter) && statusFilter.length > 0 && !statusFilter.includes(status)) continue;
+    if (typeof statusFilter === "string" && statusFilter !== status) continue;
     items.push({
       object_uid: uid,
       fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : "",
@@ -1096,7 +1106,7 @@ export async function findFrictionsPairedWith(args) {
   if (typeof targetUid !== "string" || !UUID_PATTERN.test(targetUid)) {
     return failure("invalid_request", `targetUid must be a canonical UUID (02 §8.2), got ${JSON.stringify(targetUid)}`);
   }
-  const listed = await listFrictionObjects({ factSourceRoot, includeResolved: true, limit: 200 });
+  const listed = await listFrictionObjects({ factSourceRoot, statusFilter: null, limit: 200 });
   if (!listed.ok) return listed;
   const wanted = targetUid.toLowerCase();
   const items = listed.value.items.filter((item) =>

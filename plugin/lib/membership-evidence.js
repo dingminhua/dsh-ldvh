@@ -66,8 +66,9 @@ function checkFingerprintBinding(repoPath, currentFingerprint, bindings) {
 }
 
 function checkRecordPresence(kind, records, repoPath, responsibilityKey) {
-  const matched = (records ?? []).filter((record) =>
-    record?.carriers === undefined || record.carriers.includes(repoPath) || record.carriers.includes(responsibilityKey)
+  const matched = (Array.isArray(records) ? records : []).filter((record) =>
+    record !== null && typeof record === "object" && Array.isArray(record.carriers) &&
+    (record.carriers.includes(repoPath) || record.carriers.includes(responsibilityKey))
   );
   if (matched.length === 0) {
     return {

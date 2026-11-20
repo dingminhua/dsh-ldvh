@@ -132,6 +132,42 @@ test("②④ 每类型的默认候选状态须在规范原文中逐字可回指"
 	}
 });
 
+test("判据表「默认候选状态」机械值须与代码默认状态逐字一致（01 §11.4 禁第二规则源）", async () => {
+	for (const [type, statuses] of Object.entries(DEFAULT_STATUSES_BY_TYPE)) {
+		const specFile = TYPE_SPEC_FILES[type];
+		assert.ok(specFile !== undefined, `类型「${type}」缺规范映射`);
+		const text = await readSpec(specFile);
+		assert.notEqual(text, null, `规范不可读：specs/${specFile}`);
+		const row = text.split("\n").find((line) => line.startsWith("| 默认候选状态 |"));
+		assert.ok(row !== undefined, `判据表缺「默认候选状态」行：specs/${specFile}`);
+		const cells = row.split("|").map((cell) => cell.trim());
+		const machine = cells[3] ?? "";
+		assert.deepEqual(
+			machine.split(",").map((value) => value.trim()).filter((value) => value !== ""),
+			[...statuses],
+			`判据表机械值与代码默认状态不一致：specs/${specFile}`,
+		);
+	}
+});
+
+test("摩擦的 §12 召回分层段首个「默认候选（F2）」句须逐字含全部默认状态（26 §12 与判据表不得分叉）", async () => {
+	const statuses = DEFAULT_STATUSES_BY_TYPE.friction;
+	const text = await readSpec(TYPE_SPEC_FILES.friction);
+	assert.notEqual(text, null, "规范不可读：specs/26-Friction-摩擦账本.md");
+	const idx = text.indexOf("默认候选（F2）");
+	assert.ok(idx >= 0, "specs/26 缺「默认候选（F2）」句");
+	const rest = text.slice(idx);
+	const end = rest.search(/[。；]/);
+	const sentence = end < 0 ? rest : rest.slice(0, end);
+	assert.match(sentence, /只含/, `§12 召回分层段须以「只含」限定默认状态范围：${sentence}`);
+	const listed = [...sentence.matchAll(/`([a-z][a-z0-9_]*)`/g)].map((m) => m[1]);
+	assert.deepEqual(
+		[...new Set(listed)].sort(),
+		[...statuses].sort(),
+		`§12 召回分层段的默认状态集合须与判据表机械值完全一致（多列、漏列或否定均不通过）：${sentence}`,
+	);
+});
+
 test("⑤ 未登记类型目录不得被静默忽略（须进 gaps）", async () => {
 	const base = join(ROOT, "ldvh-base");
 	const entries = await readdir(base, { withFileTypes: true }).catch(() => []);

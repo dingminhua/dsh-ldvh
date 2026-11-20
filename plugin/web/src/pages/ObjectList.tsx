@@ -7,6 +7,7 @@ import ObjectStatusFilter from '@/components/ObjectStatusFilter';
 import ReportFormFilter from '@/components/ReportFormFilter';
 import { FORM_ORDER, FORM_PALETTE, type ReportForm } from '@/utils/reportFormPalette';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
+import ObjectServesFilter from '@/components/ObjectServesFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
@@ -130,6 +131,7 @@ export function ObjectCardFrame({
   showNonActiveReason = true,
   displayStatus,
   showAssociations = true,
+  servesOrder,
 }: {
   obj: ObjectItem;
   locale: string;
@@ -138,6 +140,7 @@ export function ObjectCardFrame({
   showNonActiveReason?: boolean;
   displayStatus?: string;
   showAssociations?: boolean;
+  servesOrder?: number;
 }) {
   const { t } = useI18n();
   const { selectedProjectId } = useProjectScope();
@@ -175,6 +178,8 @@ export function ObjectCardFrame({
           })()}
           { }
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
+          { }
+          {obj.type === 'spark' && servesOrder !== undefined && <SubGoalOrderBadge value={servesOrder} />}
           { }
           {obj.type === 'friction' && <FrictionOccurrenceBadge value={obj.occurrence} />}
           { }
@@ -471,6 +476,8 @@ export default function ObjectList() {
   const [statusOptions, setStatusOptions] = useState<ObjectStatusOption[]>([]);
   const [formOptions, setFormOptions] = useState<ObjectStatusOption[]>([]);
   const [priorityOptions, setPriorityOptions] = useState<ObjectStatusOption[]>([]);
+  const [servesOptions, setServesOptions] = useState<ObjectStatusOption[]>([]);
+  const [servesOrders, setServesOrders] = useState<Record<string, number>>({});
   const [statusTotal, setStatusTotal] = useState(0);
   const [coverageStatus, setCoverageStatus] = useState<FactCoverageStatus>('complete');
   const [coverageProblemCount, setCoverageProblemCount] = useState(0);
@@ -496,6 +503,9 @@ export default function ObjectList() {
     && (priorityParam === 'P0' || priorityParam === 'P1' || priorityParam === 'P2' || priorityParam === 'P3')
     ? priorityParam
     : null;
+  const servesParam = searchParams.get('serves');
+  const supportsServesNavigation = currentType === 'spark';
+  const activeServes = supportsServesNavigation && servesParam ? servesParam : null;
   const sortParam = searchParams.get('sort');
   const supportsPrioritySort = currentType === 'spark';
   const activeSort: ObjectListSort = supportsPrioritySort && sortParam === 'priority_asc'
@@ -505,12 +515,10 @@ export default function ObjectList() {
   useEffect(() => {
     const removesLegacyCategory = currentType === 'spark' && searchParams.has('category');
     const removesForeignProgress = searchParams.has('progress');
-    const removesRetiredServes = searchParams.has('serves');
-    if (!removesLegacyCategory && !removesForeignProgress && !removesRetiredServes) return;
+    if (!removesLegacyCategory && !removesForeignProgress) return;
     const nextParams = new URLSearchParams(searchParams);
     if (removesLegacyCategory) nextParams.delete('category');
     if (removesForeignProgress) nextParams.delete('progress');
-    if (removesRetiredServes) nextParams.delete('serves');
     setSearchParams(nextParams, { replace: true });
   }, [currentType, searchParams, setSearchParams]);
 
@@ -520,11 +528,13 @@ export default function ObjectList() {
     setStatusOptions([]);
     setFormOptions([]);
     setPriorityOptions([]);
+    setServesOptions([]);
+    setServesOrders({});
     setStatusTotal(0);
     setCoverageStatus('complete');
     setCoverageProblemCount(0);
     setCoverageProblems([]);
-    fetchObjects(currentType, activeStatus ?? undefined, undefined, activePriority ?? undefined, activeForm ?? undefined)
+    fetchObjects(currentType, activeStatus ?? undefined, undefined, activePriority ?? undefined, activeForm ?? undefined, activeServes ?? undefined)
       .then((result) => {
         const receivedItems = result.data?.items ?? [];
         const nextItems = receivedItems
@@ -533,6 +543,8 @@ export default function ObjectList() {
         setStatusOptions(result.data?.statusOptions ?? []);
         setFormOptions(result.data?.formOptions ?? []);
         setPriorityOptions(result.data?.priorityOptions ?? []);
+        setServesOptions(result.data?.servesOptions ?? []);
+        setServesOrders(result.data?.servesOrders ?? {});
         setStatusTotal(result.data?.statusTotal ?? nextItems.length);
         setCoverageStatus(result.data?.coverage_status ?? 'complete');
         const nextCoverageProblems = result.data?.collection_issues ?? [];
@@ -542,7 +554,7 @@ export default function ObjectList() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentType, activeStatus, activePriority, statusParam, activeForm]);
+  }, [currentType, activeStatus, activePriority, statusParam, activeForm, activeServes]);
 
   const sortedItems = sortObjectsForList(items, activeSort);
   const normalizedObjectSearch = objectSearch.trim().toLowerCase();
@@ -572,6 +584,13 @@ export default function ObjectList() {
     const nextParams = new URLSearchParams(searchParams);
     if (priority) nextParams.set('priority', priority);
     else nextParams.delete('priority');
+    setSearchParams(nextParams);
+  };
+
+  const handleServesChange = (serves: string | null) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (serves) nextParams.set('serves', serves);
+    else nextParams.delete('serves');
     setSearchParams(nextParams);
   };
 
@@ -637,7 +656,14 @@ export default function ObjectList() {
 
     if (currentType === 'spark') {
       return (
-        <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
+        <ObjectCardFrame
+          key={obj.id}
+          obj={obj}
+          locale={locale}
+          onOpen={openObject}
+          showNonActiveReason={false}
+          servesOrder={typeof obj.serves === 'string' ? servesOrders[obj.serves] : undefined}
+        >
           <SparkCardContent obj={obj} />
         </ObjectCardFrame>
       );
@@ -703,6 +729,19 @@ export default function ObjectList() {
               activePriority={activePriority}
               onChange={handlePriorityChange}
               options={priorityOptions}
+              totalCount={items.length}
+              loading={loading}
+              coverageStatus={coverageStatus}
+            />
+          </div>
+        )}
+        {supportsServesNavigation && servesOptions.length > 0 && (
+          <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <ObjectServesFilter
+              activeServes={activeServes}
+              onChange={handleServesChange}
+              options={servesOptions}
+              servesOrders={servesOrders}
               totalCount={items.length}
               loading={loading}
               coverageStatus={coverageStatus}
