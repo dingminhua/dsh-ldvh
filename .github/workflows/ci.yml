@@ -47,6 +47,23 @@ jobs:
         working-directory: plugin/web
         run: pnpm install --frozen-lockfile
 
+      # 防回归门禁排在 Run tests 之前：plugin job 因 CI 环境 skip 基线差异
+      # 长期在 Run tests 转红，门禁若排在它之后就永远跑不到。Build SPA 先产出
+      # dist 与 api-js 编译产物，门禁才能在完整产物上校验。
+      - name: Build SPA so the pack gate sees web/dist
+        working-directory: plugin/web
+        run: pnpm build:dsh
+
+      # 发布包曾三次出问题（#1 缺 web/dist、#2 缺 web/api+运行时依赖、
+      # #3 tsx 带入 esbuild 构建脚本被 pnpm 11 审批门拒装）。prepack 会在 pack
+      # 时执行 require-web-dist.mjs；此步把同一脚本作为独立命名的预检信号显式
+      # 跑一遍，使失败归因直观指向「运行时产物未就位」。须在 Build SPA 之后。
+      - name: Verify web runtime is packaged
+        run: node scripts/require-web-dist.mjs
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
       - name: Run tests
         run: npm test
 
@@ -63,20 +80,6 @@ jobs:
         run: |
           node --check lib/index.js
           node --check lib/client.js
-
-      - name: Build SPA so the pack gate sees web/dist
-        working-directory: plugin/web
-        run: pnpm build:dsh
-
-      # 发布包曾两次缺件（#1 web/dist、#2 web/api+运行时依赖）。prepack 已会
-      # 在 pack 时执行 require-web-dist.mjs；此步不在该处增加覆盖，而是把同一
-      # 脚本作为独立命名的预检信号显式跑一遍，使失败归因直观指向「运行时产物
-      # 未就位」而非混在 pack 步骤里。须在 Build SPA 之后，否则 dist 缺失假红。
-      - name: Verify web runtime is packaged
-        run: node scripts/require-web-dist.mjs
-
-      - name: Verify package contents
-        run: npm pack --dry-run
 
   web:
     runs-on: ubuntu-latest
