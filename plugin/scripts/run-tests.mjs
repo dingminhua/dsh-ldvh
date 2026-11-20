@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFile, readdir, writeFile } from "node:fs/promises";
-import { countTestBlocks, observedTestCount, observedSkippedCount, reconcileTestCount } from "../lib/test-run-report.js";
+import { countTestBlocks, observedCountDialect, observedTestCount, observedSkippedCount, reconcileTestCount } from "../lib/test-run-report.js";
 
 const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const args = ["--test"];
@@ -32,7 +32,7 @@ child.stdout.on("data", (chunk) => {
   tailBuffer = (tailBuffer + chunk.toString()).slice(-131072);
 });
 
-child.on("exit", async (code, signal) => {
+child.on("close", async (code, signal) => {
   if (signal !== null) {
     process.stderr.write(`test runner terminated by signal ${signal}\n`);
     process.exitCode = 1;
@@ -67,6 +67,7 @@ child.on("exit", async (code, signal) => {
   }
   const observedSkipped = observedSkippedCount({ stdout: tailBuffer });
   const check = reconcileTestCount({ observed: observedTests, declared, baseline, skipped: observedSkipped, skippedBaseline });
+  process.stderr.write(`test-count guard: 取数方言 ${observedCountDialect({ stdout: tailBuffer }) ?? "不可得"}（close 后判定，stdio 已关闭）\n`);
   if (!check.ok) {
     process.stderr.write(`test-count guard: ${check.verdict}（${check.evidence}）\n`);
     process.stderr.write(
