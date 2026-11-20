@@ -350,6 +350,58 @@ test("updateResearchObject CAS flow with change_log", async () => {
   assert.equal(read2.value.frontmatter.change_log.length, 2);
 });
 
+test("legacy report carrying serves can be updated and can have serves removed (issue #4, 24 §8.1)", async () => {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.ok(created.ok, JSON.stringify(created.error));
+  const uid = created.value.object_uid;
+
+  const read0 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
+  assert.ok(read0.ok);
+  const legacyUid = "a415bbd4-ee4b-43e1-9bb0-0c4e8761c188";
+  const original = await readFile(read0.value.file, "utf8");
+  const withServes = original.replace(/^---\n/, `---\nserves: ${legacyUid}\n`);
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(read0.value.file, withServes, "utf8");
+
+  const read1 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
+  assert.ok(read1.ok);
+  assert.equal(read1.value.frontmatter.serves, legacyUid);
+
+  const updated = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: uid,
+    expectedFingerprint: read1.value.fingerprint,
+    analysisBodyAfter: validAnalysisBody,
+    changeSummary: "存量携带 serves 的报告仍可更新",
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.ok(updated.ok, JSON.stringify(updated.error));
+
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
+  assert.ok(read2.ok);
+  assert.equal(read2.value.frontmatter.serves, legacyUid, "serves is tolerated verbatim, no resolve/reject");
+
+  const removed = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: uid,
+    expectedFingerprint: read2.value.fingerprint,
+    frontmatterRemovals: ["serves"],
+    analysisBodyAfter: validAnalysisBody,
+    changeSummary: "按受控更新通道清除历史残留字段",
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.ok(removed.ok, JSON.stringify(removed.error));
+
+  const read3 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
+  assert.ok(read3.ok);
+  assert.equal(read3.value.frontmatter.serves, undefined, "serves removed via frontmatter_removals");
+});
+
 test("updateResearchObject rejects stale fingerprint", async () => {
   const created = await createResearchObject({
     factSourceRoot: root,
