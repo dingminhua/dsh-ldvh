@@ -22,6 +22,7 @@ const WM = join(PLUGIN, "lib", "web-mount.js");
 const GB = join(PLUGIN, "lib", "guidance-budget.js");
 const CWG = join(PLUGIN, "lib", "concurrent-write-guard.js");
 const MC = join(PLUGIN, "lib", "mutation-coverage.js");
+const TRR = join(PLUGIN, "lib", "test-run-report.js");
 const TESTS = [
 	"test/source-recall.test.mjs",
 	"test/recall-injection.test.mjs",
@@ -35,6 +36,7 @@ const TESTS = [
 	"test/concurrent-write-guard.test.mjs",
 	"test/mutation-coverage.test.mjs",
 	"test/recall-type-channels.test.mjs",
+	"test/test-run-report.test.mjs",
 ];
 
 const MUTATIONS = [
@@ -93,6 +95,8 @@ const MUTATIONS = [
 	[MC, "分子恒等于分母（冒充全覆盖）", "const coveredModules = libs.filter((name) => mutationsByModule[name] !== undefined);", "const coveredModules = libs.slice();"],
 	[MC, "空清单静默成 0/0（分母一起清空）", "const libs = [...new Set(", "const libs = mutations.length === 0 ? [] : [...new Set("],
 	[CWG, "还原侧另立一份实现（两侧口径分叉）", "export const decideMutationRestore = decideMutationWrite;", "export const decideMutationRestore = (x) => ({ ok: true, ownsWrite: true, ...x });"],
+	[TRR, "skip 超基线不标失败码（处置提示分流失效）", '\t\t\t\tcode: "skip_above_baseline",', ""],
+	[TRR, "skip 超基线放行（守卫失效）", "\t\tif (skipped > skippedBaseline) {", "\t\tif (false) {"],
 ];
 
 async function classifyRun() {

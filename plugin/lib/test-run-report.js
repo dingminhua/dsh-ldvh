@@ -5,8 +5,6 @@ export const RUN_TERMINAL = Object.freeze({
 	NOT_RUN: "not_run",
 });
 
-// 汇总行方言：spec reporter 写「ℹ …」，TAP reporter 写「# …」。两入口
-// （drift-check / mutation-check）据此判运行是否发生、失败数几何。
 const SPEC_MARKER = /^ℹ (tests|pass|fail) \d+$/m;
 const TAP_MARKER = /^# (tests|pass|fail) \d+$/m;
 const SPEC_FAIL = /^ℹ fail (\d+)$/m;
@@ -48,10 +46,6 @@ export function isUsableForVerdict(classified) {
 	return classified.terminal === RUN_TERMINAL.REPORTED;
 }
 
-// 计数方言：spec reporter 写「ℹ tests N」，TAP reporter（Node 22 非 TTY）
-// 写「# tests N」。两者都是 node --test 自己的汇总行；只认汇总行、不数
-// 顶层 ok 行（后者在 suite 嵌套时会把一组用例算成一行，且漏计嵌套 skip）。
-// 方言缺失时一律 null（fail-closed），由调用方按「未完成」处置。
 function summaryCount(text, key) {
 	const spec = new RegExp(`^ℹ ${key} (\\d+)$`, "m").exec(text);
 	if (spec !== null) return { value: Number(spec[1]), dialect: "spec" };
@@ -108,6 +102,7 @@ export function reconcileTestCount({ observed, declared, baseline, skipped, skip
 		if (skipped === null || skipped === undefined) {
 			return {
 				ok: false,
+				code: "skip_count_unavailable",
 				verdict: "skip 计数不可得（不得读作零 skip）",
 				evidence: "输出中不存在「ℹ/# skipped N」汇总行",
 			};
@@ -115,6 +110,7 @@ export function reconcileTestCount({ observed, declared, baseline, skipped, skip
 		if (skipped > skippedBaseline) {
 			return {
 				ok: false,
+				code: "skip_above_baseline",
 				verdict: `skip 数高于基线，新增 ${skipped - skippedBaseline} 条未执行`,
 				evidence: `本次 skip ${skipped} 条，基线 ${skippedBaseline} 条（新增 skip 须经评审，不随单次运行上移）`,
 			};

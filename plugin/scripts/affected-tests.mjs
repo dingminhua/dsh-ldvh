@@ -303,9 +303,7 @@ async function countDeclaredIn(relTests) {
 async function runTests(relTests) {
   const { spawn } = await import("node:child_process");
   const { observedTestCount, observedSkippedCount, reconcileTestCount } = await import("../lib/test-run-report.js");
-  const args = ["--test"];
-  if (process.platform !== "win32") args.push("--test-force-exit");
-  args.push(...(relTests.length > 0 ? relTests : ["test/*.test.mjs"]));
+  const args = ["--test", ...(relTests.length > 0 ? relTests : ["test/*.test.mjs"])];
   let declared = null;
   try {
     declared = await countDeclaredIn(relTests);
