@@ -30,11 +30,24 @@ export default function ObjectServesFilter({
   const counts = useMemo(() => new Map(options.map((option) => [option.status, option.count])), [options]);
   const tiered = [...counts.values()].reduce((sum, count) => sum + count, 0);
   const total = typeof totalCount === 'number' ? totalCount : tiered;
+  const orderedOptions = useMemo(
+    () => options
+      .map((option, index) => ({ option, index, order: servesOrders[option.status] }))
+      .sort((a, b) => {
+        const aHas = typeof a.order === 'number';
+        const bHas = typeof b.order === 'number';
+        if (aHas && bHas && a.order !== b.order) return a.order! - b.order!;
+        if (aHas !== bHas) return aHas ? -1 : 1;
+        return a.index - b.index;
+      })
+      .map(({ option }) => option),
+    [options, servesOrders],
+  );
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5" aria-label={t('objectList.servesFilter')}>
       <div className="ldvh-tab-list" role="group" aria-label={t('objectList.servesFilter')}>
-        {options.map((option) => (
+        {orderedOptions.map((option) => (
           <button
             key={option.status}
             type="button"
