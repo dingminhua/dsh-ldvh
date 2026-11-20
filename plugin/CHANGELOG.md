@@ -8,6 +8,21 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [1.0.1] — 2026-11-20
+
+补丁发布：修复 1.0.0 发布包缺少 Web SPA 静态资源的问题，并加固发布打包门禁。
+
+### Fixed
+
+- **Web dist 缺件**：`npm pack` 因 `plugin/web/.gitignore` 的 `dist` 规则连带排除 `web/dist`，导致 1.0.0 发布包无 Web 面板静态资源（issue #1）；新增 `plugin/web/.npmignore` 解除连带排除，发布包含 `web/dist/index.html` 等 17 个静态文件。
+- **发布打包门禁**：`prepack` 串接 `scripts/require-web-dist.mjs`，`web/dist/index.html` 缺失时 `npm pack/publish` 直接失败，把人工核对变为机械门禁；发布流水线（定义在 `dev` 分支 `.github/workflows/ci.yml`）在 pack 前先构建 SPA。
+
+### Changed
+
+- **不兼容变更（迁移须知）**：Spark 的 `serves` 字段由可选升为全状态必填（`22 §8`，Human 决定），缺 `serves` 的 Spark 创建或更新将被拒绝。存量 Spark 若缺 `serves`，须先为其补上所服务的 SubGoal `object_uid` 再执行更新；该变更随 1.0.1 一并发布，请存量项目据此迁移。
+- 测试计数守卫兼容 TAP 方言（Node 22 CI 输出 `# tests N`），判定改到 stdio 关闭后，`run-tests` 与 `affected-tests` 双入口覆盖。
+- 包描述改为 `specs/00 §1` 的权威定位表述（对齐 Vibe、协调 Coding）。
+
 ## [1.0.0] — 2026-11-20
 
 v5 重构线（自 2026-09-25 起）的发布级汇总，按子系统归纳已实现并已提交的范围；逐条变更以 git 历史为准，每条给出可回读依据。条目内容覆盖至 2026-11-20；版本号按 `specs/10 §7.1` 于 2026-11-20 从 1.0.0-dev.1 封存为正式发布版 1.0.0。

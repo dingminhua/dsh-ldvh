@@ -29,8 +29,8 @@
   <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
 </p>
 
-> 版本 `1.0.0` ｜ MIT License（与 DSH 本体同协议）
-> 版本 `1.0.0` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
+> 版本 `1.0.1` ｜ MIT License（与 DSH 本体同协议）
+> 版本 `1.0.1` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
 
 ## 截图
 
@@ -77,7 +77,7 @@ LDVH（LD Vibe Harness）以 **DSH 原生插件为统一交付形态**。人与 
 
 ## 仓库结构
 
-本树为 1.0.0 发布树，只含发布所需内容（见下表）。项目专属事实源（`ldvh-base/`）与开发期文档（`docs/`、`DEVELOPMENT.md`、`RELEASING.md`）不在发布树内，其完整内容在 `dev` 分支。
+本树为 1.0.1 发布树，只含发布所需内容（见下表）。项目专属事实源（`ldvh-base/`）与开发期文档（`docs/`、`DEVELOPMENT.md`、`RELEASING.md`）不在发布树内，其完整内容在 `dev` 分支。
 
 | 路径 | 内容 |
 |---|---|
@@ -107,7 +107,7 @@ cd plugin && npm pack --dry-run
 
 | 轨 | 语法 | 递增时机 | 当前 |
 |---|---|---|---|
-| 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | `1.0.0` |
+| 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | `1.0.1` |
 | 开发迭代版本 | 同主版本 + `-dev.N` | 发布后进入下一轮 | 见 `dev` 分支 |
 
 发布封存干净版本后，开发线在 `dev` 分支进入下一轮。
@@ -117,8 +117,8 @@ cd plugin && npm pack --dry-run
 1. ✅ **规范体系**：根规范与模型规范、业务系统规范、七类事实类型规范已建立并进入当前规则源
 2. ✅ **事实源运行**：Goal / SubGoal / Spark / Norm / Report / Pitfall / Friction 七类对象已在本项目运行
 3. ✅ **插件落地**：管辖项目管理、Git Gate、设置页一节、LDVH Web 与会话视图、`ldvh_*` 工具面与规则引导注入均已落地
-4. 🔄 **发布准备**：市场门面（README / 截图 / 版本声明点）与发布门禁正在收口
-5. ⬜ **首次正式发布**：待发布门禁全项通过后封存 `1.0.0`
+4. ✅ **发布准备**：市场门面（README / 截图 / 版本声明点）与发布门禁已完成
+5. ✅ **版本发布**：`1.0.0` 首次正式发布已封存；`1.0.1` 补丁版修复 Web dist 缺件并加固打包门禁
 
 ## 延伸阅读
 
