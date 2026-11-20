@@ -64,6 +64,10 @@ jobs:
           node --check lib/index.js
           node --check lib/client.js
 
+      - name: Build SPA so the pack gate sees web/dist
+        working-directory: plugin/web
+        run: pnpm build:dsh
+
       - name: Verify package contents
         run: npm pack --dry-run
 

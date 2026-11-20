@@ -7,7 +7,7 @@
 1. 工作区和 release commit 干净；
 2. `npm --prefix plugin ci`；
 3. `npm --prefix plugin test`；
-4. `npm --prefix plugin pack --dry-run`，核对 README、LICENSE、图标、Web dist、规范语料 `specs/`（prepack 自仓库根复制进包，`specs/01 §10.3` 三级回退的第三级）均进入包；
+4. `npm --prefix plugin pack --dry-run`，核对 README、LICENSE、图标、Web dist、规范语料 `specs/`（prepack 自仓库根复制进包，`specs/01 §10.3` 三级回退的第三级）均进入包；**Web dist 为硬性门禁**：`prepack` 已串接 `scripts/require-web-dist.mjs`，`plugin/web/dist/index.html` 缺失时 pack/publish 直接失败（issue #1 的教训：1.0.0 漏发 web/dist 靠人工核对失守）；发布前须先 `npm --prefix plugin run build:web`；
 5. 在支持矩阵中的 DSH Desktop 真实安装、重启、升级、停用、卸载验证；
 6. README/CHANGELOG 不超前宣传；
 7. `plugin/screenshots.json` URL 可访问且截图对应当前版本；
