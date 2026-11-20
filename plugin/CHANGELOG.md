@@ -8,6 +8,19 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [1.0.3] — 2026-11-21
+
+补丁发布：修复 1.0.2 默认配置下安装失败（issue #3）。
+
+### Fixed
+
+- **安装失败（pnpm 构建脚本审批门）**：1.0.2 为修 #2 把 `tsx` 提升为运行依赖，带入 `esbuild@0.28.2` 的 postinstall；pnpm 11 默认拒绝未审批构建脚本，`ERR_PNPM_IGNORED_BUILDS` 致安装失败并回滚到 1.0.1。本版把 `web/api` 与 `web/shared` 预编译为 `web/api-js`、`web/shared-js`（`scripts/build-api.mjs`，NodeNext ESM），子进程直接执行编译产物，`tsx` 与 `esbuild` 不再进入依赖闭包——allowBuilds 为空的干净 pnpm workspace 安装实测通过。
+
+### Changed
+
+- 源码 link 安装仍走 tsx 源码态并保留后端热重载；registry 安装走随包编译产物；`resolveWebApiCommand` 按 tsx 可用性选择，两种形态并存时优先源码态。
+- 打包门禁更新：校验编译产物、依赖声明不含 tsx；发布门槛规范与快速开始文档同步两条后端路径。
+
 ## [1.0.2] — 2026-11-21
 
 补丁发布：补齐 1.0.1 发布包遗漏的 Web 后端运行物（issue #2）。
