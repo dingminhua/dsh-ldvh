@@ -8,6 +8,15 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [1.0.2] — 2026-11-21
+
+补丁发布：补齐 1.0.1 发布包遗漏的 Web 后端运行物（issue #2）。
+
+### Fixed
+
+- **Web 后端缺件**：1.0.1 仅含 `web/dist` 前端产物，缺 `web/api` 与 `web/shared` 后端源码及运行时依赖（tsx/express/cors/compression/dotenv/js-yaml），web-api 子进程以 `--import tsx api/server.ts` 启动时即失败，会话面板落到「当前不可用」兜底页；本版把 `web/api`、`web/shared` 纳入 `files`，并将 6 个运行时包提升为 plugin 的 `dependencies`。
+- **打包门禁补强**：`require-web-dist.mjs` 在 `web/dist/index.html` 之外同时校验 `web/api/server.ts`、`web/shared`、运行时依赖声明与 `files` 条目，任一项缺失即 `npm pack/publish` 失败。
+
 ## [1.0.1] — 2026-11-20
 
 补丁发布：修复 1.0.0 发布包缺少 Web SPA 静态资源的问题，并加固发布打包门禁。
