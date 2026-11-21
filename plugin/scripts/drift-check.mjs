@@ -12,12 +12,14 @@ const ROOT = join(PLUGIN, "..");
 const SPECS = join(ROOT, "specs");
 const FACTS = join(ROOT, "ldvh-base");
 
-const SPARK = join(SPECS, "20-Spark-火花.md");
-const PITFALL = join(SPECS, "23-Pitfall-踩坑经验.md");
+const SPARK = join(SPECS, "22-Spark-火花.md");
+const PITFALL = join(SPECS, "25-Pitfall-踩坑经验.md");
+const GUIDANCE = join(PLUGIN, "lib", "guidance-text.js");
+const SPEC_CONSISTENCY_TEST = "test/spec-consistency.test.mjs";
 
-async function classifyDriftRun() {
+async function classifyDriftRun(testFile = "test/recall-spec-drift.test.mjs") {
 	try {
-		const r = await run("node", ["--test", "test/recall-spec-drift.test.mjs"], {
+		const r = await run("node", ["--test", testFile], {
 			cwd: PLUGIN,
 			maxBuffer: 64 * 1024 * 1024,
 		});
@@ -27,8 +29,8 @@ async function classifyDriftRun() {
 	}
 }
 
-async function driftVerdict(label) {
-	const r = await classifyDriftRun();
+async function driftVerdict(label, testFile = "test/recall-spec-drift.test.mjs") {
+	const r = await classifyDriftRun(testFile);
 	if (r.terminal === RUN_TERMINAL.NOT_RUN) return ["**未运行**", label, r.evidence];
 	if (r.terminal === RUN_TERMINAL.COUNT_UNAVAILABLE) return ["**计数不可得**", label, r.evidence];
 	return [r.failed > 0 ? "被抓住" : "**未报警**", label, r.evidence];
@@ -72,7 +74,7 @@ try {
 
 	await backup(PITFALL);
 	await writeGuarded(PITFALL, (await readFile(PITFALL, "utf8")).replaceAll("trigger_signal", "trigger_sig"));
-	results.push(["② 修改规范：frontmatter 字段改名", ...(await driftVerdict("改动 23 的 trigger_signal"))]);
+	results.push(["② 修改规范：frontmatter 字段改名", ...(await driftVerdict("改动 25 的 trigger_signal"))]);
 	await restoreAll();
 
 	const NEW_SPEC = join(SPECS, "98-TestNewType.md");
@@ -107,6 +109,18 @@ try {
 	const disclosed = (probe.gaps ?? []).some((g) => /未登记|未识别|未知类型/.test(g));
 	results.push(["⑤ 新增未知类型的事实", disclosed ? "被抓住" : "**未报警**", "gaps 须披露该类型被排除"]);
 	await rm(UNKNOWN_DIR, { recursive: true, force: true });
+
+	await backup(SPARK);
+	const contractSource = await readFile(SPARK, "utf8");
+	const contractRow = "| `bogus_field` | string | 条件 | 测试注入字段 | 无 |\n";
+	await writeGuarded(SPARK, contractSource.replace("## 9. 状态与生命周期", `${contractRow}\n## 9. 状态与生命周期`));
+	results.push(["⑥ 修改规范：字段契约表多出一个字段", ...(await driftVerdict("specs/22 注入 bogus_field", SPEC_CONSISTENCY_TEST))]);
+	await restoreAll();
+
+	await backup(GUIDANCE);
+	await writeGuarded(GUIDANCE, (await readFile(GUIDANCE, "utf8")).replace("§1 核心价值", "§1.1 核心价值"));
+	results.push(["⑦ 修改引导：引用不存在的节", ...(await driftVerdict("guidance-text 的 §1 → §1.1", SPEC_CONSISTENCY_TEST))]);
+	await restoreAll();
 } finally {
 	await restoreAll();
 }

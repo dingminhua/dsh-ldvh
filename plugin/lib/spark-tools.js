@@ -679,7 +679,7 @@ function renderEnvelope(operationKey, value) {
 
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
 
-function parameterSchemaFor(operationKey) {
+export function parameterSchemaFor(operationKey) {
   const evolutionEntry = {
     type: "object",
     properties: {
