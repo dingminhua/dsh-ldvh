@@ -1,12 +1,16 @@
 ---
 title: 主控未主动发起经验/摩擦的成因诊断
-status: open
+status: discarded
 question: 主控为何在当次行动中未主动发起积累经验与发现摩擦这两个代理辅助任务，其成因是什么？
 scope_boundary: 止于诊断主控未主动发起的成因并给出可处置方向，不定义触发机制的增强实现，不改 00 §4.5 的责任边界与 36 §7.6 的触发根约束；与 spark-78a0b250 的机制设计方向保持区分，不重复其调查。
 intent: 本会话三次可触发时机均靠 Human 点破才被认作阻碍，成因不明则改进无从下手；后续据成因判断是补机械提示、改引导，还是维持纯自觉并接受产物稀疏。
 summary: 取证出主控未主动发起的四层成因：①触发是语义判断、无机械提示位，全靠当次自觉；②主控把scope收敛为完成字面要求，三次时机全由Human点破；③被触发后挑材料仍弱（摩擦归因污染）；④00 §4.5刻意不让主控为记漏负责，机械层只保执行链、不保发起。与spark-78a0b250同源不同焦点，用refs关联。
 serves: a415bbd4-ee4b-43e1-9bb0-0c4e8761c188
-priority: P2
+disposition: 成因四层已查明，作为本触发有效性方向的前置输入；未决的改进方向是否可落地、是否撞 00 §4.5／36 §7.6 根约束与本 Spark 调查问题重合，故并入 spark-78a0b250 统一处置。
+relations:
+  - relation_key: merged-into
+    target:
+      object_uid: 78a0b250-68f3-47ff-8841-f5590c24a435
 object_uid: 4bf23d24-3aa9-47ad-9e0a-861fd82fdea8
 fact_type_key: spark
 created_at: 2026-11-20T10:17:23.738Z
@@ -15,6 +19,10 @@ change_log:
     provider: workbuddy
     model: hy4flash-free
     summary: 受控创建：登记主控未主动发起经验/摩擦的成因诊断方向，待 Human 后续处置
+  - at: 2026-11-20T18:34:47.995Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: Human 确认同题合并：4bf 转 discarded，merged-into 指向 78a0，成因结论并入其触发有效性主线
 refs:
   - object_uid: 78a0b250-68f3-47ff-8841-f5590c24a435
   - object_uid: 9d0b50a4-a4d0-458b-836b-7a6bce91a529
