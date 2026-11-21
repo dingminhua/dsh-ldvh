@@ -1,0 +1,50 @@
+{
+  "name": "dsh-ldvh",
+  "version": "1.0.4",
+  "description": "LD Vibe Harness（LDVH） 是一个深度绑定 DSH 的 AI 协作与治理框架，核心价值：对齐 Vibe、协调 Coding。\n\n对齐 Vibe：让人与 AI 对项目的由来、现状、去向形成一致的认识。\n协调 Coding：借助宿主调度资源，明晰权责、记录火花、确立规范、构建报告、积累经验、发现摩擦，让项目进展更稳定、执行更顺利。",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "ldvh",
+    "ld-vibe-harness",
+    "governance"
+  ],
+  "author": "dingminhua",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dingminhua/dsh-ldvh.git",
+    "directory": "plugin"
+  },
+  "homepage": "https://github.com/dingminhua/dsh-ldvh#readme",
+  "bugs": {
+    "url": "https://github.com/dingminhua/dsh-ldvh/issues"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "type": "module",
+  "main": "./plugin/lib/index.js",
+  "exports": {
+    ".": "./plugin/lib/index.js",
+    "./client": "./plugin/lib/client.js",
+    "./cordis.patch.yml": "./plugin/cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./plugin/cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-atomic-write": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-home-paths": "^0.2.2-rc.1",
+    "compression": "1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^4.21.2",
+    "js-yaml": "^4.1.1",
+    "yaml": "^2.8.1"
+  }
+}
