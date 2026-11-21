@@ -8,6 +8,19 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [1.0.4] — 2026-11-21
+
+补丁发布：让 GitHub 仓库地址可直接作为 DSH 插件安装源（此前只有 npm 包名可装）。
+
+### Added
+
+- **GitHub 仓库地址安装**：仓库根新增薄壳 `package.json`（`dsh.bundle` 指向 `./plugin/cordis.patch.yml`，入口指向 `./plugin/lib/*`），使 DSH 插件管理页填入 `https://github.com/dingminhua/dsh-ldvh` 即可安装；此前裸 git 地址因仓库根无 manifest 被判「没有声明组合包」。
+
+### Changed
+
+- **构建产物入库**：`web/dist`、`web/api-js`、`web/shared-js` 纳入发布树版本控制，git 安装clone 后即得到可运行包，无需在安装期执行构建脚本（避免 pnpm 对 git 依赖 prepare 脚本的审批门，`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`）。发布树放开 `.gitignore`，dev 分支保持忽略以免日常构建弄脏工作区。
+- 版本声明点统一为 `1.0.4`。
+
 ## [1.0.3] — 2026-11-21
 
 补丁发布：修复 1.0.2 默认配置下安装失败（issue #3）。
