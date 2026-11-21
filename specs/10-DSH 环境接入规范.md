@@ -193,7 +193,7 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 
 | 00 §3.3 的类别 | DSH 域精确路径 |
 |---|---|
-| 00 | `plugin-specs/00-理念与构成.yaml` |
+| 00 | `specs/00-理念与构成.md` |
 | README（一类，本域展开为两条路径） | `README.md`（仓库首页）与 `plugin/README.md`（插件市场页） |
 | 插件 AI 面向语义文本 | 经 `system-prompt/assemble` 注入的 `ldvh:minimal-guidance` 段，文本源为 `plugin/lib/guidance-text.js` |
 | LICENSE | `LICENSE` |
