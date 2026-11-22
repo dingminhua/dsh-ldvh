@@ -204,6 +204,43 @@ export function extractDocsReferences(text) {
   return [...found];
 }
 
+/**
+ * 去掉载体 frontmatter 里的 `change_log` 流水块，只留其余部分。
+ *
+ * 缘由（09 §5.3 第 5 项边界，Human 2026-11-22 决定）：流水条目由 Code 托管且只追加，
+ * 受控写入通道不提供既有条目的修改（02 §10.5）。流水里对路径的提及记述的是
+ * 「已发生的动作」（含「移除了对某路径的引用」这类动作本身），不是以该路径为权威依据；
+ * 若把它计入 docs 引用检查，一次如实记录移除引用的动作就会让该载体永久无法通过本项。
+ *
+ * 只处理顶层（列 0）的 `change_log:` 键；嵌套键（如 ldvh_spec 内的同名键）不动。
+ */
+export function stripChangeLogFromFrontmatter(text) {
+  if (typeof text !== "string") return text;
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return text;
+  const lines = m[1].split(/\r?\n/);
+  const kept = [];
+  let skipping = false;
+  let touched = false;
+  for (const line of lines) {
+    if (!skipping) {
+      if (/^change_log\s*:/.test(line)) {
+        skipping = true;
+        touched = true;
+        continue;
+      }
+      kept.push(line);
+      continue;
+    }
+    // 流水块的条目是缩进续行；空行也归该块；下一个顶层键结束该块
+    if (line.trim() === "" || /^[ \t]/.test(line)) continue;
+    skipping = false;
+    kept.push(line);
+  }
+  if (!touched) return text;
+  return text.replace(m[0], `---\n${kept.join("\n")}\n---`);
+}
+
 function isQuotedTruncationArtifact(ref, text, exists) {
   if (typeof ref !== "string" || ref.length <= "docs/".length) return false;
   if (typeof exists !== "function") return false;
@@ -231,13 +268,18 @@ export function checkDocsReferences(carriers, { exists } = {}) {
       ));
       continue;
     }
+    // 流水条目里的路径提及不构成「引用」（09 §5.3 第 5 项边界）
+    const scannable = stripChangeLogFromFrontmatter(carrier.content);
+    const baselineScannable = typeof carrier.baseline === "string"
+      ? stripChangeLogFromFrontmatter(carrier.baseline)
+      : carrier.baseline;
     const preexisting = new Set(
-      typeof carrier.baseline === "string" ? extractDocsReferences(carrier.baseline) : []
+      typeof baselineScannable === "string" ? extractDocsReferences(baselineScannable) : []
     );
-    for (const ref of extractDocsReferences(carrier.content)) {
+    for (const ref of extractDocsReferences(scannable)) {
       if (preexisting.has(ref)) continue;
       if (resolveExists(ref)) continue;
-      if (isQuotedTruncationArtifact(ref, carrier.content, resolveExists)) continue;
+      if (isQuotedTruncationArtifact(ref, scannable, resolveExists)) continue;
       issues.push(newFinding(
         "validation/docs_reference_dangling",
         `${carrier.path} references "${ref}", which does not exist in the candidate tree (09 §5.3 item 5: docs/ is temporary-only and must not be relied on; remove the reference or re-home the content as a fact object)`,

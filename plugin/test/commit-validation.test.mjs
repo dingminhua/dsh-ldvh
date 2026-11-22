@@ -20,6 +20,7 @@ import {
 	isNormCarrierPath,
 	checkDocsReferences,
 	extractDocsReferences,
+	stripChangeLogFromFrontmatter,
 	DOCS_REFERENCE_PATTERN,
 	isTemporaryDocsPath,
 	isSpecOrFactCarrierPath,
@@ -605,6 +606,70 @@ test("extractDocsReferences extracts a CJK filename segment to its full extent",
 		["docs/a-中文.md", "docs/b-二.md"],
 	);
 	assert.deepEqual(extractDocsReferences("（`docs/候选/x.md`）"), ["docs/候选/x.md"]);
+});
+
+// --- 09 §5.3 第 5 项边界：流水条目里的路径提及不构成「引用」（Human 2026-11-22 决定） ---
+
+test("stripChangeLogFromFrontmatter removes the change_log block and keeps the rest", () => {
+	const carrier = [
+		"---",
+		"title: 测试载体",
+		"change_log:",
+		"  - at: 2026-11-22",
+		"    summary: 提到 docs/gone.md 这个路径",
+		"object_uid: 11111111-2222-3333-4444-555555555555",
+		"---",
+		"",
+		"正文里也有 docs/gone.md。",
+	].join("\n");
+	const stripped = stripChangeLogFromFrontmatter(carrier);
+	assert.ok(!stripped.includes("summary: 提到 docs/gone.md"), "change_log 块被移除");
+	assert.ok(stripped.includes("title: 测试载体"), "其它 frontmatter 字段保留");
+	assert.ok(stripped.includes("object_uid: 11111111"), "change_log 之后的顶层字段保留");
+	assert.ok(stripped.includes("正文里也有 docs/gone.md。"), "正文不受影响");
+});
+
+test("stripChangeLogFromFrontmatter leaves carriers without change_log untouched", () => {
+	const carrier = "---\ntitle: 无流水\n---\n\n正文 docs/a.md\n";
+	assert.equal(stripChangeLogFromFrontmatter(carrier), carrier);
+});
+
+test("checkDocsReferences ignores a dangling docs path that only appears in change_log", () => {
+	const carrier = [
+		"---",
+		"title: 测试载体",
+		"change_log:",
+		"  - at: 2026-11-22",
+		"    summary: 修正悬空 docs/gone.md 引用",
+		"---",
+		"",
+		"正文没有指向临时文档。",
+	].join("\n");
+	const res = checkDocsReferences(
+		[{ path: "ldvh-base/sparks/spark-test.md", content: carrier, baseline: undefined }],
+		{ exists: () => false },
+	);
+	assert.equal(res.ok, true, `不该判未通过：${JSON.stringify(res.issues)}`);
+});
+
+test("checkDocsReferences still blocks a dangling docs path in the body", () => {
+	const carrier = [
+		"---",
+		"title: 测试载体",
+		"change_log:",
+		"  - at: 2026-11-22",
+		"    summary: 一次无关的流水",
+		"---",
+		"",
+		"正文引用了 docs/gone.md。",
+	].join("\n");
+	const res = checkDocsReferences(
+		[{ path: "ldvh-base/sparks/spark-test.md", content: carrier, baseline: undefined }],
+		{ exists: () => false },
+	);
+	assert.equal(res.ok, false, "正文里的悬空引用仍须被拦");
+	assert.equal(res.issues.length, 1);
+	assert.equal(res.issues[0].rule, "validation/docs_reference_dangling");
 });
 
 test("DOCS_REFERENCE_PATTERN source keeps the u flag when rebuilt with new RegExp", () => {
