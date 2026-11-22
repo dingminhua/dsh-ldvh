@@ -1,12 +1,12 @@
 ---
 title: 三处请示接口统一与经验摩擦修正实施方案
-status: open
+status: implemented
 question: 三处请示如何统一接口、经验与摩擦的代理职责如何按新定义修正并落实？
 scope_boundary: 限于把关请示工具契约（ldvh_review_ask／ldvh_research_consult）、pitfall-fact-type 与 friction-settlement-system-foundation 的代理职责条目、guidance-text.js 相关引导行；不改事实对象字段模型、写入器实现与三处请示的规范声明范围。
 intent: Human 2026-11-23 定 U1（三处统一入口）+A（保守改法），并特别指出经验与摩擦具体操作不同、须分别了解。本 Spark 记实施方案并供检查；与 spark-04a960dd（新定义方向线）分工。
 summary: 已定 U1+A。实测：review-ask 仅 pre/post、第三处走独立 research-consult；代码 REVIEW_ASK_POINTS.RESEARCH 已定义未接通。关键新发现：经验侧代码已支持 arm-delegate 代理自行落笔（与 delegate-draft「只起草」文本冲突），摩擦侧代理本就写观察并晋升——两侧落笔现状不同，A 须分别写。待更新方案后落实。
 serves: a415bbd4-ee4b-43e1-9bb0-0c4e8761c188
-priority: P1
+disposition: U1+A 方案已由 c6d7406b／4fd8ccd8／dcfca02f／d38926c3 四笔 commit 落实：三处请示统一入口、经验与摩擦分别按代理落笔回执新定义修正；plugin 测试 2594 通过 0 失败。未改字段模型、写入器核心、Human Gate 与机械校验。
 object_uid: e2e361e5-c5da-45a4-bf32-958ca68cc9ee
 fact_type_key: spark
 created_at: 2026-11-22T22:15:26.919Z
@@ -19,6 +19,10 @@ change_log:
     provider: dsh-opencode-go
     model: hy4-flash-free
     summary: 确认 U1+A 并补记经验/摩擦两侧落笔机制差异
+  - at: 2026-11-22T23:20:38.410Z
+    provider: dsh-opencode-go
+    model: hy4-flash-free
+    summary: 方案 U1+A 已由 c6d7406b 等四个 commit 落实并测试通过，转入终态 implemented
 ---
 
 # 三处请示接口统一与经验摩擦修正实施方案
