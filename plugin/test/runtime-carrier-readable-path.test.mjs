@@ -292,3 +292,71 @@ test("注入渲染：包内候选带 实读= 绝对路径，项目内候选不�
     assert.ok(row.includes("；何时查阅："), "路径不得把何时查阅挤掉");
   }
 });
+
+test("注入渲染放不下时：段末「取前 N 份」须与实际列出的载体行数一致", () => {
+  const secretBody = "SECRET-ENTRY-BODY-MUST-NOT-BE-INJECTED";
+  const positioning = "管一条值得跨行动保留的方向线：什么算它、怎么登记与分流、什么状态算终结";
+  const scope = "有一个还想不清的问题要留下、要判断某条方向线还推不推，或要处置一条已有火花时，查阅本文件";
+  const installRoot = `/${"dsh-ldvh-package-install-root/".repeat(6)}`;
+  const keys = [
+    "spark-fact-type",
+    "pitfall-fact-type",
+    "norm-fact-type",
+    "report-fact-type",
+    "friction-fact-type",
+  ];
+  const candidates = keys.map((key) => ({
+    specKey: key,
+    title: `载体 ${key}`,
+    canonicalPath: `plugin-specs/${key}.yaml`,
+    absolutePath: `${installRoot}plugin-specs/${key}.yaml`,
+    readablePath: `${installRoot}plugin-specs/${key}.yaml`,
+    readablePathKind: "absolute",
+    carrierRootTier: "package",
+    positioning,
+    scope,
+    entries: [{ id: "carrier-shell", title: "载体外壳", text: secretBody }],
+    entryIds: ["carrier-shell"],
+  }));
+
+  const text = renderRecallRow({
+    ok: true,
+    specs: [],
+    facts: [],
+    runtimeCarriers: {
+      available: true,
+      candidates,
+      counts: { scanned: candidates.length, hits: candidates.length, returned: candidates.length },
+      truncated: false,
+    },
+    unchecked: { specs: [], facts: [], runtimeCarriers: [] },
+    budget: { limitBytes: 2400, usedBytes: 0, limit: 3 },
+    partial: false,
+    truncated: false,
+    provesApplicability: false,
+  });
+
+  const rows = carrierRowsOf(text);
+  assert.notEqual(rows.length, 0, `本场景须至少列出一行载体：${text}`);
+  assert.ok(
+    rows.length < Math.min(candidates.length, RUNTIME_CARRIER_INJECTION_MAX),
+    `本场景须真的走到「放不下而裁剪」的分支，实际列出 ${rows.length} 行：${text}`,
+  );
+  assert.ok(Buffer.byteLength(text, "utf8") <= 2400, "裁剪后的注入须落在当次字节预算内");
+
+  for (const row of rows) {
+    assert.ok(row.includes("— "), "裁剪不得截半行：必须留住定位之后的 positioning");
+    assert.ok(row.includes("；何时查阅："), "裁剪不得截半行：必须留住何时查阅");
+  }
+  assert.equal(text.includes(secretBody), false, "注入不得带条目正文");
+
+  const declared = /按词面相关度取前 (\d+) 份，共 (\d+) 份命中/.exec(text);
+  assert.notEqual(declared, null, `放不下时须保留段末披露：${text}`);
+  assert.equal(Number(declared[2]), candidates.length);
+  assert.equal(
+    Number(declared[1]),
+    rows.length,
+    `段末声明的「取前 N 份」须与实际列出的载体行数相等：声明 ${declared[1]} 份、实际 ${rows.length} 行\n${text}`,
+  );
+  assert.ok(text.includes("未列出者不代表不存在"), "段末「未列出者不代表不存在」须保留");
+});

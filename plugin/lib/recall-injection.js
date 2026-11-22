@@ -262,16 +262,23 @@ function appendRuntimeCarrierIndex(lines, result, limitBytes, charLimit) {
     if (fits(compact)) lines.push(compact);
     return;
   }
-  const omitted = total - rows.length;
-  const basis = carrierBasisLine({ omitted, total, shown: rows.length, anyAbsolute });
   const header = RUNTIME_CARRIER_INJECTION_HEADER;
+  const basisOf = () =>
+    carrierBasisLine({ omitted: total - rows.length, total, shown: rows.length, anyAbsolute });
+  let basis = basisOf();
+  while (!fits([header, ...rows, basis].join("\n")) && rows.length > 1) {
+    rows.pop();
+    basis = basisOf();
+  }
   if (!fits([header, ...rows, basis].join("\n"))) {
     const compact = carrierYieldLineOf(total);
-    if (rows.length === 1 && fits(compact)) {
+    if (fits(compact)) {
       lines.push(compact);
       return;
     }
     rows.pop();
+    if (rows.length === 0) return;
+    basis = basisOf();
   }
   lines.push(header);
   lines.push(...rows);
