@@ -8,7 +8,7 @@ import { REVIEW_ASK_ANSWERS,
   recordReviewAskDecision,
   reviewAskFingerprint,
 } from "./review-ask.js";
-import { askTextDenial, validateAskText, ASK_TEXT_MAX_CHARS as ASK_QUESTION_MAX_CHARS } from "./ask-text-guard.js";
+import { askTextDenial, validateAskText } from "./ask-text-guard.js";
 import { composeConsultQuestion } from "./research-consult.js";
 
 const REVIEW_ASK_QUESTION_ID = "ldvh-review-ask";
@@ -37,21 +37,11 @@ function customTextOf(entry) {
   return text.length > 0 ? text : null;
 }
 
-export { ASK_QUESTION_MAX_CHARS };
-
-function clampHead(text, budget) {
-  if (text.length <= budget) return text;
-  let cut = Math.max(0, budget - 1);
-  const prev = text.charCodeAt(cut - 1);
-  if (cut > 0 && prev >= 0xd800 && prev <= 0xdbff) cut -= 1;
-  return `${text.slice(0, cut)}…`;
-}
-
 function composeAskTitle({ head }) {
   const lines = (Array.isArray(head) ? head : [])
     .filter((line) => typeof line === "string" && line.trim().length > 0)
     .map((line) => line.trim());
-  return { question: clampHead(lines.join("\n"), ASK_QUESTION_MAX_CHARS) };
+  return { question: lines.join("\n") };
 }
 
 
@@ -259,16 +249,16 @@ export function createHostSeams() {
   async function requestSparkConsent({ action, objectTitle, summary, agent, signal }) {
     const ask = seams.ask;
     if (typeof ask !== "function") {
-      return { granted: false, reason: "no human-answerer entry is available; 20 §16 requires an explicit Human confirmation, so consent cannot be assumed" };
+      return { granted: false, reason: "no human-answerer entry is available; 22 §16 requires an explicit Human confirmation, so consent cannot be assumed" };
     }
     const verb = action === "terminal" ? "转入终态" : "创建";
     const report = typeof summary === "string" && summary.trim().length > 0
       ? summary.trim()
       : null;
     if (report === null) {
-      return { granted: false, reason: "20 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
+      return { granted: false, reason: "22 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
     }
-    const head = [`Spark ${verb}确认（20 §16）`];
+    const head = [`Spark ${verb}确认（22 §16）`];
     if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
     const composed = composeAskTitle({ head });
     try {
@@ -424,7 +414,7 @@ export function createHostSeams() {
           fingerprint,
           timed_out: true,
           timeout_seconds: timeoutSeconds,
-          reason: `倒计时 ${timeoutSeconds}s 到点未取得答复，按 specs/32 §3.4「未取得答复按既有路径继续」处理；未取得答复不是答复，不写入答复留痕，不记成 skip 或 review（specs/32 §9.1）。下次同内容仍会问。`,
+          reason: `倒计时 ${timeoutSeconds}s 到点未取得答复，按「未取得答复按既有路径继续」处理（载体：gate-consult-system-foundation 的 answer-means 条目；留痕见其 trace-record 条目）；未取得答复不是答复，不写入答复留痕，不记成 skip 或 review。下次同内容仍会问。`,
         };
       }
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];

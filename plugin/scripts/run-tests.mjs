@@ -6,9 +6,7 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { countTestBlocks, observedCountDialect, observedTestCount, observedSkippedCount, reconcileTestCount } from "../lib/test-run-report.js";
 
 const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const args = ["--test"];
-if (process.platform !== "win32") args.push("--test-force-exit");
-args.push("test/*.test.mjs");
+const args = ["--test", "test/*.test.mjs"];
 
 async function countDeclaredTests() {
   const testDir = join(pluginRoot, "test");
@@ -70,10 +68,15 @@ child.on("close", async (code, signal) => {
   process.stderr.write(`test-count guard: 取数方言 ${observedCountDialect({ stdout: tailBuffer }) ?? "不可得"}（close 后判定，stdio 已关闭）\n`);
   if (!check.ok) {
     process.stderr.write(`test-count guard: ${check.verdict}（${check.evidence}）\n`);
-    process.stderr.write(
-      "  --test-force-exit 的截断签名：汇总块照样自洽（pass N / fail 0），退出码也是 0。" +
-        "重跑；若重现，把本次套件当作**未完成**，不要当绿。\n",
-    );
+    if (check.code === "skip_above_baseline") {
+      process.stderr.write(
+        "  处置：逐条核对本次 skip 清单与 skip 基线的差集——属环境依赖的设计内跳过则评审后受控上移基线；属新增掩盖则修复用例。\n",
+      );
+    } else {
+      process.stderr.write(
+        "  汇总行缺失或条数缺口时，把本次套件当作**未完成**，不要当绿；重跑并核对运行环境。\n",
+      );
+    }
     process.exitCode = 1;
     return;
   }

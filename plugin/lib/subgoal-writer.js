@@ -12,7 +12,6 @@ import { readGoalObject } from "./goal-writer.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
 
-
 const SUBGOAL_TYPE_KEY = "subgoal";
 
 export const SUBGOAL_DIRECTORY = "subgoals";
@@ -40,7 +39,6 @@ const VALID_FM_KEYS = new Set([
 
 export const SUBGOAL_REMOVABLE_FIELDS = new Set(["anchor"]);
 
-
 function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
 }
@@ -49,13 +47,12 @@ function success(value) {
   return { ok: true, value };
 }
 
-
 export function validateSubGoalFrontmatter(frontmatter) {
   const issues = [];
 
   for (const k of Object.keys(frontmatter)) {
     if (!VALID_FM_KEYS.has(k)) {
-      issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 28 §8)`);
+      issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 21 §8)`);
     }
   }
 
@@ -63,47 +60,47 @@ export function validateSubGoalFrontmatter(frontmatter) {
     issues.push("object_uid: must be a canonical UUIDv4 (02 §7.1)");
   }
   if (frontmatter.fact_type_key !== SUBGOAL_TYPE_KEY) {
-    issues.push(`fact_type_key: must be "${SUBGOAL_TYPE_KEY}" (28 §7)`);
+    issues.push(`fact_type_key: must be "${SUBGOAL_TYPE_KEY}" (21 §7)`);
   }
 
   if (typeof frontmatter.title !== "string" || frontmatter.title.trim().length === 0) {
-    issues.push("title: required and non-empty (28 §8)");
+    issues.push("title: required and non-empty (21 §8)");
   } else if (frontmatter.title.trim().length > MAX_TITLE_LENGTH) {
-    issues.push(repairedLengthMessage("title", frontmatter.title.trim(), MAX_TITLE_LENGTH, "28 §8, same counting as 20 §9.1"));
+    issues.push(repairedLengthMessage("title", frontmatter.title.trim(), MAX_TITLE_LENGTH, "21 §8, same counting as 22 §9.1"));
   }
 
   if (frontmatter.order !== undefined) {
     if (typeof frontmatter.order !== "number" || !Number.isInteger(frontmatter.order) || frontmatter.order < MIN_ORDER) {
-      issues.push(`order: must be a positive integer when present (28 §8 — 显示次序不承担引用职责，可缺失), got ${JSON.stringify(frontmatter.order)}`);
+      issues.push(`order: must be a positive integer when present (21 §8 — 显示次序不承担引用职责，可缺失), got ${JSON.stringify(frontmatter.order)}`);
     }
   }
 
   if (frontmatter.parent_goal !== PARENT_GOAL_KEY) {
-    issues.push(`parent_goal: must be "${PARENT_GOAL_KEY}" (28 §8: the project-level singleton goal key)`);
+    issues.push(`parent_goal: must be "${PARENT_GOAL_KEY}" (21 §8: the project-level singleton goal key)`);
   }
 
   if (!STATUSES.has(frontmatter.status)) {
-    issues.push(`status: must be one of active/achieved/retired (28 §9), got ${JSON.stringify(frontmatter.status)}`);
+    issues.push(`status: must be one of active/achieved/retired (21 §9), got ${JSON.stringify(frontmatter.status)}`);
   }
 
   if (typeof frontmatter.criterion !== "string" || frontmatter.criterion.trim().length === 0) {
-    issues.push("criterion: required and non-empty (28 §8 — 达成条件说不出来的子目标不得落盘)");
+    issues.push("criterion: required and non-empty (21 §8 — 达成条件说不出来的子目标不得落盘)");
   }
 
   if (!CRITERION_KINDS.has(frontmatter.criterion_kind)) {
-    issues.push(`criterion_kind: must be one of ${[...CRITERION_KINDS].join("/")} (28 §10.2), got ${JSON.stringify(frontmatter.criterion_kind)}`);
+    issues.push(`criterion_kind: must be one of ${[...CRITERION_KINDS].join("/")} (21 §10.2), got ${JSON.stringify(frontmatter.criterion_kind)}`);
   }
 
   if (typeof frontmatter.alignment !== "string" || frontmatter.alignment.trim().length === 0) {
-    issues.push("alignment: required and non-empty (28 §8 — 说明该子目标为何服务于目标陈述)");
+    issues.push("alignment: required and non-empty (21 §8 — 说明该子目标为何服务于目标陈述)");
   }
 
   if (frontmatter.status === "retired") {
     if (typeof frontmatter.disposition !== "string" || frontmatter.disposition.trim().length === 0) {
-      issues.push("disposition: required when status=retired (28 §8: 原位作废的去向与理由)");
+      issues.push("disposition: required when status=retired (21 §8: 原位作废的去向与理由)");
     }
   } else if (frontmatter.disposition !== undefined) {
-    issues.push(`disposition: forbidden unless status=retired (28 §8), got status=${frontmatter.status}`);
+    issues.push(`disposition: forbidden unless status=retired (21 §8), got status=${frontmatter.status}`);
   }
 
   if (typeof frontmatter.created_at !== "string" || frontmatter.created_at.length === 0) {
@@ -131,20 +128,20 @@ export function validateSubGoalBodyStructure(body, title) {
   if (h1s.length !== 1) {
     issues.push(`body: exactly one H1 is required, got ${h1s.length}`);
   } else if (title && h1s[0] !== title) {
-    issues.push(`body: H1 must equal title (28 §8: the H1 is generated from title), got ${JSON.stringify(h1s[0])}`);
+    issues.push(`body: H1 must equal title (21 §8: the H1 is generated from title), got ${JSON.stringify(h1s[0])}`);
   }
 
   const headings = [...text.matchAll(/^## (.+)$/gm)].map((m) => m[1].trim());
   if (headings.length !== BODY_H2_REQUIRED.length || headings.some((h, i) => h !== BODY_H2_REQUIRED[i])) {
-    issues.push(`body: H2 sections must be exactly ${BODY_H2_REQUIRED.map((h) => `"${h}"`).join(" then ")} in order, got ${JSON.stringify(headings)} (28 §8)`);
+    issues.push(`body: H2 sections must be exactly ${BODY_H2_REQUIRED.map((h) => `"${h}"`).join(" then ")} in order, got ${JSON.stringify(headings)} (21 §8)`);
   }
 
   for (const heading of BODY_H2_REQUIRED) {
     const content = sectionContent(text, heading);
     if (content === null) {
-      issues.push(`body: "${heading}" section must be present (28 §8)`);
+      issues.push(`body: "${heading}" section must be present (21 §8)`);
     } else if (content.trim().length === 0) {
-      issues.push(`body: "${heading}" section must be non-empty (28 §8)`);
+      issues.push(`body: "${heading}" section must be non-empty (21 §8)`);
     }
   }
 
@@ -164,7 +161,7 @@ export function validateCarrierCoherence(frontmatter, body) {
     if (content === null) continue;
     if (!content.includes(text)) {
       warnings.push(carrierCoherenceMessage({
-        section, field, declared: text, actual: content, clause: "28 §8 字段间不变量 1",
+        section, field, declared: text, actual: content, clause: "21 §8 字段间不变量 1",
       }));
     }
   }
@@ -232,7 +229,6 @@ function splitFrontmatter(raw) {
   }
 }
 
-
 export async function listSubGoalIndex(factSourceRoot) {
   const dir = join(factSourceRoot, SUBGOAL_DIRECTORY);
   let entries;
@@ -269,11 +265,11 @@ async function checkUidExclusive(factSourceRoot, objectUid) {
     return failure("subgoal/scan_failed", `cannot scan ${SUBGOAL_DIRECTORY}/ for the identity uniqueness pre-check: ${listed.reason}`);
   }
   if (listed.unreadable.length > 0) {
-    return failure("subgoal/identity_unverifiable", `cannot prove object_uid "${objectUid}" is unique: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (28 §17 第 5 项)`, { unreadable: listed.unreadable });
+    return failure("subgoal/identity_unverifiable", `cannot prove object_uid "${objectUid}" is unique: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (21 §17 第 5 项)`, { unreadable: listed.unreadable });
   }
   const conflicts = listed.items.filter((entry) => entry.object_uid === objectUid);
   if (conflicts.length > 1) {
-    return failure("subgoal/identity_duplicated", `object_uid "${objectUid}" appears on ${conflicts.length} carriers — 两处权威 (28 §17 第 5 项)`, { conflicts });
+    return failure("subgoal/identity_duplicated", `object_uid "${objectUid}" appears on ${conflicts.length} carriers — 两处权威 (21 §17 第 5 项)`, { conflicts });
   }
   return success({ items: listed.items });
 }
@@ -281,15 +277,14 @@ async function checkUidExclusive(factSourceRoot, objectUid) {
 export async function resolveParentGoal(factSourceRoot) {
   const goal = await readGoalObject({ factSourceRoot });
   if (!goal.ok) {
-    return failure("subgoal/parent_goal_unresolvable", `parent_goal cannot be resolved: the goal carrier is not readable (${goal.error?.message ?? "unknown"}) (28 §14.1 — 悬空锚须报告，不得静默降级)`);
+    return failure("subgoal/parent_goal_unresolvable", `parent_goal cannot be resolved: the goal carrier is not readable (${goal.error?.message ?? "unknown"}) (21 §14.1 — 悬空锚须报告，不得静默降级)`);
   }
   const goalKey = goal.value?.frontmatter?.goal_key;
   if (goalKey !== PARENT_GOAL_KEY) {
-    return failure("subgoal/parent_goal_unresolvable", `parent_goal must match the goal carrier's goal_key "${PARENT_GOAL_KEY}", got ${JSON.stringify(goalKey)} (28 §8)`);
+    return failure("subgoal/parent_goal_unresolvable", `parent_goal must match the goal carrier's goal_key "${PARENT_GOAL_KEY}", got ${JSON.stringify(goalKey)} (21 §8)`);
   }
   return success({ goal_key: goalKey, file: goal.value?.file ?? null });
 }
-
 
 function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -328,11 +323,11 @@ async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyM
   frontmatter.created_at = now;
 
   if (frontmatter.status !== undefined && frontmatter.status !== "active") {
-    return failure("subgoal/initial_state_violation", `create must initialise as status=active; got ${JSON.stringify(frontmatter.status)} (28 §9.2 — 合法初态唯一)`);
+    return failure("subgoal/initial_state_violation", `create must initialise as status=active; got ${JSON.stringify(frontmatter.status)} (21 §9.2 — 合法初态唯一)`);
   }
   frontmatter.status = "active";
   if (frontmatter.disposition !== undefined) {
-    return failure("subgoal/frontmatter_invalid", "create must not carry disposition (28 §8: it accompanies status=retired only)");
+    return failure("subgoal/frontmatter_invalid", "create must not carry disposition (21 §8: it accompanies status=retired only)");
   }
   frontmatter.change_log = [{
     at: now,
@@ -408,7 +403,7 @@ export async function createSubGoalObject(args) {
   if (typeof expectedCandidateFingerprint !== "string" || expectedCandidateFingerprint.length === 0) {
     return failure(
       "subgoal/candidate_fingerprint_required",
-      "expectedCandidateFingerprint is required for create (28 §13: 写入请求未携带该指纹的，按「同一性未确认」零写入) — "
+      "expectedCandidateFingerprint is required for create (21 §13: 写入请求未携带该指纹的，按「同一性未确认」零写入) — "
         + "run ldvh_subgoal_precheck_create on this candidate first and pass the candidate_fingerprint it returns",
     );
   }
@@ -417,7 +412,7 @@ export async function createSubGoalObject(args) {
     if (actual !== expectedCandidateFingerprint) {
       return failure(
         "subgoal/candidate_changed",
-        "the candidate content changed between precheck and write; the precheck verdict does not carry over (28 §13) — re-run the precheck on the current content",
+        "the candidate content changed between precheck and write; the precheck verdict does not carry over (21 §13) — re-run the precheck on the current content",
         { expected_candidate_fingerprint: expectedCandidateFingerprint, actual_candidate_fingerprint: actual },
       );
     }
@@ -441,7 +436,6 @@ export async function createSubGoalObject(args) {
 
   return success({ object_uid: uid, file: filePath, fingerprint: fileFingerprint(content) });
 }
-
 
 export async function resolveSubGoalObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
@@ -500,7 +494,6 @@ export async function readSubGoalObject(args) {
   });
 }
 
-
 export async function updateSubGoalObject(args) {
   const { factSourceRoot, objectUid: objectUidInput, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null, currentProjectId = null } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
@@ -537,7 +530,7 @@ export async function updateSubGoalObject(args) {
   const before = parsed.frontmatter;
 
   if (before.status === "achieved" || before.status === "retired") {
-    return failure("subgoal/terminal_readonly", `object is status=${before.status}; 28 §9.2 forbids any transition out of a terminal state`);
+    return failure("subgoal/terminal_readonly", `object is status=${before.status}; 21 §9.2 forbids any transition out of a terminal state`);
   }
 
   if (frontmatterAfter !== null && frontmatterAfter !== undefined && typeof frontmatterAfter !== "object") {
@@ -564,7 +557,7 @@ export async function updateSubGoalObject(args) {
 
   const targetStatus = next.status ?? before.status;
   if (!STATUSES.has(targetStatus)) {
-    return failure("subgoal/frontmatter_invalid", `status: must be one of active/achieved/retired (28 §9), got ${JSON.stringify(targetStatus)}`);
+    return failure("subgoal/frontmatter_invalid", `status: must be one of active/achieved/retired (21 §9), got ${JSON.stringify(targetStatus)}`);
   }
   next.status = targetStatus;
 
@@ -574,15 +567,15 @@ export async function updateSubGoalObject(args) {
   } else if (before.status === "active" && targetStatus === "achieved") {
     transition = "achieve";
     if (typeof changeSummary !== "string" || changeSummary.trim().length === 0) {
-      return failure("subgoal/evidence_basis_required", "achieved requires the change summary to state the evidence basis (28 §9.2/§10.3)");
+      return failure("subgoal/evidence_basis_required", "achieved requires the change summary to state the evidence basis (21 §9.2/§10.3)");
     }
   } else if (before.status === "active" && targetStatus === "retired") {
     transition = "retire";
     if (typeof next.disposition !== "string" || next.disposition.trim().length === 0) {
-      return failure("subgoal/disposition_required", "retirement requires a non-empty disposition (28 §8/§9.2: 原位作废的去向与理由)");
+      return failure("subgoal/disposition_required", "retirement requires a non-empty disposition (21 §8/§9.2: 原位作废的去向与理由)");
     }
   } else {
-    return failure("subgoal/transition_invalid", `illegal transition ${before.status} → ${targetStatus} (28 §9.2: only active→active, active→achieved and active→retired exist; terminal states never reopen)`);
+    return failure("subgoal/transition_invalid", `illegal transition ${before.status} → ${targetStatus} (21 §9.2: only active→active, active→achieved and active→retired exist; terminal states never reopen)`);
   }
 
   next.change_log = [...(before.change_log ?? []), {
@@ -611,28 +604,27 @@ export async function updateSubGoalObject(args) {
   return success({ object_uid: objectUid, file: filePath, fingerprint: fileFingerprint(content), transition });
 }
 
-
 export async function resolveSubGoal(factSourceRoot, objectUid) {
   if (typeof objectUid !== "string" || !UUID_PATTERN.test(objectUid)) {
-    return failure("subgoal/serves_shape_invalid", `serves must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(objectUid)}`);
+    return failure("subgoal/serves_shape_invalid", `serves must be a SubGoal object_uid (canonical UUIDv4, 21 §12.3), got ${JSON.stringify(objectUid)}`);
   }
   const listed = await listSubGoalIndex(factSourceRoot);
   if (!listed.ok) {
     return failure("subgoal/scan_failed", `cannot scan ${SUBGOAL_DIRECTORY}/ to resolve ${objectUid}: ${listed.reason}`);
   }
   if (listed.unreadable.length > 0) {
-    return failure("subgoal/identity_unverifiable", `cannot resolve ${objectUid}: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (28 §12.3)`, { unreadable: listed.unreadable });
+    return failure("subgoal/identity_unverifiable", `cannot resolve ${objectUid}: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (21 §12.3)`, { unreadable: listed.unreadable });
   }
   const matches = listed.items.filter((entry) => entry.object_uid === objectUid);
   if (matches.length === 0) {
-    return failure("subgoal/serves_unresolvable", `serves ${objectUid} does not resolve to any SubGoal object under ${SUBGOAL_DIRECTORY}/ (28 §12.3)`, { available: listed.items.map((e) => e.object_uid) });
+    return failure("subgoal/serves_unresolvable", `serves ${objectUid} does not resolve to any SubGoal object under ${SUBGOAL_DIRECTORY}/ (21 §12.3)`, { available: listed.items.map((e) => e.object_uid) });
   }
   if (matches.length > 1) {
-    return failure("subgoal/identity_duplicated", `object_uid ${objectUid} resolves to ${matches.length} SubGoal objects — 两处权威 (28 §17 第 5 项)`, { matches });
+    return failure("subgoal/identity_duplicated", `object_uid ${objectUid} resolves to ${matches.length} SubGoal objects — 两处权威 (21 §17 第 5 项)`, { matches });
   }
   const target = matches[0];
   if (target.status === "retired") {
-    return failure("subgoal/serves_unresolvable", `serves ${objectUid} resolves to a retired SubGoal; a retired sub-goal is not a valid target for a NEW serves declaration (28 §12.3 第 3 条; 既有声明保留原值走局部重批)`, { status: target.status });
+    return failure("subgoal/serves_unresolvable", `serves ${objectUid} resolves to a retired SubGoal; a retired sub-goal is not a valid target for a NEW serves declaration (21 §12.3 第 3 条; 既有声明保留原值走局部重批)`, { status: target.status });
   }
   return success({ object_uid: target.object_uid, status: target.status, title: target.title, order: target.order, file: target.file });
 }
@@ -656,7 +648,6 @@ export async function listResolvableSubGoals(factSourceRoot) {
     .map((entry) => ({ object_uid: entry.object_uid, title: entry.title, order: entry.order, status: entry.status }));
   return success({ items, unreadable: listed.unreadable });
 }
-
 
 export async function listSubGoalObjects(args) {
   const { factSourceRoot, status = "active", limit = 200 } = args;

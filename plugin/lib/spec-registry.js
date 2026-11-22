@@ -1,5 +1,7 @@
 
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
 const SPEC_FIELDS = ["spec_key", "spec_id", "spec_kind", "title", "canonical_path", "parent_spec", "relation", "positioning", "scope", "basis", "authorized_attachments", "supersedes", "related_specs"];
@@ -309,4 +311,118 @@ export function projectLayer(identity, layer, sectionOutline) {
     ...(sectionOutline === undefined ? {} : { section_outline: sectionOutline })
   };
   return l2;
+}
+
+export const OPERATION_DECLARATIONS_VERSION = "operation-declarations/v1";
+
+export const OPERATION_DECLARATIONS_BUNDLE_FILE = join(import.meta.dirname, "operation-declarations.bundle.json");
+
+export const OPERATION_DECLARATION_TIERS = Object.freeze(["specs", "package-data"]);
+
+export const OPERATION_DECLARATION_SOURCE_LABELS = Object.freeze({
+  specs: "规范源（开发形态：仓库内的声明生成源）",
+  "package-data": "包内数据文件（构建期由开发仓的声明生成源产出，运行期不读规范源）",
+});
+
+export const OPERATION_DECLARATION_EFFECTS = Object.freeze(["read", "may_change_state"]);
+
+export function operationDeclarationSourceLabel(tier) {
+  const key = OPERATION_DECLARATION_TIERS.includes(tier) ? tier : "package-data";
+  return OPERATION_DECLARATION_SOURCE_LABELS[key];
+}
+
+export function emptyDeclarations(reason) {
+  const rows = new Map();
+  Object.defineProperty(rows, "reason", { value: reason, enumerable: false });
+  return rows;
+}
+
+function bundleRejection(file, reason) {
+  return {
+    ok: false,
+    tier: "package-data",
+    version: OPERATION_DECLARATIONS_VERSION,
+    file,
+    fingerprint: "",
+    declarations: emptyDeclarations(reason),
+    reason,
+  };
+}
+
+function rowErrors(key, row) {
+  const errors = [];
+  if (row === null || typeof row !== "object" || Array.isArray(row)) return [`${key}: 声明条目不是对象`];
+  if (row.operation_key !== key) errors.push(`${key}: operation_key 与键名不一致（${String(row.operation_key)}）`);
+  if (typeof row.summary !== "string" || row.summary.trim().length === 0) errors.push(`${key}: summary 缺失`);
+  if (!OPERATION_DECLARATION_EFFECTS.includes(row.effect)) errors.push(`${key}: effect 「${String(row.effect)}」不在闭集内`);
+  for (const field of ["arguments_contract", "result_contract"]) {
+    const value = row[field];
+    if (typeof value !== "string" || !value.includes("::")) errors.push(`${key}: ${field} 不是 <来源>::<标题路径> 形态`);
+  }
+  for (const field of ["source", "source_path"]) {
+    if (typeof row[field] !== "string" || row[field].trim().length === 0) errors.push(`${key}: ${field} 缺失`);
+  }
+  return errors;
+}
+
+export async function loadOperationDeclarationsBundle(file = OPERATION_DECLARATIONS_BUNDLE_FILE) {
+  const path = String(file ?? "");
+  if (path === "") return bundleRejection(path, "随包声明文件路径为空");
+
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    return bundleRejection(path, `随包声明文件不可读：${String(error?.message ?? error)}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return bundleRejection(path, `随包声明文件不是合法 JSON：${String(error?.message ?? error)}`);
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return bundleRejection(path, "随包声明文件的顶层不是对象");
+  }
+  if (parsed.version !== OPERATION_DECLARATIONS_VERSION) {
+    return bundleRejection(path, `随包声明文件版本标记不识别：${String(parsed.version)}；本实现只认 \`${OPERATION_DECLARATIONS_VERSION}\``);
+  }
+  if (typeof parsed.fingerprint !== "string" || parsed.fingerprint === "") {
+    return bundleRejection(path, "随包声明文件缺指纹");
+  }
+  const declarations = parsed.declarations;
+  if (declarations === null || typeof declarations !== "object" || Array.isArray(declarations) || Object.keys(declarations).length === 0) {
+    return bundleRejection(path, "随包声明文件没有登记任何公开操作");
+  }
+
+  const errors = [];
+  for (const key of Object.keys(declarations)) errors.push(...rowErrors(key, declarations[key]));
+  if (errors.length > 0) {
+    return bundleRejection(path, `随包声明文件的条目不合格：${errors.join("；")}`);
+  }
+
+  const rows = new Map();
+  for (const key of Object.keys(declarations)) {
+    const row = declarations[key];
+    rows.set(key, {
+      operation_key: key,
+      summary: row.summary,
+      effect: row.effect,
+      arguments_contract: row.arguments_contract,
+      result_contract: row.result_contract,
+      source: row.source,
+      source_path: row.source_path,
+      anchor_errors: [],
+    });
+  }
+  return {
+    ok: true,
+    tier: "package-data",
+    version: OPERATION_DECLARATIONS_VERSION,
+    file: path,
+    fingerprint: parsed.fingerprint,
+    declarations: rows,
+    reason: "",
+  };
 }

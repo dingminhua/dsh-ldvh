@@ -22,26 +22,37 @@ export const REVIEW_ASK_ANSWERS = Object.freeze({
   SKIP: "skip",
 });
 
+export const REVIEW_ASK_CARRIER = "gate-consult-system-foundation";
+
+export const REVIEW_ASK_CARRIER_ENTRIES = Object.freeze({
+  complexTask: "complex-task",
+  pointExclusions: "point-exclusions",
+});
+
+export function carrierEntrySource(entryKey, carrier = REVIEW_ASK_CARRIER) {
+  return `${carrier} 的 ${entryKey} 条目`;
+}
+
 export const COMPLEXITY_CRITERIA = Object.freeze([
   {
     key: "structural-change",
     label: "建立或修改结构性事物",
-    source: "specs/04 §6.1",
+    source: carrierEntrySource(REVIEW_ASK_CARRIER_ENTRIES.complexTask),
   },
   {
     key: "multi-path-choice",
     label: "存在多个可选路径的选型",
-    source: "specs/04 §6.1",
+    source: carrierEntrySource(REVIEW_ASK_CARRIER_ENTRIES.complexTask),
   },
   {
     key: "decision-conflict",
     label: "方向可能与既定决策冲突",
-    source: "specs/04 §6.1",
+    source: carrierEntrySource(REVIEW_ASK_CARRIER_ENTRIES.complexTask),
   },
   {
     key: "not-clearly-direct",
-    label: "不属于 04 §6.1 的排除清单（方向未定／当次可直接处理的低风险改动／已定决策／系统性阻碍／过程日志与工具输出与单纯执行提醒）",
-    source: "specs/04 §6.1 排除清单取反",
+    label: "不属于「什么算复杂任务」条目所列的排除清单（方向未定／当次可直接处理的低风险改动／已定决策／系统性阻碍／过程日志与工具输出与单纯执行提醒）",
+    source: `${carrierEntrySource(REVIEW_ASK_CARRIER_ENTRIES.complexTask)}（其排除清单取反）`,
   },
 ]);
 
@@ -49,23 +60,23 @@ export const GATE_POINT_EXCLUSIONS = Object.freeze([
   {
     key: "pure-research",
     label: "纯调研取证与报告（当次止于取得证据并形成调研结论）",
-    carried: "33 §10.3 引用闭环程序化审计、§14 交付合同、§16.3 高风险调研升级的独立视角复核",
-    source: "specs/32 §4.2 第 1 项",
-    notExcluded: "把调研结论落成规范／代码的那一步；在多个调研路线之间选型",
+    carried: "research-system-foundation 的 audit／delivery／escalation 条目所要求的引用闭环核对、交付三道与高风险调研升级的独立视角复核",
+    source: `${carrierEntrySource(REVIEW_ASK_CARRIER_ENTRIES.pointExclusions)}（第 1 类）`,
+    notExcluded: "把调研结论落成规则／代码的那一步；在多个调研路线之间选型",
   },
   {
     key: "pure-commit",
     label: "纯受控提交与推送（当次只把已形成的改动按提交契约落盘并推送）",
-    carried: "09 §5.1–§5.5 message 与 diff 逐条对应、precheck 与 Git Gate 双入口、§5.7 提交步骤与回读",
-    source: "specs/32 §4.2 第 2 项",
-    notExcluded: "提交里含本次新做的实质改动；据 09 §5.6 第 6 项，v5 不定义 push 的机械校验，故不得声称推送已被机械覆盖",
+    carried: "controlled-commit 的 message-diff-match／precheck-when／precheck-result／git-gate／git-gate-scope／stage／create-commit／readback 条目所要求的消息与差异逐条对应、预检与 Git Gate 双入口、提交步骤与回读",
+    source: `${carrierEntrySource(REVIEW_ASK_CARRIER_ENTRIES.pointExclusions)}（第 2 类）`,
+    notExcluded: "提交里含本次新做的实质改动；受控提交只覆盖提交缝，推送不在它的机械范围里，故不得声称推送已被机械覆盖",
   },
   {
     key: "pure-controlled-object-op",
     label: "纯 LDVH 受控工具面对既有事实对象的操作（状态转换、补充记录、勘误级更新、受控退休）",
-    carried: "02 §10.4/§10.5/§10.7 CAS 指纹、写后精确回读与适用完整性审计，加该类型规范自身的建前预检与关口",
-    source: "specs/32 §4.2 第 3 项",
-    notExcluded: "新建事实对象、改变既有对象的决策与适用范围语义（那本属各类型的 Human Gate）",
+    carried: "fact-model-common 的 fingerprint-baseline／field-channel／read-back-after-write／after-complete 条目所要求的基线指纹、字段通道、写后精确回读与适用完整性审计，加该类型自身要求的建前预检与关口",
+    source: `${carrierEntrySource(REVIEW_ASK_CARRIER_ENTRIES.pointExclusions)}（第 3 类）`,
+    notExcluded: "新建事实对象、改变既有对象的决策与适用范围语义（那本属各类型须人决定的事项）",
   },
 ]);
 

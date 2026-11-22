@@ -111,7 +111,6 @@ test("计数方言：spec 与 TAP 汇总行都能读出条数，方言缺失给 
 	assert.equal(observedTestCount({ stdout: "" }), null);
 	assert.equal(observedTestCount({ stdout: "TAP version 13\nok 1 - a\n" }), null, "TAP 流无汇总行即 fail-closed，不数 ok 行");
 	assert.equal(observedCountDialect({ stdout: "" }), null);
-	// 汇总行在场时以它为唯一判据：顶层 ok 行数与汇总行冲突也不受影响
 	const conflict = ["ok 1 - a", "ok 2 - b", "# tests 2", "# skipped 1"].join("\n");
 	assert.equal(observedTestCount({ stdout: conflict }), 2);
 	assert.equal(observedSkippedCount({ stdout: conflict }), 1);
@@ -203,6 +202,25 @@ test("run-tests.mjs 接入 skip 对账：读基线、取 skip、传入判定—�
 	assert.match(script, /skippedBaseline/, "须把 skip 基线传入 reconcileTestCount");
 });
 
+test("运行器不带 --test-force-exit：自然退出，汇总行不被收尾竞态吞掉", async () => {
+	for (const script of ["scripts/run-tests.mjs", "scripts/affected-tests.mjs"]) {
+		const src = await readFile(join(PLUGIN, script), "utf8");
+		assert.ok(!src.includes("--test-force-exit"), `${script} 不得再传 --test-force-exit（截断 TAP 汇总行的竞态源）`);
+	}
+});
+
+test("skip 超基线的处置提示分流：不再误指截断签名", async () => {
+	const src = await readFile(join(PLUGIN, "scripts/run-tests.mjs"), "utf8");
+	assert.match(src, /check\.code === "skip_above_baseline"/, "须按失败码分流处置提示");
+	assert.match(src, /评审后受控上移基线/, "skip 超基线的提示须指向评审与受控上移");
+	assert.ok(!src.includes("--test-force-exit"), "提示不得再引用已移除的 flag");
+});
+
+test("skip 基线登记值与干净环境的设计内跳过面一致（评审锚）", async () => {
+	const raw = await readFile(join(PLUGIN, "test/.test-skipped-baseline"), "utf8");
+	assert.equal(Number(raw.trim()), 33, "基线 33 = Windows 生命周期记录 10 + Windows ACL 8 + 8.3 短名 1 + 上游锚点 8 + 会话数据 6；改动跳过面须评审后同步本断言与基线文件");
+});
+
 test("observedSkippedCount：读出 ℹ skipped N；取不到时给 null 而非 0", () => {
 	assert.equal(observedSkippedCount({ stdout: SKIP_OUTPUT }), 8);
 	assert.equal(observedSkippedCount({ stdout: ZERO_SKIP_OUTPUT }), 0);
@@ -220,6 +238,7 @@ test("reconcileTestCount：skip 数高于基线即判不完整（新增 skip 不
 	assert.equal(r.ok, true, "skip 未超过基线时通过");
 	const risen = reconcileTestCount({ observed: 8, declared: 8, baseline: 8, skipped: 28, skippedBaseline: 27 });
 	assert.equal(risen.ok, false);
+	assert.equal(risen.code, "skip_above_baseline");
 	assert.match(risen.verdict, /skip 数高于基线/);
 	assert.match(risen.evidence, /28/);
 	assert.match(risen.evidence, /27/);

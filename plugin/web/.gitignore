@@ -8,8 +8,10 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-# 发布树（main）：dist/api-js/shared-js 需入库，使 GitHub 地址安装可直接得到可运行包。
-# dev 分支仍忽略这三者，构建不脏工作区；两者差异在发布白名单中处理。
+dist
+# 后端编译产物（build-api.mjs 由 api/ 与 shared/ 生成，不入库；.npmignore 未排除故仍进包）
+api-js
+shared-js
 .build-api
 dist-ssr
 *.local

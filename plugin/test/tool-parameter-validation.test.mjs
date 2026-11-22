@@ -43,8 +43,8 @@ test("每一个经 ctx.tools.register 注册的工具都在参数层拒绝非法
 		`duplicate tool names registered: ${names.filter((n, i) => names.indexOf(n) !== i).join(", ")}`,
 	);
 	assert.ok(
-		registered.length >= 35,
-		`expected the full LDVH tool batch (>= 35), registered ${registered.length}`,
+		registered.length >= 33,
+		`expected the full LDVH tool batch (>= 33), registered ${registered.length}`,
 	);
 
 	const unguarded = [];

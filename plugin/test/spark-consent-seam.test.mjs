@@ -96,7 +96,7 @@ test("spark consent: a throwing answerer fails closed (ASK_ABORTED is not consen
 });
 
 
-test("spark consent: the dialog carries one bounded title line and NO detail block", async () => {
+test("spark consent: the dialog carries one title line and NO detail block", async () => {
   let seen = null;
   const { seams, install } = installWith(async (request) => {
     seen = request;
@@ -106,10 +106,6 @@ test("spark consent: the dialog carries one bounded title line and NO detail blo
   const q = seen.questions[0];
   assert.equal(q.id, "ldvh-spark-consent", "the question id is shared with the parser");
   assert.equal(q.detail, undefined, "卡片上不得再有 detail 块（Human 2026-11-13）");
-  assert.ok(
-    q.question.length <= 200,
-    `question must stay within the bound, got ${q.question.length}: ${q.question}`
-  );
   assert.ok(q.question.includes("示例对象"), "the object title must be shown");
   assert.ok(q.question.includes("创建"), "the verb must be shown");
   assert.ok(!q.question.includes(REPORT), "the report must not be pushed into the title");
@@ -119,7 +115,7 @@ test("spark consent: the dialog carries one bounded title line and NO detail blo
   install.dispose();
 });
 
-test("spark consent: an OVERSIZED report still yields a bounded, detail-free dialog", async () => {
+test("spark consent: an OVERSIZED report still yields a detail-free dialog", async () => {
   let seen = null;
   const { seams, install } = installWith(async (request) => {
     seen = request;
@@ -131,15 +127,11 @@ test("spark consent: an OVERSIZED report still yields a bounded, detail-free dia
 
   assert.equal(out.granted, true, "an oversized report must not break the gate itself");
   const q = seen.questions[0];
-  assert.ok(
-    q.question.length <= 200,
-    `question must stay within the bound, got ${q.question.length}`
-  );
   assert.equal(q.detail, undefined, "no detail block may carry it instead");
   install.dispose();
 });
 
-test("spark consent: an over-long object TITLE is clamped, and nothing else grows", async () => {
+test("spark consent: an over-long object TITLE is passed through whole (no 200-char clamp)", async () => {
   let seen = null;
   const { seams, install } = installWith(async (request) => {
     seen = request;
@@ -149,8 +141,9 @@ test("spark consent: an over-long object TITLE is clamped, and nothing else grow
   const out = await seams.requestSparkConsent({ ...CALL, objectTitle: title, summary: REPORT });
   assert.equal(out.granted, true, JSON.stringify(out));
   const q = seen.questions[0];
-  assert.ok(q.question.length <= 200, `got ${q.question.length}`);
-  assert.ok(q.question.endsWith("…"), "an over-long title is cut, not passed through");
+  assert.ok(q.question.includes(title), "an over-long title must not be cut");
+  assert.ok(q.question.length > 200, `no length bound applies any more, got ${q.question.length}`);
+  assert.ok(!q.question.endsWith("…"), "nothing may be elided");
   assert.equal(q.detail, undefined);
   install.dispose();
 });
@@ -170,7 +163,7 @@ test("spark consent: the terminal action says 转入终态 in the title, and the
   install.dispose();
 });
 
-test("spark consent: the bound is measured in UTF-16 units, so surrogate pairs cannot smuggle past it", async () => {
+test("spark consent: an over-long emoji title is passed through whole, with no broken surrogate", async () => {
   let seen = null;
   const { seams, install } = installWith(async (request) => {
     seen = request;
@@ -181,12 +174,10 @@ test("spark consent: the bound is measured in UTF-16 units, so surrogate pairs c
 
   assert.equal(out.granted, true, JSON.stringify(out));
   const q = seen.questions[0];
-  assert.ok(
-    q.question.length <= 200,
-    `the bound must hold in .length units, got ${q.question.length}`
-  );
-  assert.doesNotMatch(q.question, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, "no lone high surrogate may survive the cut");
-  assert.doesNotMatch(q.question, /(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/, "no lone low surrogate may survive the cut");
+  assert.ok(q.question.includes(emoji), "the emoji title must not be cut");
+  assert.ok(q.question.length > 200, `no length bound applies any more, got ${q.question.length}`);
+  assert.doesNotMatch(q.question, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, "no lone high surrogate may appear");
+  assert.doesNotMatch(q.question, /(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/, "no lone low surrogate may appear");
   install.dispose();
 });
 

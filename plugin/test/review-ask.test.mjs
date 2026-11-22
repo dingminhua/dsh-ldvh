@@ -19,7 +19,6 @@ import {
   silentRunNotice,
 } from "../lib/review-ask.js";
 
-
 test("resolveReviewAskSettings：两代宿主取值形态都认，缺省按关", () => {
   const both = resolveReviewAskSettings({ preActionReviewAskEnabled: true, postWorkReviewAskEnabled: false });
   assert.equal(both.preAction, true);
@@ -78,16 +77,14 @@ test("两个开关互相独立：只开一个时另一个仍为关", () => {
   assert.equal(onlyPost.postWork, true);
 });
 
-
 test("COMPLEXITY_CRITERIA：每条都带规范出处，不新增判据", () => {
   assert.ok(Array.isArray(COMPLEXITY_CRITERIA) && COMPLEXITY_CRITERIA.length > 0);
   for (const item of COMPLEXITY_CRITERIA) {
     assert.equal(typeof item.key, "string");
     assert.equal(typeof item.label, "string");
-    assert.match(item.source, /^specs\/(04|21) /, `${item.key} 的出处须回指 04 §6.1 或 21 §6.3，实际 ${item.source}`);
+    assert.match(item.source, /^gate-consult-system-foundation 的 complex-task 条目/, `${item.key} 的出处须回指载体的 complex-task 条目，实际 ${item.source}`);
   }
 });
-
 
 test("GATE_POINT_EXCLUSIONS：三类都有承接面、出处与反向边界，且属 32 号不属 04 号", () => {
   assert.ok(Array.isArray(GATE_POINT_EXCLUSIONS) && GATE_POINT_EXCLUSIONS.length === 3,
@@ -97,68 +94,66 @@ test("GATE_POINT_EXCLUSIONS：三类都有承接面、出处与反向边界，�
       assert.equal(typeof item[field], "string", `${item.key} 缺 ${field}`);
       assert.ok(item[field].trim().length > 0, `${item.key} 的 ${field} 不得为空`);
     }
-    assert.match(item.source, /^specs\/32 §4\.2/, `${item.key} 的出处须回指 specs/32 §4.2，实际 ${item.source}`);
-    assert.match(item.carried, /§/, `${item.key} 的承接面须写明条文号，不得只写机制名`);
+    assert.match(item.source, /^gate-consult-system-foundation 的 point-exclusions 条目（第 [1-3] 类）$/, `${item.key} 的出处须回指载体的 point-exclusions 条目，实际 ${item.source}`);
+    assert.match(item.carried, /\S+ 的 [a-z][a-z-]+(?:／[a-z][a-z-]+)* 条目/, `${item.key} 的承接面须点名承接它的载体条目，不得只写机制名`);
+    assert.doesNotMatch(item.carried, /§|specs\//, `${item.key} 的承接面不得再引规范章节号（运行期规则只来自载体）`);
   }
 });
 
 test("点位排除与判据清单必须是两份数据、不得合并（32 §19 第 5 项）", () => {
   const criteriaKeys = new Set(COMPLEXITY_CRITERIA.map((i) => i.key));
   for (const item of GATE_POINT_EXCLUSIONS) {
-    assert.ok(!criteriaKeys.has(item.key), `${item.key} 不得进 COMPLEXITY_CRITERIA：那是 04 §6.1 的编译产物`);
+    assert.ok(!criteriaKeys.has(item.key), `${item.key} 不得进 COMPLEXITY_CRITERIA：那是复杂任务判据的编译产物`);
   }
   for (const item of COMPLEXITY_CRITERIA) {
     assert.doesNotMatch(item.label, /调研取证与报告|受控提交与推送|既有事实对象的操作|逐条转承/,
       `04 侧判据「${item.key}」不得内嵌 32 侧点位排除的条目`);
-    assert.doesNotMatch(item.source, /specs\/32/, `04 侧判据「${item.key}」的出处不得指向 32 号`);
+    assert.doesNotMatch(item.source, /point-exclusions/, `复杂任务判据「${item.key}」的出处不得指向点位排除条目`);
   }
 });
 
-
-test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原文逐字找到", async () => {
+test("GATE_POINT_EXCLUSIONS：类别名与承接条目须能在载体原文逐条找到", async () => {
   const { readFile } = await import("node:fs/promises");
   const { join } = await import("node:path");
-  let spec;
+  const carriersDir = join(import.meta.dirname, "..", "..", "plugin-specs");
+  const pointExclusions = join(carriersDir, "gate-consult-system-foundation.yaml");
+  let gateCarrier;
   try {
-    spec = await readFile(join(import.meta.dirname, "..", "..", "specs/32-把关请示系统规范.md"), "utf8");
+    gateCarrier = await readFile(pointExclusions, "utf8");
   } catch {
-    assert.fail(`语料不可读：specs/32-把关请示系统规范.md（发布包内无语料时须如实失败，不得静默通过）`);
+    assert.fail(`载体不可读：plugin-specs/gate-consult-system-foundation.yaml（运行期来源缺失时须如实失败，不得静默通过）`);
   }
   const drifted = [];
+  const entryIdsOf = (text) => new Set([...text.matchAll(/^\s+- id: ([a-z][a-z0-9-]*)$/gm)].map((match) => match[1]));
+  const categoryPhrase = {
+    "pure-research": "止于取得证据并形成调研结论",
+    "pure-commit": "只是把已经形成的改动按提交契约落盘并推送",
+    "pure-controlled-object-op": "只是对既有事实对象做状态转换、补充记录、勘误级更新或受控退休",
+  };
   for (const item of GATE_POINT_EXCLUSIONS) {
-    const categoryName = item.label.split("（")[0];
-    if (!spec.includes(categoryName)) drifted.push(`${item.key}: 类别名「${categoryName}」`);
-    if (!spec.includes("### 4.2 明确排除与证明边界")) drifted.push(`${item.key}: 32 §4.2 节标题`);
-    const carriedNormalized = item.carried.replace(
-      /(\d\d) §([0-9.]+[a-z]?)((?:\/§[0-9.]+[a-z]?)+)/g,
-      (_all, spec, first, rest) => `${spec} §${first}` + rest.split("/").map((seg) => ` ${spec} ${seg}`).join(""),
-    );
-    for (const sec of carriedNormalized.match(/(?:00|09|02|33|22|27) §[0-9.]+[a-z]?/g) ?? []) {
-      const [specNo, secNo] = [sec.slice(0, 2), sec.slice(4)];
-      const file = { "00": "00", "09": "09", "02": "02", "33": "33", "22": "22", "27": "27" }[specNo];
-      if (!file) continue;
-      const { readFile: rf2 } = await import("node:fs/promises");
-      const text = await rf2(join(import.meta.dirname, "..", "..", `specs/${file}-` + {
-        "09": "受控提交与机械守护规范.md",
-        "02": "事实源与事实模型基础规范.md",
-        "33": "调研吸收系统规范.md",
-        "00": "理念与构成.md",
-        "22": "ADR-决策.md",
-        "27": "Norm-事实规范.md",
-      }[specNo]), "utf8").catch(() => null);
-      if (text === null) { drifted.push(`${item.key}: 语料不可读 specs/${file}`); continue; }
-      const head = secNo.split("/")[0].replace(/^§/, "");
-      if (head.length === 0 || !/^[0-9]/.test(head)) {
-        drifted.push(`${item.key}: 承接条文 ${sec} 的编号解析为空或非数字（解析逻辑失效，非规范漂移）`);
+    const phrase = categoryPhrase[item.key];
+    if (phrase === undefined) drifted.push(`${item.key}: 测试未登记该类的载体判据语句（新增类别须同时补测试，不得静默跳过）`);
+    else if (!gateCarrier.includes(phrase)) drifted.push(`${item.key}: 载体判据语句「${phrase}」不在 point-exclusions 载体里`);
+    const carriedRefs = [...item.carried.matchAll(/([a-z][a-z0-9-]*) 的 ([a-z][a-z0-9-]*(?:／[a-z][a-z0-9-]*)*) 条目/g)];
+    if (carriedRefs.length === 0) {
+      drifted.push(`${item.key}: 承接面没有点名任何载体条目`);
+      continue;
+    }
+    for (const [, carrierKey, ids] of carriedRefs) {
+      let text;
+      try {
+        text = await readFile(join(carriersDir, `${carrierKey}.yaml`), "utf8");
+      } catch {
+        drifted.push(`${item.key}: 承接面点名的载体 ${carrierKey} 不可读`);
         continue;
       }
-      const headingRe = new RegExp(`^#+\\s+${head.replace(/\./g, "\\.")}(?:\\.)?\\s`, "m");
-      if (!headingRe.test(text)) {
-        drifted.push(`${item.key}: 承接条文 ${sec} 在 specs/${file} 无对应标题`);
+      const known = entryIdsOf(text);
+      for (const id of ids.split("／")) {
+        if (!known.has(id)) drifted.push(`${item.key}: 承接面点名的条目 ${carrierKey}/${id} 不存在`);
       }
     }
   }
-  assert.deepEqual(drifted, [], `点位排除常量与规范原文漂移（01 §11.4 禁第二规则源）：\n${drifted.join("\n")}`);
+  assert.deepEqual(drifted, [], `点位排除常量与载体原文漂移（禁第二规则源）：\n${drifted.join("\n")}`);
 });
 
 test("工具描述：点位排除的每个 label **全文**须出现在 ldvh_review_ask 的 summary 里", async () => {
@@ -262,7 +257,7 @@ test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2
     const expected = GATE_POINT_EXCLUSIONS.length;
     values.forEach((v, idx) => {
       const lang = /[㐀-䶿一-鿿]/.test(v) ? "中文" : "英文";
-      // 精简文案可不提「点位排除」字眼，但若写了条数就不得过期（MINOR-2 的复发面）。
+
       for (const m of v.matchAll(/([零一二三四五六七八九十]|[0-9]+)类(?:情况不问|点位排除)/g)) {
         const raw = m[1];
         const got = /^[0-9]+$/.test(raw) ? Number(raw) : numerals.indexOf(raw);
@@ -282,7 +277,6 @@ test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2
   assert.deepEqual(failures, [], `设置页文案中英不同步（行动后复核 MINOR-2 的复发面）：\n${failures.join("\n")}`);
 });
 
-
 test("reviewAskFingerprint：同输入同指纹、异输入异指纹、位置参与指纹", () => {
   const base = { point: "pre-action", task: "改开关", scope: "plugin/lib" };
   assert.equal(reviewAskFingerprint(base), reviewAskFingerprint({ ...base }), "同一件事重试须得到同一指纹（否则重试必重问）");
@@ -291,7 +285,6 @@ test("reviewAskFingerprint：同输入同指纹、异输入异指纹、位置参
   assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ point: "pre-action" }), "缺字段不得与有字段撞指纹");
   assert.match(reviewAskFingerprint(base), /^[a-f0-9]{64}$/);
 });
-
 
 test("composeReviewAsk：只写「要做什么」与「要不要审」，不产出 detail 且不出现判据", () => {
   const pre = composeReviewAsk({ point: REVIEW_ASK_POINTS.PRE_ACTION, task: "重构召回注入" });
@@ -334,7 +327,6 @@ test("开关只认布尔真值：非布尔一律按关（不确定就当关）",
     assert.equal(r.preActionKnown, false, "缺省须报 unknown，不得假装 Human 关掉了");
   }
 });
-
 
 async function withHome(fn) {
   const dir = await mkdtemp(join(tmpdir(), "ldvh-review-ask-"));
@@ -415,7 +407,6 @@ test("载体：无 home resolver 时 fail-closed，不静默当空", async () =>
   assert.equal(read.error.code, "review-ask/unavailable");
 });
 
-
 test("executeReviewAsk：开关关闭时**不得**提问，且如实标注这是设计不是失败", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   let asked = 0;
@@ -470,7 +461,6 @@ test("executeReviewAsk：skip 是合法答复（不得当成拒绝/失败）", a
   assert.equal(env.outcome, "completed", "skip 是明确答复，不是失败");
   assert.equal(env.verification.passed, true);
 });
-
 
 test("reviewAskMode：静默只在询问开关开着时有对象；关着询问时静默不越过它", () => {
   assert.equal(reviewAskMode({ preAction: true, silentRun: false }, "pre-action").mode, "ask");
@@ -566,7 +556,6 @@ test("reviewAskMode：静默键缺失时退回 ask 并标记 silentUnknown（真
   assert.equal(off.mode, "ask");
   assert.equal(off.silentUnknown, false, "显式关掉不是取不到，不得混为一谈");
 });
-
 
 test("两份模板：kind 可区分，且都含五块结构与硬性约束", async () => {
   const { reviewDispatchTemplate } = await import("../lib/review-dispatch-template.js");
@@ -669,7 +658,6 @@ test("模板：只有 task 时它作为对象描述出现且**只出现一次**�
   assert.match(neither, /主控未提供对象描述/);
 });
 
-
 test("renderEnvelope 必须把答复与模板渲染给模型（BLOCKER：原实现恒为 completed）", async () => {
   const { renderEnvelope } = await import("../lib/ldvh-tools.js");
   const mk = (decision, template) => ({
@@ -758,7 +746,6 @@ test("指纹须含会话/项目范围，否则跨项目静默复用（MAJOR #2�
   assert.equal(c, d, "同一会话同一任务应复用（不重复提问）");
 });
 
-
 test("操作声明：effect 必须是 may_change_state（本工具会写答复载体）", async () => {
 	const { REVIEW_ASK_OPERATION } = await import("../lib/review-ask-tool.js");
 	assert.equal(REVIEW_ASK_OPERATION.effect, "may_change_state", "本工具写载体，不得声明为只读");
@@ -786,7 +773,6 @@ test("开关分派只有一处副本（工具面不得另写一遍）", async ()
 	);
 	assert.match(tool, /askEnabledFor\(settings, point\)/);
 });
-
 
 test("弱约束：行动前交还判断依据，且它不改变 decision/outcome", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");

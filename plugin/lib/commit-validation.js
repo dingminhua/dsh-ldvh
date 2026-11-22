@@ -20,14 +20,13 @@ export const HEADER_LANGUAGE_EXEMPTIONS = Object.freeze([
 export const SIGNATURES = ["LDVH-Provider", "LDVH-Model"];
 export const SOURCE_FINGERPRINT = createHash("sha256").update("dsh-ldvh-git-gate-v1", "utf8").digest("hex");
 
-
 export const GATE_RULES = Object.freeze({
   "validation/header_invalid": Object.freeze({ severity: "blocking", description: "first line must be a conventional commit header" }),
   "validation/header_not_chinese": Object.freeze({ severity: "blocking", description: "header description must use Chinese: 09 §5.1 states the message contract in Chinese and requires the 关键变更: literal verbatim, so the description half carries the same language requirement (implementation gap 2026-10-19; two pre-existing Latin headers are registered as exemptions in HEADER_LANGUAGE_EXEMPTIONS)" }),
   "validation/key_changes_required": Object.freeze({ severity: "blocking", description: "body must contain exactly one 关键变更: section with non-empty items" }),
   "validation/signature_trailer_missing": Object.freeze({ severity: "blocking", description: "footer requires exactly one LDVH-Provider: and one LDVH-Model: line" }),
-  "validation/key_change_unmatched": Object.freeze({ severity: "blocking", description: "a 关键变更 item names no staged change (06 §6.1: no items absent from the diff)" }),
-  "validation/staged_path_uncovered": Object.freeze({ severity: "blocking", description: "a staged diff path is covered by no 关键变更 item (06 §6.1: no diff change may be omitted; K1 bidirectional, Human 2026-09-10)" }),
+  "validation/key_change_unmatched": Object.freeze({ severity: "blocking", description: "a 关键变更 item names no staged change (09 §5.1: no items absent from the diff)" }),
+  "validation/staged_path_uncovered": Object.freeze({ severity: "blocking", description: "a staged diff path is covered by no 关键变更 item (09 §5.1: no diff change may be omitted; K1 bidirectional, Human 2026-09-10)" }),
   "validation/signature_provider_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Provider does not match the authoritative session record" }),
   "validation/signature_model_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Model does not match the authoritative session record" }),
   "validation/signature_source_unverifiable": Object.freeze({ severity: "blocking", description: "the authoritative route could not be resolved inside the commit-msg Hook, so the trailers' traceability cannot be verified — 09 §5.5 非 passed 即阻断; rule established by the 09 §8.1 item 2 decision (Human 2026-11-05)" }),
@@ -35,12 +34,6 @@ export const GATE_RULES = Object.freeze({
   "facts/norm_direction_collision": Object.freeze({ severity: "blocking", description: "two or more ACTIVE Norm objects in ldvh-base/norms/ share one direction_key (23 §11 uniqueness second layer: the Git Gate traverses the index and refuses the commit)" }),
   "facts/norm_carrier_unparseable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base/norms/norm-*.md carrier cannot be parsed for the direction_key uniqueness assertion — an unreadable carrier cannot be proven conflict-free, so the gate fails closed rather than passing it" }),
   "validation/docs_reference_dangling": Object.freeze({ severity: "blocking", description: "a newly added or modified non-docs carrier references a docs/ path that does not exist in the candidate tree (09 §5.3 item 5, Human 2026-10-12: docs/ holds temporary documents only and must not be relied on as an authority)" }),
-  "validation/load_bearing_declaration_removed": Object.freeze({ severity: "blocking", description: "a load-bearing declaration present at HEAD is absent from the candidate and no 关键变更 item carries a resolvable independent-review reference (01 §7 末段; 09 §5.3 item 6, Human 2026-10-15)" }),
-  "validation/load_bearing_resolution_missing": Object.freeze({ severity: "blocking", description: "a load-bearing declaration kept its marker but lost its 恢复条件 sub-element, and no 关键变更 item carries a resolvable independent-review reference (01 §7 末段; 09 §5.3 item 6)" }),
-  "validation/load_bearing_baseline_unreadable": Object.freeze({ severity: "blocking", description: "a carrier's HEAD baseline could not be read, so the load-bearing declaration comparison cannot decide — fails closed rather than passing (09 §5.3 item 6)" }),
-  "validation/removal_basis_unquotable": Object.freeze({ severity: "blocking", description: "a 关键变更 item declares a §7.2 removal basis whose quoted sentence does not appear verbatim in the current §7.2 text" }),
-  "validation/removal_basis_empty": Object.freeze({ severity: "blocking", description: "a §7.2 依据： declaration carries no quoted sentence" }),
-  "validation/removal_basis_section_unreadable": Object.freeze({ severity: "blocking", description: "the candidate tree's §7.2 text could not be read, so a declared removal basis cannot be verified (fails closed)" }),
   "git/friction_commit_unresolvable": Object.freeze({ severity: "blocking", description: "a staged friction carrier's informs target names a commit that does not resolve in this repository (26 §11: 目标必须存在且可解析; commit 例外形态同口径) — re-asserted at the commit seam because the writer is bypassable by a direct file write" }),
   "git/friction_commit_malformed": Object.freeze({ severity: "blocking", description: "a staged friction carrier's informs target is not a 40-hex commit hash (02 §8.1 commit 形态)" }),
   "git/friction_commit_unverifiable": Object.freeze({ severity: "blocking", description: "friction commit targets could not be verified because no commit resolver was supplied — fails closed rather than passing an unverified carrier (26 §11)" }),
@@ -107,7 +100,7 @@ export function checkSignatureAgainstRoute(message, route) {
 }
 
 export function isGovernedCommitPath(path) {
-  return path.startsWith("ldvh-base/") || path.startsWith("specs/");
+  return path.startsWith("ldvh-base/") || path.startsWith("specs/") || path.startsWith("plugin-specs/");
 }
 
 export function touchesGovernedContent(paths) {
@@ -143,7 +136,7 @@ export function checkKeyChangesAgainstDiff(message, diff) {
       issues.push(newFinding("validation/staged_path_uncovered", `已改路径 "${path}" 没有任何 关键变更 item 覆盖它（该方向要求：每个非豁免的已暂存改动都须在 关键变更 中被点名，否则等于漏报改动）。补一条点名 "${path}" 的 item 即可。只写它所在的单个目录名不算覆盖（会被判为漏报）；可用写法：完整路径、文件名、\`specs/08\` 这类编号载体前缀，或不少于两级的目录前缀（该路径只有一级目录时，写完整路径或文件名）。`, null));
     }
     if (unmatched.length > 0 && uncovered.length > 0) {
-      issues.push(newFinding("validation/key_changes_required", `关键变更 与已暂存改动是**双向一一对应**关系（06 §6.1 K1）：每个 item 须命中一个已改路径，每个已改路径须被一个 item 命中。本次同时有 ${unmatched.length} 个 item 无对应改动、${uncovered.length} 个改动无对应 item——请一并修正后再提交，不必逐轮试探。`, null));
+      issues.push(newFinding("validation/key_changes_required", `关键变更 与已暂存改动是**双向一一对应**关系（09 §5.1 K1）：每个 item 须命中一个已改路径，每个已改路径须被一个 item 命中。本次同时有 ${unmatched.length} 个 item 无对应改动、${uncovered.length} 个改动无对应 item——请一并修正后再提交，不必逐轮试探。`, null));
     }
     return { ok: false, issues };
   }
@@ -192,7 +185,7 @@ export function isTemporaryDocsPath(path) {
 export function isSpecOrFactCarrierPath(path) {
   if (path === "README.md") return true;
   if (path === "plugin/README.md") return true;
-  return path.startsWith("specs/") || path.startsWith("ldvh-base/");
+  return path.startsWith("plugin-specs/") || path.startsWith("ldvh-base/");
 }
 
 export function extractDocsReferences(text) {
@@ -202,6 +195,33 @@ export function extractDocsReferences(text) {
     if (ref.length > "docs/".length) found.add(ref);
   }
   return [...found];
+}
+
+export function stripChangeLogFromFrontmatter(text) {
+  if (typeof text !== "string") return text;
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return text;
+  const lines = m[1].split(/\r?\n/);
+  const kept = [];
+  let skipping = false;
+  let touched = false;
+  for (const line of lines) {
+    if (!skipping) {
+      if (/^change_log\s*:/.test(line)) {
+        skipping = true;
+        touched = true;
+        continue;
+      }
+      kept.push(line);
+      continue;
+    }
+
+    if (line.trim() === "" || /^[ \t]/.test(line)) continue;
+    skipping = false;
+    kept.push(line);
+  }
+  if (!touched) return text;
+  return text.replace(m[0], `---\n${kept.join("\n")}\n---`);
 }
 
 function isQuotedTruncationArtifact(ref, text, exists) {
@@ -231,13 +251,18 @@ export function checkDocsReferences(carriers, { exists } = {}) {
       ));
       continue;
     }
+
+    const scannable = stripChangeLogFromFrontmatter(carrier.content);
+    const baselineScannable = typeof carrier.baseline === "string"
+      ? stripChangeLogFromFrontmatter(carrier.baseline)
+      : carrier.baseline;
     const preexisting = new Set(
-      typeof carrier.baseline === "string" ? extractDocsReferences(carrier.baseline) : []
+      typeof baselineScannable === "string" ? extractDocsReferences(baselineScannable) : []
     );
-    for (const ref of extractDocsReferences(carrier.content)) {
+    for (const ref of extractDocsReferences(scannable)) {
       if (preexisting.has(ref)) continue;
       if (resolveExists(ref)) continue;
-      if (isQuotedTruncationArtifact(ref, carrier.content, resolveExists)) continue;
+      if (isQuotedTruncationArtifact(ref, scannable, resolveExists)) continue;
       issues.push(newFinding(
         "validation/docs_reference_dangling",
         `${carrier.path} references "${ref}", which does not exist in the candidate tree (09 §5.3 item 5: docs/ is temporary-only and must not be relied on; remove the reference or re-home the content as a fact object)`,
@@ -247,7 +272,6 @@ export function checkDocsReferences(carriers, { exists } = {}) {
   }
   return { ok: issues.length === 0, issues };
 }
-
 
 export const NORM_FACT_DIRECTORY = "ldvh-base/norms";
 
@@ -298,167 +322,6 @@ function parseNormCarrierFrontmatter(content) {
     frontmatter[field[1]] = value;
   }
   return { ok: true, frontmatter };
-}
-
-
-export const LOAD_BEARING_MARKER = "【承重声明】";
-
-export const LOAD_BEARING_RESOLUTION_LABEL = "**恢复条件**：";
-
-export const LOAD_BEARING_RULES = Object.freeze({
-  removed: "validation/load_bearing_declaration_removed",
-  resolutionMissing: "validation/load_bearing_resolution_missing",
-  baselineUnreadable: "validation/load_bearing_baseline_unreadable"
-});
-
-export function isSpecCarrierPath(path) {
-  return typeof path === "string" && path.startsWith("specs/");
-}
-
-export function extractLoadBearingUnits(text) {
-  if (typeof text !== "string" || text.length === 0) return [];
-  const units = [];
-  for (const line of text.split("\n")) {
-    const uses = literalUsesOutsideCodeSpans(line, LOAD_BEARING_MARKER);
-    if (uses.length === 0) continue;
-    const rest = line.slice(uses[0] + LOAD_BEARING_MARKER.length).trim();
-    const cut = rest.search(/[|｜：:]/);
-    const anchor = (cut >= 0 ? rest.slice(0, cut) : rest).replace(/\*\*|\s+/g, " ").trim().slice(0, 40);
-    if (anchor.length === 0) continue;
-    units.push({ anchor, hasResolution: literalUsesOutsideCodeSpans(line, LOAD_BEARING_RESOLUTION_LABEL).length > 0 });
-  }
-  return units;
-}
-
-function literalUsesOutsideCodeSpans(line, literal) {
-  const offsets = [];
-  let from = 0;
-  for (;;) {
-    const at = line.indexOf(literal, from);
-    if (at < 0) return offsets;
-    const backticks = (line.slice(0, at).match(/`/g) ?? []).length;
-    if (backticks % 2 === 0) offsets.push(at);
-    from = at + literal.length;
-  }
-}
-
-const REFERENCE_UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
-const REFERENCE_COMMIT_PATTERN = /(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])/g;
-
-export function collectDeclarationReferenceTokens(message) {
-  const lines = String(message ?? "").replace(/\r\n/g, "\n").split("\n");
-  const keyIndex = lines.findIndex((line) => line === "关键变更:");
-  if (keyIndex === -1) return [];
-  const tokens = new Set();
-  for (const line of lines.slice(keyIndex + 1)) {
-    if (line === "关键变更:") break;
-    if (!line.startsWith("- ")) continue;
-    const text = line.slice(2);
-    const spans = [];
-    for (const match of text.matchAll(REFERENCE_UUID_PATTERN)) {
-      tokens.add(match[0]);
-      spans.push([match.index, match.index + match[0].length]);
-    }
-    for (const match of text.matchAll(REFERENCE_COMMIT_PATTERN)) {
-      const start = match.index;
-      const end = start + match[0].length;
-      if (spans.some(([from, to]) => start < to && end > from)) continue;
-      tokens.add(match[0]);
-    }
-  }
-  return [...tokens];
-}
-
-export function checkLoadBearingDeclarations(carriers, { message, resolvable, unreadable } = {}) {
-  const issues = [];
-  for (const path of Array.isArray(unreadable) ? unreadable : []) {
-    issues.push(newFinding(
-      LOAD_BEARING_RULES.baselineUnreadable,
-      `baseline unreadable for ${path}: the load-bearing declaration check cannot decide, and fails closed (09 §5.3 item 6)`,
-      null
-    ));
-  }
-  const isResolvable = typeof resolvable === "function"
-    ? resolvable
-    : (token) => resolvable instanceof Set && resolvable.has(token);
-  const exemption = collectDeclarationReferenceTokens(message).find((token) => isResolvable(token)) ?? null;
-  if (exemption !== null) return { ok: issues.length === 0, issues, exemption };
-  for (const carrier of Array.isArray(carriers) ? carriers : []) {
-    if (!isSpecCarrierPath(carrier?.path)) continue;
-    const base = extractLoadBearingUnits(carrier.baseline);
-    if (base.length === 0) continue;
-    const byAnchor = new Map(extractLoadBearingUnits(carrier.content).map((unit) => [unit.anchor, unit]));
-    for (const unit of base) {
-      const found = byAnchor.get(unit.anchor);
-      if (found === undefined) {
-        issues.push(newFinding(
-          LOAD_BEARING_RULES.removed,
-          `${carrier.path}: 承重声明「${unit.anchor}」 is present at HEAD but absent from the candidate — removing or rewriting a load-bearing declaration requires a resolvable independent-review reference in a 关键变更 item (01 §7 末段; 09 §5.3 item 6)`,
-          null
-        ));
-      } else if (!found.hasResolution) {
-        issues.push(newFinding(
-          LOAD_BEARING_RULES.resolutionMissing,
-          `${carrier.path}: 承重声明「${unit.anchor}」 lost its ${LOAD_BEARING_RESOLUTION_LABEL} sub-element — same requirement as removal (01 §7 末段; 09 §5.3 item 6)`,
-          null
-        ));
-      }
-    }
-  }
-  return { ok: issues.length === 0, issues, exemption: null };
-}
-
-export const REMOVAL_BASIS_LABEL = "§7.2 依据：";
-export const REMOVAL_BASIS_RULES = Object.freeze({
-  unquotable: "validation/removal_basis_unquotable",
-  empty: "validation/removal_basis_empty",
-  sectionUnreadable: "validation/removal_basis_section_unreadable",
-});
-
-export function collectRemovalBasisDeclarations(message) {
-  const out = [];
-  for (const raw of String(message ?? "").replace(/\r\n/g, "\n").split("\n")) {
-    const line = raw.trim();
-    const uses = literalUsesOutsideCodeSpans(line, REMOVAL_BASIS_LABEL);
-    if (uses.length === 0) continue;
-    const at = uses[0] + REMOVAL_BASIS_LABEL.length;
-    out.push(line.slice(at).trim());
-  }
-  return out;
-}
-
-export function extractSectionText(specText, sectionHeading = "### 7.2") {
-  const text = String(specText ?? "").replace(/\r\n/g, "\n");
-  const start = text.indexOf(sectionHeading);
-  if (start === -1) return null;
-  const rest = text.slice(start + sectionHeading.length);
-  const next = rest.search(/\n#{2,3} /);
-  return next === -1 ? rest : rest.slice(0, next);
-}
-
-export function checkRemovalBasisDeclarations({ message, sectionText, sectionTexts } = {}) {
-  const declared = collectRemovalBasisDeclarations(message);
-  if (declared.length === 0) return { ok: true, issues: [], declarations: 0 };
-  const issues = [];
-  const raw = Array.isArray(sectionTexts) ? sectionTexts : [sectionText];
-  const known = raw.filter((text) => typeof text === "string").map((text) => text.replace(/\s+/g, " ").trim());
-  const unreadable = raw.length > 0 && known.length === 0;
-  const normalized = known.length === 0 ? null : known;
-  for (const quote of declared) {
-    if (quote.length === 0) {
-      issues.push(newFinding(REMOVAL_BASIS_RULES.empty, `${REMOVAL_BASIS_LABEL} must carry the quoted §7.2 sentence (09 §5.3 item 7)`, null));
-      continue;
-    }
-    if (unreadable) {
-      issues.push(newFinding(REMOVAL_BASIS_RULES.sectionUnreadable, `§7.2 text is unreadable in both HEAD and the candidate tree, so the declared basis cannot be verified: ${quote.slice(0, 60)} (09 §5.3 item 7, fails closed)`, null));
-      continue;
-    }
-    const needle = quote.replace(/\s+/g, " ").trim();
-    if (normalized !== null && !normalized.some((text) => text.includes(needle))) {
-      issues.push(newFinding(REMOVAL_BASIS_RULES.unquotable, `${REMOVAL_BASIS_LABEL} quotes a sentence absent from the current §7.2 text: ${quote.slice(0, 60)} (09 §5.3 item 7 — 无原文即不得删)`, null));
-    }
-  }
-  return { ok: issues.length === 0, issues, declarations: declared.length };
 }
 
 export function isNormCarrierPath(path) {
@@ -518,7 +381,6 @@ export async function checkFrictionCommitTargets(carriers, { resolves } = {}) {
   }
   return { ok: issues.length === 0, issues, checked };
 }
-
 
 const CARRIER_ID_SEGMENT =
   "(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})";

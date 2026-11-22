@@ -1,5 +1,3 @@
-export const ASK_TEXT_MAX_CHARS = 200;
-
 const ALLOWED_QUESTION_KEYS = Object.freeze([
   "id", "question", "header", "options", "multi_select", "multiSelect",
 ]);
@@ -35,9 +33,6 @@ export function validateAskText(request) {
     }
     if (typeof item.question !== "string" || item.question.trim().length === 0) {
       return { ok: false, reason: `第 ${index + 1} 题缺少非空 question（Title）` };
-    }
-    if (item.question.length > ASK_TEXT_MAX_CHARS) {
-      return { ok: false, reason: `第 ${index + 1} 题 question 为 ${item.question.length} 字符，超出 ${ASK_TEXT_MAX_CHARS} 字符上限；请重写为更短的标题后重发（不会截断，也不会改写）` };
     }
     if (item.options !== undefined) {
       if (!Array.isArray(item.options)) {

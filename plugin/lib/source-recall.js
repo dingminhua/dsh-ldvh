@@ -3,9 +3,10 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
+import { loadRecallCriteria, loadRecallCriteriaBundle, typeKeyDerivedWords } from "./recall-criteria.js";
 import { FRICTION_DEFAULT_CANDIDATE_STATUSES } from "./friction-writer.js";
 import { normPositioningOf, positioningExcerptLine } from "./norm-positioning.js";
+import { RUNTIME_CARRIER_RECALL_LIMIT, matchRuntimeCarriers } from "./runtime-carrier-reader.js";
 
 
 export const MATCHED_FACT_FIELDS = Object.freeze([
@@ -46,9 +47,13 @@ export function recallStatusPolicyOf(criteria, type) {
     }
   }
   const parseFailed = (criteria?.errors ?? []).some((error) => error.type === type);
+  const named = DEFAULT_STATUSES_BY_TYPE[type];
+  if (named === undefined) {
+    return { kind: parseFailed ? "disabled" : "unregistered", statuses: [] };
+  }
   return {
     kind: parseFailed ? "disabled" : "fallback",
-    statuses: DEFAULT_STATUSES_BY_TYPE[type] ?? DEFAULT_STATUSES_FALLBACK,
+    statuses: named,
   };
 }
 
@@ -665,10 +670,17 @@ export async function loadSpecs(specsDir) {
   });
 }
 
+export async function loadRecallCriteriaForRoot(root, specsSource = undefined) {
+  const source = specsSource === null || specsSource === undefined
+    ? await resolveSpecsRoot(root)
+    : specsSource;
+  if (source !== null) return await loadRecallCriteria(source.dir);
+  const bundled = await loadRecallCriteriaBundle();
+  return bundled.unreadable === true ? null : bundled;
+}
+
 async function resolveRecallCriteriaForFacts(baseDir) {
-  const specsSource = await resolveSpecsRoot(dirname(baseDir));
-  if (specsSource === null) return null;
-  return loadRecallCriteria(specsSource.dir);
+  return loadRecallCriteriaForRoot(dirname(baseDir));
 }
 
 function coreFieldTextOf(fm, field) {
@@ -1152,12 +1164,39 @@ export function selectFactsBySection(hits, plan = {}) {
   return { selected, groups, droppedByQuota, droppedByTotal, unassigned, unassignedByType };
 }
 
+function unregisteredStatusTypesOf(facts) {
+  return [...new Set(
+    facts
+      .filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type))
+      .filter((fact) => DEFAULT_STATUSES_BY_TYPE[fact.type] === undefined)
+      .map((fact) => fact.type),
+  )].sort();
+}
+
+function unregisteredStatusGapOf(types, reason) {
+  return `该类型的机械判据不可用，故不作为候选：${types.join("、")}（${reason}）`;
+}
+
+function criteriaTierGapOf(criteria) {
+  if (criteria?.tier !== "package-data") return null;
+  return "判据表来源：包内数据文件，由类型规范判据表生成（非规范源原文）";
+}
+
 function criteriaGapsOf(criteria, facts) {
   const gaps = [];
+  const unregisteredStatusTypes = unregisteredStatusTypesOf(facts);
   if (criteria === null) {
-    gaps.push("判据表不可用：未找到任何规范源，全部事实类型的机器判据已停用（类型点名／核心语义字段／关系展开不生效）");
+    gaps.push("判据表不可用：未找到规范源，也没有可用包内判据表数据文件，全部事实类型的机器判据已停用（类型点名／核心语义字段／关系展开不生效）");
+    if (unregisteredStatusTypes.length > 0) {
+      gaps.push(unregisteredStatusGapOf(
+        unregisteredStatusTypes,
+        "判据表不可读，且这些类型没有登记机械值，不按任何兜底状态放行",
+      ));
+    }
     return gaps;
   }
+  const tierGap = criteriaTierGapOf(criteria);
+  if (tierGap !== null) gaps.push(tierGap);
   for (const error of criteria.errors) {
     gaps.push(`判据表不可用（${error.type ?? "未知类型"}／规范 ${error.specId ?? "?"}）：${error.code}：${error.message}`);
   }
@@ -1169,6 +1208,12 @@ function criteriaGapsOf(criteria, facts) {
     if (policy.kind === "disabled") continue;
     if (policy.kind === "fallback") {
       gaps.push(`判据表未登记该类型（${type}）：默认候选状态回落具名兜底 ${policy.statuses.join("/")}，类型点名／核心语义字段／关系展开不生效（该类型尚无判据表条目，不是判据表损坏）`);
+    }
+    if (policy.kind === "unregistered") {
+      gaps.push(unregisteredStatusGapOf(
+        [type],
+        "该类型没有判据表条目，也没有登记机械值，不按任何兜底状态放行",
+      ));
     }
   }
   return gaps;
@@ -1275,7 +1320,6 @@ export async function recallForAction(input = {}) {
     ? input.statuses : null;
   const types = Array.isArray(input.types) ? input.types : null;
   const excludedTypes = Array.isArray(input.excludeTypes) ? input.excludeTypes : null;
-  const includeSpecs = input.includeSpecs !== false;
   const facet = (name) => {
     const v = input[name];
     if (typeof v !== "string") return null;
@@ -1313,22 +1357,38 @@ export async function recallForAction(input = {}) {
   }
 
   const root = input.root ?? join(import.meta.dirname, "..", "..");
-  const specsSource = includeSpecs ? await resolveSpecsRoot(root) : null;
-  const criteriaSource = specsSource ?? (await resolveSpecsRoot(root));
-  const criteria = criteriaSource === null ? null : await loadRecallCriteria(criteriaSource.dir);
+  const specsSource = await resolveSpecsRoot(root);
+  const criteria = await loadRecallCriteriaForRoot(root, specsSource);
   const statusPolicy = (type) => recallStatusPolicyOf(criteria, type);
   const statusAllowed = (type, status) => {
     if (explicitStatuses !== null) return explicitStatuses.includes(status);
     const policy = statusPolicy(type);
-    if (policy.kind === "non-candidate") return false;
+    if (policy.kind === "non-candidate" || policy.kind === "unregistered") return false;
     return policy.statuses.includes(status);
   };
   const factsDir = join(root, "ldvh-base");
-  const [specs, facts, factsReadable] = await Promise.all([
-    specsSource === null ? [] : loadSpecs(specsSource.dir),
+  const [facts, factsReadable] = await Promise.all([
     loadFacts(factsDir, { criteria }),
     isReadableDir(factsDir),
   ]);
+  const specs = [];
+
+  const includeCarriers = input.includeCarriers !== false;
+  const carrierSource = includeCarriers
+    ? await matchRuntimeCarriers({ root, query, limit: RUNTIME_CARRIER_RECALL_LIMIT })
+    : {
+      ok: true,
+      available: false,
+      missing: false,
+      dir: null,
+      tier: null,
+      carriers: [],
+      counts: { scanned: 0, hits: 0, returned: 0 },
+      truncated: false,
+      invalid: [],
+      note: "运行时机制载体未读取（includeCarriers:false）",
+    };
+  const allCarrierHits = carrierSource.carriers.map((carrier) => ({ ...carrier }));
 
   const scopedFacts = excludedTypes === null
     ? facts
@@ -1503,15 +1563,15 @@ export async function recallForAction(input = {}) {
   const overBudget =
     used + RENDER_FIXED_OVERHEAD_BYTES + l0Bytes > budgetBytes;
 
-  const specSideUnreadable = includeSpecs && specsSource === null;
   const factSideUnreadable = !factsReadable;
-  const sourceUnreadable = specSideUnreadable || factSideUnreadable;
+  const carrierSideUnreadable = includeCarriers && carrierSource.missing === true;
+  const sourceUnreadable = factSideUnreadable;
   const returnedCount = keptSpecs.length + keptFacts.length;
+  const carrierReturnedCount = allCarrierHits.length;
   const recallCompletenessValue = (() => {
     const filteredOut = scopedFacts.length - pool.length > 0;
-    const singleSourceByCaller = includeSpecs === false;
-    if (sourceUnreadable && returnedCount === 0) return "unavailable";
-    if (truncated || filteredOut || sourceUnreadable || singleSourceByCaller) return "partial";
+    if (sourceUnreadable && returnedCount === 0 && carrierReturnedCount === 0) return "unavailable";
+    if (truncated || filteredOut || sourceUnreadable) return "partial";
     return "complete";
   })();
 
@@ -1521,6 +1581,24 @@ export async function recallForAction(input = {}) {
     query: { action, scope: input.scope ?? "", tokens: tokens.length },
     specs: keptSpecs,
     facts: keptFacts,
+    runtimeCarriers: {
+      available: carrierSource.available === true,
+      read: includeCarriers,
+      tier: carrierSource.tier ?? null,
+      dir: carrierSource.dir ?? null,
+      candidates: allCarrierHits,
+      counts: {
+        scanned: carrierSource.counts.scanned,
+        hits: carrierSource.counts.hits,
+        returned: carrierReturnedCount,
+      },
+      truncated: carrierSource.truncated === true,
+      missing: carrierSource.missing === true,
+      invalid: carrierSource.invalid,
+      note: carrierSource.note,
+      locatorFields: ["canonicalPath", "readablePath", "entryIds"],
+      provesApplicability: false,
+    },
     l0Enumeration: {
       order: [...L0_SEGMENT_ORDER],
       segments: l0Plan.segments,
@@ -1557,13 +1635,18 @@ export async function recallForAction(input = {}) {
       disabledTypes: disabledCriteriaTypes,
       fallbackTypes: fallbackStatusTypes,
       nonCandidateTypes,
-      note: "判据表不可用的类型已停用类型点名／核心语义字段／关系展开，按 partial 口径披露",
+      tier: criteria === null ? null : criteria.tier,
+      note: criteria === null
+        ? "判据表不可用（未找到规范源，也没有可用包内判据表数据文件）：类型点名／核心语义字段／关系展开全部停用，按 partial 口径披露"
+        : `${criteria.tier === "package-data" ? "判据表来源：包内数据文件（由类型规范判据表构建期生成，非规范源原文）；" : "判据表来源：规范源（开发形态）；"}判据表不可用的类型已停用类型点名／核心语义字段／关系展开，按 partial 口径披露`,
     },
     counts: {
       specHits: allSpecHits.length,
       factHits: allFactHits.length,
+      carrierHits: carrierSource.counts.hits,
       specsReturned: keptSpecs.length,
       factsReturned: keptFacts.length,
+      carriersReturned: carrierReturnedCount,
       candidatesScanned: specs.length + pool.length,
       candidatesExcluded: scopedFacts.length - pool.length,
     },
@@ -1575,25 +1658,33 @@ export async function recallForAction(input = {}) {
     unchecked: {
       specs: diffByPath(allSpecHits, keptSpecs),
       facts: diffByPath(allFactHits, keptFacts),
+      runtimeCarriers: (carrierSource.unchecked ?? []).map((carrier) => ({
+        title: carrier.title,
+        path: carrier.readablePath ?? carrier.canonicalPath,
+        canonicalPath: carrier.canonicalPath,
+      })),
     },
     gaps: [
       ...criteriaGapsOf(criteria, scopedFacts),
-      ...(includeSpecs && specsSource === null
-        ? ["来源视图缺失：规范源三级回退（01 §10.3）均无可用语料"]
-        : []),
       ...[...allSpecHits, ...allFactHits].some((c) => c.source?.contentFingerprint?.value === undefined)
         ? ["部分载体内容指纹缺失"]
         : [],
       ...(recallCompletenessValue === "unavailable"
         ? ["完成范围：一源不可读且未取得任何候选，无法给出任何结果"]
         : []),
-      ...(specSideUnreadable
-        ? ["规范源不可读：01 §10.3 三级回退均无可用语料，该源未检查"]
+      ...(includeCarriers ? [] : ["运行时机制载体未读取（includeCarriers:false）"]),
+      ...(carrierSideUnreadable
+        ? ["运行时机制载体源缺失：项目内 plugin-specs/ 不存在或不可读，该源未检查"]
+        : []),
+      ...(carrierSource.invalid.length > 0
+        ? [`运行时机制载体有 ${carrierSource.invalid.length} 份未能解析：${carrierSource.invalid.map((item) => item.file ?? "?").join("、")}`]
+        : []),
+      ...(carrierSource.truncated === true
+        ? [`运行时机制载体侧按相关度截断：命中 ${carrierSource.counts.hits} 份，返回 ${carrierSource.counts.returned} 份`]
         : []),
       ...(factSideUnreadable
         ? ["事实源不可读：项目内 ldvh-base/ 不存在或不可读，该源未检查"]
         : []),
-      ...(includeSpecs ? [] : ["规范源未读取（includeSpecs:false）"]),
       "既有行动结构路由未实现（10 §5.3 要求；无可路由载体，见 limitations.unimplemented）",
       ...(() => {
         const unknown = scopedFacts.filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type));
@@ -1622,7 +1713,7 @@ export async function recallForAction(input = {}) {
       setAudit: {
         status: specs.length + facts.length === 0 ? "unavailable" : "complete",
         notCompleted: specs.length + facts.length === 0
-          ? ["事实源与规范源均未读到"]
+          ? ["事实源未读到"]
           : [],
         note: "本实现一次读完全部载体（不建索引、不分页载入），故载入阶段无部分完成状态；本次召回的截断另见 recallCompleteness",
       },
@@ -1635,11 +1726,15 @@ export async function recallForAction(input = {}) {
       excludedByStatus: scopedFacts
         .filter((fact) => types === null || types.includes(fact.type))
         .filter((fact) => statusPolicyOfType(fact.type).kind !== "non-candidate")
+        .filter((fact) => statusPolicyOfType(fact.type).kind !== "unregistered")
         .filter((fact) => !statusAllowed(fact.type, fact.status))
         .map((fact) => ({ type: fact.type, status: fact.status, title: fact.title, path: fact.path })),
       excludedByNonCandidate: scopedFacts
         .filter((fact) => types === null || types.includes(fact.type))
-        .filter((fact) => statusPolicyOfType(fact.type).kind === "non-candidate")
+        .filter((fact) => {
+          const kind = statusPolicyOfType(fact.type).kind;
+          return kind === "non-candidate" || kind === "unregistered";
+        })
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
       excludedByFacet: appliedFacets.length === 0 ? [] : scopedFacts
         .filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type))
@@ -1688,11 +1783,12 @@ export async function recallForAction(input = {}) {
         ),
       },
       sourceNotRead: [
-        ...(includeSpecs ? [] : ["规范源（includeSpecs:false，未读取）"]),
-        ...(specSideUnreadable ? ["规范源（01 §10.3 三级回退均无可用语料，不可读，未读取）"] : []),
+        "specs/ 需求文档不进入运行期召回（只作判据表构建期来源；正文用常规文件读取，不分层）",
         ...(factSideUnreadable ? ["事实源（项目内 ldvh-base/ 不存在或不可读，未读取）"] : []),
+        ...(includeCarriers ? [] : ["运行时机制载体（includeCarriers:false，未读取）"]),
+        ...(carrierSideUnreadable ? ["运行时机制载体（项目内 plugin-specs/ 不存在或不可读，未读取）"] : []),
       ],
-      note: `本次实际扫描：${specSideUnreadable ? "规范源不可读（未扫描）" : includeSpecs ? `规范源（01 §10.3 第 ${specsSource?.tier === "project" ? "1（项目自著）" : specsSource?.tier === "source-repo" ? "2（插件源仓库）" : "3（插件包内副本）"}级）` : "规范源（includeSpecs:false，未扫描）"}；${factSideUnreadable ? "事实源 ldvh-base/ 不存在或不可读（未扫描）" : "事实源（项目内 ldvh-base/）"}。其它目录、其它 worktree、回退来源之外的语料均未检查`,
+      note: `本次实际扫描：specs/ 仅作判据表来源、不召回候选；${factSideUnreadable ? "事实源 ldvh-base/ 不存在或不可读（未扫描）" : "事实源（项目内 ldvh-base/）"}；${!includeCarriers ? "运行时机制载体未读取（includeCarriers:false）" : carrierSideUnreadable ? "运行时机制载体 plugin-specs/ 不存在或不可读（未扫描）" : `运行时机制载体（plugin-specs/，${carrierSource.counts.scanned} 份）`}。其它目录、其它 worktree、回退来源之外的语料均未检查`,
     },
     ranking: {
       keys: ["tier", "hits", "path"],
@@ -1727,9 +1823,12 @@ export async function recallForAction(input = {}) {
       ],
     },
     sourceView: {
-      specs: specsSource === null ? null : { tier: specsSource.tier, dir: specsSource.dir },
-      specsAreProjectAuthored: specsSource !== null && specsSource.tier === "project",
+      specs: null,
+      specsAreProjectAuthored: false,
       facts: { dir: join(root, "ldvh-base") },
+      runtimeCarriers: includeCarriers && carrierSource.dir !== null
+        ? { tier: carrierSource.tier, dir: carrierSource.dir, read: true }
+        : { tier: null, dir: null, read: false },
     },
   };
 }

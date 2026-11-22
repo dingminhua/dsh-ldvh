@@ -8,36 +8,6 @@ import { getTypeLabel, type LocaleKey } from '@/i18n/locales';
 import { getCategoryColor } from '@/utils/categoryColors';
 import { useI18n } from '@/i18n/context';
 
-/**
- * 帮助页（`/help`）——一份**操作手册**，不是一块看板。
- *
- * ## 版式主张（2026-11-19 重构）
- *
- * 上一版把每样东西都装进同一副壳里：声明、提示、形态、条目、清单、阶梯全是
- * 「1px 边框 + 白底 + 12px 圆角」，一屏十几个框。框与框同权，读者分不出
- * 「哪几条是同一件事」「哪一句是结论」——**线的数量**没有换来**层级的数量**。
- *
- * 这一版换成一个印刷手册的读法：**一章一张纸**。
- *
- * - 章节内同类东西收进一张纸（`.ldvh-help-sheet`），纸内是细线分隔的账页行；
- *   页面上「纸」的个数是一到两张，而不是十几张。框少了，框才有意义。
- * - 行内用「标签栏 + 值」两列（`.ldvh-help-fields`）：标签栏宽度固定，于是
- *   七类对象的「它是什么／什么时候产生／你去看什么」竖成三条竖线，可以跨
- *   条目往下扫——这是卡片网格做不到的（卡片的行高各不相同，谁也不对齐）。
- * - 层级只靠两样东西：字号（20 / 16 / 14）与线（分节线、行线）。不靠盒子，
- *   也不给每段加背景。分组眉标压在一条分节线上，读者一眼知道「新的一组」。
- * - 整页收进**一条 52rem 的文档列**（`.ldvh-help-column`）：页头、声明、切换区
- *   与正文共用一个右缘，正文与导语再限到 40rem——此前满宽铺到 964px，一行
- *   五十余汉字，眼睛要来回扫。
- * - 主线五段**不进网格**：排进 `ldvh-section-grid` 会折成 2+2+1，末段孤零零
- *   悬在左半边，读起来是表格的残行；但它们之间也没有来源已成立的先后序号
- *   （`01` §1.5 第 12 条），所以只是一张纸上的五行、顺读，不给编号。
- *
- * 呈现件仍按 `docs/14-Help.md` §1.2 的九类登记，每类一个定义点、根元素不换；
- * 换的是壳与排布，不是类型集合。九类之所以能收进「纸」，是因为它们本来就
- * 是同一种东西的不同排版：一张纸里可以放七行条目、五行必停、三层阶梯。
- */
-
 const OVERVIEW_COMPARE: { icon: string; title: LocaleKey; symptom: LocaleKey; answer: LocaleKey }[] = [
   { icon: 'ai', title: 'help.overview.ai.title', symptom: 'help.overview.ai.symptom', answer: 'help.overview.ai.answer' },
   { icon: 'human', title: 'help.overview.human.title', symptom: 'help.overview.human.symptom', answer: 'help.overview.human.answer' },
@@ -239,13 +209,6 @@ const SYSTEM_MAP: {
   },
 ];
 
-/**
- * 声明的三层。
- *
- * `markClass` 是**形状先分级、颜色再补语义**：已证实＝实心方，未证实＝空心方，
- * 残留风险＝虚线方。只靠绿/灰/琥珀三色分级，在色弱读者眼里是三种深浅不同的
- * 灰；形状不同，则先读得出「这一层比上一层弱」，再读得出「它是哪一种」。
- */
 const TRUST_LAYERS: {
   key: string;
   title: LocaleKey;
@@ -364,9 +327,7 @@ export default function Help() {
       </div>
 
       <article ref={panelRef} className="ldvh-help-column min-w-0 pb-8">
-        {/* 章首是一块**有底面**的开篇带，不是三行裸文字：一块淡强调底把「从
-            这里开始读」画出来，实心方块把眼睛钉在分区名上，导语收尾。此前首屏
-            是三块低对比文本（页名、说明、声明）压在分区名上，读者不知道自己在哪。 */}
+        {}
         <header className="ldvh-help-opener mt-5">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-ldvh-accent text-white dark:text-ldvh-bg">
@@ -391,13 +352,6 @@ export default function Help() {
   );
 }
 
-/**
- * 章末的去处：把七个分区连成一条读得下去的路。
- *
- * 在此之前，每章读到底就是页面底——读者想知道「接下来该看什么」只能回头看
- * 切换区。给一个「下一章」的出口，手册才有先后；末章不画这一条（没有下一章
- * 就不该出现一个空出口）。
- */
 function ChapterFooter({ tab, onJump }: { tab: TabId; onJump: (id: TabId) => void }) {
   const { t } = useI18n();
   const index = TABS.findIndex((entry) => entry.id === tab);
@@ -418,13 +372,6 @@ function ChapterFooter({ tab, onJump }: { tab: TabId; onJump: (id: TabId) => voi
   );
 }
 
-/**
- * 声明条：页面级限定，常驻页头正下方。
- *
- * 用中性纸面而不是强调色染底：染底会让它读成「提示/告警」，而它讲的是
- * 这一页的**效力边界**（本页不是规则源）。图标取强调色，是这条声明唯一
- * 需要的重量。
- */
 function Notice({ children }: { children: ReactNode }) {
   return (
     <div data-presentation="notice" className="ldvh-help-scope">
@@ -436,13 +383,6 @@ function Notice({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * 对照表：短板 → 典型表现 → LDVH 怎么做。
- *
- * 三列在宽处并排、窄处自然折行（`flex-wrap`，不引断点）。行为「主列」的
- * 第三列保留极浅强调底色——它是这一行的结论，读者扫右边缘就能把「机制」
- * 一列读下来。
- */
 function CompareTable({ rows }: { rows: typeof OVERVIEW_COMPARE }) {
   const { t } = useI18n();
   return (
@@ -450,8 +390,7 @@ function CompareTable({ rows }: { rows: typeof OVERVIEW_COMPARE }) {
       <div className="ldvh-help-compare-head flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-ldvh-border px-4 py-2.5">
         <span className="ldvh-caption-strong w-40 shrink-0">{t('help.overview.shortcomingLabel')}</span>
         <span className="ldvh-caption-strong min-w-[15rem] flex-1">{t('help.overview.symptomLabel')}</span>
-        {/* 表头与数据行同染一层强调底色：结论列的色带从表头贯到末行，才读得出
-            「右边这一列是答案」。只染数据行时表头是白的，色带在顶上断掉。 */}
+        {}
         <span className="ldvh-caption-strong min-w-[15rem] flex-1 rounded-md bg-ldvh-accent/10 px-2.5 py-1.5">
           {t('help.overview.answerLabel')}
         </span>
@@ -475,24 +414,11 @@ function CompareTable({ rows }: { rows: typeof OVERVIEW_COMPARE }) {
   );
 }
 
-/**
- * 形态：一格形态，两种排法。
- *
- * · 并列（默认）—— 「如何开始」的两条起点：网格里并肩的两格，只给一条上边线、
- *   不套卡框，两格并肩时读作「二选一」，不是两张卡片。
- * · 顺读（`stacked`）—— 主线五段：同一张纸上的五行，行间一条发丝线。五段排进
- *   网格会折成 2+2+1，末段孤零零悬在左半边，读者看到的是表格而不是一条线；
- *   而它们之间**没有来源已成立的先后序号**（`01` §1.5 第 12 条、「内容纪律」
- *   第 10 条），所以既不排成流水线、也不给编号——顺序由导语的「不是必须照走」
- *   交代，不靠序号假装。
- */
 function StageCard({ stage, stacked = false }: { stage: StageShape; stacked?: boolean }) {
   const { t } = useI18n();
   return (
     <article data-presentation="stage" className={stacked ? 'ldvh-help-entry' : 'ldvh-help-stage'}>
-      {/* 标题前不放类型图标：一格形态的产物不止一类（老项目 = 报告 + 目标 + 子
-          目标），十五像素的图标位塞两三个必然叠在一起；产物已由下一行入口逐
-          个点名，图标在这里只是把同一个信息再挤一遍。 */}
+      {}
       <h3 className="ldvh-card-title min-w-0">{t(stage.title)}</h3>
       <p className="ldvh-body mt-1 max-w-[40rem]">{t(stage.body)}</p>
       {stage.links.length > 0 ? (
@@ -506,14 +432,6 @@ function StageCard({ stage, stacked = false }: { stage: StageShape; stacked?: bo
   );
 }
 
-/**
- * 一行账的抬头：图标 + 条目标题 + 右端的去往入口。
- *
- * `tint` 给对象类型用：图标落在一块 12% 的类型色方块上。七类对象的类型色
- * 此前只染 15px 的图标本身，扫一列下来几乎看不出区别；一块淡色方块让每一行
- * 有了自己的颜色身份，也给了这一列纵向的节奏。系统与入口没有类型色，不传
- * `tint`，图标就还是灰的。
- */
 function EntryHead({
   icon,
   title,
@@ -539,13 +457,6 @@ function EntryHead({
   );
 }
 
-/**
- * 条目账：一条对象／一个系统／一类交互入口。
- *
- * 「标签栏 + 值」两列是这个页面最主要的改进：标签栏固定 6.5rem，七条账的
- * 标签因此竖成一条竖线。卡片网格里每张卡各写一遍「它是什么／什么时候产生」，
- * 读者既数不出有几种问法，也比不了同一问法下的七个答案。
- */
 function EntryCard({
   icon,
   title,
@@ -583,7 +494,6 @@ function EntryCard({
   );
 }
 
-/** 行式清单：一张纸上的若干行，行内容是插槽。 */
 function RowList({ rows }: { rows: { key: string; content: ReactNode }[] }) {
   return (
     <ul data-presentation="rows" className="ldvh-help-sheet">
@@ -596,7 +506,6 @@ function RowList({ rows }: { rows: { key: string; content: ReactNode }[] }) {
   );
 }
 
-/** 标签阵列：一屏扫得完的并列短语（否定项清单、对象入口）。 */
 function ChipList({ items }: { items: { key: string; content: ReactNode }[] }) {
   return (
     <ul data-presentation="chips" className="flex flex-wrap gap-2">
@@ -609,7 +518,6 @@ function ChipList({ items }: { items: { key: string; content: ReactNode }[] }) {
   );
 }
 
-/** 步骤清单：`ol`，顺序写进标记，读屏器才念得出「第 1 项，共 2 项」。 */
 function StepList({ children }: { children: ReactNode }) {
   return (
     <ol data-presentation="steps" className="mt-6 flex min-w-0 flex-col">
@@ -618,7 +526,6 @@ function StepList({ children }: { children: ReactNode }) {
   );
 }
 
-/** 信任阶梯：三层声明，块首标记按形状分级（实心 / 空心 / 虚线）。 */
 function Ladder({ layers }: { layers: typeof TRUST_LAYERS }) {
   const { t } = useI18n();
   return (
@@ -641,12 +548,6 @@ function Ladder({ layers }: { layers: typeof TRUST_LAYERS }) {
   );
 }
 
-/**
- * 旁注：一段补充，不是一条设置。
- *
- * 只用一条上边线把它挂在前文之下（实线是行边界，本页不引入第二种线型），
- * 不再套边框——同页已经有「纸」，旁注再成盒就又是两套壳。
- */
 function Hint({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <div data-presentation="hint" className="ldvh-help-note">
@@ -666,13 +567,10 @@ function GroupLabel({ children }: { children: ReactNode }) {
   return <p className="ldvh-section-title">{children}</p>;
 }
 
-/** 分节：一条上边线 + 上下的空间。只有线没有空间，分组仍会糊成一片。 */
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
     <section className="mt-9">
-      {/* 眉标压在同一条分节线上：线从标签右侧一直划到列尾。此前是「一条通栏
-          线 + 线下 20px 一个标签」，标签悬在线和纸之间，读起来像正文的第一行
-          ——在线上的标签才一眼就是「这一段的分组名」。 */}
+      {}
       <div className="flex min-w-0 items-center gap-3">
         <GroupLabel>{label}</GroupLabel>
         <span className="h-px min-w-0 flex-1 bg-ldvh-text-secondary/30" aria-hidden="true" />
@@ -748,8 +646,7 @@ function StartBody() {
               ) : null}
               {index === 1 ? (
                 <>
-                  {/* 不再画一条线：两格自己都有上边线，眉标上面再压一条等于
-                      同一处分节画了两次。 */}
+                  {}
                   <div className="mt-7">
                     <GroupLabel>{t('help.start.branchLabel')}</GroupLabel>
                   </div>

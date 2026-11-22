@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute, touchesGovernedContent } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute, touchesGovernedContent } from "./commit-validation.js";
 import { currentRouteValuesFromShellEnvironment } from "./session-signature.js";
 
 const execFileAsync = promisify(execFile);
@@ -69,16 +69,6 @@ async function collectNormCarriers(worktree, changedPaths, indexFile) {
 }
 
 
-async function findSpecCarrierOne(worktree, indexFile) {
-  try {
-    const listed = await git(worktree, ["ls-files", "--cached", "-z", "--", "specs/01-*.md"], indexFile);
-    const first = String(listed ?? "").split("\0").find((line) => line.length > 0);
-    return first ?? null;
-  } catch {
-    return null;
-  }
-}
-
 async function collectChangedCarriers(worktree, message, diff, indexFile) {
   const paths = (checkKeyChangesAgainstDiff(message, diff).changedPaths ?? []);
   const changed = await changedPathStatuses(worktree, indexFile);
@@ -104,75 +94,6 @@ async function collectChangedCarriers(worktree, message, diff, indexFile) {
     carriers.push({ path, content, baseline });
   }
   return carriers;
-}
-
-async function collectLoadBearingDeclarations(worktree, changedPaths, indexFile) {
-  const carriers = [];
-  const unreadable = [];
-  const headPaths = await treePaths(worktree, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "specs"], indexFile, "\0");
-  const indexPaths = await treePaths(worktree, ["ls-files", "--cached", "-z", "--", "specs"], indexFile, "\0");
-  const knownPaths = new Set([...headPaths, ...indexPaths, ...(await allFactPaths(worktree, indexFile))]);
-  for (const path of changedPaths) {
-    if (!isSpecCarrierPath(path)) continue;
-    let baseline = "";
-    try {
-      baseline = await git(worktree, ["show", `HEAD:${path}`], indexFile);
-    } catch {
-      if (headPaths.has(path)) unreadable.push(path);
-    }
-    let content = "";
-    try {
-      content = await git(worktree, ["show", `:${path}`], indexFile);
-    } catch {
-      if (indexPaths.has(path)) unreadable.push(path);
-    }
-    if (!baseline.includes(LOAD_BEARING_MARKER)) continue;
-    carriers.push({ path, content, baseline });
-  }
-  return { carriers, unreadable, knownPaths };
-}
-
-async function treePaths(worktree, args, indexFile, separator) {
-  try {
-    return new Set((await git(worktree, args, indexFile)).split(separator).filter(Boolean));
-  } catch {
-    return new Set();
-  }
-}
-
-async function allFactPaths(worktree, indexFile) {
-  const head = await treePaths(worktree, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "ldvh-base"], indexFile, "\0");
-  const staged = await treePaths(worktree, ["ls-files", "--cached", "-z", "--", "ldvh-base"], indexFile, "\0");
-  return [...head, ...staged];
-}
-
-async function referenceResolvable(worktree, indexFile, token, knownPaths) {
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(token)) {
-    if ([...knownPaths].some((path) => path.startsWith("ldvh-base/") && path.includes(token))) return true;
-    return await declaresObjectUid(worktree, indexFile, token);
-  }
-  try {
-    await git(worktree, ["rev-parse", "--verify", "--quiet", `${token}^{commit}`], indexFile);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function declaresObjectUid(worktree, indexFile, token) {
-  const pattern = `^object_uid: ${token}$`;
-  const queries = [
-    ["grep", "-l", "-E", pattern, "HEAD", "--", "ldvh-base"],
-    ["grep", "--cached", "-l", "-E", pattern, "--", "ldvh-base"]
-  ];
-  for (const args of queries) {
-    try {
-      const out = await git(worktree, args, indexFile);
-      if (out.trim().length > 0) return true;
-    } catch {
-    }
-  }
-  return false;
 }
 
 async function candidateTreePaths(worktree, indexFile) {
@@ -305,30 +226,6 @@ async function runSharedChecks(root, indexFile, message) {
   }
 
 
-  const declarations = await collectLoadBearingDeclarations(root, correspondence.changedPaths ?? [], indexFile);
-  if (hasMessage && (declarations.carriers.length > 0 || declarations.unreadable.length > 0)) {
-    const resolvable = new Set();
-    for (const token of collectDeclarationReferenceTokens(message)) {
-      if (await referenceResolvable(root, indexFile, token, declarations.knownPaths)) resolvable.add(token);
-    }
-    const outcome = checkLoadBearingDeclarations(declarations.carriers, { message, resolvable, unreadable: declarations.unreadable });
-    if (!outcome.ok) issues.push(...outcome.issues);
-  }
-
-  if (hasMessage && collectRemovalBasisDeclarations(message).length > 0) {
-    const sections = [];
-    try {
-      const specOne = await findSpecCarrierOne(root, indexFile);
-      if (specOne !== null) {
-        sections.push(extractSectionText(await git(root, ["show", `:${specOne}`], indexFile)));
-        sections.push(extractSectionText(await git(root, ["show", `HEAD:${specOne}`], indexFile)));
-      }
-    } catch {
-      sections.push(null);
-    }
-    const basis = checkRemovalBasisDeclarations({ message, sectionTexts: sections });
-    if (!basis.ok) issues.push(...basis.issues);
-  }
 
   return { root, indexFile, issues, diff, correspondence };
 }

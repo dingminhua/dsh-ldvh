@@ -85,7 +85,6 @@ async function createSpark(descriptors, args, cwd) {
   }, cwd);
 }
 
-
 const GOAL_MD_FIXTURE = `---
 goal_key: project-goal
 title: 测试目标
@@ -145,7 +144,6 @@ function makeDeps(home, base, { hostSeams } = {}) {
   };
 }
 
-
 test("registerSparkTools registers exactly the four spark tools", async () => {
   await withTemp("spark-tools.", async (base) => {
     const registered = [];
@@ -168,7 +166,6 @@ test("spark descriptors return text blocks from render and an object schema", as
   }
 });
 
-
 test("read/write are unavailable outside governed sessions", async () => {
   await withTemp("spark-tools.", async (base) => {
     const home = join(base, "home");
@@ -187,7 +184,6 @@ test("read/write are unavailable outside governed sessions", async () => {
     assert.ok(writeOut.gaps[0].includes("not_governed"));
   });
 });
-
 
 test("create: completed envelope, object_uid assigned, read-back ok, file on disk", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -211,7 +207,6 @@ test("create: completed envelope, object_uid assigned, read-back ok, file on dis
     assert.ok(raw.includes("fact_type_key"));
   });
 });
-
 
 test("create: optional fields (priority/serves) succeed through the tool plane and land on disk", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -261,7 +256,6 @@ test("create: optional-field calls are NOT rejected by tool-plane argument valid
   assert.deepEqual(violations, [], JSON.stringify(violations));
 });
 
-
 test("create: mechanical rejection is outcome=rejected with zero writes", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
@@ -281,7 +275,6 @@ test("create: mechanical rejection is outcome=rejected with zero writes", async 
     assert.equal(files.length, 0);
   });
 });
-
 
 test("read: created object returns completed with open status and matching fingerprint; missing uid rejected", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -308,7 +301,6 @@ test("read: created object returns completed with open status and matching finge
     assert.ok(missing.gaps.some((g) => g.includes("object_not_found")));
   });
 });
-
 
 test("update: CAS normal flow completed with new fingerprint; CAS conflict rejected with file unchanged", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -370,7 +362,6 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
   });
 });
 
-
 test("create: serves resolution flows through the tool (known uid ok, unknown uid rejected)", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
@@ -396,7 +387,6 @@ test("create: serves resolution flows through the tool (known uid ok, unknown ui
     assert.equal(files.length, 1);
   });
 });
-
 
 test("update: 「缺 frontmatter_after」与「缺正文」被拆成两条独立诊断（02 §10.5 两个通道）", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -453,7 +443,6 @@ test("write: missing required args is invalid_request (zero write)", async () =>
   });
 });
 
-
 test("render: spark read output carries the FULL 64-char fingerprint and semantic lines (no ellipsis truncation)", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
@@ -505,7 +494,6 @@ test("render: spell/default descriptor uses the same envelope rendering with no 
     assert.ok(text.includes("LDVH spark-read-object: completed"));
   });
 });
-
 
 test("list: unavailable outside governed sessions", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -681,7 +669,6 @@ test("list: invalid carriers (no frontmatter) are reported in gaps without faili
   });
 });
 
-
 test("execution_error: a throwing dshHomePath surfaces execution_error with the message in gaps", async () => {
   await withTemp("spark-tools.", async (base) => {
     const deps = makeDeps(join(base, "home"), base);
@@ -721,7 +708,6 @@ test("execution_error: a throwing sessionPersistence surfaces execution_error on
   });
 });
 
-
 test("schema: spark-read-object requires object_uid", async () => {
   const { toolDescriptorFor, OPERATIONS } = await import("../lib/spark-tools.js");
   const desc = toolDescriptorFor("spark-read-object", OPERATIONS["spark-read-object"], async () => ({}));
@@ -751,7 +737,6 @@ test("schema: spark-write-object enforces the frontmatter_draft shape", async ()
   const unknownField = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { ...validFrontmatterDraft(), bogus: 1 } }, "args");
   assert.ok(unknownField.some((v) => v.includes("frontmatter_draft.bogus") && v.includes("not a declared property")), JSON.stringify(unknownField));
 });
-
 
 test("update: changing serves to an existing SG works and is rejected (zero-write) for an unknown SG", async () => {
   await withTemp("spark-tools.", async (base) => {
@@ -825,7 +810,7 @@ test("gate: create without a host seam is unavailable (fail-closed, zero writes)
       body_markdown: validBodyMarkdown(),
     }, repo);
     assert.equal(out.outcome, "unavailable", JSON.stringify(out));
-    assert.ok(out.gaps.some((g) => g.includes("human-confirmation") || g.includes("20 §16")), JSON.stringify(out.gaps));
+    assert.ok(out.gaps.some((g) => g.includes("human-confirmation") || g.includes("22 §16")), JSON.stringify(out.gaps));
     assert.equal(out.verification.passed, false);
     const entries = await readdir(join(repo, "ldvh-base", "sparks")).catch(() => []);
     assert.equal(entries.filter((f) => f.endsWith(".md")).length, 0, "refused create must not write");
@@ -855,7 +840,7 @@ test("gate: create is rejected when the Human declines or does not choose", asyn
   }
 });
 
-test("gate: create is refused without a dedup conclusion (20 §6.2/§17.7 Stop Condition)", async () => {
+test("gate: create is refused without a dedup conclusion (22 §6.2/§17.7 Stop Condition)", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
@@ -941,7 +926,7 @@ test("gate: terminal transition requires confirmation; a non-terminal update doe
       change_summary: "精化当前理解（非终态）",
     }, repo);
     assert.equal(stillOpen.outcome, "completed", JSON.stringify(stillOpen));
-    assert.equal(seam.calls.length, asksAfterCreate, "a non-terminal update must not raise the 20 §16 Gate");
+    assert.equal(seam.calls.length, asksAfterCreate, "a non-terminal update must not raise the 22 §16 Gate");
 
     const read2 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     const disposition = "已落实：本条由测试夹具直接收敛，不表示下游完成。";
@@ -1061,12 +1046,11 @@ test("gate: boundary delta is omitted when question/scope_boundary did not chang
   });
 });
 
-
 test("descriptor: awaitsHumanDecision is consumed — the write tool declares NO wall-clock deadline", async () => {
   const descriptors = makeDescriptors(makeDeps("/nope", "/nope"));
   assert.ok(
     !("timeoutMs" in descriptors["ldvh_spark_write"]),
-    "spark write must drop timeoutMs — a 30s deadline would DISCARD a late Human answer and leave the 20 §16 Gate unenforced",
+    "spark write must drop timeoutMs — a 30s deadline would DISCARD a late Human answer and leave the 22 §16 Gate unenforced",
   );
   assert.equal(descriptors["ldvh_spark_read"].timeoutMs, 30000);
   assert.equal(descriptors["ldvh_spark_list"].timeoutMs, 30000);
@@ -1177,7 +1161,6 @@ test("gate: a terminal update that the WRITER must refuse consumes no question (
     }
   });
 });
-
 
 test("list: keyword / priorities / serves narrow the result set (filter before limit)", async () => {
   await withTemp("spark-tools.", async (base) => {

@@ -24,7 +24,6 @@ function assertTwoSided(message, { declared, actual, clause }) {
   }
 }
 
-
 test("clipped：未超限原样返回，超限截断并注明真实总长", () => {
   const short = "短文本";
   assert.equal(clipped(short), short, "未超限不应改动内容，也不应加省略号");
@@ -54,7 +53,6 @@ test("carrierCoherenceMessage：不给条款号时不伪造一个", () => {
   assert.ok(!msg.includes("§"), "没有依据就不应出现章节号——编造条款比缺条款更糟");
 });
 
-
 const CASES = [
   {
     type: "friction",
@@ -78,7 +76,7 @@ const CASES = [
     fn: "validateCarrierCoherence",
     frontmatter: { summary: LONG },
     body: `# T\n\n## 当前理解\n\n${BODY_MARK}\n`,
-    clause: "20 §14.1",
+    clause: "22 §14.1",
   },
   {
     type: "subgoal",
@@ -86,7 +84,7 @@ const CASES = [
     fn: "validateCarrierCoherence",
     frontmatter: { criterion: LONG, alignment: "x" },
     body: `# T\n\n## 达成条件\n\n${BODY_MARK}\n`,
-    clause: "28 §8",
+    clause: "21 §8",
   },
 ];
 
@@ -103,7 +101,6 @@ for (const c of CASES) {
     assert.ok(message.length < 1200, `${c.type} 报错过长（${message.length}），截断可能失效`);
   });
 }
-
 
 test("research：question-coherence 同样给出两侧（24 §8 invariant 10）", async () => {
   const mod = await import(new URL("../lib/report-writer.js", import.meta.url).href);
@@ -122,7 +119,6 @@ test("research：question-coherence 同样给出两侧（24 §8 invariant 10）"
   assert.equal(result.ok, false);
   assertTwoSided(result.issues.join("\n"), { declared: question, actual: BODY_MARK, clause: "24 §8" });
 });
-
 
 test("norm：direction_key 一致性拒绝引用 23 §7（不是 §8）", async () => {
   const mod = await import(new URL("../lib/norm-writer.js", import.meta.url).href);
@@ -143,8 +139,6 @@ test("norm：正文不声明 direction_key 时不报内聚错（本类型不要�
   assert.equal(result.ok, true, "23 §7 明确本类型不要求正文复现 frontmatter 标量");
 });
 
-
-
 test("research 的 research_question 参数描述含逐字要求（24 §8 invariant 10）", async () => {
   const { readFileSync } = await import("node:fs");
   const source = readFileSync(new URL("../lib/report-tools.js", import.meta.url), "utf8");
@@ -163,7 +157,7 @@ test("subgoal 的 criterion 与 norm 的 direction_key 均带内聚说明", asyn
   const criterion = sub.split("\n").find((l) => l.includes('criterion: { type: "string"'));
   assert.ok(criterion !== undefined, "subgoal criterion 应存在");
   assert.ok(/VERBATIM/i.test(criterion), "criterion 须声明逐字要求");
-  assert.ok(/28 §8/.test(criterion), "须带 28 §8 依据");
+  assert.ok(/21 §8/.test(criterion), "须带 21 §8 依据");
 
   const norm = readFileSync(new URL("../lib/norm-tools.js", import.meta.url), "utf8");
   const dirKey = norm.split("\n").find((l) => l.includes('direction_key: { type: "string"'));

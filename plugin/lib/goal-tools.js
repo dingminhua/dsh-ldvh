@@ -17,12 +17,12 @@ import { registerWriteShapedTool } from "./host-seams.js";
 const OPERATIONS = {
   "goal-read-object": {
     toolName: "ldvh_goal_read",
-    summary: "Precise read of the singleton Goal object (ldvh-base/goal.md): frontmatter, body, sub-goal anchors and file fingerprint (specs/25 §12, specs/03 §9.2)",
+    summary: "Precise read of the singleton Goal object (ldvh-base/goal.md): frontmatter, body, sub-goal anchors and file fingerprint (载体：fact-model-common 的 read-path-kinds 条目；goal-fact-type 的 body-structure 条目)",
     effect: "read"
   },
   "goal-write-object": {
     toolName: "ldvh_goal_write",
-    summary: "Controlled create (project init conversation) or CAS update of the singleton Goal object; create is refused when goal.md exists and every revision requires Human confirmation (specs/25 §11, §13)",
+    summary: "Controlled create (project init conversation) or CAS update of the singleton Goal object; create is refused when goal.md exists and every revision requires Human confirmation (载体：goal-fact-type 的 human-decides 与 create 条目；fact-model-common 的 fingerprint-baseline 与 change-log-once 条目)",
     effect: "may_change_state",
     writeShaped: true
   }
@@ -115,7 +115,7 @@ export function makeExecute(deps) {
         ...read.value.body_issues,
         ...derivedGaps,
         ...(derivedItems.length === 0
-          ? ["subgoal-empty: 本项目尚无任何子目标对象——既可能未精化，也可能下游未声明；两种情形机械层不可区分（28 §8.1）"]
+          ? ["subgoal-empty: 本项目尚无任何子目标对象——既可能未精化，也可能下游未声明；两种情形机械层不可区分（21 §8.1）"]
           : []),
         ...(hasLegacySubGoalSection(read.value.body)
           ? ["goal/legacy_subgoal_section: goal.md 仍带已移出的子目标段，须迁移到 SubGoal 载体后再删除（25 §7）"]

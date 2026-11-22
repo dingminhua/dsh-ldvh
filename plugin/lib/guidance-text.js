@@ -1,6 +1,51 @@
 
+import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
+
 export const GUIDANCE_SECTION_NAME = "ldvh:minimal-guidance";
 export const GUIDANCE_SECTION_ORDER = 1550;
+
+export const GUIDANCE_MODE_DEV = "dev";
+export const GUIDANCE_MODE_RUNTIME = "runtime";
+
+const modeCache = new Map();
+
+async function isFile(path) {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function isDirectory(path) {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function hasIdentityMarker(root) {
+  const manifestPath = join(root, "plugin", "package.json");
+  if (!(await isFile(manifestPath))) return false;
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    return manifest?.name === "dsh-ldvh";
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveGuidanceMode(projectRoot) {
+  if (typeof projectRoot !== "string" || projectRoot.trim() === "") return GUIDANCE_MODE_RUNTIME;
+  const cached = modeCache.get(projectRoot);
+  if (cached !== undefined) return cached;
+  const dev = (await hasIdentityMarker(projectRoot)) && (await isDirectory(join(projectRoot, "plugin-specs")));
+  const mode = dev ? GUIDANCE_MODE_DEV : GUIDANCE_MODE_RUNTIME;
+  modeCache.set(projectRoot, mode);
+  return mode;
+}
 
 export function noticeTextFor(scope) {
   const state = scope?.state;
@@ -15,10 +60,10 @@ export function noticeTextFor(scope) {
     `登记指纹：${scope.registrationFingerprint ?? "未知"}`,
     "",
     "管辖效果：",
-    "- ldvh_* 工具已注册（管辖判定 / 规范读取 / 能力发现 / 提交预检 / 子代理回收）",
-    "- 最小规则引导每回合注入（specs/00 锚点）",
+    "- ldvh_* 工具已注册（管辖判定 / 能力发现 / 提交预检 / 子代理回收）",
+    "- 工作引导每回合注入（开发期会话给开发约定锚点，运行期会话给载体定位）",
     "- 受控提交经 Git Gate 机械校验",
-    "- 完整规则以规范源原文为准（ldvh_read_specification_content 读取 L0–L4）"
+    "- 规则正文以随插件发布的运行时机制（plugin-specs/）为准；specs/ 只是开发需求文档，不是行动规则"
   ];
   if (project.description) rows.splice(2, 0, `描述：${project.description}`);
   return rows.join("\n");
@@ -40,32 +85,41 @@ export function migrationLineFor(fromState, toState) {
   return `【LDVH 管辖状态变更】${fromState ?? "未知"} → ${toState} —— 本回合起按新状态执行，此前上下文中的 LDVH 信息可能已失效。`;
 }
 
-const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md）：
+const GOVERNED_GUIDANCE_DEV = `本会话工作锚点（specs/00-理念与构成.md；这是开发约定，不是运行期规则）：
 1. 身份块——每个 specs/ 载体首部 ldvh_spec/ldvh_attachment 声明身份、依据与关系
-2. §1 三大核心价值与最终目标——项目可厘清（§1.1）、任务高效准确完成（§1.2）、经验与摩擦自动积累（§1.3）；三者关系与价值边界见 §1.5，三类问题见 §1.4
+2. §1 核心价值——对齐 Vibe（人与 AI 对项目的由来、现状、去向形成一致认识）、协调 Coding（明晰权责、记录火花、确立规范、构建报告、积累经验、发现摩擦）
 3. §2 方法与构成——根方案六条（§2.1）+ 能力承载（LDVH CLI 确定性服务/宿主原生机制，§2.3）+ 规范源与事实源（元规范与事实规范两级承载，§2.4）+ 检查机制（主控自查/代理审核/机械校验，§2.5）+ 业务系统（目标规划/火花记录/把关请示/调研吸收/双源召回/经验积累/摩擦销账，§2.6 名录）+ 技术与机械保障（§2.7）+ 插件四种价值交付（§2.8）+ 下位承接（§2.9）
 4. §3 Human 权利——根决定清单（§3.2）、Human Gate、受保护内容（§3.3）、可决提请与回应效力（§3.4）
 5. §4 AI 责任与义务——主控发起的行动由单一主控 AI 最终负责、代理辅助任务由机械校验保障（00 §4.5）、非全知、委派不转责（代理辅助任务除外，00 §4.3）、反稀释（01 §5 第 13 项）；§4.6 据实声明、§4.7 必停情形与恢复、§4.8 交还与撤回
 6. §5 价值纪律——机制准入（§5.1）、价值不因材料存在而成立（§5.2）、冲突与变更（§5.3）
-规则读取：ldvh_read_specification_candidates / ldvh_read_specification_content（L0–L4 渐进披露）；
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
-把关请示：在行动前与收口前两处向 Human 请示是否安排一次独立核对，主控自查遇到难题（某事依赖外部信息且自己不掌握）时第三处向 Human 请示是否联网调查，三处答复都留痕、不构成授权凭据、也不使行动在取得答复前暂停（§2.5）；三处各有开关，缺省关闭；前两处关着只保证「不问」，不禁止 AI 按 04 §6.1 自行安排隔离视角，第三处关着则既不提出请、也不安排外部取证；第三处先查内部事实源，只有实质命中才拦下提请、命中只是候选不证明适用，「未命中」只表示按机制查过而未命中、不等于内部没有（34 §12）；前两处另有执行档位（征询／静默，缺省征询），静默时该处不逐次征询、按 Human 的预先答复直接安排那次核对并留执行痕迹，它只免征询不免核对、不越过该处的询问开关，且不外推到火花／管辖项目等 Human Gate 的提请；「算不算复杂」与「该不该联网」都由 AI 判断，机械层不判定，故这不构成机械保障；
-模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，请将 question 控制在 200 字符内，判断依据写进对话正文；此为对 AI 的指令、无机械保障（该工具不转发 detail，长内容无承载位）；
-创建确认不重复：当写入工具自带 Human 确认 Gate（如 Spark 22 §16、Norm 23 §15）时，该次写入的确认由工具内部 Gate 承担，主控不再就同一动作另发一次确认弹窗；呈报要素按该类型规范（22 §16、23 §15.2、21 §13 等）在调用工具前逐项写进对话正文。本行只免同一动作的重复弹窗，不减任何类型的确认义务——无工具内部 Gate 的类型（如 SubGoal，21 §13）仍按该类型规范提请；合并/拆分等组合处置按 22 §16 归属，逐步骤多出的询问属已知实现限制，须如实披露。此为对 AI 的指令、无机械保障（本仓 guard 只约束模型面提请的文本形态与 200 字上限，不判弹窗次数）；32 号两处把关请示是 Human Gate 之外的征询、由 ldvh_review_ask 承载，不是写入确认，不构成重复；
-失败留痕：待处置队列已删除（Human 2026-11-17，00 §4.7）——代理辅助任务失败由执行体当次回执承载（主控按 00 §4.6 如实转述），另以运行痕迹跨会话可查（诊断页只读呈现）；不再有「接管前先读账」的义务，也不再有结案通道。
-经验主动记录：主控在当次行动中发现已查明验证的失败机制时，按 25 §13 把该机制所需的上下文材料交给一个零上下文派生的代理起草发现记录，再由主控受控写入（子代理不写事实源）；**不继承主控对话**——材料由主控按该机制挑选（25 §13 上下文供给段）。通道边界、免事前确认与摩擦归属依 25 §13、25 §16；摩擦的发现同样由主控发起、交代理记录（依 36 §7.6／§8.7／§8.8 与 00 §4.5 的代理辅助任务），不属本行。
-管辖状态：ldvh_resolve_governance_scope。完整规则以规范源原文为准，本引导不复制规则正文。`;
+把关请示：行动前与收口前两处，在判为复杂任务且当次工作整件未命中点位排除时，请示一次是否安排核对；主控自查发现判断依赖自身不掌握的外部信息时，第三处请示是否联网调查（载体 gate-consult-system-foundation：before-action-entry、before-closing-entry、research-entry、complex-task、point-exclusions、answer-means、trace-record）。三处答复都留痕，不构成行动授权或放行，也不是行动在取得答复前暂停的前提（answer-means）。三处各有开关且相互独立（independence），缺省值由人决定、当前实现缺省关闭（human-decide；第三处缺省关闭见 research-no-silent）。前两处关着只保证「不问」，不禁止 AI 自行安排核对（silent-subordinate）；静默档只免征询、不免那次核对（silent-keeps-check），不外推到须人决定的事项（silent-not-expand），排除优先于档位（exclusion-beats-mode）；多维复核的视角按风险取最小充分组合（ldvh-root 的 review-modes）。第三处关着则既不提请、也不安排外部取证（research-no-silent）；先查项目内部的经验、报告与事实规范，未命中只表示按机制查过而未命中、不等于内部没有（research-entry；research-system-foundation 的 internal-first）。开关读不到时按关闭处理并在交付说明写明、档位读不到时按征询档回落并声明（unreadable-values）。「算不算复杂」与「该不该联网」都由 AI 判断，机械层不判定，故这不构成机械保障（no-mechanical-guarantee）；
+模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，question 长短不限，判断依据写进对话正文；detail 不随弹窗送达（宿主静默丢弃），凡需 Human 判读的内容一律写进对话正文；携带 detail 等未允许字段的提请会被本仓 guard 机械拒绝——「不写 detail」这一半有机械保障，且它只约束字段形状、不约束字数；
+创建确认不重复：当该类型载体规定创建由人决定、且写入工具已内置该确认时，主控不就同一动作另发确认弹窗（spark-fact-type 的 ask-human、norm-fact-type 的 create-needs-human）；呈报要素在调用工具前逐项写进对话正文。本行只免同一动作的重复弹窗，不减任何类型的确认义务——无工具内部 Gate 的类型（如 subgoal-fact-type 的 create-human）仍按该类型载体提请；合并/拆分等组合处置按 spark-fact-type 的 ask-human 归属，逐步骤多出的询问属已知实现限制，须如实披露。此为对 AI 的指令、无机械保障（本仓 guard 只约束模型面提请的字段形状，不判弹窗次数）；
+失败留痕：代理辅助任务（经验积累、发现摩擦）失败时按 fail-closed 处置——停止该次任务、保留已发生的副作用、如实登记，不得继续、不得自行重试，也不得把部分写入当作完成；停止原因与残留范围由执行体当次回执交还，并留可跨会话查到的运行痕迹（ldvh-root 的 proxy-auxiliary-failure）。
+经验主动记录：主控在当次行动中发现已查明验证的失败机制时，按 pitfall-fact-type 的 entry-channels 整理该发现所需的上下文材料，派生零上下文、不继承主控上下文的代理起草（context-supply）；起草代理只起草、不写入经验目录、不取得授权或完成效力（delegate-draft）；再由主控在同一动作内经受控写入并写后精确回读（entry-channels）。摩擦的发现同形，由主控当场发起、交代理记录（friction-settlement-system-foundation 的 discovery-trigger、discovery-context、discovery-closed-set）。
+管辖状态：ldvh_resolve_governance_scope。本引导只给定位与必要要点，不复制条目正文。
+运行期规则以随插件发布的运行时机制为准；定位信息由行动前召回段的「运行时机制：」段给出（spec_key／标题／路径／positioning／scope），需要条目正文时按该路径读取，项目根下没有 plugin-specs/ 时它在插件包目录内。specs/ 里描述运行期做法的文字是开发需求记录，不构成运行期规则。
+若本仓库不是 LDVH 开发仓库（例如只是带了 specs/ 与 plugin-specs/ 副本的第三方项目），以上开发约定不适用，按运行期会话处理。`;
+
+const GOVERNED_GUIDANCE_RUNTIME = `本会话的工作规则只来自两处：随插件发布的运行时机制（plugin-specs/*.yaml），与本项目事实源里的规范（ldvh-base/norms/）；其余文字（包括 LDVH 自己的开发需求文档）都不是行动规则（ldvh-root 的 rule-sources）。
+定位：行动前召回段的「运行时机制：」段给出本轮相关载体的定位（spec_key／标题／路径／positioning／scope），需要条目正文时按该路径读取；项目根下没有 plugin-specs/ 时它在插件包目录内，安装形态下该段给可读绝对路径。未列出者不代表不存在：召回取值部分或不可用时，未命中不构成「无相关」的证据（rule-compliance-recall 的 incomplete-recall）。
+底线：全部行动共用的底线在载体 ldvh-root（对齐 Vibe 与协调 Coding 的价值取向、谁发起谁负责、人的决定权、不知道就说不知道、必停与交还）；各领域要求在其对应载体里，按场景定位后读。
+入口：能力发现 ldvh_discover_capabilities；受控提交前 ldvh_precheck_git_commit；管辖状态 ldvh_resolve_governance_scope。本引导只给定位与必要要点，不复制条目正文。`;
 
 const UNAVAILABLE_GUIDANCE = `LDVH 管辖登记当前不可读取。本项目暂按不受管辖处理（与 not_governed 一致），但状态确为「不可用」而非「不受辖」，不得据此认定本项目不受辖。
 - 行动：与不受辖一致——不启用 LDVH 受控操作，不声明本项目受辖；
-- 原因与处理：检查 DSH 用户配置根下的 ldvh/governed-projects.yaml 是否可读且格式正确（可能原因见 specs/07 §5.3：配置根不可用、登记载体不可读、权限未核验、访问被拒或 Schema 无效），或在 DSH 设置页的管辖项目页查看具体原因。
-完整规则以规范源原文为准，本引导不复制规则正文。`;
+- 原因与处理：检查 DSH 用户配置根下的 ldvh/governed-projects.yaml 是否可读且格式正确（常见原因：配置根不可用、登记载体不可读、权限未核验、访问被拒或 Schema 无效；成因清单记在开发需求文档 specs/07 §5.3），或在 DSH 设置页的管辖项目页查看具体原因。
+规则正文以随插件发布的运行时机制为准，本引导不复制条目正文。`;
 
 const NOT_GOVERNED_GUIDANCE = `本会话无 LDVH 工作要求；如被问及 LDVH，据实回答本会话不受管辖。`;
 
-export function guidanceTextFor(state) {
+export function guidanceTextFor(state, mode = GUIDANCE_MODE_RUNTIME) {
   const line = judgmentLineFor(state);
-  if (state === "governed") return `${line}\n${GOVERNED_GUIDANCE}`;
+  if (state === "governed") {
+    const body = mode === GUIDANCE_MODE_DEV ? GOVERNED_GUIDANCE_DEV : GOVERNED_GUIDANCE_RUNTIME;
+    return `${line}\n${body}`;
+  }
   if (state === "unavailable") return `${line}\n${UNAVAILABLE_GUIDANCE}`;
   return `${line}\n${NOT_GOVERNED_GUIDANCE}`;
 }

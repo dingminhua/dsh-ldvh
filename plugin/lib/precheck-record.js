@@ -175,9 +175,9 @@ export function carrierStatus() {
     persisted: false,
     carriedBy: "handover-text",
     envelope: {
-      specRef: "specs/10 §7.7",
+      specRef: "ldvh-root 的 handback 条目",
       built: false,
-      disclosure: "Output Envelope 机器承载未建（specs/10 §7.7 允许此状态并禁止声明已建成）",
+      disclosure: "Output Envelope 机器承载未建（交还须同时给出人可读正文与机器可读结果；承载未建时如实披露，不声明已建成）",
     },
   };
 }
@@ -1051,38 +1051,38 @@ export const NON_EQUIVALENCES = Object.freeze([
   {
     left: "识别",
     doesNotImply: "落实",
-    specRef: "34 §8.3 / §13",
+    specRef: "rule-compliance-verification 的 implementation-criteria 条目",
     note: "识别到约束不等于行动因此改变；落实须满足有指向／有改变／有可回指依据三项",
   },
   {
     left: "落实",
     doesNotImply: "授权",
-    specRef: "34 §13",
+    specRef: "ldvh-root 的 decisions-are-human 条目",
     note: "行动已按约束改变，不等于该行动已被授权；授权只来自 Human 决定与各授权程序",
   },
   {
     left: "预检记录完成",
     doesNotImply: "行动完成",
-    specRef: "34 §13",
+    specRef: "rule-compliance-verification 的 record 条目",
     note: "记录是判断的承载，不是判断本身，更不是行动本身",
   },
   {
     left: "已识别",
     doesNotImply: "已允许",
-    specRef: "34 §13 / §14",
-    note: "§14 末段明定此边界在任何验证结论上均不得被跨越",
+    specRef: "rule-compliance-recall 的 what-it-is 条目",
+    note: "这条边界在任何验证结论上均不得被跨越",
   },
   {
     left: "补做识别",
     doesNotImply: "从未偏离",
-    specRef: "34 §9.3 / §13 / §14",
+    specRef: "rule-compliance-verification 的 deviation-register 条目",
     note: "补做只能证明补齐后的状态，其前一段的偏离须如实保留",
   },
   {
     left: "已落实",
     doesNotImply: "已完成",
-    specRef: "34 §14",
-    note: "§14 末段明定；落实指约束改变了行动，完成指行动本身达成",
+    specRef: "rule-compliance-recall 的 what-it-is 条目",
+    note: "落实指约束改变了行动，完成指行动本身达成",
   },
 ]);
 
@@ -1108,7 +1108,7 @@ export function checkConceptBoundaries(text) {
         left,
         right,
         matched: match[0],
-        specRef: entry?.specRef ?? "34 §13",
+        specRef: entry?.specRef ?? "rule-compliance-recall 的 what-it-is 条目",
         note: entry?.note ?? null,
       });
     }
@@ -1274,12 +1274,12 @@ export function checkReuseBasis(input = {}) {
 
 
 export const STOP_RULES = Object.freeze([
-  { index: 1, key: "applicabilityUndetermined", specRef: "34 §16.1 第 1 项（§6）" },
-  { index: 2, key: "claimsComplianceWithoutChange", specRef: "34 §16.1 第 2 项（§8.3）" },
-  { index: 3, key: "subsequentActionBuildsOnDeviation", specRef: "34 §16.1 第 3 项（§9.2）" },
-  { index: 4, key: "choseOneAndExecuted", specRef: "34 §16.1 第 4 项（§9.1）" },
-  { index: 5, key: "backfillCoversGap", specRef: "34 §16.1 第 5 项（§9.3）" },
-  { index: 6, key: "transverseMutualExemption", specRef: "34 §16.1 第 6 项（§11）" },
+  { index: 1, key: "applicabilityUndetermined", specRef: "rule-compliance-verification 的 stop 条目（第 1 条）" },
+  { index: 2, key: "claimsComplianceWithoutChange", specRef: "rule-compliance-verification 的 stop 条目（第 2 条）" },
+  { index: 3, key: "subsequentActionBuildsOnDeviation", specRef: "rule-compliance-verification 的 stop 条目（第 3 条）" },
+  { index: 4, key: "choseOneAndExecuted", specRef: "rule-compliance-verification 的 stop 条目（第 4 条）" },
+  { index: 5, key: "backfillCoversGap", specRef: "rule-compliance-verification 的 stop 条目（第 5 条）" },
+  { index: 6, key: "transverseMutualExemption", specRef: "rule-compliance-verification 的 stop 条目（第 6 条）" },
 ]);
 
 export function checkStopConditions(input = {}) {

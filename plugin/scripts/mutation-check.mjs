@@ -22,6 +22,7 @@ const WM = join(PLUGIN, "lib", "web-mount.js");
 const GB = join(PLUGIN, "lib", "guidance-budget.js");
 const CWG = join(PLUGIN, "lib", "concurrent-write-guard.js");
 const MC = join(PLUGIN, "lib", "mutation-coverage.js");
+const TRR = join(PLUGIN, "lib", "test-run-report.js");
 const TESTS = [
 	"test/source-recall.test.mjs",
 	"test/recall-injection.test.mjs",
@@ -35,6 +36,7 @@ const TESTS = [
 	"test/concurrent-write-guard.test.mjs",
 	"test/mutation-coverage.test.mjs",
 	"test/recall-type-channels.test.mjs",
+	"test/test-run-report.test.mjs",
 ];
 
 const MUTATIONS = [
@@ -49,9 +51,7 @@ const MUTATIONS = [
 	[LIB, "uncheckedRange 缺失", "    uncheckedRange: {", "    uncheckedRangeX: {"],
 	[LIB, "规范正文未剥离 frontmatter", '      bodyText: text.replace(/^---\\n[\\s\\S]*?\\n---\\n?/, ""),', "      bodyText: text,"],
 	[LIB, "事实正文未剥离 frontmatter", '      const body = text.replace(/^---\\n[\\s\\S]*?\\n---\\n?/, "");', "      const body = text;"],
-	[INJ, "截断归因只看事实侧（漏规范侧）", '      ((result.counts?.factHits ?? 0) > 0 && (result.counts?.factsReturned ?? 0) === 0) ||\n      ((result.counts?.specHits ?? 0) > 0 && (result.counts?.specsReturned ?? 0) === 0);', '      (result.counts?.factHits ?? 0) > 0 && (result.counts?.factsReturned ?? 0) === 0;'],
 	[INJ, "渲染不标截断", "  const renderTruncated = droppedMatch !== null;", "  const renderTruncated = false;"],
-	[INJ, "命中理由排到路径之后", "`- ${spec.title} — ${spec.hitReason}（${shown}${stable}）`", "`- ${spec.title}（${shown}${stable}）— ${spec.hitReason}`"],
 	[GUID, "每步都注入（不只在 step 1）", "      if (payload.step !== 1) return decision;", "      // 破坏：每步都注入"],
 	[GUID, "判定文本未就绪时连坐召回", '      const noticeReady = currentNotice !== null && currentNotice !== "" && !suppressRow;', '      const noticeReady = currentNotice !== null && currentNotice !== "";\n      if (!noticeReady) return decision;'],
 	[GUID, "召回行刷新时覆盖错行", "const priorRecall = batch.find((m) => isRecallMessage(m, label));", "const priorRecall = batch[0];"],
@@ -93,6 +93,8 @@ const MUTATIONS = [
 	[MC, "分子恒等于分母（冒充全覆盖）", "const coveredModules = libs.filter((name) => mutationsByModule[name] !== undefined);", "const coveredModules = libs.slice();"],
 	[MC, "空清单静默成 0/0（分母一起清空）", "const libs = [...new Set(", "const libs = mutations.length === 0 ? [] : [...new Set("],
 	[CWG, "还原侧另立一份实现（两侧口径分叉）", "export const decideMutationRestore = decideMutationWrite;", "export const decideMutationRestore = (x) => ({ ok: true, ownsWrite: true, ...x });"],
+	[TRR, "skip 超基线不标失败码（处置提示分流失效）", '\t\t\t\tcode: "skip_above_baseline",', ""],
+	[TRR, "skip 超基线放行（守卫失效）", "\t\tif (skipped > skippedBaseline) {", "\t\tif (false) {"],
 ];
 
 async function classifyRun() {

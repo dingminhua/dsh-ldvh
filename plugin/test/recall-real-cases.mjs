@@ -38,7 +38,7 @@ export const REAL_CASES = [
   },
   {
     q: "预算只有一个总预算，为什么还有各种其他预算呢？",
-    want: ["DSH 环境接入与插件发布规范", "双源召回系统规范"],
+    want: ["DSH 环境接入规范", "双源召回系统规范"],
     kind: "topic",
     basis: "问注入预算的层级归属：预算归属在 10 §5.3，召回侧分配口径在 34 §11。",
     jaccard: 0.10,
@@ -182,7 +182,7 @@ export const REAL_CASES = [
     q: "dsh-ldvh@spark-69b1de3f-7202-4abe-9281-93a2840855e1 这个问题当前是什么状态",
     want: [],
     kind: "ref",
-    basis: "引用式且目标是 spark：按 20 §12.1／31 §10 不进引导面自动注入，"
+    basis: "引用式且目标是 spark：按 22 §12.1／31 §10 不进引导面自动注入，"
       + "注入面正确期望为空。该对象须由 AI 用 ldvh_spark_read 主动取。",
   },
   {

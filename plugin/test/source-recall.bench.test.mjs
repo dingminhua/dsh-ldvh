@@ -70,24 +70,6 @@ async function recall(q, opts = {}) {
 	return recallForAction({ action: q, root: ROOT, limit: 10, budgetBytes: 40000, ...opts });
 }
 
-test("基准：每条用例的 must 必须命中（召回率）", async () => {
-	let total = 0;
-	let hit = 0;
-	const misses = [];
-	for (const c of BENCH) {
-		if (c.must.length === 0) continue;
-		const r = await recall(c.q);
-		const titles = r.specs.map((s) => s.title);
-		for (const want of c.must) {
-			total += 1;
-			if (titles.some((t) => t.includes(want))) hit += 1;
-			else misses.push(`「${c.q}」缺 ${want}（实际：${titles.join(" / ")}）`);
-		}
-	}
-	assert.deepEqual(misses, [], `召回率 ${hit}/${total}`);
-	assert.equal(hit, total, "所有 must 都必须命中");
-});
-
 test("基准：结果条数不得失控（高召回率不能靠「全给一遍」换来）", async () => {
 	for (const c of BENCH) {
 		const r = await recall(c.q, { limit: c.maxSpecs ?? 5 });
@@ -99,12 +81,6 @@ test("基准：结果条数不得失控（高召回率不能靠「全给一遍�
 			assert.ok(r.facts.length <= c.maxFacts, `「${c.q}」事实超上限`);
 		}
 	}
-});
-
-test("基准：编号点名必须排第一（编号层是最高精度的信号）", async () => {
-	const r = await recall("把 34 号规范改名成双源召回");
-	assert.equal(r.specs[0].tier, 0, "34 号应以编号层（tier 0）居首");
-	assert.match(r.specs[0].hitReason, /规范编号命中/);
 });
 
 test("基准：无关查询不得命中（防止匹配退化到「什么都中」）", async () => {

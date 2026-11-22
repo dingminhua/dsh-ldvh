@@ -66,7 +66,7 @@ export async function runSuite(limit = 3) {
 }
 
 const BASELINE = {
-  limit3: { lines: 61, relevant: 4, hits: 4, topicCases: 7, quietClean: 1 },
+  limit3: { lines: 62, relevant: 4, hits: 4, topicCases: 7, quietClean: 1 },
 };
 
 test("质量基线（limit=3）：精确率与命中数不得低于记录值", async (t) => {

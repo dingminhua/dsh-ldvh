@@ -600,7 +600,7 @@ test("carrierStatus：如实报告未建 Output Envelope 载体，不声称已�
 	assert.equal(status.carriedBy, "handover-text");
 	assert.equal(status.envelope.built, false);
 	assert.match(status.envelope.disclosure, /未建/);
-	assert.match(status.envelope.specRef, /10 §7\.7/);
+	assert.match(status.envelope.specRef, /ldvh-root 的 handback 条目/);
 });
 
 test("buildHandover：返回可直接进交还正文的文本与指纹，且带承载声明", () => {
@@ -1490,7 +1490,7 @@ test("checkConceptBoundaries：多种符号写法都能抓到", () => {
 
 test("checkConceptBoundaries：违规项带规范依据与说明", () => {
 	const result = checkConceptBoundaries("已识别即已允许");
-	assert.match(result.violations[0].specRef, /34 §/);
+	assert.match(result.violations[0].specRef, /rule-compliance-recall 的 what-it-is 条目/);
 	assert.match(result.violations[0].note, /不得被跨越/);
 });
 
@@ -1736,7 +1736,7 @@ test("checkReuseBasis：sessionId 或 recordSessionId 缺失即拒绝", () => {
 test("STOP_RULES 恰为 34 §16.1 第 1–6 项（本切片承接范围）", () => {
 	assert.equal(STOP_RULES.length, 6);
 	assert.deepEqual(STOP_RULES.map((r) => r.index), [1, 2, 3, 4, 5, 6]);
-	for (const rule of STOP_RULES) assert.match(rule.specRef, /34 §16\.1 第 \d 项/);
+	for (const rule of STOP_RULES) assert.match(rule.specRef, /rule-compliance-verification 的 stop 条目（第 \d 条）/);
 });
 
 test("checkStopConditions：无触发时不需暂停", () => {

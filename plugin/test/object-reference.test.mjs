@@ -403,7 +403,7 @@ test("spark terminal report: relation targets render with the type prefix, never
       change_summary: "合并进目标（测试夹具）",
     }, repo);
     assert.equal(merged.outcome, "completed", JSON.stringify(merged));
-    assert.equal(captured.length, 1, "exactly one 20 §16 Gate must be asked on a terminal transition");
+    assert.equal(captured.length, 1, "exactly one 22 §16 Gate must be asked on a terminal transition");
     const report = captured[0];
     assert.ok(
       report.includes(`merged-into → spark-${targetUid.slice(0, 8)}`),

@@ -20,7 +20,6 @@ import { authoritativeSignature } from "../lib/signature-channel.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-
 function validFrontmatterDraft(overrides = {}) {
   return {
     title: "SG-4 落地后重复采坑",
@@ -66,7 +65,6 @@ async function createAndRead(root, overrides = {}) {
   assert.ok(read.ok, JSON.stringify(read.error));
   return { draft, created, read };
 }
-
 
 test("create: a valid Pitfall object lands at pitfalls/pitfall-<uid>.md with Code identity and precise read-back", async () => {
   await withTemp("pitfall-writer.", async (root) => {
@@ -122,7 +120,6 @@ test("create: urls non-empty with 证据 body section present succeeds (25 §8 �
   });
 });
 
-
 test("create: a forged plain sessionSignature is REFUSED — no unsigned change_log entry (specs/09)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
@@ -137,7 +134,6 @@ test("create: a forged plain sessionSignature is REFUSED — no unsigned change_
     assert.match(created.error.message, /REPORT TO HUMAN/);
   });
 });
-
 
 test("create: non-active initial status is rejected (25 §9 初态必须 active)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
@@ -303,7 +299,7 @@ test("create: urls non-empty but body lacks 证据 section rejected (25 §8 条�
   });
 });
 
-test("create: carrier coherence — drifted scope not verbatim now accepted (warning only, Human 2026-11-10) (25 §8/§14.1, 25 §17.3)", async () => {
+test("create: carrier coherence — drifted scope not verbatim now accepted (warning only, Human 2026-11-10) (25 §8/§14.1, 25 §17)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const drifted = draft.scope.replace("适用于", "针对");
@@ -312,7 +308,6 @@ test("create: carrier coherence — drifted scope not verbatim now accepted (war
     assert.ok(result.ok, JSON.stringify(result.error));
   });
 });
-
 
 test("update: active→active with scope change rejected as supplement-boundary violation (25 §9.3)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
@@ -369,7 +364,6 @@ test("update: active→active body-only errata succeeds, appends exactly one cha
     assert.equal(read2.value.fingerprint, updated.value.fingerprint);
   });
 });
-
 
 test("update: active→discarded with disposition succeeds and lands disposition (25 §13 终态流转)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
@@ -497,7 +491,6 @@ test("update: discarded object allows content correction but not reopening (25 �
   });
 });
 
-
 test("update: active→active with scope change rejected as supplement-boundary violation (25 §9.3)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft({ status: "active" });
@@ -585,7 +578,6 @@ test("update: discarded→discarded errata with scope change rejected (25 §9.3 
     assert.equal(result.error.code, "pitfall/supplement_boundary");
   });
 });
-
 
 test("list: empty pitfalls directory is a valid empty state (25 §12)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
@@ -711,7 +703,6 @@ test("body structure: H1 scan follows CommonMark ATX semantics (25 §8)", () => 
   assert.ok(validatePitfallBodyStructure(`# T\n\n\u0060\u0060\u0060\n# T\n\u0060\u0060\u0060\n\n${secs}`, "T", 0).ok, "a `#` inside a fenced code block is not a heading");
   assert.ok(validatePitfallBodyStructure(`# T\r\n\r\n${secs.replace(/\n/g, "\r\n")}`, "T", 0).ok, "CRLF body is a legal carrier");
 });
-
 
 test("create: status=draft is refused — active is the only initial state (25 §9/§13)", async () => {
   await withTemp("pitfall-writer.", async (root) => {

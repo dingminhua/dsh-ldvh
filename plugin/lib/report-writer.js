@@ -39,7 +39,9 @@ const VALID_FM_KEYS = new Set([
   "retirement_reason", "retired_at",
 ]);
 
-export const REPORT_REMOVABLE_FIELDS = new Set(["uncertain", "gaps", "clarification_log", "implications"]);
+const LEGACY_TOLERATED_FM_KEYS = new Set(["serves"]);
+
+export const REPORT_REMOVABLE_FIELDS = new Set(["uncertain", "gaps", "clarification_log", "implications", "serves"]);
 
 const RELATION_KEYS = new Set(["inspired-by", "informs", "updates"]);
 const FORBIDDEN_RELATION_KEYS = new Set(["supersedes", "depends-on"]);
@@ -60,7 +62,7 @@ export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing
   const issues = [];
 
   for (const k of Object.keys(frontmatter)) {
-    if (!VALID_FM_KEYS.has(k)) {
+    if (!VALID_FM_KEYS.has(k) && !LEGACY_TOLERATED_FM_KEYS.has(k)) {
       issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 24 §8)`);
     }
   }

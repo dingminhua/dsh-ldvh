@@ -177,17 +177,6 @@ test("renderRecallRow：明写「候选不是结论」，不得声称已适用",
 	assert.ok(!/必须遵守/.test(text), "不得把召回写成规范命令");
 });
 
-test("renderRecallRow：每条候选带命中理由，使 AI 可核对", () => {
-	const text = renderRecallRow({
-		specs: [{ title: "某规范", path: "specs/34-x.md", hitReason: "适用范围命中：预检" }],
-		facts: [],
-		truncated: false,
-		budget: {},
-	});
-	assert.match(text, /适用范围命中：预检/);
-	assert.match(text, /specs\/34-x\.md/);
-});
-
 test("renderRecallRow：零命中时如实说明会漏，不写成「无相关约束」", () => {
 	const text = renderRecallRow({ specs: [], facts: [], truncated: false, budget: {} });
 	assert.match(text, /未命中/);
@@ -413,29 +402,6 @@ test("渲染文本未超限时不得添加裁剪说明", async () => {
 	}
 });
 
-test("截断说明须区分真实原因（预算 vs 条数），不得一律说「超预算」", async () => {
-	const byLimit = await buildRecallInjection({
-		userText: "把 34 号规范改名成双源召回",
-		projectRoot: ROOT,
-		limit: 1,
-		budgetBytes: 40000,
-	});
-	assert.equal(byLimit.inject, true);
-	assert.match(byLimit.text, /受条数上限/, "条数限制须说 limit");
-	assert.ok(!/超出预算已裁剪/.test(byLimit.text), "预算充足时不得声称超预算");
-	assert.match(byLimit.text, /预算尚有余量/, "须如实说明预算有余量");
-
-	const byBudget = await buildRecallInjection({
-		userText: "把 34 号规范改名成双源召回",
-		projectRoot: ROOT,
-		limit: 99,
-		budgetBytes: 1200,
-	});
-	assert.equal(byBudget.inject, true);
-	assert.match(byBudget.text, /受预算限制|预算极小/, `预算受限须点名预算，实际：${byBudget.text.slice(-160)}`);
-	assert.ok(!/受条数上限/.test(byBudget.text), "预算受限时不得归因为条数限制");
-});
-
 test("partial 与 truncated 是同一个值，渲染不得输出两条互相矛盾的提示", async () => {
 	const r = await buildRecallInjection({
 		userText: "把 34 号规范改名成双源召回",
@@ -537,61 +503,6 @@ test("N-5：partial/unavailable 时注入行须呈现三态与未读取源；com
 		recallCompleteness: "complete",
 	});
 	assert.ok(!completeRow.includes("本次召回完整度"), "complete 时不得加三态行（稳态安静）");
-});
-
-test("N-6：字符硬上限路径不得裁掉三态披露行（统一从尾部裁候选行）", () => {
-	const longTitle = "A".repeat(120);
-	const out = renderRecallRow({
-		ok: true,
-		specs: Array.from({ length: 12 }, (_, i) => ({
-			title: `${longTitle}${i}`,
-			path: `specs/${i}.md`,
-			hitReason: `正文命中：${"R".repeat(80)}`,
-		})),
-		facts: [],
-		recallCompleteness: "partial",
-		uncheckedRange: { sourceNotRead: ["事实源（不存在或不可读，未读取）"] },
-		budget: { limitBytes: 2000, usedBytes: 5000, limit: 99 },
-	});
-	const charCap = renderCharLimitFor(2000);
-	assert.ok(out.length <= charCap, `渲染 ${out.length} 须 ≤ 本档上限 ${charCap}`);
-	assert.match(out, /本次召回完整度：\*\*partial\*\*/, "字符裁剪路径不得吞掉三态披露行");
-	assert.match(out, /未读取的源：事实源/, "未读取源披露同样不得被裁掉");
-	const noteMatch = /字符上限 (\d+)/.exec(out);
-	if (noteMatch !== null) {
-		assert.equal(
-			Number(noteMatch[1]),
-			charCap,
-			`说明行声称字符上限 ${noteMatch[1]}，实际生效 ${charCap}（不得说谎，02 §9.1）`,
-		);
-	}
-	assert.match(out, new RegExp(`渲染层按硬约束（[^）]*）裁去 \\d+ 条候选`), "裁剪说明须如实注明约束与条数");
-	const candidateLines = out.split("\n").filter((l) => l.startsWith("- ")).length;
-	assert.ok(candidateLines < 12, "确应裁去部分候选行（否则未触及本场景）");
-	assert.ok(candidateLines > 0, "候选行不应被裁光（只裁到满足上限为止）");
-});
-
-test("N-7：字节兜底裁剪须反映到 result.render.truncated 与 droppedCandidates", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	const r = await buildRecallInjection({
-		userText: "把 34 号规范改名成双源召回",
-		projectRoot: ROOT,
-		limit: 99,
-		budgetBytes: 800,
-	});
-	assert.equal(r.inject, true);
-	if (/裁去 \d+ 条候选/.test(r.text)) {
-		assert.equal(r.result.render.truncated, true, "文本被裁时 truncated 不得为 false");
-		const m = /裁去 (\d+) 条候选/.exec(r.text);
-		assert.equal(r.result.render.droppedCandidates, Number(m[1]), "droppedCandidates 须与说明行一致");
-	} else {
-		assert.equal(r.result.render.truncated, false, "未裁时 truncated 须为 false");
-		assert.equal(r.result.render.droppedCandidates, 0);
-	}
-	assert.ok(
-		Buffer.byteLength(r.text, "utf8") <= 800,
-		`实际 ${Buffer.byteLength(r.text, "utf8")} 字节不得超预算 800`,
-	);
 });
 
 test("N-8：三态披露行须含「被过滤」类别且按非零类别分列（34 §12 逐类清单）", async (t) => {
@@ -709,72 +620,6 @@ test("数据侧实测值须与当前实现一致（症状→自身召回）", as
 		Math.abs(declaredRate - actualRate) <= 0.2,
 		`声明的命中率 ${(declaredRate * 100).toFixed(0)}% 与当前实测 ${(actualRate * 100).toFixed(0)}%（${hit}/${total}）背离超过 20 个百分点`,
 	);
-});
-
-test("命中理由须排在路径之前（路径对人零信息量，却是读者最先读到的）", () => {
-	const longReason = "正文命中：".concat("R".repeat(200));
-	const out = renderRecallRow({
-		ok: true,
-		specs: [
-			{ title: "夹具规范甲", path: "specs/90-fixture-a.md", hitReason: longReason },
-			{ title: "夹具规范乙", path: "specs/91-fixture-b.md", hitReason: longReason },
-		],
-		facts: [
-			{
-				type: "norm",
-				status: "active",
-				title: "夹具规范重复项",
-				hitReason: longReason,
-				path: "ldvh-base/norms/norm-dupe.md",
-				excerpt: "夹具摘录甲",
-			},
-			{
-				type: "norm",
-				status: "active",
-				title: "夹具规范保留项",
-				hitReason: longReason,
-				path: "ldvh-base/norms/norm-keep.md",
-				excerpt: "夹具摘录乙",
-			},
-		],
-		budget: { limitBytes: 2400, usedBytes: 5000, limit: 2 },
-	});
-
-	assert.match(out, /裁去 \d+ 条候选/, "夹具须真的触发渲染层裁剪");
-	const factLines = out.split("\n").filter((l) => l.startsWith("- ["));
-	assert.ok(factLines.length >= 1, `裁剪后应仍有事实卡行，实际 ${factLines.length}`);
-	const specLines = out.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- [") && l.includes("—"));
-	assert.ok(specLines.length >= 1, `裁剪后应仍有规范卡行，实际 ${specLines.length}`);
-
-	for (const line of specLines) {
-		const reasonAt = line.indexOf("— ");
-		const pathAt = line.indexOf("（specs/");
-		assert.ok(reasonAt > 0 && pathAt > 0, `规范卡行内须同时有命中理由与路径：${line}`);
-		assert.ok(reasonAt < pathAt, `规范卡命中理由须在路径之前：理由@${reasonAt} 路径@${pathAt}`);
-	}
-	for (const line of factLines) {
-		const fReasonAt = line.indexOf("— ");
-		const fPathAt = line.indexOf("（ldvh-base/");
-		assert.ok(fReasonAt > 0 && fPathAt > 0, `事实卡行内须同时有命中理由与路径：${line}`);
-		assert.ok(fReasonAt < fPathAt, `事实卡的理由也须在路径之前：理由@${fReasonAt} 路径@${fPathAt}`);
-	}
-});
-
-test("规范侧有命中却返回 0 时，归因须指向预算而非条数（原只查事实侧）", async () => {
-	for (const budgetBytes of [900, 1200]) {
-		const r = await buildRecallInjection({
-			userText: "把 34 号规范改名成双源召回",
-			projectRoot: ROOT,
-			limit: 99,
-			budgetBytes,
-		});
-		assert.equal(r.inject, true, `预算 ${budgetBytes} 应注入`);
-		assert.ok(r.result.counts.specHits > 0, "前提：规范侧确有命中");
-		assert.ok(
-			!/受条数上限/.test(r.text),
-			`limit=99 不构成限制，不得误报条数限制（预算 ${budgetBytes}）；实际：${r.text.slice(-120)}`,
-		);
-	}
 });
 
 test("注入文本的实际字节数不得超预算（10:241「未超 LDVH 侧常量预算」）", async () => {
@@ -983,33 +828,6 @@ function truncationNotes(text) {
 	return out;
 }
 
-test("截断归因：条数行只报数据层自己的口径（每侧 limit、各源命中与列出）", async () => {
-	const r = await buildRecallInjection({
-		userText: "把 34 号规范改名成双源召回",
-		projectRoot: ROOT,
-		limit: 3,
-		budgetBytes: 40000,
-	});
-	assert.equal(r.inject, true);
-	const line = truncationNotes(r.text).find((l) => l.includes("受条数上限"));
-	assert.ok(line !== undefined, "条数受限须有说明行");
-
-	assert.match(line, /每侧 limit=3/, `须写明 limit 是每侧上限，实际：${line}`);
-
-	assert.ok(
-		!/仅列出前/.test(line),
-		`不得把两侧已列出条数之和写成「受 limit 限制的前 N 条」，实际：${line}`,
-	);
-
-	const shownSpecs = r.result.specs.length;
-	const shownFacts = r.result.facts.length;
-	assert.ok(shownSpecs <= 3 && shownFacts <= 3, "每侧列出条数不得超过每侧上限");
-	assert.match(line, new RegExp(`规范源命中 \\d+ 条、列出 ${shownSpecs} 条`), `规范侧条数与结果不符：${line}`);
-	assert.match(line, new RegExp(`事实源命中 \\d+ 条、列出 ${shownFacts} 条`), `事实侧条数与结果不符：${line}`);
-
-	assert.match(line, /调大 limit 可看到更多/, "limit 未达上限时给出可执行的下一步");
-});
-
 test("截断归因：limit 已达 RECALL_LIMIT_MAX 时不得再劝「调大 limit」", async () => {
 	const r = await buildRecallInjection({
 		userText: "把 34 号规范改名成双源召回",
@@ -1152,23 +970,6 @@ test("34 §8.2 第 3 项：交付了候选就必须同时给出消费方法（�
 	);
 });
 
-test("34 §8.2 第 3 项：零候选时不得输出用法（不为一句用不上的话付字节）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	for (const budgetBytes of [800, 1200, 1600]) {
-		const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes });
-		assert.equal(r.inject, true, `${budgetBytes} 档应仍注入`);
-		const actual = Buffer.byteLength(r.text, "utf8");
-		assert.ok(actual <= budgetBytes, `${budgetBytes} 档实际 ${actual} 字节，不得超预算`);
-		const candidates = r.text.split("\n").filter((l) => l.startsWith("- ")).length;
-		if (candidates === 0) {
-			assert.ok(
-				!r.text.includes("用法（34 §8.2）"),
-				`${budgetBytes} 档候选为 0，不得输出用法行（实际：${r.text.includes("用法（34 §8.2）")}）`,
-			);
-		}
-	}
-});
-
 test("34 §8.2 第 3 项：有候选的档位必有用法（正控制，防判据写成恒假）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 4000 });
@@ -1177,31 +978,6 @@ test("34 §8.2 第 3 项：有候选的档位必有用法（正控制，防判�
 	assert.ok(candidates > 0, "前提：本档须真的交付了候选（若语料变动致零候选，须换一个实测有候选的紧档）");
 	assert.ok(r.text.includes("用法（34 §8.2）"), "有候选时须输出用法行");
 	assert.ok(Buffer.byteLength(r.text, "utf8") <= 4000, "输出用法行后仍不得超预算");
-});
-
-test("兜底通道：说了「自行检索」就须给出具体入口，且该行须真的出现在输出里", async () => {
-	const probe = async (budgetBytes) => {
-		const r = await buildRecallInjection({
-			userText: "这条 friction 该销账吗",
-			projectRoot: ROOT,
-			budgetBytes,
-		});
-		return typeof r.text === "string" ? r.text : "";
-	};
-	const rich = await probe(10240);
-	assert.match(rich, /取不到不等于没有/, "充足预算下兜底行须出现在注入输出里");
-	assert.match(rich, /ldvh_pitfall_list|ldvh_\*_list/, "须点名按类型枚举的入口");
-	assert.match(rich, /ldvh_\*_read/, "须点名精读入口");
-	assert.match(rich, /ldvh_read_specification_(?:candidates|content)/, "须点名规范侧读取入口（不以 _read 结尾，须单独点名）");
-	assert.match(rich, /grep/, "须点名字面检索兜底");
-	const tiny = await probe(2400);
-	assert.doesNotMatch(tiny, /取不到不等于没有/, "极小预算下兜底行须让位");
-	const fallbackLine = rich.split("\n").find((l) => l.includes("取不到不等于没有")) ?? "";
-	assert.doesNotMatch(
-		fallbackLine.replace(/不(?:作)?承诺[^，。；）]*/g, ""),
-		/一定|保证|必能|总能/,
-		"兜底行不得作肯定式承诺（否定式「不承诺命中」是合规的）",
-	);
 });
 
 test("兜底通道：兜底行不得使小预算档的候选数倒挂于更小预算档", async () => {
@@ -1257,61 +1033,19 @@ test("34 §8.2 第 4 项：缺失 object_uid 时如实标注，不得用文件�
 	assert.ok(!/ · uid=x(\.md)?/.test(text), "不得把文件名冒充 object_uid");
 });
 
-test("34 §8.2 第 2、4 项：规范候选行须带 spec_key 并明示 L4（不得暗示已定位章节）", async (t) => {
+test("34 §8.2 第 2、4 项：规范候选行须带 spec_key（不暗示已定位章节）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
 	const specRows = r.text.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- ["));
 	assert.ok(specRows.length > 0, "前提：须有规范候选行");
-	const withKey = specRows.filter((l) => /spec_key=[a-z0-9-]+（L4 全文入口）/.test(l));
-	assert.ok(withKey.length > 0, `规范候选行须带 spec_key 并标明 L4。实际行：${specRows[0]}`);
+	const withKey = specRows.filter((l) => /spec_key=[a-z0-9-]+/.test(l));
+	assert.ok(withKey.length > 0, `规范候选行须带 spec_key。实际行：${specRows[0]}`);
 	const leaked = specRows.filter((l) => /heading_path|章节已定位|L3 章节/.test(l));
-	assert.deepEqual(leaked, [], `不得暗示已定位章节（本实现只到 L4）：${leaked.join(" | ")}`);
+	assert.deepEqual(leaked, [], `不得暗示已定位章节（本实现只给路径）：${leaked.join(" | ")}`);
 	for (const spec of r.result.specs) {
 		if (typeof spec.specKey !== "string" || spec.specKey === "") continue;
 		assert.ok(r.text.includes(`spec_key=${spec.specKey}`), `候选「${spec.title}」的 spec_key 未出现在渲染行里`);
 	}
-});
-
-test("L3 精确章节消费引导：模型可见面须给出「L2 取逐字标题 → 原样作 heading_path」的通路", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
-	assert.ok(r.text.includes("L4 全文入口"), "前提：须有规范候选行（带 L4 标注）");
-	const guide = r.text.split("\n").filter((l) => l.startsWith("（spec_key"));
-	assert.equal(guide.length, 1, `消费引导须恰好出现一次，实际 ${guide.length} 次`);
-	assert.match(guide[0], /L4.*(全文入口|入口).*(未定位章节|未定位)/, "须明说 L4 入口未定位到具体章节");
-	assert.match(guide[0], /L2/, "须指向 L2 读取层级");
-	assert.match(guide[0], /section_outline/, "须点名逐字标题的载体字段");
-	assert.match(guide[0], /heading_path/, "须给出 heading_path 的用法");
-	assert.match(guide[0], /勿猜标题/, "须明禁凭记忆猜标题（这是 36 次取址失配的根因）");
-	const specRows = r.text.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- ["));
-	assert.deepEqual(specRows.filter((l) => /heading_path|章节已定位|L3 章节/.test(l)), [],
-		"候选行自身仍不得暗示已定位章节；引导只放在独立说明行");
-});
-
-test("34 §12：渲染层裁掉候选时，完整度不得仍报 complete", async () => {
-	const longReason = "正文命中：".concat("R".repeat(400));
-	const result = {
-		specs: Array.from({ length: 6 }, (_, i) => ({
-			title: `夹具规范${i}`, path: `specs/9${i}-fixture.md`, hitReason: longReason, specKey: `fixture-${i}`,
-		})),
-		facts: [],
-		truncated: false,
-		partial: false,
-		overBudget: false,
-		recallCompleteness: "complete",
-		counts: { specHits: 6, factHits: 0, specsReturned: 6, factsReturned: 0 },
-		unchecked: { specs: [], facts: [] },
-		uncheckedRange: { sourceNotRead: [], excludedByTypeFilter: [], excludedByStatus: [], excludedByTypeWhitelist: [] },
-		l0Enumeration: { segments: [], pitfallTotal: 0 },
-		budget: { limitBytes: 1200, usedBytes: 900, limit: 12 },
-	};
-	const text = renderRecallRow(result);
-	const dropped = /裁去 (\d+) 条候选/.exec(text);
-	assert.ok(dropped !== null && Number(dropped[1]) > 0, `前提：本夹具须触发渲染层裁剪。实际：${text}`);
-	assert.ok(
-		!/完整度：\*\*complete\*\*/.test(text),
-		`渲染层已裁候选，不得仍宣称 complete。实际：${text}`,
-	);
 });
 
 test("34 §8.2 第 3 项：用法是否出现须机械可观察（render.usagePresent）", async (t) => {

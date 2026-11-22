@@ -1,8 +1,21 @@
 
-import { buildGuidance, guidanceSizeAlerts, reportGuidanceSize } from "./guidance-budget.js";
+import {
+  GUIDANCE_CHAR_BUDGET,
+  GUIDANCE_MEASURED_LENGTH,
+  evaluateGuidanceSize,
+  guidanceLengthDrift,
+  guidanceSizeAlerts,
+} from "./guidance-budget.js";
 import { NORM_DIRECTORY_SECTION_NAME } from "./norm-directory.js";
 import { currentUserText } from "./recall-injection.js";
-import { GUIDANCE_SECTION_NAME, migrationLineFor, noticeTextFor } from "./guidance-text.js";
+import {
+  GUIDANCE_MODE_RUNTIME,
+  GUIDANCE_SECTION_NAME,
+  guidanceTextFor,
+  migrationLineFor,
+  noticeTextFor,
+  resolveGuidanceMode,
+} from "./guidance-text.js";
 import { REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
 
 export function createAssembleHandler(agent, { resolve, syncTools, recordScope }) {
@@ -19,12 +32,26 @@ export function createAssembleHandler(agent, { resolve, syncTools, recordScope }
     } catch (error) {
       scope = { state: "unavailable", detail: String(error?.message ?? error) };
     }
-    const guided = buildGuidance(scope.state);
-    let text = guided.ok ? guided.text : "";
-    if (!guided.ok) {
-      scope.guidanceBudgetExceeded = guided.error.message;
+    const mode = await resolveGuidanceMode(scope?.project?.path);
+    const key = GUIDANCE_CHAR_BUDGET[scope.state] === undefined ? "not_governed" : scope.state;
+    const budget = GUIDANCE_CHAR_BUDGET[key];
+    const fullText = guidanceTextFor(scope.state, mode);
+    const verdict = evaluateGuidanceSize(fullText.length, budget, key);
+    let text = verdict.ok ? fullText : "";
+    if (!verdict.ok) {
+      scope.guidanceBudgetExceeded = verdict.error.message;
     }
-    const sizeReport = reportGuidanceSize(scope.state);
+    const recorded = mode === GUIDANCE_MODE_RUNTIME ? GUIDANCE_MEASURED_LENGTH[key] : null;
+    const sizeReport = {
+      state: key,
+      length: fullText.length,
+      budget,
+      ok: verdict.ok,
+      withinEarlyWarning: verdict.ok ? verdict.withinEarlyWarning : null,
+      drift: guidanceLengthDrift(fullText.length, recorded),
+      mode,
+    };
+    scope.guidanceMode = mode;
     scope.guidanceSizeReport = {
       state: sizeReport.state,
       length: sizeReport.length,
@@ -34,6 +61,7 @@ export function createAssembleHandler(agent, { resolve, syncTools, recordScope }
       drifted: sizeReport.drift.drifted,
       recorded: sizeReport.drift.recorded,
       delta: sizeReport.drift.delta,
+      mode: sizeReport.mode,
     };
     const alerts = guidanceSizeAlerts(sizeReport);
     if (alerts.drift !== undefined) {

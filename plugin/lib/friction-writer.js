@@ -12,7 +12,6 @@ import { repairedLengthMessage } from "./write-diagnostics.js";
 import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
 
-
 const FRICTION_TYPE_KEY = "friction";
 
 export const FRICTION_DIRECTORY = "frictions";
@@ -82,7 +81,6 @@ function validateOccurrenceShape(occurrence) {
 
 export const FRICTION_REMOVABLE_FIELDS = new Set(["attribution", "attribution_ref", "impact"]);
 
-
 function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
 }
@@ -142,7 +140,6 @@ async function verifyAttributionRefResolves(factSourceRoot, frontmatter) {
     message: `attribution_ref.object_uid "${uid}" does not resolve to any same-project fact object (26 §8/§11 锚点型：出现时 Code 机械核验可解析，不可解析即拒绝入账)`,
   };
 }
-
 
 export function isSingleSentence(text) {
   if (typeof text !== "string" || text.length === 0) return false;
@@ -399,7 +396,6 @@ async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCo
   return { ok: true };
 }
 
-
 function requireBodyWithoutH1(bodyMarkdown, fieldName) {
   if (/^\s*#\s+\S/.test(bodyMarkdown)) {
     return {
@@ -412,8 +408,6 @@ function requireBodyWithoutH1(bodyMarkdown, fieldName) {
   }
   return { ok: true };
 }
-
-
 
 export function validateFrictionBodyStructure(body, title, status) {
   const issues = [];
@@ -467,7 +461,6 @@ export function validateCarrierCoherence(frontmatter, body) {
   return { ok: true, issues: [], warnings };
 }
 
-
 export function frictionFileName(uid) { return `friction-${uid}.md`; }
 
 function objectFilePath(factSourceRoot, uid) {
@@ -515,7 +508,6 @@ async function atomicWriteFile(filePath, content) {
 function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
-
 
 export async function createFrictionObject(args) {
   const {
@@ -593,7 +585,6 @@ export async function createFrictionObject(args) {
   return success({ object_uid: uid, file: filePath, fingerprint });
 }
 
-
 export async function resolveFrictionObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
   if (!parsed.ok) {
@@ -660,7 +651,6 @@ export async function readFrictionObject(args) {
     fingerprint: fileFingerprint(content),
   });
 }
-
 
 export async function updateFrictionObject(args) {
   const {
@@ -826,7 +816,7 @@ export async function correctFrictionObject(args) {
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
-    return failure("invalid_request", "changeSummary is required (03 §10.5: 每次实际修改恰好一条 change_log)");
+    return failure("invalid_request", "changeSummary is required (02 §10.5: 每次实际修改恰好一条 change_log)");
   }
   const uidResolution = await resolveFrictionObjectUid(factSourceRoot, objectUidInput, currentProjectId);
   if (!uidResolution.ok) return uidResolution.error;
@@ -997,7 +987,6 @@ export async function correctFrictionObject(args) {
   await atomicWriteFile(filePath, content);
   return success({ fingerprint: fileFingerprint(content) });
 }
-
 
 async function isNonDirectoryAncestor(dir) {
   let cursor = dir;
