@@ -41,7 +41,7 @@ const sparkSpec = specsByNumber["22"];
 const anchorSpec = specsByNumber[ANCHOR_SPEC_NUMBER];
 const requiredAnchorsSpec = specsByNumber["01"];
 const requiredAnchorsText = specSectionText(requiredAnchorsSpec, "### 10.4");
-const guidedText = guidanceTextFor("governed");
+const guidedText = guidanceTextFor("governed", "dev");
 const sparkSchema = parameterSchemaFor("spark-write-object").properties.frontmatter_draft;
 
 function anchorIssues(guidance) {
@@ -203,9 +203,8 @@ test("锚点：01 §10.4 要求的锚点缺失须被发现", () => {
 });
 
 test("锚点：续写继承前缀的判据（36 §7.6／§8.9 的第二段须沿用 36）", () => {
-	const mutated = guidedText.replace("36 §7.6／§8.7", "36 §7.6／§8.9");
-	assert.notEqual(mutated, guidedText, "变异须实际生效");
-	const issues = anchorIssues(mutated);
+	const fixture = `${ANCHOR_BLOCK_START}\n1. §1 核心价值（36 §7.6／§8.9）\n${ANCHOR_BLOCK_END}`;
+	const issues = anchorIssues(fixture);
 	assert.ok(
 		issues.some((issue) => issue.includes("36 §8.9") && issue.includes("不存在")),
 		"须按 36 号规范报出 §8.9 不存在",
