@@ -246,7 +246,7 @@ function parseFrontmatter(text) {
   return out;
 }
 
-function parseObjectFrontmatter(text) {
+export function parseObjectFrontmatter(text) {
   const m = /^---\n([\s\S]*?)\n---/.exec(text);
   if (m === null) return { data: {}, yamlError: null };
   let data;
@@ -635,39 +635,6 @@ export async function resolveSpecsRoot(projectRoot) {
     if (files.some((file) => file.endsWith(".md"))) return candidate;
   }
   return null;
-}
-
-export async function loadSpecs(specsDir) {
-  return cachedCorpus(specsDir, false, (files) => {
-  const out = [];
-  for (const { name: file, text } of files) {
-    const fm = parseFrontmatter(text);
-    const block = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
-    const pick = (key) => {
-      const direct = fm[key];
-      if (direct !== undefined && direct !== "") return direct;
-      const m = new RegExp(`^\\s+${key}:\\s*(.+)$`, "m").exec(block);
-      return m !== null ? m[1].trim().replace(/^["']|["']$/g, "") : "";
-    };
-    const headings = [...text.matchAll(/^#{2,3}\s+(.+)$/gm)].map((m) => m[1].trim());
-    out.push({
-      source: "spec",
-      ref: pick("spec_key") || file.replace(/\.md$/, ""),
-      specKey: pick("spec_key") || null,
-      specId: pick("spec_id"),
-      title: pick("title") || file.replace(/\.md$/, ""),
-      positioning: pick("positioning"),
-      scope: pick("scope"),
-      basis: pick("basis"),
-      path: `specs/${file}`,
-      absolutePath: join(specsDir, file),
-      headings,
-      text,
-      bodyText: text.replace(/^---\n[\s\S]*?\n---\n?/, ""),
-    });
-  }
-  return out;
-  });
 }
 
 export async function loadRecallCriteriaForRoot(root, specsSource = undefined) {
@@ -1371,7 +1338,6 @@ export async function recallForAction(input = {}) {
     loadFacts(factsDir, { criteria }),
     isReadableDir(factsDir),
   ]);
-  const specs = [];
 
   const includeCarriers = input.includeCarriers !== false;
   const carrierSource = includeCarriers
@@ -1458,17 +1424,6 @@ export async function recallForAction(input = {}) {
     );
   };
 
-  const allSpecHits = collect(specs, (c) => ({
-    kind: "spec", ref: c.ref, title: c.title, path: c.path,
-    specKey: c.specKey ?? null,
-    headingPath: null,
-    ...(c.absolutePath === undefined ? {} : { absolutePath: c.absolutePath }),
-    positioning: c.positioning.slice(0, 160),
-    source: {
-      tier: specsSource === null ? null : specsSource.tier,
-      contentFingerprint: contentFingerprintOfCached(c.text, c),
-    },
-  }));
   const allFactHits = collect(pool, (c) => ({
     kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
     absolutePath: c.absolutePath,
@@ -1501,7 +1456,6 @@ export async function recallForAction(input = {}) {
       note: "分节与名额是交付次序，不是排序键：候选名次仍只由证据（weakHit/tier/hits/status/updatedAt/path）决定",
     };
   }
-  const specHits = allSpecHits.slice(0, limit);
   const factHits = selectedFactHits.slice(0, limit);
 
   let used = 0;
@@ -1534,39 +1488,26 @@ export async function recallForAction(input = {}) {
   );
   const l0Bytes = l0Plan.bytes;
   const usableBudget = Math.max(0, budgetBytes - RENDER_FIXED_OVERHEAD_BYTES - l0Bytes);
-  const bothSources = specHits.length > 0 && factHits.length > 0;
-  const specBudget = bothSources ? Math.floor(usableBudget * 0.6) : usableBudget;
-  const fitsSpec = (item) => {
-    const size = estimateLineBytes(item);
-    if (used + size > specBudget) return false;
-    used += size;
-    return true;
-  };
   const fits = (item) => {
     const size = estimateLineBytes(item);
     if (used + size > usableBudget) return false;
     used += size;
     return true;
   };
-  const keptSpecs = specHits.filter(fitsSpec);
   const keptFacts = factHits.filter(fits);
-  if (keptSpecs.length === 0 && keptFacts.length === 0) {
-    const first = specHits[0] ?? factHits[0];
-    if (first !== undefined) {
-      used += estimateLineBytes(first);
-      if (specHits.length > 0) keptSpecs.push(first);
-      else keptFacts.push(first);
-    }
+  if (keptFacts.length === 0 && factHits.length > 0) {
+    const first = factHits[0];
+    used += estimateLineBytes(first);
+    keptFacts.push(first);
   }
-  const truncated =
-    keptSpecs.length < allSpecHits.length || keptFacts.length < allFactHits.length;
+  const truncated = keptFacts.length < allFactHits.length;
   const overBudget =
     used + RENDER_FIXED_OVERHEAD_BYTES + l0Bytes > budgetBytes;
 
   const factSideUnreadable = !factsReadable;
   const carrierSideUnreadable = includeCarriers && carrierSource.missing === true;
   const sourceUnreadable = factSideUnreadable;
-  const returnedCount = keptSpecs.length + keptFacts.length;
+  const returnedCount = keptFacts.length;
   const carrierReturnedCount = allCarrierHits.length;
   const recallCompletenessValue = (() => {
     const filteredOut = scopedFacts.length - pool.length > 0;
@@ -1579,7 +1520,7 @@ export async function recallForAction(input = {}) {
   return {
     ok: true,
     query: { action, scope: input.scope ?? "", tokens: tokens.length },
-    specs: keptSpecs,
+    specs: [],
     facts: keptFacts,
     runtimeCarriers: {
       available: carrierSource.available === true,
@@ -1641,13 +1582,13 @@ export async function recallForAction(input = {}) {
         : `${criteria.tier === "package-data" ? "判据表来源：包内数据文件（由类型规范判据表构建期生成，非规范源原文）；" : "判据表来源：规范源（开发形态）；"}判据表不可用的类型已停用类型点名／核心语义字段／关系展开，按 partial 口径披露`,
     },
     counts: {
-      specHits: allSpecHits.length,
+      specHits: 0,
       factHits: allFactHits.length,
       carrierHits: carrierSource.counts.hits,
-      specsReturned: keptSpecs.length,
+      specsReturned: 0,
       factsReturned: keptFacts.length,
       carriersReturned: carrierReturnedCount,
-      candidatesScanned: specs.length + pool.length,
+      candidatesScanned: pool.length,
       candidatesExcluded: scopedFacts.length - pool.length,
     },
     pagination: {
@@ -1656,7 +1597,7 @@ export async function recallForAction(input = {}) {
       howToGetMore: "调大 limit 或缩小 action 描述范围后重新召回（本实现不持有跨调用游标）",
     },
     unchecked: {
-      specs: diffByPath(allSpecHits, keptSpecs),
+      specs: [],
       facts: diffByPath(allFactHits, keptFacts),
       runtimeCarriers: (carrierSource.unchecked ?? []).map((carrier) => ({
         title: carrier.title,
@@ -1666,7 +1607,7 @@ export async function recallForAction(input = {}) {
     },
     gaps: [
       ...criteriaGapsOf(criteria, scopedFacts),
-      ...[...allSpecHits, ...allFactHits].some((c) => c.source?.contentFingerprint?.value === undefined)
+      ...allFactHits.some((c) => c.source?.contentFingerprint?.value === undefined)
         ? ["部分载体内容指纹缺失"]
         : [],
       ...(recallCompletenessValue === "unavailable"
@@ -1704,15 +1645,15 @@ export async function recallForAction(input = {}) {
       }, {}),
       totalObjects: facts.length,
       coverage: {
-        scanned: specs.length + pool.length,
-        totalLoaded: specs.length + facts.length,
+        scanned: pool.length,
+        totalLoaded: facts.length,
         notScanned: scopedFacts.length - pool.length,
         notInScope: facts.length - scopedFacts.length,
       },
       typesPresent: [...new Set(facts.map((fact) => fact.type))].sort(),
       setAudit: {
-        status: specs.length + facts.length === 0 ? "unavailable" : "complete",
-        notCompleted: specs.length + facts.length === 0
+        status: facts.length === 0 ? "unavailable" : "complete",
+        notCompleted: facts.length === 0
           ? ["事实源未读到"]
           : [],
         note: "本实现一次读完全部载体（不建索引、不分页载入），故载入阶段无部分完成状态；本次召回的截断另见 recallCompleteness",
@@ -1799,7 +1740,7 @@ export async function recallForAction(input = {}) {
       truncationIsNotJudgement: true,
       note: "tier 是字段位置（确定性）；hits 是跨层命中词经 idf 加权的厚度（可复算，但非标准 BM25，tf 恒为 1，跨源不可比），path 仅为稳定输出；limit 截断只表示排得靠后，不表示不相关",
     },
-    fingerprint: fingerprintOf([...specs, ...facts]),
+    fingerprint: fingerprintOf(facts),
     limitations: {
       lexicalOnly: true,
       usesSemanticUnderstanding: false,
