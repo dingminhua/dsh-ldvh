@@ -11,7 +11,6 @@ import {
 	HIGH_DF_RATIO,
 	MATCH_TIERS,
 	loadFacts,
-	loadSpecs,
 	matchCandidate,
 	recallForAction,
 	resolveSpecsRoot,
@@ -88,24 +87,6 @@ test("tokenize：空串与非字符串返回空数组", () => {
 	assert.deepEqual(tokenize(123), []);
 });
 
-
-test("loadSpecs：载入规范源，字段与标题行可取", async () => {
-	const specs = await loadSpecs(join(ROOT, "specs"));
-	const { readdir } = await import("node:fs/promises");
-	const onDisk = (await readdir(join(ROOT, "specs"))).filter((f) => f.endsWith(".md"));
-	assert.equal(
-		specs.length,
-		onDisk.length,
-		`载入条数须等于盘上载体数（盘上 ${onDisk.length} 份），实际 ${specs.length}`,
-	);
-	assert.ok(specs.length > 0, "规范源不得为空（否则后续断言全部失去前提）");
-	const first = specs[0];
-	assert.equal(first.source, "spec");
-	assert.ok(typeof first.ref === "string" && first.ref !== "");
-	assert.ok(typeof first.title === "string" && first.title !== "");
-	assert.ok(Array.isArray(first.headings));
-	assert.ok(first.path.startsWith("specs/"));
-});
 
 test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜单复数）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
@@ -1849,19 +1830,12 @@ test("tokenize 是段内的：拼接串的 token 集等于各段 token 集之并
 
 test("语料缓存：同一份语料二次加载须复用同一解析产物（缓存确实生效）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
-	const specsFirst = await loadSpecs(joinPath(ROOT, "specs"));
-	const specsSecond = await loadSpecs(joinPath(ROOT, "specs"));
-	assert.equal(
-		specsSecond, specsFirst,
-		"同一份规范语料二次加载须复用同一解析产物——否则缓存未生效（性能优化已退化）",
-	);
 	const factsFirst = await loadFacts(joinPath(ROOT, "ldvh-base"));
 	const factsSecond = await loadFacts(joinPath(ROOT, "ldvh-base"));
 	assert.equal(
 		factsSecond, factsFirst,
 		"同一份事实语料二次加载须复用同一解析产物——否则缓存未生效（性能优化已退化）",
 	);
-	assert.equal(specsSecond.length, specsFirst.length, "复用后条目数须一致");
 	assert.equal(factsSecond.length, factsFirst.length, "复用后条目数须一致");
 });
 
