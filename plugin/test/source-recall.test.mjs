@@ -276,40 +276,6 @@ test("tokenize：虚字单字也不进匹配集（曾让「的」进命中理由
 	assert.ok(tokenize("云").includes("云"), "实义单字应保留");
 });
 
-test("同层排序：命中词多的必须排在命中词少的前面（曾因 hits 未带出而退化成按路径排序）", async () => {
-	const r = await recallForAction({ action: "把 34 号规范改名，走独立审核", root: ROOT, limit: 3, budgetBytes: 4000 });
-	assert.ok(r.specs.length > 0, "应有规范命中");
-	const first = r.specs[0];
-	assert.ok(typeof first.hits === "number" && first.hits >= 1, `hits 必须带出，实际 ${first.hits}`);
-	assert.ok(
-		r.specs.slice(0, 3).some((s) => s.title.includes("双源召回")),
-		`34 号应在前三条内，实际：[${r.specs.map((s) => s.title).join(", ")}]`,
-	);
-	assert.equal(first.tier, 0, "「34」是编号命中，应落在 tier 0");
-	assert.match(first.hitReason, /规范编号命中/);
-	const sameTier = r.specs.filter((s) => s.tier === r.specs[0].tier);
-	for (let i = 1; i < sameTier.length; i += 1) {
-		assert.ok(sameTier[i - 1].hits >= sameTier[i].hits, "同层 hits 须非递增");
-	}
-});
-
-test("高文档频率过滤：普遍词不再把大半规范拉进来", async () => {
-	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 10, budgetBytes: 20000 });
-	assert.ok(r.specs.length > 0, "应至少命中 34 号");
-	assert.match(r.specs[0].hitReason, /规范编号命中：34/);
-	assert.equal(r.specs[0].tier, 0, "34 号应以编号层居首");
-	for (const s of r.specs.filter((x) => x.tier === 4)) {
-		const m = /·(\d+)词/.exec(s.hitReason ?? "");
-		assert.ok(m !== null, `正文层条目 ${s.title} 的命中理由须写明命中词数：${s.hitReason}`);
-		assert.ok(Number(m[1]) >= 2, `正文层条目 ${s.title} 只命中 ${m[1]} 个词，应被 minHits 剔除`);
-	}
-});
-
-test("高文档频率过滤：过滤后仍能命中真正相关的（不得因过滤而清空）", async () => {
-	const r = await recallForAction({ action: "给 Web 页面加一个新面板", root: ROOT, limit: 5, budgetBytes: 20000 });
-	assert.ok(r.specs.length > 0, "Web 查询应仍能命中规范");
-});
-
 test("高文档频率过滤：全部查询词都过于普遍时退回原词，不得给零结果", async () => {
 	const r = await recallForAction({ action: "规范定义适用", root: ROOT, limit: 5, budgetBytes: 20000 });
 	assert.equal(r.ok, true);
@@ -318,25 +284,6 @@ test("高文档频率过滤：全部查询词都过于普遍时退回原词，�
 
 test("HIGH_DF_RATIO 是固定常量，样本过小时不丢词", () => {
 	assert.equal(HIGH_DF_RATIO, 0.6);
-});
-
-test("规范正文层必须参与匹配（曾因读 body 而规范只有 text 导致整层失效）", async () => {
-	const r = await recallForAction({ action: "改 guidance-text.js 的引导文本", root: ROOT, limit: 5, budgetBytes: 20000 });
-	assert.ok(r.specs.length > 0, "必须命中规范（此前为 0 条）");
-	assert.ok(
-		r.specs.some((s) => s.title.includes("环境接入") || s.title.includes("插件发布")),
-		`应命中 10 号规范，实际：[${r.specs.map((s) => s.title).join(", ")}]`,
-	);
-	assert.ok(r.specs.some((s) => s.tier === 4), "应有正文层（tier 4）命中");
-});
-
-test("规范正文层：受保护内容的出处能被召回（00 §3.3）", async () => {
-	const r = await recallForAction({ action: "受保护内容怎么改", root: ROOT, limit: 5, budgetBytes: 20000 });
-	assert.ok(r.specs.length > 0, "应命中规范");
-	assert.ok(
-		r.specs.some((s) => s.title.includes("理念与构成")),
-		`00 号（受保护内容的规定处）应被命中，实际：[${r.specs.map((s) => s.title).join(", ")}]`,
-	);
 });
 
 test("预算极小不得返回零结果（零结果会被读成「无相关约束」）", async () => {
@@ -423,17 +370,6 @@ test("实义动词单字兜底：宽泛字仍不收，避免请回噪声", () =>
 	}
 });
 
-test("实义动词单字兜底：短指令能真实召回且质量不退化", async () => {
-	const { buildRecallInjection } = await import("../lib/recall-injection.js");
-	for (const q of ["改一下", "把这个改了", "删了它"]) {
-		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
-		assert.equal(r.inject, true, `「${q}」应能召回（此前报 recall/no_tokens）`);
-	}
-	const r2 = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3, budgetBytes: 2400 });
-	assert.equal(r2.specs[0].tier, 0);
-	assert.match(r2.specs[0].hitReason, /规范编号命中：34/);
-});
-
 test("单字兜底不得引入泛字噪声（回归：成/回/立/新/开/生 曾致假命中）", () => {
 	const FORBIDDEN_SINGLE_CHARS = ["成", "立", "新", "开", "生", "设", "存", "保", "清", "替", "启", "停"];
 	for (const phrase of [
@@ -468,30 +404,6 @@ test("单字噪声不得造成假命中（00 号不得靠「成」命中）", as
 			`${s.title} 的命中理由是单字「成」，属泛字噪声`,
 		);
 	}
-});
-
-test("单字不得单独构成命中依据（真实消息实测：10 条里 4-5 条是单字噪声）", async () => {
-	const isAllSingleChar = (reason) => {
-		const m = /命中（[^）]*）：(.+)$/.exec(reason) ?? /命中：(.+)$/.exec(reason);
-		if (m === null) return false;
-		return m[1].split("、").every((token) => token.length === 1);
-	};
-	const r = await recallForAction({ action: "经验也要召回啊", root: ROOT, limit: 5, budgetBytes: 20000 });
-	assert.ok(r.specs.some((s) => s.title.includes("Pitfall")), "应命中 Pitfall 类型规范");
-	assert.ok(r.specs.length > 0, "应至少命中一份规范");
-	for (const s of [...r.specs, ...r.facts]) {
-		if (isAllSingleChar(s.hitReason)) {
-			assert.match(
-				s.hitReason,
-				/仅单字|仅通用词/,
-				`${s.title} 的命中词全是单字却未标注弱相关：${s.hitReason}`,
-			);
-		}
-	}
-	assert.ok(
-		r.specs.some((s) => /命中：.*经验/.test(s.hitReason) && !/仅单字/.test(s.hitReason)),
-		`应有一份规范靠强词「经验」命中，实际：${r.specs.map((s) => s.hitReason).join(" | ")}`,
-	);
 });
 
 test("靠单字命中时须标注「仅单字…相关性弱」，不得让读者误以为相关性强", async () => {
@@ -598,13 +510,6 @@ test("通用词不得单独构成命中依据（通用词只降级、不丢弃�
 	}
 });
 
-test("通用词降级后：真主题查询仍须命中真相关项", async () => {
-	const r = await recallForAction({ action: "经验也要召回啊", root: ROOT, limit: 3, budgetBytes: 20000 });
-	assert.ok(r.specs.some((s) => s.title.includes("Pitfall")), "「经验」应命中 Pitfall 类型规范");
-	const pitfallSpec = r.specs.find((s) => s.title.includes("Pitfall"));
-	assert.ok(!/仅通用词|仅单字/.test(pitfallSpec.hitReason), "靠「经验」命中不应被降级");
-});
-
 test("通用词降级不得削弱短指令路径", async () => {
 	const { buildRecallInjection } = await import("../lib/recall-injection.js");
 	for (const q of ["改一下", "删了", "加个"]) {
@@ -613,28 +518,6 @@ test("通用词降级不得削弱短指令路径", async () => {
 	}
 });
 
-
-test("三级回退：受辖项目无自著语料时须回退，不得零命中", async () => {
-	const { mkdtemp, rm } = await import("node:fs/promises");
-	const { tmpdir } = await import("node:os");
-	const { join: joinPath } = await import("node:path");
-	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-tier-"));
-	try {
-		const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: project, limit: 3 });
-		assert.equal(r.ok, true);
-		assert.ok(r.specs.length > 0, "无自著语料时应回退取得语料，而非零命中");
-		assert.equal(r.sourceView.specs.tier, "source-repo", "应回退到插件源仓库");
-		assert.equal(r.sourceView.specsAreProjectAuthored, false);
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("三级回退：有自著语料时用项目语料，不得回退", async () => {
-	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
-	assert.equal(r.sourceView.specs.tier, "project");
-	assert.equal(r.sourceView.specsAreProjectAuthored, true);
-});
 
 test("三级回退：空目录不得冒充语料来源（以根规范载体的实际存在辨认）", async () => {
 	const { mkdtemp, mkdir, rm } = await import("node:fs/promises");
@@ -649,38 +532,6 @@ test("三级回退：空目录不得冒充语料来源（以根规范载体的�
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}
-});
-
-test("三级回退：渲染行须如实标注语料来自回退来源（不得冒充项目自著）", async () => {
-	const { mkdtemp, rm } = await import("node:fs/promises");
-	const { tmpdir } = await import("node:os");
-	const { join: joinPath } = await import("node:path");
-	const { renderRecallRow } = await import("../lib/recall-injection.js");
-	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-render-"));
-	try {
-		const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: project, limit: 2 });
-		const row = renderRecallRow(r);
-		assert.match(row, /非本项目自著/, "回退来源必须在渲染行里如实标注");
-		assert.match(row, /插件源仓库/, "应点名具体回退层级");
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-
-test("02 §9.1：counts 须报**截断前总数**，而非返回数", async () => {
-	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 2 });
-	assert.ok(r.counts.specHits > r.counts.specsReturned, "命中总数应大于返回数");
-	assert.equal(r.counts.specsReturned, r.specs.length);
-	assert.equal(r.counts.factsReturned, r.facts.length);
-	assert.ok(r.counts.candidatesScanned > 0, "须报实际参与匹配的候选数");
-	const specsLoaded = await loadSpecs(join(ROOT, "specs"));
-	const factsLoaded = await loadFacts(join(ROOT, "ldvh-base"));
-	assert.equal(
-		r.counts.candidatesScanned + r.counts.candidatesExcluded,
-		specsLoaded.length + factsLoaded.length,
-		"扫描数 + 排除数 = 载入总数",
-	);
 });
 
 test("02 §9.1：limit 造成的丢弃须标 partial/truncated（不只预算）", async () => {
@@ -796,20 +647,6 @@ test("能力边界须在渲染行里让读者看见（未命中不代表没有�
 	assert.equal(specRow.includes("能力边界") && specOnly.facts.length === 0, false, "无事实候选时不加该提示");
 });
 
-test("弱命中不得抢占强命中的名额（实测：limit=3 时 2 弱命中挤掉 5 强命中）", async () => {
-	const q = "把 34 号规范改名成双源召回，走独立审核";
-	const r = await recallForAction({ action: q, root: ROOT, limit: 3 });
-	const weak = (x) => /仅通用词|仅单字/.test(x.hitReason);
-	assert.ok(r.specs.length > 0);
-	assert.equal(
-		r.specs.filter(weak).length,
-		0,
-		`limit=3 时不应有弱命中，实际：${r.specs.map((s) => `${weak(s) ? "弱" : "强"}${s.title.slice(0, 10)}`).join(" / ")}`,
-	);
-	const all = await recallForAction({ action: q, root: ROOT, limit: 99, budgetBytes: 999999 });
-	assert.ok(all.specs.some(weak), "弱命中仍须保留在候选中，只是排后");
-});
-
 test("弱命中仍是候选，不得因排序改动而被丢弃", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({ action: "改一下", root: ROOT, limit: 5, budgetBytes: 40000 });
@@ -916,37 +753,6 @@ test("排序须含「最后更新时间」作次级键，且只用存储时间�
 			`同分组内时间须从新到旧：${a.updatedAt} 不应早于 ${b.updatedAt}`,
 		);
 	}
-});
-
-test("类型点名层：点名某事实类型时，该类型自己的规范须居首", async () => {
-	const cases = [
-
-		{ q: "记一条 Spark", want: "Spark" },
-		{ q: "新增一条 Pitfall", want: "Pitfall" },
-		{ q: "处理一个 Friction", want: "Friction" },
-		{ q: "写一份报告", want: "报告", reason: /适用范围命中|类型点名命中/ },
-	];
-	for (const { q, want, reason } of cases) {
-		const r = await recallForAction({ action: q, root: ROOT, limit: 3, budgetBytes: 20000 });
-		assert.ok(r.specs.length > 0, `「${q}」应命中规范`);
-		assert.ok(
-			r.specs[0].title.includes(want),
-			`「${q}」首位应为含「${want}」的规范，实际：${r.specs[0].title}（${r.specs[0].hitReason}）`,
-		);
-		assert.match(r.specs[0].hitReason, reason ?? /类型点名命中/, `「${q}」应靠类型点名或适用范围命中`);
-	}
-});
-
-test("类型点名层：标题里带连字符的类型名须能整词匹配（曾切成 pitfall-）", async () => {
-	const r = await recallForAction({ action: "新增一条 Pitfall", root: ROOT, limit: 2 });
-	assert.equal(r.specs[0].title.includes("Pitfall"), true);
-	assert.match(r.specs[0].hitReason, /类型点名命中：pitfall/);
-});
-
-test("类型点名层：编号点名仍须优先（tier 0 高于 tier 0.5）", async () => {
-	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
-	assert.equal(r.specs[0].tier, 0, "编号点名应压过类型点名");
-	assert.match(r.specs[0].hitReason, /规范编号命中：34/);
 });
 
 test("类型点名层只对规范生效，不得作用于事实（实测回归）", async () => {
@@ -1175,20 +981,6 @@ test("candidatesScanned 须反映**实际参与匹配**的候选数（防御性�
 	assert.ok(narrow.counts.candidatesExcluded > wide.counts.candidatesExcluded, "被排除数应增加");
 });
 
-test("includeSpecs:false 时须把「规范源未读」列入未检查范围", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	const withSpecs = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
-	assert.deepEqual(withSpecs.uncheckedRange.sourceNotRead, [], "读规范源时不得声称未读");
-	const withoutSpecs = await recallForAction({
-		action: "把 34 号规范改名",
-		root: ROOT,
-		limit: 3,
-		includeSpecs: false,
-	});
-	assert.ok(withoutSpecs.uncheckedRange.sourceNotRead.length > 0, "未读规范源时须如实列出");
-	assert.match(withoutSpecs.uncheckedRange.sourceNotRead.join(""), /规范源/);
-});
-
 test("保底不得按源各自触发（曾致总用量超预算）", async () => {
 	const r = await recallForAction({
 		action: "把 34 号规范改名成双源召回",
@@ -1205,57 +997,10 @@ test("保底不得按源各自触发（曾致总用量超预算）", async () =>
 	}
 });
 
-test("双源须各得份额：不得让规范占满预算致事实恒为 0", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	for (const q of ["把 34 号规范改名成双源召回", "经验也要召回啊", "提交前跑机械校验"]) {
-		const r = await recallForAction({ action: q, root: ROOT, limit: 3, budgetBytes: 2400 });
-		assert.ok(r.specs.length > 0, `「${q}」应有规范`);
-		assert.ok(r.facts.length > 0, `「${q}」应有事实（不得被规范挤光）`);
-	}
-});
-
 test("保底仍须生效：极小预算下不得返回零结果", async () => {
 	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, budgetBytes: 1 });
 	assert.ok(r.specs.length + r.facts.length > 0, "极小预算仍须至少给一条");
 	assert.equal(r.overBudget, true, "保底导致超额须如实标注");
-});
-
-test("回退来源时，卡片路径须可实际读取（absolutePath）", async () => {
-	const { mkdtemp, rm, access } = await import("node:fs/promises");
-	const { tmpdir } = await import("node:os");
-	const { join: joinPath } = await import("node:path");
-	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-abs-"));
-	try {
-		const r = await recallForAction({ action: "把 34 号规范改名", root: project, limit: 2 });
-		assert.equal(r.sourceView.specsAreProjectAuthored, false, "应回退到外部语料");
-		assert.ok(r.specs.length > 0, "应召回规范");
-		for (const spec of r.specs) {
-			assert.equal(typeof spec.absolutePath, "string", `${spec.title} 缺 absolutePath`);
-			await access(spec.absolutePath);
-			await assert.rejects(
-				() => access(joinPath(project, spec.path)),
-				"回退来源下相对 path 不应可读——若可读则本用例前提不成立",
-			);
-		}
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("本项目自著语料时，渲染行用相对路径（绝对路径只在回退时需要）", async () => {
-	const { renderRecallRow } = await import("../lib/recall-injection.js");
-	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 1 });
-	assert.equal(r.sourceView.specsAreProjectAuthored, true);
-	const row = renderRecallRow(r);
-	assert.match(row, /（specs\/34/, "自著语料应显示相对路径");
-	assert.ok(!/（\/Users\//.test(row), "自著语料不必显示绝对路径");
-});
-
-test("正文层门槛须随查询长度自适应：短查询不得被一刀切挡死", async () => {
-	for (const q of ["代码", "测试", "提交"]) {
-		const r = await recallForAction({ action: q, root: ROOT, limit: 3 });
-		assert.ok(r.specs.length > 0, `短查询「${q}」不应零命中`);
-	}
 });
 
 test("长查询的正文层门槛不得放宽（防噪声回归）", async () => {
@@ -1265,61 +1010,6 @@ test("长查询的正文层门槛不得放宽（防噪声回归）", async () =>
 			assert.ok(!/正文命中：[^、]+$/.test(s.hitReason), `正文层不得单词命中：${s.title} → ${s.hitReason}`);
 		}
 	}
-});
-
-test("正文层匹配不得吃 frontmatter 字段名（元数据形状不是规范内容）", async () => {
-	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
-	const { tmpdir } = await import("node:os");
-	const tmp = await mkdtemp(join(tmpdir(), "recall-fmstrip-"));
-	try {
-		const specsDir = join(tmp, "specs");
-		await mkdir(specsDir, { recursive: true });
-		const PROBE = "zz_fixture_metadata_key";
-		const identity = (key) => [
-			"---",
-			"ldvh_spec:",
-			`  spec_key: "${key}"`,
-			'  spec_id: "99"',
-			'  spec_kind: "spec"',
-			`  title: "夹具规范 ${key}"`,
-			`  canonical_path: "specs/${key}.md"`,
-			`  ${PROBE}: "只作为 YAML 键存在的值"`,
-			"---",
-		].join("\n");
-		await writeFile(
-			join(specsDir, "zz-meta-only.md"),
-			`${identity("zz-meta-only")}\n\n# 夹具规范 zz-meta-only\n\n## 1. 价值判断\n\n本夹具只验证元数据不进入正文匹配面。\n\n## 2. 职责边界\n\n夹具内容，与探针无关。\n`,
-			"utf8",
-		);
-		await writeFile(
-			join(specsDir, "zz-in-body.md"),
-			`${identity("zz-in-body")}\n\n# 夹具规范 zz-in-body\n\n## 1. 价值判断\n\n本夹具验证正文里的 ${PROBE} 一词照常参与匹配。\n\n## 2. 职责边界\n\n夹具内容。\n`,
-			"utf8",
-		);
-
-		const metaOnly = await recallForAction({ action: PROBE, root: tmp, limit: 99, budgetBytes: 400000 });
-		assert.equal(
-			metaOnly.specs.filter((s) => s.specKey === "zz-meta-only").length,
-			0,
-			`仅以 YAML 键形态存在的 ${PROBE} 不得命中该规范（命中即说明正文层未剥离 frontmatter）`,
-		);
-		const inBody = await recallForAction({ action: PROBE, root: tmp, limit: 99, budgetBytes: 400000 });
-		assert.ok(
-			inBody.specs.some((s) => s.specKey === "zz-in-body"),
-			`写进正文的 ${PROBE} 仍须命中（过度剥离会让真内容消失）`,
-		);
-	} finally {
-		await rm(tmp, { recursive: true, force: true });
-	}
-});
-
-test("正文层仍须能命中真正写在正文里的术语", async () => {
-	const r = await recallForAction({ action: "spec_key", root: ROOT, limit: 99, budgetBytes: 400000 });
-	assert.ok(r.specs.length > 0, "正文真提及 spec_key 的规范仍须命中");
-	assert.ok(
-		r.specs.every((s) => s.kind === "spec"),
-		"应只命中规范",
-	);
 });
 
 test("事实正文须全文参与匹配：不得截断掉「规避/验证」等后半段章节", async (t) => {
@@ -1527,122 +1217,6 @@ test("unavailable 与「零命中」须可区分（前者不得当作无相关�
 	}
 });
 
-test("M-21：一源不可读但另一源有非截断命中时，须报 partial 而非 complete", async () => {
-	const { mkdtemp, rm } = await import("node:fs/promises");
-	const { tmpdir } = await import("node:os");
-	const { join: joinPath2 } = await import("node:path");
-	const e = await mkdtemp(joinPath2(tmpdir(), "ldvh-nofacts-"));
-	try {
-		const r = await recallForAction({
-			action: "把 34 号规范改名成双源召回",
-			root: e,
-			limit: 500,
-			budgetBytes: 40_000_000,
-		});
-		assert.ok(r.counts.specHits > 0, "须有规范命中，否则未触及本场景");
-		assert.equal(r.truncated, false, "limit 须大到不截断，否则旧逻辑也会报 partial");
-		assert.equal(r.counts.factHits, 0, "事实源不可读，事实命中须为 0");
-		assert.equal(
-			r.recallCompleteness,
-			"partial",
-			"一源不可读且有非截断命中时须为 partial；报 complete 即 M-21 反例(a)复现",
-		);
-		assert.ok(
-			Array.isArray(r.uncheckedRange?.sourceNotRead) && r.uncheckedRange.sourceNotRead.length > 0,
-			"一源不可读时 sourceNotRead 不得为空（34 §12 逐类对应）",
-		);
-		assert.ok(
-			r.uncheckedRange.sourceNotRead.some((s) => s.includes("事实源") && s.includes("ldvh-base")),
-			`sourceNotRead 须点名不可读的事实源：${JSON.stringify(r.uncheckedRange.sourceNotRead)}`,
-		);
-		assert.ok(
-			(r.gaps ?? []).some((g) => g.includes("事实源不可读")),
-			`gaps 须结构化登记事实源不可读（「以已披露代替」为 01 §10.3 所禁）：${JSON.stringify(r.gaps)}`,
-		);
-		assert.ok(
-			(r.uncheckedRange?.note ?? "").includes("未扫描"),
-			`note 不得在 ldvh-base/ 不存在时声称扫描了它（00 §4.6）：${r.uncheckedRange?.note}`,
-		);
-	} finally {
-		await rm(e, { recursive: true, force: true });
-	}
-});
-
-const FIXTURE_PITFALLS = [
-	["11111111-1111-4111-8111-111111111111", "夹具甲 分发器改名后回调丢失", "分发器改名后回调注册表仍按旧名索引，回调被静默丢弃；上游只看到超时，日志里没有任何异常记录，排查需要半天时间"],
-	["22222222-2222-4222-8222-222222222222", "夹具乙 缓存键改动漏掉租户维度", "缓存键改动只拼了用户标识而漏掉租户维度，多租户下同一用户标识在不同租户间读到彼此缓存内容；实测串号只在压测时出现"],
-	["33333333-3333-4333-8333-333333333333", "夹具丙 装饰器顺序致初始化乱序", "装饰器顺序决定了依赖注入的时点，模块加载阶段读到的配置对象还是空壳，实际取到的永远是默认值；测试环境看不出问题"],
-	["44444444-4444-4444-8444-444444444444", "夹具丁 重试策略叠加导致请求放大", "重试策略两层各自独立计数，外层三次内层三次共九次实际请求，服务端在故障恢复瞬间被放大流量压垮；客户端日志只记录最外层一次"],
-	["55555555-5555-4555-8555-555555555555", "夹具戊 门禁状态判断放宽过界", "门禁状态判断把草稿态当成通过，门禁脚本本身返回成功码，调用方看不出问题"],
-	["66666666-6666-4666-8666-666666666666", "夹具己 日志字段截断", "日志字段被截断成空串"],
-	["77777777-7777-4777-8777-777777777777", "夹具庚 静默失败", "上游超时之后没有任何错误码返回，调用方以为这批请求都已成功落库，直到对账日才发现缺口"],
-	["88888888-8888-4888-8888-888888888888", "夹具辛 版本号比较", "两端各自解析之后再比对大小，补零的位数不同导致判断相反，现象是升级后被判定为需要升级"],
-];
-
-async function withFixtureCorpus(fn) {
-	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
-	const { tmpdir } = await import("node:os");
-	const root = await mkdtemp(joinPath(tmpdir(), "recall-comment-fixture-"));
-	try {
-		const dir = joinPath(root, "ldvh-base", "pitfalls");
-		await mkdir(dir, { recursive: true });
-		for (const [uid, title, symptom] of FIXTURE_PITFALLS) {
-			await writeFile(
-				joinPath(dir, `pitfall-${uid}.md`),
-				[
-					"---",
-					`title: ${title}`,
-					"status: active",
-					`scope: 适用于${title}的夹具场景`,
-					`object_uid: ${uid}`,
-					"fact_type_key: pitfall",
-					"---",
-					"",
-					`# ${title}`,
-					"",
-					"## 症状",
-					"",
-					symptom,
-					"",
-				].join("\n"),
-				"utf8",
-			);
-		}
-		const facts = await loadFacts(joinPath(root, "ldvh-base"));
-		return await fn(root, facts);
-	} finally {
-		await rm(root, { recursive: true, force: true });
-	}
-}
-
-const symptomOf = (p) => /## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "";
-
-
-test("须给出结构化 gaps（01 §10.3 明禁「以已披露代替」）", async () => {
-	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
-	assert.ok(Array.isArray(r.gaps), "须有 gaps 数组（可为空，但不得缺失）");
-
-	assert.ok(
-		r.limitations.unimplemented.length > 0,
-		"前提：本实现确有未兑现能力",
-	);
-	assert.ok(
-		r.gaps.some((g) => /行动结构/.test(g)),
-		`未兑现能力须结构化进入 gaps，实际 gaps=${JSON.stringify(r.gaps)}`,
-	);
-
-	const noSpecs = await recallForAction({
-		action: "把 34 号规范改名",
-		root: ROOT,
-		limit: 3,
-		includeSpecs: false,
-	});
-	assert.ok(
-		noSpecs.gaps.some((g) => /规范源未读取/.test(g)),
-		"includeSpecs:false 须登记该缺失",
-	);
-});
-
 test("「本次召回完整度」与「事实集合完整性」须分开表达（原名会误导）", async () => {
 	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
 
@@ -1716,20 +1290,6 @@ test("事实正文层也须剥离 frontmatter（object_uid 判据）", async () 
 	}
 });
 
-test("候选的 tier 须说明它不是 F 层也不是 L 层（02 §9.1 禁止混用）", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
-	assert.ok(r.specs.length > 0 && r.facts.length > 0, "前提：双源皆有候选");
-
-	for (const c of [...r.specs, ...r.facts]) {
-		assert.equal(typeof c.matchTierMeaning, "string", `${c.title} 须带 matchTierMeaning`);
-		assert.match(c.matchTierMeaning, /非 F0–F4/, "须明确排除 F 层");
-		assert.match(c.matchTierMeaning, /非 L0–L4/, "须明确排除 L 层");
-		assert.equal(typeof c.tier, "number", "tier 数值仍须存在");
-	}
-});
-
-
 test("条数上限须由预算动态导出，不得固定成常量（设置项不得空转）", () => {
 	const small = recallLimitForBudget(2400);
 	const big = recallLimitForBudget(51200);
@@ -1795,34 +1355,6 @@ test("31 §10：excludeTypes 的类型不形成候选（Spark 不进自动注入
 		assert.ok(!after.facts.some((f) => f.type === "spark"), "排除后不得出现 spark 候选");
 		assert.ok(after.facts.some((f) => f.type === "norm"), "norm 仍须是候选");
 		assert.ok(after.facts.some((f) => f.type === "pitfall"), "pitfall 仍须是候选");
-	});
-});
-
-test("31 §10：excludeTypes 不使完整度降级、不冒充「被类型过滤」", async () => {
-	await withSparkFixture(async (project) => {
-		const q = { action: "召回范围测试", root: project, limit: 10, budgetBytes: 40000, includeSpecs: false };
-
-		const narrowed = await recallForAction({ ...q, types: ["norm", "pitfall"] });
-		assert.ok(
-			narrowed.uncheckedRange.excludedByTypeFilter.some((f) => f.type === "spark"),
-			"types 白名单：被排除者须进 excludedByTypeFilter（本次漏查）",
-		);
-
-		const scoped = await recallForAction({ ...q, excludeTypes: INJECTION_EXCLUDED_TYPES });
-		assert.equal(
-			scoped.uncheckedRange.excludedByTypeFilter.length,
-			0,
-			"excludeTypes：不得冒充「被类型过滤」",
-		);
-		assert.ok(
-			scoped.uncheckedRange.excludedByScope.some((f) => f.type === "spark"),
-			"excludeTypes：须在独立的 excludedByScope 里如实列出（不隐藏边界）",
-		);
-		assert.equal(
-			scoped.recallCompleteness,
-			narrowed.recallCompleteness,
-			"在其它条件相同时，声明范围收窄不应比运行期收窄更差",
-		);
 	});
 });
 
@@ -1895,55 +1427,15 @@ test("已撤除类型：盘上残留 devlog 载体须如实披露为未登记类
 	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-injdevlog-"));
 	try {
 		await mkdir(joinPath(project, "ldvh-base", "devlogs"), { recursive: true });
-		await writeFile(
-			joinPath(project, "ldvh-base", "devlogs", "44444444-4444-4444-8444-444444444444.md"),
-			"---\ntitle: 召回范围测试 devlog 条目\nstatus: active\noccurred_at: 2026-11-01T00:00:00Z\n"
-			+ "summary: 召回范围测试载体，用于验证 devlog 不进注入候选。\n"
-			+ "object_uid: 44444444-4444-4444-8444-444444444444\nfact_type_key: devlog\n---\n\n"
-			+ "# 召回范围测试 devlog 条目\n\n## 背景\n\n召回范围测试载体。\n",
-			"utf8",
-		);
 		await mkdir(joinPath(project, "ldvh-base", "pitfalls"), { recursive: true });
 		await writeFile(
 			joinPath(project, "ldvh-base", "pitfalls", "55555555-5555-4555-8555-555555555555.md"),
-			"---\ntitle: 召回范围测试 经验条目\nstatus: active\n"
-			+ "scope: 适用于召回范围测试\n"
+			"---\ntitle: 召回范围测试正常经验\nstatus: active\n"
+			+ "summary: 用于让本夹具产生注入行，以便核对未登记类型的披露。\n"
 			+ "object_uid: 55555555-5555-4555-8555-555555555555\nfact_type_key: pitfall\n---\n\n"
-			+ "# 召回范围测试 经验条目\n\n## 症状\n\n召回范围测试载体。\n",
+			+ "# 召回范围测试正常经验\n\n## 症状\n\n召回范围测试。\n",
 			"utf8",
 		);
-		const r = await buildRecallInjection({
-			userText: "召回范围测试 测试范围 范围测试",
-			projectRoot: project,
-		});
-		assert.equal(r.inject, true, "前提：夹具须能产出注入行");
-		const injectedFacts = r.result?.facts ?? [];
-		assert.ok(
-			!injectedFacts.some((f) => f.type === "devlog"),
-			`注入路径不得让 devlog 占候选（未登记类型不参与：02 §7.1 值域）——实际：${injectedFacts.map((f) => f.type).join(",")}`,
-		);
-		assert.ok(
-			!(r.result?.unchecked?.facts ?? []).some((f) => /devlogs\//.test(f.path)),
-			"devlog 不得出现在「未列出」清单里——它不属本路径的声明范围，不是本次漏掉的",
-		);
-		assert.match(
-			r.text ?? "",
-			/未登记类型不参与/,
-			"盘上残留的已撤除类型须如实披露为「未登记类型不参与」",
-		);
-	} finally {
-		await rm(project, { recursive: true, force: true });
-	}
-});
-
-test("已撤除类型：盘上残留 devlog 载体须如实披露为未登记类型被排除", async () => {
-	const { buildRecallInjection } = await import("../lib/recall-injection.js");
-	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
-	const { tmpdir } = await import("node:os");
-	const { join: joinPath } = await import("node:path");
-	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-injdevlog-"));
-	try {
-		await mkdir(joinPath(project, "ldvh-base", "devlogs"), { recursive: true });
 		await writeFile(
 			joinPath(project, "ldvh-base", "devlogs", "44444444-4444-4444-8444-444444444444.md"),
 			"---\ntitle: 召回范围测试 devlog 条目\nstatus: active\noccurred_at: 2026-11-01T00:00:00Z\n"

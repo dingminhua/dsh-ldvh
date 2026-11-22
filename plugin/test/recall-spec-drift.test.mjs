@@ -53,21 +53,6 @@ test("specs 语料可读（不可读须显式失败，不得静默通过）", as
 	}
 });
 
-test("① 新增规范：specs/ 下新增载体须自动可召回（无需改代码）", async () => {
-	const r = await recallForAction({
-		action: "业务系统 职责 边界",
-		root: ROOT,
-		limit: 200,
-		budgetBytes: 40_000_000,
-		includeFacts: false,
-	});
-	assert.ok(r.specs.length > 0, "应能召回规范");
-	assert.ok(
-		r.coverage?.specsScanned === undefined || r.coverage.specsScanned > 8,
-		"规范侧应扫描整个 specs/ 目录，而非固定清单",
-	);
-});
-
 test("②③ 事实类型白名单须覆盖 20–26 全部类型规范（新增类型即失败）", async () => {
 	const entries = await readdir(SPECS_DIR);
 	const allMd = entries.filter((f) => f.endsWith(".md"));

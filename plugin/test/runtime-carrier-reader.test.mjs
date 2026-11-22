@@ -296,7 +296,7 @@ test("载体侧召回只给可定位引用：canonical_path 与条目 id，且�
   );
 });
 
-test("召回结果并入载体侧通道：无规范源与事实源时仍报 partial，不报 unavailable", async () => {
+test("召回结果并入载体侧通道：事实源不可读但有载体候选时仍报 partial，不报 unavailable", async () => {
   await withTempRoot(async (root) => {
     await writeCarrier(root, SPARK);
     const result = await recallForAction({
@@ -317,8 +317,8 @@ test("召回结果并入载体侧通道：无规范源与事实源时仍报 part
     assert.equal(result.recallCompleteness, "partial",
       "规范源与事实源不可读但有载体候选时，报 unavailable 即抹掉了已取得的候选");
     assert.ok(
-      result.uncheckedRange.sourceNotRead.some((line) => line.includes("规范源")),
-      "未读的源仍须逐项披露",
+      result.uncheckedRange.sourceNotRead.some((line) => line.includes("specs/")),
+      "specs/ 不作为运行期召回源的事实仍须披露",
     );
     assert.ok(
       result.gaps.some((line) => line.includes("事实源不可读")),

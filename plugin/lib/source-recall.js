@@ -1320,7 +1320,6 @@ export async function recallForAction(input = {}) {
     ? input.statuses : null;
   const types = Array.isArray(input.types) ? input.types : null;
   const excludedTypes = Array.isArray(input.excludeTypes) ? input.excludeTypes : null;
-  const includeSpecs = input.includeSpecs !== false;
   const facet = (name) => {
     const v = input[name];
     if (typeof v !== "string") return null;
@@ -1358,7 +1357,7 @@ export async function recallForAction(input = {}) {
   }
 
   const root = input.root ?? join(import.meta.dirname, "..", "..");
-  const specsSource = includeSpecs ? await resolveSpecsRoot(root) : null;
+  const specsSource = await resolveSpecsRoot(root);
   const criteria = await loadRecallCriteriaForRoot(root, specsSource);
   const statusPolicy = (type) => recallStatusPolicyOf(criteria, type);
   const statusAllowed = (type, status) => {
@@ -1368,11 +1367,11 @@ export async function recallForAction(input = {}) {
     return policy.statuses.includes(status);
   };
   const factsDir = join(root, "ldvh-base");
-  const [specs, facts, factsReadable] = await Promise.all([
-    specsSource === null ? [] : loadSpecs(specsSource.dir),
+  const [facts, factsReadable] = await Promise.all([
     loadFacts(factsDir, { criteria }),
     isReadableDir(factsDir),
   ]);
+  const specs = [];
 
   const includeCarriers = input.includeCarriers !== false;
   const carrierSource = includeCarriers
@@ -1564,17 +1563,15 @@ export async function recallForAction(input = {}) {
   const overBudget =
     used + RENDER_FIXED_OVERHEAD_BYTES + l0Bytes > budgetBytes;
 
-  const specSideUnreadable = includeSpecs && specsSource === null;
   const factSideUnreadable = !factsReadable;
   const carrierSideUnreadable = includeCarriers && carrierSource.missing === true;
-  const sourceUnreadable = specSideUnreadable || factSideUnreadable;
+  const sourceUnreadable = factSideUnreadable;
   const returnedCount = keptSpecs.length + keptFacts.length;
   const carrierReturnedCount = allCarrierHits.length;
   const recallCompletenessValue = (() => {
     const filteredOut = scopedFacts.length - pool.length > 0;
-    const singleSourceByCaller = includeSpecs === false;
     if (sourceUnreadable && returnedCount === 0 && carrierReturnedCount === 0) return "unavailable";
-    if (truncated || filteredOut || sourceUnreadable || singleSourceByCaller) return "partial";
+    if (truncated || filteredOut || sourceUnreadable) return "partial";
     return "complete";
   })();
 
@@ -1669,17 +1666,11 @@ export async function recallForAction(input = {}) {
     },
     gaps: [
       ...criteriaGapsOf(criteria, scopedFacts),
-      ...(includeSpecs && specsSource === null
-        ? ["来源视图缺失：规范源三级回退（01 §10.3）均无可用语料"]
-        : []),
       ...[...allSpecHits, ...allFactHits].some((c) => c.source?.contentFingerprint?.value === undefined)
         ? ["部分载体内容指纹缺失"]
         : [],
       ...(recallCompletenessValue === "unavailable"
         ? ["完成范围：一源不可读且未取得任何候选，无法给出任何结果"]
-        : []),
-      ...(specSideUnreadable
-        ? ["规范源不可读：01 §10.3 三级回退均无可用语料，该源未检查"]
         : []),
       ...(includeCarriers ? [] : ["运行时机制载体未读取（includeCarriers:false）"]),
       ...(carrierSideUnreadable
@@ -1694,7 +1685,6 @@ export async function recallForAction(input = {}) {
       ...(factSideUnreadable
         ? ["事实源不可读：项目内 ldvh-base/ 不存在或不可读，该源未检查"]
         : []),
-      ...(includeSpecs ? [] : ["规范源未读取（includeSpecs:false）"]),
       "既有行动结构路由未实现（10 §5.3 要求；无可路由载体，见 limitations.unimplemented）",
       ...(() => {
         const unknown = scopedFacts.filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type));
@@ -1723,7 +1713,7 @@ export async function recallForAction(input = {}) {
       setAudit: {
         status: specs.length + facts.length === 0 ? "unavailable" : "complete",
         notCompleted: specs.length + facts.length === 0
-          ? ["事实源与规范源均未读到"]
+          ? ["事实源未读到"]
           : [],
         note: "本实现一次读完全部载体（不建索引、不分页载入），故载入阶段无部分完成状态；本次召回的截断另见 recallCompleteness",
       },
@@ -1793,13 +1783,12 @@ export async function recallForAction(input = {}) {
         ),
       },
       sourceNotRead: [
-        ...(includeSpecs ? [] : ["规范源（includeSpecs:false，未读取）"]),
-        ...(specSideUnreadable ? ["规范源（01 §10.3 三级回退均无可用语料，不可读，未读取）"] : []),
+        "specs/ 需求文档不进入运行期召回（只作判据表构建期来源；正文用常规文件读取，不分层）",
         ...(factSideUnreadable ? ["事实源（项目内 ldvh-base/ 不存在或不可读，未读取）"] : []),
         ...(includeCarriers ? [] : ["运行时机制载体（includeCarriers:false，未读取）"]),
         ...(carrierSideUnreadable ? ["运行时机制载体（项目内 plugin-specs/ 不存在或不可读，未读取）"] : []),
       ],
-      note: `本次实际扫描：${specSideUnreadable ? "规范源不可读（未扫描）" : includeSpecs ? `规范源（01 §10.3 第 ${specsSource?.tier === "project" ? "1（项目自著）" : specsSource?.tier === "source-repo" ? "2（插件源仓库）" : "3（插件包内副本）"}级）` : "规范源（includeSpecs:false，未扫描）"}；${factSideUnreadable ? "事实源 ldvh-base/ 不存在或不可读（未扫描）" : "事实源（项目内 ldvh-base/）"}；${!includeCarriers ? "运行时机制载体未读取（includeCarriers:false）" : carrierSideUnreadable ? "运行时机制载体 plugin-specs/ 不存在或不可读（未扫描）" : `运行时机制载体（plugin-specs/，${carrierSource.counts.scanned} 份）`}。其它目录、其它 worktree、回退来源之外的语料均未检查`,
+      note: `本次实际扫描：specs/ 仅作判据表来源、不召回候选；${factSideUnreadable ? "事实源 ldvh-base/ 不存在或不可读（未扫描）" : "事实源（项目内 ldvh-base/）"}；${!includeCarriers ? "运行时机制载体未读取（includeCarriers:false）" : carrierSideUnreadable ? "运行时机制载体 plugin-specs/ 不存在或不可读（未扫描）" : `运行时机制载体（plugin-specs/，${carrierSource.counts.scanned} 份）`}。其它目录、其它 worktree、回退来源之外的语料均未检查`,
     },
     ranking: {
       keys: ["tier", "hits", "path"],
@@ -1834,8 +1823,8 @@ export async function recallForAction(input = {}) {
       ],
     },
     sourceView: {
-      specs: specsSource === null ? null : { tier: specsSource.tier, dir: specsSource.dir },
-      specsAreProjectAuthored: specsSource !== null && specsSource.tier === "project",
+      specs: null,
+      specsAreProjectAuthored: false,
       facts: { dir: join(root, "ldvh-base") },
       runtimeCarriers: includeCarriers && carrierSource.dir !== null
         ? { tier: carrierSource.tier, dir: carrierSource.dir, read: true }

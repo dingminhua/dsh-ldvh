@@ -56,7 +56,6 @@ export async function internalLookup({ root, need, keywords, scope, limit } = {}
   const recall = await recallForAction({
     action: query,
     types: [...INTERNAL_LOOKUP_TYPES],
-    includeSpecs: false,
     limit: Number.isInteger(limit) && limit > 0 ? limit : INTERNAL_LOOKUP_LIMIT,
     root,
   });

@@ -302,7 +302,6 @@ export function renderBaselineOnlyRow({ l0Enumeration = null, why, limitBytes = 
 }
 
 export function renderRecallRow(result) {
-  const specs = Array.isArray(result?.specs) ? result.specs : [];
   const facts = Array.isArray(result?.facts) ? result.facts : [];
   const scopeExcludedInfo = result?.uncheckedRange?.scopeExcluded;
   const scopeExcludedTypes =
@@ -314,7 +313,6 @@ export function renderRecallRow(result) {
   const usageLine = `（${USAGE_HINT}）`;
   const usageIndex = usageLine === "" ? -1 : lines.push(usageLine) - 1;
   let usageYielded = false;
-  let specGuideLine = null;
   if (facts.length > 0 && result?.limitations?.lexicalOnly === true) {
     const blameLine = "（**能力边界**：字面词法匹配，换个说法就会漏——尤其症状与机制表述常不重合，**未命中不代表没有同类教训**，查故障时请自行按机制检索。）";
     const fallbackLine = "（**取不到不等于没有**：事实侧按类型枚举用 ldvh_pitfall_list／ldvh_norm_list 等、精读用对应 ldvh_*_read；**规范侧为运行时机制载体，按所示路径读取**；按字面搜载体可用 grep。本行只给路径，不承诺命中。）";
@@ -361,39 +359,6 @@ export function renderRecallRow(result) {
   }
   if (l0Enumeration?.sourceUnreadable === true) {
     lines.push("（事实规范与经验两段的常驻索引未取得——事实源不可读，**不表示本项目没有这两类对象**（34 §12）。）");
-  }
-  if (specs.length > 0) {
-    const sourceView = result?.sourceView;
-    if (sourceView?.specsAreProjectAuthored === false) {
-      const tierLabel =
-        sourceView.specs?.tier === "source-repo" ? "插件源仓库" :
-        sourceView.specs?.tier === "package" ? "插件包内副本" : "外部来源";
-      lines.push(
-        `规范源（语料来自**${tierLabel}**，非本项目自著；其成员条件核对归源仓库。` +
-          `下列相对路径在本项目根下**读不到**，须用绝对路径读取）：`,
-      );
-    } else {
-      lines.push("规范源：");
-    }
-    const fullGuide = "（下列为开发需求文档，非行动规则；需要时按所示路径直接读取全文。）";
-    const compactGuide = "（开发需求文档，按路径读取；非行动规则。）";
-    const guideBudget = typeof result?.budget?.limitBytes === "number" && result.budget.limitBytes > 0
-      ? result.budget.limitBytes
-      : null;
-    const guideWouldOverflow = (candidate) => {
-      if (guideBudget === null) return false;
-      return Buffer.byteLength([...lines, candidate].join("\n"), "utf8") + 300 > guideBudget;
-    };
-    specGuideLine = guideWouldOverflow(fullGuide) ? compactGuide : fullGuide;
-    lines.push(specGuideLine);
-    const preferAbsolute = result?.sourceView?.specsAreProjectAuthored === false;
-    for (const spec of specs) {
-      const shown = preferAbsolute && typeof spec.absolutePath === "string" ? spec.absolutePath : spec.path;
-      const stable = typeof spec.specKey === "string" && spec.specKey !== ""
-        ? `；spec_key=${spec.specKey}`
-        : "；无稳定 spec_key（只能按路径读取）";
-      lines.push(`- ${spec.title} — ${spec.hitReason}（${shown}${stable}）`);
-    }
   }
   if (facts.length > 0) {
     const labelOf = (type) => FACT_SECTION_LABELS[type] ?? (type === "" ? "未标注类型" : type);
@@ -455,25 +420,21 @@ export function renderRecallRow(result) {
     }
   }
 
-  if (specs.length === 0 && facts.length === 0
+  if (facts.length === 0
     && (result?.runtimeCarriers?.candidates?.length ?? 0) === 0) {
     const scopeHint = scopeExcludedTypes.length > 0
       ? `本路径不扫描 ${scopeExcludedTypes.join("、")}，扩大检索也取不到它们——须另行查询（见下一行的入口）。`
       : "必要时请自行扩大检索。";
     lines.push(`本次未命中候选。这不证明「无相关约束」——确定性匹配会漏（换个说法就漏）。${scopeHint}`);
   }
-  const droppedTotal =
-    (result?.unchecked?.specs?.length ?? 0) + (result?.unchecked?.facts?.length ?? 0);
+  const droppedTotal = (result?.unchecked?.facts?.length ?? 0);
   if (
     result?.partial === true &&
     droppedTotal > 0 &&
     result?.overBudget !== true &&
     result?.truncated !== true
   ) {
-    const names = [
-      ...(result.unchecked.specs ?? []).map((s) => `规范「${s.title}」`),
-      ...(result.unchecked.facts ?? []).map((f) => `事实「${f.title}」`),
-    ].slice(0, 3);
+    const names = (result.unchecked.facts ?? []).map((f) => `事实「${f.title}」`).slice(0, 3);
     lines.push(
       `（本次为 **partial**：另有 ${droppedTotal} 条候选未列出（${names.join("、")}${droppedTotal > 3 ? " 等" : ""}）。` +
         `未列出只表示排得靠后，**不代表不相关**——需要时请调大 limit 或缩小动作范围。）`,
@@ -493,15 +454,10 @@ export function renderRecallRow(result) {
         : (typeof item?.specKey === "string" && item.specKey !== "" ? ` · key=${item.specKey}` : "");
       return Buffer.byteLength(`${title}${reason}${path}${excerpt}${stable}`, "utf8") + 8;
     };
-    const nextDropped = result.unchecked?.specs?.[0] ?? result.unchecked?.facts?.[0];
+    const nextDropped = result.unchecked?.facts?.[0];
     const nextSize = nextDropped === undefined ? 0 : estimateLineBytes(nextDropped);
-    const oneSourceEmpty =
-      ((result.counts?.factHits ?? 0) > 0 && (result.counts?.factsReturned ?? 0) === 0) ||
-      ((result.counts?.specHits ?? 0) > 0 && (result.counts?.specsReturned ?? 0) === 0);
     const blockedByBudget =
-      result.overBudget === true ||
-      (oneSourceEmpty && (result.counts?.specHits ?? 0) > 0) ||
-      remaining < Math.max(nextSize, 200);
+      result.overBudget === true || remaining < Math.max(nextSize, 200);
     if (result.overBudget === true) {
       if (compactYieldSuffix !== "") {
         yieldNoteEmitted = true;
@@ -517,9 +473,7 @@ export function renderRecallRow(result) {
         lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，数据层估算用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
       }
     } else {
-      const specHitsN = result.counts?.specHits ?? 0;
       const factHitsN = result.counts?.factHits ?? 0;
-      const specShownN = result.specs?.length ?? 0;
       const factShownN = result.facts?.length ?? 0;
       const limitN = result.budget?.limit;
       const atCeiling = Number.isInteger(limitN) && limitN >= RECALL_LIMIT_MAX;
@@ -527,8 +481,7 @@ export function renderRecallRow(result) {
         ? `每侧 ${RECALL_LIMIT_MAX} 已是本实现的条数上限（RECALL_LIMIT_MAX），要更全请缩小动作范围或分次查询。`
         : `调大 limit 可看到更多（当前每侧 ${limitN ?? "?"}）。`;
       lines.push(withYieldNote(
-        `（受条数上限（每侧 limit=${limitN ?? "?"}）限制：规范源命中 ${specHitsN} 条、列出 ${specShownN} 条；`
-        + `事实源命中 ${factHitsN} 条、列出 ${factShownN} 条。数据层预算尚有余量（候选行估算 ${usedBytes}/${limitBytes} 字节）。`
+        `（受条数上限（limit=${limitN ?? "?"}）限制：事实源命中 ${factHitsN} 条、列出 ${factShownN} 条。数据层预算尚有余量（候选行估算 ${usedBytes}/${limitBytes} 字节）。`
         + `未返回的部分不代表不存在；${moreHint}）`,
       ));
     }
@@ -626,7 +579,7 @@ export function renderRecallRow(result) {
     if (quotaLine !== -1) trimmed.splice(quotaLine, 1);
   }
   for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-    if (!/^(?:事实源(?: · .+)?|规范源(?:（.*）)?|运行时机制：)$/.test(trimmed[i])) continue;
+    if (!/^(?:事实源(?: · .+)?|运行时机制：)$/.test(trimmed[i])) continue;
     let hasCandidateBelow = false;
     for (let j = i + 1; j < trimmed.length; j += 1) {
       if (trimmed[j].startsWith("- ")) { hasCandidateBelow = true; break; }
@@ -642,8 +595,6 @@ export function renderRecallRow(result) {
     if (candidateCount() === 0) {
       const at = trimmed.indexOf(usageLine);
       if (at !== -1) trimmed.splice(at, 1);
-      const guideAt = specGuideLine === null ? -1 : trimmed.indexOf(specGuideLine);
-      if (guideAt !== -1) trimmed.splice(guideAt, 1);
     } else {
       while (overNow() && candidateCount() > 1) {
         const idx = findDeletable();
@@ -655,8 +606,6 @@ export function renderRecallRow(result) {
       if (overNow()) {
         const at = trimmed.indexOf(usageLine);
         if (at !== -1) trimmed.splice(at, 1);
-        const guideAt = specGuideLine === null ? -1 : trimmed.indexOf(specGuideLine);
-        if (guideAt !== -1) trimmed.splice(guideAt, 1);
         usageYielded = true;
       }
     }
@@ -780,7 +729,7 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     }
     return { inject: false, reason: `recall-unavailable:${code ?? "unknown"}` };
   }
-  const total = (result.specs?.length ?? 0) + (result.facts?.length ?? 0)
+  const total = (result.facts?.length ?? 0)
     + (result.runtimeCarriers?.candidates?.length ?? 0);
   const residentIndexHasContent = residentIndexPresentOf(result?.l0Enumeration);
   if (!decideInjection({
