@@ -5,10 +5,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { toParameterSpec } from "./parameter-spec-adapter.js";
-import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerprint, projectLayer, parseOperationDeclarations as parseDeclarationTable, loadOperationDeclarationsBundle, operationDeclarationSourceLabel } from "./spec-registry.js";
+import { parseSpecDocument, resolveHeadingPath, contentFingerprint, parseOperationDeclarations as parseDeclarationTable, loadOperationDeclarationsBundle, operationDeclarationSourceLabel } from "./spec-registry.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
-import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
 import { isFrictionPromotionRunning } from "./friction-promotion-lock.js";
@@ -38,16 +37,6 @@ const OPERATIONS = {
   "resolve-governance-scope": {
     toolName: "ldvh_resolve_governance_scope",
     summary: "Resolve the LDVH governance state (governed/not_governed/unavailable) for the current session working directory",
-    effect: "read"
-  },
-  "read-specification-candidates": {
-    toolName: "ldvh_read_specification_candidates",
-    summary: "Read specification/attachment candidates at L0–L2 disclosure layers by responsibility key or all candidates",
-    effect: "read"
-  },
-  "read-specification-content": {
-    toolName: "ldvh_read_specification_content",
-    summary: "Read one specification/attachment at L3 (exact heading path) or L4 (full source) with fingerprint and scope disclosure",
     effect: "read"
   },
   "discover-ldvh-capabilities": {
@@ -276,170 +265,7 @@ function makeExecute(deps) {
       sources: sources({ kind: "registration", path: "ldvh/governed-projects.yaml", fingerprint: scope.registrationFingerprint ?? null }),
       gaps: [],
       verification: { checks: ["registration-read", "cwd-realpath", "root-containment"], passed: true },
-      follow_up: scope.state === "governed" ? ["read-specification-candidates", "discover-ldvh-capabilities"] : []
-    });
-  }
-
-  async function executeReadSpecificationCandidates(args, exec) {
-    const layer = args?.layer === "L1" || args?.layer === "L2" ? args.layer : "L0";
-    const requestedKey = typeof args?.responsibility_key === "string" && args.responsibility_key.length > 0 ? args.responsibility_key : null;
-    const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
-    if (governed.state !== "governed") {
-      return envelope("read-specification-candidates", "unavailable", {
-        result: null,
-        scope: { requested: requestedKey ?? "all", completed: [], not_completed: [requestedKey ?? "all"] },
-        sources: [],
-        gaps: [`governance state is ${governed.state}: specification reading serves governed sessions only`],
-        verification: { checks: ["governance-scope"], passed: false },
-        follow_up: []
-      });
-    }
-    const scan = await scanSpecCandidates(governed.project.path, workspaceRoot);
-    if (!scan.ok) {
-      return envelope("read-specification-candidates", "unavailable", {
-        result: null,
-        scope: { requested: requestedKey ?? "all", completed: [], not_completed: [requestedKey ?? "all"] },
-        sources: [],
-        gaps: [scan.reason],
-        verification: { checks: ["specs-scan"], passed: false },
-        follow_up: []
-      });
-    }
-    const selected = requestedKey === null ? scan.members : scan.members.filter((member) => member.identity.responsibilityKey === requestedKey);
-    if (requestedKey !== null && selected.length === 0) {
-      return envelope("read-specification-candidates", "rejected", {
-        result: null,
-        scope: { requested: requestedKey, completed: [], not_completed: [requestedKey] },
-        sources: sources({ kind: scan.source.kind, path: scan.source.corpus_root }),
-        gaps: [`no candidate carries responsibility_key "${requestedKey}"`],
-        verification: { checks: ["key-lookup"], passed: false },
-        follow_up: ["read-specification-candidates (no responsibility_key, to enumerate)"]
-      });
-    }
-    const candidates = selected.map((member) => {
-      const outline = layer === "L2" ? extractHeadings(member.markdownText).map((h) => ({ level: h.level, text: h.text, line: h.line })) : undefined;
-      return projectLayer(member.identity, layer, outline);
-    });
-    const scanGaps = [
-      ...scan.gaps,
-      ...scan.excluded.map((entry) => ({ responsibility_key: null, canonical_path: entry.canonical_path, reason: entry.reason })),
-      ...scan.collisions.map((collision) => ({
-        responsibility_key: null,
-        canonical_path: collision.paths.join(", "),
-        reason: `${collision.kind}: ${collision.paths.length} candidates collide — all withheld from member reads until resolved`
-      }))
-    ];
-    let evidence = null;
-    if (args?.evidence === true) {
-      evidence = scan.source.kind === "governed-project"
-        ? await bindMembershipEvidence(governed.project.path, selected, {
-          bindings: typeof args?.evidence_bindings === "object" && args.evidence_bindings !== null ? args.evidence_bindings : {},
-          reviews: Array.isArray(args?.evidence_reviews) ? args.evidence_reviews : [],
-          decisions: Array.isArray(args?.evidence_decisions) ? args.evidence_decisions : []
-        })
-        : notApplicableEvidence(scan.source);
-    }
-    return envelope("read-specification-candidates", "completed", {
-      result: { layer, candidates, ...(evidence !== null ? { membership_evidence: evidence } : {}) },
-      scope: { requested: requestedKey ?? "all", completed: selected.map((m) => m.identity.responsibilityKey), not_completed: [] },
-      sources: sources({ kind: scan.source.kind, path: scan.source.corpus_root, scan: "specs/", snapshot: scan.snapshot }),
-      gaps: [...scanGaps, ...(evidence?.gaps ?? [])],
-      verification: {
-        checks: ["identity-parse", "layer-projection", "excluded-name-filter", "collision-detection", "snapshot-binding", ...(evidence !== null ? ["membership-evidence-mechanical-subparts"] : [])],
-        passed: true
-      },
-      follow_up: evidence !== null
-        ? ["membership_evidence.membership_proven is always false — the semantic remainder requires AI review and the Human decision"]
-        : ["read-specification-content for L3/L4 of any candidate"]
-    });
-  }
-
-  async function executeReadSpecificationContent(args, exec) {
-    const key = args?.responsibility_key;
-    if (typeof key !== "string" || key.length === 0) {
-      return envelope("read-specification-content", "invalid_request", {
-        result: null, scope: { requested: null, completed: [], not_completed: ["responsibility_key"] }, sources: [],
-        gaps: ["responsibility_key is required (the target spec_key or attachment_key, verbatim)"],
-        verification: { checks: [], passed: false }, follow_up: []
-      });
-    }
-    const headingPath = typeof args?.heading_path === "string" && args.heading_path.length > 0 ? args.heading_path : null;
-    const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
-    if (governed.state !== "governed") {
-      return envelope("read-specification-content", "unavailable", {
-        result: null, scope: { requested: key, completed: [], not_completed: [key] }, sources: [],
-        gaps: [`governance state is ${governed.state}`],
-        verification: { checks: ["governance-scope"], passed: false }, follow_up: []
-      });
-    }
-    const scan = await scanSpecCandidates(governed.project.path, workspaceRoot);
-    if (!scan.ok) {
-      return envelope("read-specification-content", "unavailable", {
-        result: null, scope: { requested: key, completed: [], not_completed: [key] }, sources: [], gaps: [scan.reason],
-        verification: { checks: ["specs-scan"], passed: false }, follow_up: []
-      });
-    }
-    const member = scan.members.find((m) => m.identity.responsibilityKey === key);
-    if (member === undefined) {
-      const keyCollision = scan.collisions.find((group) => group.kind === "duplicate_responsibility_key" && group.key === `key\u0000${key}`);
-      const nameExcluded = scan.excluded.filter((entry) => entry.canonical_path.includes(key));
-      const reason = keyCollision !== undefined
-        ? `responsibility_key "${key}" collides across ${keyCollision.paths.length} candidates — all affected candidates withheld until resolved`
-        : nameExcluded.length > 0
-          ? `"${key}" resolves only to a name-excluded carrier — non-member candidate`
-          : `no member candidate carries responsibility_key "${key}"`;
-      return envelope("read-specification-content", "rejected", {
-        result: null, scope: { requested: key, completed: [], not_completed: [key] },
-        sources: sources({ kind: scan.source.kind, path: scan.source.corpus_root, snapshot: scan.snapshot }),
-        gaps: [
-          reason,
-          ...(keyCollision === undefined ? [] : keyCollision.paths),
-          ...nameExcluded.map((entry) => `${entry.canonical_path}: ${entry.reason}`)
-        ],
-        verification: { checks: ["key-lookup", "collision-detection"], passed: false },
-        follow_up: ["read-specification-candidates to enumerate keys"]
-      });
-    }
-    const fingerprint = contentFingerprint(member.markdownText);
-    if (headingPath === null) {
-      return envelope("read-specification-content", "completed", {
-        result: { layer: "L4", responsibility_key: key, canonical_path: member.repoPath, content_fingerprint: fingerprint, content: member.markdownText },
-        scope: { requested: key, completed: [key], not_completed: [] },
-        sources: sources({ kind: scan.source.kind, path: join(scan.source.corpus_root, member.repoPath), content_fingerprint: fingerprint }),
-        gaps: scan.gaps,
-        verification: { checks: ["identity-parse", "full-read"], passed: true },
-        follow_up: []
-      });
-    }
-    const resolved = resolveHeadingPath(member.markdownText, headingPath);
-    if (!resolved.ok) {
-      return envelope("read-specification-content", "rejected", {
-        result: null, scope: { requested: `${key} ${headingPath}`, completed: [], not_completed: [key] },
-        sources: sources({ kind: scan.source.kind, path: join(scan.source.corpus_root, member.repoPath) }),
-        gaps: [`${resolved.error.code}: ${resolved.error.message}`],
-        verification: { checks: ["heading-path-resolution"], passed: false },
-        follow_up: ["read-specification-candidates at L2 for the section outline"]
-      });
-    }
-    const lines = member.markdownText.split("\n");
-    const slice = lines.slice(resolved.value.startLine - 1, resolved.value.endLine).join("\n");
-    return envelope("read-specification-content", "completed", {
-      result: {
-        layer: "L3",
-        responsibility_key: key,
-        heading_path: headingPath,
-        start_line: resolved.value.startLine,
-        end_line: resolved.value.endLine,
-        canonical_path: member.repoPath,
-        content_fingerprint: contentFingerprint(member.markdownText),
-        section_fingerprint: contentFingerprint(slice),
-        content: slice
-      },
-      scope: { requested: `${key} ${headingPath}`, completed: [`${key} ${headingPath}`], not_completed: [] },
-      sources: sources({ kind: scan.source.kind, path: join(scan.source.corpus_root, member.repoPath), lines: [resolved.value.startLine, resolved.value.endLine] }),
-      gaps: scan.gaps,
-      verification: { checks: ["identity-parse", "heading-uniqueness"], passed: true },
-      follow_up: ["read-specification-content without heading_path for L4 full source"]
+      follow_up: scope.state === "governed" ? ["discover-ldvh-capabilities"] : []
     });
   }
 
@@ -999,8 +825,6 @@ function makeExecute(deps) {
 
   const handlers = {
     "resolve-governance-scope": executeResolveGovernanceScope,
-    "read-specification-candidates": executeReadSpecificationCandidates,
-    "read-specification-content": executeReadSpecificationContent,
     "discover-ldvh-capabilities": executeDiscoverCapabilities,
     "inspect-loaded-modules": executeInspectLoadedModules,
     "precheck-git-commit": executePrecheckGitCommit,
@@ -1173,29 +997,6 @@ function parameterSchemaFor(operationKey) {
         required: ["id"],
         additionalProperties: false
       };
-    case "read-specification-candidates":
-      return {
-        type: "object",
-        properties: {
-          responsibility_key: { type: "string", description: "Target spec_key or attachment_key; omit to enumerate all candidates" },
-          layer: { type: "string", enum: ["L0", "L1", "L2"], description: "Disclosure layer; default L0" },
-          evidence: { type: "boolean", description: "Conclude the mechanically checkable membership sub-parts (reads git history; default false)" },
-          evidence_bindings: { type: "object", description: "Recorded fingerprint bindings per canonical_path (item 12); carriers without one are reported as gaps, never as passes", additionalProperties: true },
-          evidence_reviews: { type: "array", description: "Review records [{ref, date?, carriers?}] — item 8 concludes existence only", items: { type: "object", additionalProperties: true } },
-          evidence_decisions: { type: "array", description: "Human decision records [{ref, date?, carriers?}] — item 9 concludes existence only", items: { type: "object", additionalProperties: true } }
-        },
-        additionalProperties: false
-      };
-    case "read-specification-content":
-      return {
-        type: "object",
-        properties: {
-          responsibility_key: { type: "string", description: "Target spec_key or attachment_key, verbatim" },
-          heading_path: { type: "string", description: "Exact H2 or H2/H3 path for L3; omit for L4 full source" }
-        },
-        required: ["responsibility_key"],
-        additionalProperties: false
-      };
     case "discover-ldvh-capabilities":
       return {
         type: "object",
@@ -1312,31 +1113,6 @@ export function renderEnvelope(operationKey, value) {
     }
     for (const gap of env.gaps ?? []) lines.push(`gap: ${gap}`);
     for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
-  }
-  if (Array.isArray(env.result?.candidates)) {
-    lines.push(`${env.result.candidates.length} candidate(s) at ${env.result.layer}`);
-    for (const candidate of env.result.candidates) {
-      if (candidate === null || typeof candidate !== "object") continue;
-      const key = candidate.responsibility_key ?? "(no key)";
-      const title = candidate.title ?? "(no title)";
-      if (operationKey === "read-specification-candidates" && ["L1", "L2"].includes(env.result?.layer)) {
-        lines.push(JSON.stringify(candidate));
-      } else {
-        const identity = [candidate.carrier_kind, candidate.spec_id, candidate.canonical_path].filter((value) => typeof value === "string" && value.length > 0);
-        lines.push(`- ${key} — ${title}${identity.length > 0 ? ` (${identity.join("; ")})` : ""}`);
-      }
-    }
-  }
-  if (operationKey === "read-specification-content" && typeof env.result?.content === "string") {
-    const { content, ...metadata } = env.result;
-    lines.push(`source: ${JSON.stringify(metadata)}`);
-    lines.push(content);
-  }
-  if (operationKey === "read-specification-candidates" || operationKey === "read-specification-content") {
-    if (Array.isArray(env.sources) && env.sources.length > 0) lines.push(`sources: ${JSON.stringify(env.sources)}`);
-    if (Array.isArray(env.follow_up)) {
-      for (const next of env.follow_up) lines.push(`follow_up: ${next}`);
-    }
   }
   if (env.result?.state !== undefined) lines.push(`state: ${env.result.state}`);
   for (const issue of env.result?.issues ?? []) {

@@ -44,7 +44,7 @@ LDVH CLI 存在、工具注册成功、操作被发现、请求返回或载体�
 1. LDVH CLI 作为确定性服务的规范形态与契约唯一实现的共同定位（形态见 §5）；
 2. LDVH CLI 自治范围内领域公开操作的稳定身份、声明形状、may_change_state 标记与发现语义；
 3. 最小共同请求和响应的语义、响应状态分类（completed/partial/unavailable/rejected/invalid_request/execution_error）、来源与范围保留和缺口交还；
-4. LDVH CLI 承载规范读取 L0–L4、事实召回 F0–F4 和事实预热时的共同传输与 envelope 契约；
+4. LDVH CLI 承载事实召回 F0–F4 和事实预热时的共同传输与 envelope 契约；
 5. 受控状态变更调用的共同传输边界：来源规则、当前范围、授权、实际变化与回读不可互相省略；
 6. 共同反过度设计红线、验证边界、Human Gate 与必停情形的承接。
 
@@ -128,11 +128,9 @@ LDVH CLI 是 LDVH 确定性服务的规范形态与契约的唯一实现形态�
 | operation_key | summary | effect | arguments_contract | result_contract | required_inputs |
 |---|---|---|---|---|---|
 | `resolve-governance-scope` | 解析当前会话工作目录的管辖状态（governed/not_governed/unavailable） | `read` | `helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现` | `helper-service-contract::8. 最小共同响应语义` | 无 |
-| `read-specification-candidates` | 按职责标识符或全量读取 L0–L2 层的规范与授权附件候选 | `read` | `helper-service-contract::9. 读取、预热与事实操作协作/9.1 规范读取` | `helper-service-contract::8. 最小共同响应语义` | 无 |
-| `read-specification-content` | 读取单份规范或附件的 L3（精确标题路径）或 L4（全文），并交还指纹与范围 | `read` | `helper-service-contract::9. 读取、预热与事实操作协作/9.1 规范读取` | `helper-service-contract::8. 最小共同响应语义` | responsibility_key |
 | `discover-ldvh-capabilities` | 枚举 LDVH 公开操作及其声明、实现与当次可调用状态 | `read` | `helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现` | `helper-service-contract::8. 最小共同响应语义` | 无 |
 
-上述四项的输入与结果章节即为本规范 §6.2、§8、§9.1；本节不复制其字段与语义。`resolve-governance-scope` 的判定语义归管辖范围规范，本条只声明其公开服务身份。
+上述两项的输入与结果章节即为本规范 §6.2、§8；本节不复制其字段与语义。`resolve-governance-scope` 的判定语义归管辖范围规范，本条只声明其公开服务身份。
 
 **发现的机械义务**：能力发现入口必须**实际解析**来源声明并据其结果填充分类，不得以常量或假设值代替解析结果。无法解析来源声明时，该操作只能出现在诊断范围并附带精确原因，不得作为已声明操作返回；发现入口若以固定值声明某操作「已声明」而不解析其来源，即属本规范未满足的声明。故本款为**条件式要求**：在发现入口实际解析来源声明之前，不得据本规范主张任何接入面的 `已声明` 分类已契约成立；该前提是否成立按 `01 §7.2` 由读取时的观察取得，本款不陈述其当前状态。
 
@@ -166,7 +164,7 @@ LDVH CLI 必须提供一个只读的能力发现入口，返回当前规则源�
 | `observed_context` | 操作确有需要的当次可观察环境、能力或签名输入；必须说明来源，不能成为稳定事实或替代回读。 |
 | `authorization_reference` | 仅在领域来源要求授权时引用已存在的 Human 决定及其作用范围；不证明技术结果或自动扩权。 |
 
-`responsibility_key` 是规范/附件读取操作的领域 `arguments` 字段，取值即目标 `spec_key` 或 `attachment_key`，与 01 §10.3 的定义同义。01 定义 L0–L4 的读取层级、标题/行号定位与具体读取参数；05 只保证请求和响应不会改写该语义，不新增或重定义读取参数。
+规范读取操作（含 `responsibility_key`）已随 L0–L4 读取入口一并取消；05 不再定义该领域操作。
 
 共同请求字段是否裁剪、响应聚合或诊断档位是否需要，由 DSH 环境接入规范与 Code 实践与测试规范按各接入面（DSH 工具、CLI、Web API）的实际承载与实际消费定义，05 只定义其共同语义。
 
@@ -201,10 +199,6 @@ LDVH CLI 必须提供一个只读的能力发现入口，返回当前规则源�
 具体响应字段闭集、枚举、分页 cursor、编码与 DSH 工具 schema 只在有实际实现和独立消费需要时，通过 05 授权附件或 Code 实践与测试规范定义；在此之前不得用虚构的全局 DTO、日志、版本协议或错误码表填充本文。
 
 ## 9. 读取、预热与事实操作协作
-
-### 9.1 规范读取
-
-LDVH CLI 在承载由 01 定义的规范读取领域操作（`read-specification-candidates` 与 `read-specification-content`）时，不改变其 L0–L2 与 L3/L4 分工，保留 01 定义的 `responsibility_key`、`heading_path`、`start_line`、`end_line` 与未展开范围，不让工具自动展开全部依据或把候选写成适用。
 
 ### 9.2 事实召回和预热
 

@@ -401,7 +401,7 @@ test("item6: the guard covers write-shaped ldvh_ tools and denies by returning a
 	assert.ok(writeShapedTools().includes("ldvh_spark_write"));
 
 	assert.equal(guard({ name: "bash", agent: agentAt("/p") }), undefined);
-	assert.equal(guard({ name: "ldvh_read_specification_content", agent: agentAt("/p") }), undefined);
+	assert.equal(guard({ name: "ldvh_discover_capabilities", agent: agentAt("/p") }), undefined);
 	assert.equal(guard({ name: "ldvh_spark_write", agent: agentAt("/p") }), undefined);
 
 	recordJudgementForGuard("/p", "unavailable");

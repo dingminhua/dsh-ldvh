@@ -60,10 +60,10 @@ export function noticeTextFor(scope) {
     `登记指纹：${scope.registrationFingerprint ?? "未知"}`,
     "",
     "管辖效果：",
-    "- ldvh_* 工具已注册（管辖判定 / 需求文档读取 / 能力发现 / 提交预检 / 子代理回收）",
+    "- ldvh_* 工具已注册（管辖判定 / 能力发现 / 提交预检 / 子代理回收）",
     "- 工作引导每回合注入（开发期会话给开发约定锚点，运行期会话给载体定位）",
     "- 受控提交经 Git Gate 机械校验",
-    "- 规则正文以随插件发布的运行时机制（plugin-specs/）为准；ldvh_read_specification_content 读的是 specs/ 的需求文档"
+    "- 规则正文以随插件发布的运行时机制（plugin-specs/）为准；specs/ 只是开发需求文档，不是行动规则"
   ];
   if (project.description) rows.splice(2, 0, `描述：${project.description}`);
   return rows.join("\n");
@@ -92,7 +92,6 @@ const GOVERNED_GUIDANCE_DEV = `本会话工作锚点（specs/00-理念与构成.
 4. §3 Human 权利——根决定清单（§3.2）、Human Gate、受保护内容（§3.3）、可决提请与回应效力（§3.4）
 5. §4 AI 责任与义务——主控发起的行动由单一主控 AI 最终负责、代理辅助任务由机械校验保障（00 §4.5）、非全知、委派不转责（代理辅助任务除外，00 §4.3）、反稀释（01 §5 第 13 项）；§4.6 据实声明、§4.7 必停情形与恢复、§4.8 交还与撤回
 6. §5 价值纪律——机制准入（§5.1）、价值不因材料存在而成立（§5.2）、冲突与变更（§5.3）
-规则读取：ldvh_read_specification_candidates / ldvh_read_specification_content（L0–L4 渐进披露）；
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
 把关请示：行动前与收口前两处，在判为复杂任务且当次工作整件未命中点位排除时，请示一次是否安排核对；主控自查发现判断依赖自身不掌握的外部信息时，第三处请示是否联网调查（载体 gate-consult-system-foundation：before-action-entry、before-closing-entry、research-entry、complex-task、point-exclusions、answer-means、trace-record）。三处答复都留痕，不构成行动授权或放行，也不是行动在取得答复前暂停的前提（answer-means）。三处各有开关且相互独立（independence），缺省值由人决定、当前实现缺省关闭（human-decide；第三处缺省关闭见 research-no-silent）。前两处关着只保证「不问」，不禁止 AI 自行安排核对（silent-subordinate）；静默档只免征询、不免那次核对（silent-keeps-check），不外推到须人决定的事项（silent-not-expand），排除优先于档位（exclusion-beats-mode）；多维复核的视角按风险取最小充分组合（ldvh-root 的 review-modes）。第三处关着则既不提请、也不安排外部取证（research-no-silent）；先查项目内部的经验、报告与事实规范，未命中只表示按机制查过而未命中、不等于内部没有（research-entry；research-system-foundation 的 internal-first）。开关读不到时按关闭处理并在交付说明写明、档位读不到时按征询档回落并声明（unreadable-values）。「算不算复杂」与「该不该联网」都由 AI 判断，机械层不判定，故这不构成机械保障（no-mechanical-guarantee）；
 模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，question 长短不限，判断依据写进对话正文；detail 不随弹窗送达（宿主静默丢弃），凡需 Human 判读的内容一律写进对话正文；携带 detail 等未允许字段的提请会被本仓 guard 机械拒绝——「不写 detail」这一半有机械保障，且它只约束字段形状、不约束字数；
@@ -106,7 +105,6 @@ const GOVERNED_GUIDANCE_DEV = `本会话工作锚点（specs/00-理念与构成.
 const GOVERNED_GUIDANCE_RUNTIME = `本会话的工作规则只来自两处：随插件发布的运行时机制（plugin-specs/*.yaml），与本项目事实源里的规范（ldvh-base/norms/）；其余文字（包括 LDVH 自己的开发需求文档）都不是行动规则（ldvh-root 的 rule-sources）。
 定位：行动前召回段的「运行时机制：」段给出本轮相关载体的定位（spec_key／标题／路径／positioning／scope），需要条目正文时按该路径读取；项目根下没有 plugin-specs/ 时它在插件包目录内，安装形态下该段给可读绝对路径。未列出者不代表不存在：召回取值部分或不可用时，未命中不构成「无相关」的证据（rule-compliance-recall 的 incomplete-recall）。
 底线：全部行动共用的底线在载体 ldvh-root（对齐 Vibe 与协调 Coding 的价值取向、谁发起谁负责、人的决定权、不知道就说不知道、必停与交还）；各领域要求在其对应载体里，按场景定位后读。
-需求文档：本项目若有 specs/ 开发需求，用 ldvh_read_specification_candidates / ldvh_read_specification_content 读取；那是需求记录，不是规则，与载体不一致时以载体为准（ldvh-root 的 rule-sources）。
 入口：能力发现 ldvh_discover_capabilities；受控提交前 ldvh_precheck_git_commit；管辖状态 ldvh_resolve_governance_scope。本引导只给定位与必要要点，不复制条目正文。`;
 
 const UNAVAILABLE_GUIDANCE = `LDVH 管辖登记当前不可读取。本项目暂按不受管辖处理（与 not_governed 一致），但状态确为「不可用」而非「不受辖」，不得据此认定本项目不受辖。

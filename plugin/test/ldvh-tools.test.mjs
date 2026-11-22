@@ -39,7 +39,7 @@ function renderAllOutcomes() {
 }
 
 function renderBlocks(value) {
-	return renderEnvelope("read-specification-candidates", value);
+	return renderEnvelope("resolve-governance-scope", value);
 }
 
 function descriptors() {
@@ -191,50 +191,6 @@ test("resolve-governance-scope returns unavailable when the registration is unpa
 	});
 });
 
-test("read-specification-candidates enumerates all candidates by default", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
-		assertEnvelopeShape(envelope, "read-specification-candidates", "completed");
-		assert.equal(envelope.result.layer, "L0");
-		assert.equal(envelope.result.candidates.length, 3);
-		const keys = envelope.result.candidates.map((c) => c.responsibility_key).sort();
-		assert.deepEqual(keys, ["sample-attachment-1", "sample-spec-1", "sample-spec-2"]);
-	});
-});
-
-test("read-specification-candidates filters by responsibility_key when supplied", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({ responsibility_key: "sample-spec-2" }, { agent: { session: { header: { cwd: root } } } });
-		assert.equal(envelope.outcome, "completed");
-		assert.equal(envelope.result.candidates.length, 1);
-		assert.equal(envelope.result.candidates[0].responsibility_key, "sample-spec-2");
-	});
-});
-
-test("read-specification-candidates rejects a key that matches no candidate", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({ responsibility_key: "no-such-key" }, { agent: { session: { header: { cwd: root } } } });
-		assertEnvelopeShape(envelope, "read-specification-candidates", "rejected");
-		assert.equal(envelope.result, null);
-		assert.ok(envelope.gaps.some((g) => g.includes("no-such-key")));
-	});
-});
-
 function specCarrier({ key, id, title, canonicalPath }) {
 	return `---
 ldvh_spec:
@@ -259,222 +215,6 @@ ldvh_spec:
 `;
 }
 
-test("01 §9.1 defense 1: a .draft carrier never enters candidate discovery", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await writeFile(
-			join(root, "specs", "13-规范示例三.draft.md"),
-			specCarrier({ key: "sample-spec-3", id: "13", title: "规范示例三", canonicalPath: "specs/13-规范示例三.draft.md" })
-		);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
-		assert.equal(envelope.outcome, "completed");
-		const keys = envelope.result.candidates.map((c) => c.responsibility_key);
-		assert.ok(!keys.includes("sample-spec-3"), "the .draft carrier must not become a candidate");
-		assert.ok(
-			envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("excluded_name_marker")),
-			"the excluded carrier must be reported with a precise reason"
-		);
-	});
-});
-
-test("01 §9.1 defense 1: every canonical-pattern excluded marker form is rejected", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		const names = ["14-甲.draft.md", "15-乙.tmp.md", "16-丙.bak.md", "17-丁.temp.md"];
-		for (const [index, name] of names.entries()) {
-			const id = String(14 + index);
-			await writeFile(join(root, "specs", name), specCarrier({ key: `sample-extra-${index}`, id, title: `额外${index}`, canonicalPath: `specs/${name}` }));
-		}
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
-		const keys = envelope.result.candidates.map((c) => c.responsibility_key);
-		assert.deepEqual(keys.sort(), ["sample-attachment-1", "sample-spec-1", "sample-spec-2"], "no excluded name may become a candidate");
-		assert.equal(
-			envelope.gaps.filter((g) => typeof g === "object" && g.reason?.includes("excluded_name_marker")).length,
-			names.length,
-			"each excluded carrier must be reported exactly once"
-		);
-	});
-});
-
-test("01 §9.1 defense 2: colliding responsibility_key withholds every affected candidate", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await mkdir(join(root, "specs"), { recursive: true });
-		await writeFile(join(root, "specs", "21-甲.md"), specCarrier({ key: "shared-key", id: "21", title: "甲", canonicalPath: "specs/21-甲.md" }));
-		await writeFile(join(root, "specs", "22-乙.md"), specCarrier({ key: "shared-key", id: "22", title: "乙", canonicalPath: "specs/22-乙.md" }));
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
-		assert.equal(envelope.outcome, "completed");
-		assert.deepEqual(envelope.result.candidates, [], "no colliding candidate may be served as a member");
-		assert.ok(
-			envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("duplicate_responsibility_key")),
-			"the collision must be reported with its kind"
-		);
-		const read = await handlers["read-specification-content"]({ responsibility_key: "shared-key" }, { agent: { session: { header: { cwd: root } } } });
-		assert.equal(read.outcome, "rejected");
-		assert.ok(read.gaps.some((g) => String(g).includes("collides across")));
-	});
-});
-
-test("01 §9.1 defense 2: an approximate-path collision rejects both carriers", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await mkdir(join(root, "specs"), { recursive: true });
-		const composed = "41-caf\u00e9.md";
-		const decomposed = "41-cafe\u0301.md";
-		await writeFile(join(root, "specs", composed), specCarrier({ key: "nfc-key", id: "41", title: "cafe1", canonicalPath: `specs/${composed}` }));
-		await writeFile(join(root, "specs", decomposed), specCarrier({ key: "nfd-key", id: "42", title: "cafe2", canonicalPath: `specs/${decomposed}` }));
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
-		const served = envelope.result.candidates.map((c) => c.responsibility_key);
-		const collided = envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("approximate_path_collision"));
-		if (served.length === 2) {
-			assert.ok(collided, "two candidates normalizing to one path must be withheld and reported");
-			assert.deepEqual(served, [], "no colliding candidate may be served");
-		} else {
-			assert.ok(served.length <= 2);
-		}
-	});
-});
-
-test("01 §9.1 defense 3: the envelope carries the snapshot the members came from", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
-		const snapshot = envelope.sources[0].snapshot;
-		assert.ok(snapshot, "the source must bind the scan snapshot");
-		assert.equal(await realpath(snapshot.worktree_root), await realpath(root));
-		assert.equal(snapshot.candidate_count, 3);
-		assert.equal(typeof snapshot.candidate_set_fingerprint, "string");
-		assert.equal(snapshot.candidate_set_fingerprint.length, 64);
-		assert.equal(Object.keys(snapshot.content_fingerprints).length, 3);
-		for (const value of Object.values(snapshot.content_fingerprints)) {
-			assert.equal(value.length, 64);
-		}
-	});
-});
-
-test("read-specification-candidates returns unavailable when the session is not_governed", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const elsewhere = await initRepo(base, { name: "elsewhere" });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: elsewhere } } } });
-		assertEnvelopeShape(envelope, "read-specification-candidates", "unavailable");
-		assert.equal(envelope.result, null);
-	});
-});
-
-test("read-specification-candidates at L2 includes a section outline", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-candidates"]({ responsibility_key: "sample-spec-1", layer: "L2" }, { agent: { session: { header: { cwd: root } } } });
-		assert.equal(envelope.result.layer, "L2");
-		const candidate = envelope.result.candidates[0];
-		assert.ok(Array.isArray(candidate.section_outline));
-		assert.ok(candidate.section_outline.length >= 3);
-	});
-});
-
-test("read-specification-content returns L4 (full source) when no heading_path is given", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-content"]({ responsibility_key: "sample-spec-1" }, { agent: { session: { header: { cwd: root } } } });
-		assertEnvelopeShape(envelope, "read-specification-content", "completed");
-		assert.equal(envelope.result.layer, "L4");
-		assert.equal(envelope.result.responsibility_key, "sample-spec-1");
-		assert.equal(envelope.result.canonical_path, "specs/11-规范示例一.md");
-		assert.match(envelope.result.content_fingerprint, /^[0-9a-f]{64}$/);
-		assert.ok(envelope.result.content.includes("规范示例一"));
-	});
-});
-
-test("read-specification-content returns L3 (sliced) with line numbers and section fingerprint", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-content"]({ responsibility_key: "sample-spec-1", heading_path: "2. 职责边界" }, { agent: { session: { header: { cwd: root } } } });
-		assertEnvelopeShape(envelope, "read-specification-content", "completed");
-		assert.equal(envelope.result.layer, "L3");
-		assert.ok(typeof envelope.result.start_line === "number" && envelope.result.start_line > 0);
-		assert.ok(envelope.result.end_line >= envelope.result.start_line);
-		assert.match(envelope.result.section_fingerprint, /^[0-9a-f]{64}$/);
-		assert.ok(envelope.result.content.includes("2. 职责边界"));
-		assert.ok(!envelope.result.content.includes("1. 价值"));
-	});
-});
-
-test("read-specification-content returns invalid_request when responsibility_key is missing", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-content"]({}, { agent: { session: { header: { cwd: root } } } });
-		assertEnvelopeShape(envelope, "read-specification-content", "invalid_request");
-		assert.equal(envelope.result, null);
-		assert.ok(envelope.gaps.some((g) => g.includes("responsibility_key")));
-	});
-});
-
-test("read-specification-content returns rejected for an unknown key", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-content"]({ responsibility_key: "no-such-key" }, { agent: { session: { header: { cwd: root } } } });
-		assertEnvelopeShape(envelope, "read-specification-content", "rejected");
-	});
-});
-
-test("read-specification-content returns rejected for an ambiguous heading path", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const envelope = await handlers["read-specification-content"]({ responsibility_key: "sample-spec-1", heading_path: "1. 价值" }, { agent: { session: { header: { cwd: root } } } });
-		assert.equal(envelope.outcome, "completed");
-		const envelope404 = await handlers["read-specification-content"]({ responsibility_key: "sample-spec-1", heading_path: "不存在的节" }, { agent: { session: { header: { cwd: root } } } });
-		assert.equal(envelope404.outcome, "rejected");
-		assert.ok(envelope404.gaps.some((g) => g.includes("heading_not_found")));
-	});
-});
-
 test("discover-ldvh-capabilities enumerates every registered capability", async () => {
 	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
 	const envelope = await handlers["discover-ldvh-capabilities"]({}, {});
@@ -483,8 +223,6 @@ test("discover-ldvh-capabilities enumerates every registered capability", async 
 	for (const key of [
 		"discover-ldvh-capabilities",
 		"precheck-git-commit",
-		"read-specification-candidates",
-		"read-specification-content",
 		"register-governed-project",
 		"resolve-governance-scope",
 		"unregister-governed-project",
@@ -915,11 +653,9 @@ test("precheck-git-commit returns unverifiable when the session log exists but c
 	});
 });
 
-test("makeExecute returns five handlers and the same OPERATIONS export", () => {
+test("makeExecute returns the core handlers and the same OPERATIONS export", () => {
 	const { handlers, OPERATIONS: ops } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
 	assert.equal(typeof handlers["resolve-governance-scope"], "function");
-	assert.equal(typeof handlers["read-specification-candidates"], "function");
-	assert.equal(typeof handlers["read-specification-content"], "function");
 	assert.equal(typeof handlers["discover-ldvh-capabilities"], "function");
 	assert.equal(typeof handlers["precheck-git-commit"], "function");
 	assert.equal(ops, OPERATIONS);
@@ -940,7 +676,7 @@ test("output.render returns an array of content blocks (never a bare string)", (
 test("output.render survives structured (object) gaps without throwing", () => {
 	const blocks = renderBlocks({
 		envelope: {
-			operation_key: "read-specification-candidates",
+			operation_key: "resolve-governance-scope",
 			outcome: "partial",
 			result: null,
 			scope: { requested: "all", completed: [], not_completed: ["all"] },
@@ -1217,39 +953,6 @@ test("陈旧不改判 passed：陈旧只说明「不知道」，不得伪装成�
 	});
 });
 
-test("渲染：候选枚举必须逐条列出 responsibility_key，只回计数即失败", () => {
-	const text = (blocks) => blocks.map((b) => b.text ?? "").join("\n");
-	const value = {
-		envelope: {
-			operation_key: "read-specification-candidates",
-			outcome: "completed",
-			result: {
-				layer: "L0",
-				candidates: [
-					{ responsibility_key: "spec-a", title: "甲规范" },
-					{ responsibility_key: "spec-b", title: "乙规范" },
-					{ responsibility_key: "spec-c" },
-				],
-			},
-		},
-	};
-	const body = text(renderBlocks(value));
-	assert.match(body, /3 candidate\(s\) at L0/, "计数保留");
-	for (const key of ["spec-a", "spec-b", "spec-c"]) {
-		assert.match(body, new RegExp(`- ${key} — `), `逐条清单须含 ${key}`);
-	}
-	assert.match(body, /- spec-a — 甲规范/, "key 与 title 同行可读");
-	assert.match(body, /- spec-c — \(no title\)/, "缺 title 不得导致该条消失");
-});
-
-test("渲染：候选为空时不伪造条目", () => {
-	const body = renderBlocks({
-		envelope: { operation_key: "read-specification-candidates", outcome: "completed", result: { layer: "L0", candidates: [] } },
-	}).map((b) => b.text ?? "").join("\n");
-	assert.match(body, /0 candidate\(s\) at L0/);
-	assert.doesNotMatch(body, /^- [^ ]/m, "零候选不得印出任何条目行");
-});
-
 test("渲染：陈旧模块报告的每个字段都须在模型侧可见（不能只印 completed）", () => {
 	const fake = {
 		envelope: {
@@ -1322,147 +1025,6 @@ async function withSpecFixture(run) {
 		await run({ handlers, exec: { agent: { session: { header: { cwd: root } } } }, root });
 	});
 }
-
-test("渲染可见性：L0 候选保持简洁——键与标题可见，正文与目录不得倾倒", async () => {
-	await withSpecFixture(async ({ handlers, exec }) => {
-		const { envelope, text } = await renderThroughTool("read-specification-candidates", handlers["read-specification-candidates"], {}, exec);
-		assert.equal(envelope.outcome, "completed");
-		for (const c of envelope.result.candidates) {
-			assert.ok(text.includes(c.responsibility_key), `候选键必须可见：${c.responsibility_key}`);
-			assert.ok(text.includes(c.title), `候选标题必须可见：${c.title}`);
-			const line = text.split("\n").find((l) => l.includes(c.responsibility_key) && !l.startsWith("sources:"));
-			assert.ok(line !== undefined, `该候选必须独占一行：${c.responsibility_key}`);
-			assert.ok(line.includes(c.carrier_kind), `候选类型必须可见：${c.responsibility_key}`);
-			assert.ok(line.includes(c.spec_id), `候选编号必须可见：${c.responsibility_key}`);
-			assert.ok(line.includes(c.canonical_path), `候选路径必须可见：${c.responsibility_key}`);
-			assert.ok(!text.includes(c.positioning), `L0 不得出现候选 positioning：${c.responsibility_key}`);
-		}
-		assert.ok(!text.includes("正文段落。"), "L0 不得倾倒正文");
-		assert.ok(!text.includes("子节正文。"), "L0 不得倾倒正文");
-		assert.ok(!text.includes("2. 职责边界"), "L0 不得携带 L2 的 section_outline");
-		assert.ok(text.includes("sources:"), "L0 必须披露来源视图");
-		const snapshot = envelope.sources[0].snapshot;
-		assert.ok(snapshot, "数据面必须绑定扫描快照");
-		assert.ok(text.includes(snapshot.candidate_set_fingerprint), "候选集合指纹必须对模型可见");
-		for (const [path, fingerprint] of Object.entries(snapshot.content_fingerprints)) {
-			assert.ok(text.includes(path), `载体定位必须可见：${path}`);
-			assert.ok(text.includes(fingerprint), `载体内容指纹必须可见：${path}`);
-		}
-		assert.ok(text.includes("follow_up:"), "L0 必须给出继续读取的入口");
-		for (const next of envelope.follow_up) assert.ok(text.includes(next), `follow_up 条目必须可见：${next}`);
-	});
-});
-
-test("渲染可见性：L1 候选的定位与范围必须完整可见（不只键与标题）", async () => {
-	await withSpecFixture(async ({ handlers, exec }) => {
-		const { envelope, text } = await renderThroughTool("read-specification-candidates", handlers["read-specification-candidates"], { responsibility_key: "sample-spec-1", layer: "L1" }, exec);
-		assert.equal(envelope.outcome, "completed");
-		assert.equal(envelope.result.layer, "L1");
-		const c = envelope.result.candidates[0];
-		assert.equal(c.positioning, "p1");
-		assert.equal(c.scope, "s1");
-		for (const [label, value] of [["responsibility_key", c.responsibility_key], ["title", c.title], ["spec_id", c.spec_id], ["canonical_path", c.canonical_path], ["positioning", c.positioning], ["scope", c.scope]]) {
-			assert.ok(text.includes(value), `L1 的 ${label} 必须对模型可见（实际值 ${value}）`);
-		}
-	});
-});
-
-test("渲染可见性：L2 的 section_outline 逐条可见（模型据此拼出 L3 的 heading_path）", async () => {
-	await withSpecFixture(async ({ handlers, exec }) => {
-		const { envelope, text } = await renderThroughTool("read-specification-candidates", handlers["read-specification-candidates"], { responsibility_key: "sample-spec-1", layer: "L2" }, exec);
-		assert.equal(envelope.outcome, "completed");
-		const outline = envelope.result.candidates[0].section_outline;
-		assert.ok(Array.isArray(outline) && outline.length >= 3, "L2 必须在数据面给出目录");
-		for (const entry of outline) {
-			assert.ok(text.includes(entry.text), `目录条目标题必须可见：${entry.text}`);
-			assert.ok(text.includes(String(entry.line)), `目录条目行号必须可见：${entry.text}@${entry.line}`);
-		}
-		assert.ok(text.includes("2. 职责边界"), "L2 必须能看见将用于 L3 的 H2 标题");
-	});
-});
-
-test("渲染可见性：L2 不指定 key 时，全部候选各自的目录都必须可见", async () => {
-	await withSpecFixture(async ({ handlers, exec }) => {
-		const { envelope, text } = await renderThroughTool("read-specification-candidates", handlers["read-specification-candidates"], { layer: "L2" }, exec);
-		assert.equal(envelope.outcome, "completed");
-		assert.equal(envelope.result.layer, "L2");
-		assert.ok(envelope.result.candidates.length >= 2, "本夹具至少有两个候选");
-		for (const c of envelope.result.candidates) {
-			const where = `候选 ${c.responsibility_key}`;
-			assert.ok(text.includes(c.responsibility_key), `${where}：键必须可见`);
-			assert.ok(text.includes(c.title), `${where}：标题必须可见`);
-			assert.ok(text.includes(c.positioning), `${where}：positioning 必须可见`);
-			if (c.scope !== undefined) assert.ok(text.includes(c.scope), `${where}：scope 必须可见`);
-			assert.ok(Array.isArray(c.section_outline), `${where}：数据面必须给出目录`);
-			for (const entry of c.section_outline) {
-				assert.ok(text.includes(entry.text), `${where}：目录条目标题必须可见 —— ${entry.text}`);
-				assert.ok(text.includes(String(entry.line)), `${where}：目录条目行号必须可见 —— ${entry.text}@${entry.line}`);
-			}
-		}
-	});
-});
-
-test("渲染可见性：L3 的正文与定位信息（起止行号、节指纹、载体指纹）必须可见", async () => {
-	await withSpecFixture(async ({ handlers, exec }) => {
-		const { envelope, text } = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1", heading_path: "2. 职责边界" }, exec);
-		assert.equal(envelope.outcome, "completed");
-		assert.equal(envelope.result.layer, "L3");
-		assert.ok(text.includes(envelope.result.content), "L3 切片须完整逐字可见");
-		assert.ok(text.includes("2. 职责边界"), "L3 的所读标题必须可见");
-		assert.ok(text.includes("子节正文。"), "L3 的所读正文必须逐字可见");
-		assert.ok(text.includes("又一正文。"), "L3 的所读正文必须逐字可见（不得只给首段）");
-		assert.ok(text.includes(String(envelope.result.start_line)), "L3 的起始行号必须可见");
-		assert.ok(text.includes(String(envelope.result.end_line)), "L3 的结束行号必须可见");
-		assert.ok(text.includes(envelope.result.section_fingerprint), "L3 的节指纹必须可见");
-		assert.ok(text.includes(envelope.result.content_fingerprint), "载体内容指纹必须可见");
-		assert.ok(text.includes(envelope.result.canonical_path), "载体定位路径必须可见");
-	});
-});
-
-test("渲染可见性：L4 的全文必须可见（逐字，不得只回一行 completed）", async () => {
-	await withSpecFixture(async ({ handlers, exec }) => {
-		const { envelope, text } = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1" }, exec);
-		assert.equal(envelope.outcome, "completed");
-		assert.equal(envelope.result.layer, "L4");
-		assert.ok(text.includes(envelope.result.content), "L4 全文须完整逐字可见");
-		assert.ok(text.includes("规范示例一"), "L4 全文必须包含标题");
-		assert.ok(text.includes("正文段落。"), "L4 全文必须包含首节正文");
-		assert.ok(text.includes("子节正文。"), "L4 全文必须包含中段正文");
-		assert.ok(text.includes("最后正文。"), "L4 全文必须包含末节正文");
-		assert.ok(text.includes(envelope.result.content_fingerprint), "L4 必须披露载体内容指纹（01 §10.3）");
-		assert.ok(text.includes(envelope.result.canonical_path), "L4 必须披露载体定位路径");
-	});
-});
-
-test("渲染可见性：读取失败时，原因与自愈方向（follow_up）必须可见", async () => {
-	await withSpecFixture(async ({ handlers, exec }) => {
-		const unknown = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "no-such-key" }, exec);
-		assert.equal(unknown.envelope.outcome, "rejected");
-		assert.ok(unknown.text.includes("rejected"), "失败响应的结果分类必须可见");
-		assert.ok(unknown.text.includes("no-such-key"), "被拒的键必须出现在可见文本里");
-		assert.ok(unknown.text.includes("read-specification-candidates"), "rejected 的自愈方向（去枚举键）必须可见，否则模型只看到一句拒绝");
-		const badHeading = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1", heading_path: "不存在的节" }, exec);
-		assert.equal(badHeading.envelope.outcome, "rejected");
-		assert.ok(badHeading.text.includes("heading_not_found"), "失败原因码必须可见");
-		assert.ok(badHeading.text.includes("L2"), "自愈方向（回到 L2 取目录）必须可见");
-	});
-});
-
-test("渲染可见性：非受辖会话的 unavailable 响应必须把治理状态说清", async () => {
-	await withTemp("ldvh-tools.render.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await writeSpecsTree(root);
-		await registerProject(dshHome(home), { id: "demo", path: root });
-		const elsewhere = await initRepo(base, { name: "elsewhere" });
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
-		const exec = { agent: { session: { header: { cwd: elsewhere } } } };
-		const { envelope, text } = await renderThroughTool("read-specification-content", handlers["read-specification-content"], { responsibility_key: "sample-spec-1" }, exec);
-		assert.equal(envelope.outcome, "unavailable");
-		assert.ok(text.includes("unavailable"), "结果分类必须可见");
-		assert.ok(text.includes("not_governed"), "不可用的原因（治理状态）必须可见");
-	});
-});
 
 async function stagedDiff(root) {
 	const { stdout } = await execFileAsync("git", ["-C", root, "diff", "--cached", "--binary", "--no-ext-diff"], { encoding: "utf8" });

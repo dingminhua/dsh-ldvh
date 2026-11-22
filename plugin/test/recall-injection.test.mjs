@@ -1192,7 +1192,7 @@ test("兜底通道：说了「自行检索」就须给出具体入口，且该�
 	assert.match(rich, /取不到不等于没有/, "充足预算下兜底行须出现在注入输出里");
 	assert.match(rich, /ldvh_pitfall_list|ldvh_\*_list/, "须点名按类型枚举的入口");
 	assert.match(rich, /ldvh_\*_read/, "须点名精读入口");
-	assert.match(rich, /ldvh_read_specification_(?:candidates|content)/, "须点名规范侧读取入口（不以 _read 结尾，须单独点名）");
+	assert.match(rich, /按所示路径直接读取/, "须点名规范侧按路径读取（普通需求文档，不再有分层读取工具）");
 	assert.match(rich, /grep/, "须点名字面检索兜底");
 	const tiny = await probe(2400);
 	assert.doesNotMatch(tiny, /取不到不等于没有/, "极小预算下兜底行须让位");
@@ -1257,35 +1257,19 @@ test("34 §8.2 第 4 项：缺失 object_uid 时如实标注，不得用文件�
 	assert.ok(!/ · uid=x(\.md)?/.test(text), "不得把文件名冒充 object_uid");
 });
 
-test("34 §8.2 第 2、4 项：规范候选行须带 spec_key 并明示 L4（不得暗示已定位章节）", async (t) => {
+test("34 §8.2 第 2、4 项：规范候选行须带 spec_key（不暗示已定位章节）", async (t) => {
 	if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
 	const specRows = r.text.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- ["));
 	assert.ok(specRows.length > 0, "前提：须有规范候选行");
-	const withKey = specRows.filter((l) => /spec_key=[a-z0-9-]+（L4 全文入口）/.test(l));
-	assert.ok(withKey.length > 0, `规范候选行须带 spec_key 并标明 L4。实际行：${specRows[0]}`);
+	const withKey = specRows.filter((l) => /spec_key=[a-z0-9-]+/.test(l));
+	assert.ok(withKey.length > 0, `规范候选行须带 spec_key。实际行：${specRows[0]}`);
 	const leaked = specRows.filter((l) => /heading_path|章节已定位|L3 章节/.test(l));
-	assert.deepEqual(leaked, [], `不得暗示已定位章节（本实现只到 L4）：${leaked.join(" | ")}`);
+	assert.deepEqual(leaked, [], `不得暗示已定位章节（本实现只给路径）：${leaked.join(" | ")}`);
 	for (const spec of r.result.specs) {
 		if (typeof spec.specKey !== "string" || spec.specKey === "") continue;
 		assert.ok(r.text.includes(`spec_key=${spec.specKey}`), `候选「${spec.title}」的 spec_key 未出现在渲染行里`);
 	}
-});
-
-test("L3 精确章节消费引导：模型可见面须给出「L2 取逐字标题 → 原样作 heading_path」的通路", async (t) => {
-	if (await skipWithoutCorpus(t)) return;
-	const r = await buildRecallInjection({ userText: "改字段名之后读取那边没跟着改", projectRoot: ROOT, limit: 12, budgetBytes: 10240 });
-	assert.ok(r.text.includes("L4 全文入口"), "前提：须有规范候选行（带 L4 标注）");
-	const guide = r.text.split("\n").filter((l) => l.startsWith("（spec_key"));
-	assert.equal(guide.length, 1, `消费引导须恰好出现一次，实际 ${guide.length} 次`);
-	assert.match(guide[0], /L4.*(全文入口|入口).*(未定位章节|未定位)/, "须明说 L4 入口未定位到具体章节");
-	assert.match(guide[0], /L2/, "须指向 L2 读取层级");
-	assert.match(guide[0], /section_outline/, "须点名逐字标题的载体字段");
-	assert.match(guide[0], /heading_path/, "须给出 heading_path 的用法");
-	assert.match(guide[0], /勿猜标题/, "须明禁凭记忆猜标题（这是 36 次取址失配的根因）");
-	const specRows = r.text.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- ["));
-	assert.deepEqual(specRows.filter((l) => /heading_path|章节已定位|L3 章节/.test(l)), [],
-		"候选行自身仍不得暗示已定位章节；引导只放在独立说明行");
 });
 
 test("34 §12：渲染层裁掉候选时，完整度不得仍报 complete", async () => {

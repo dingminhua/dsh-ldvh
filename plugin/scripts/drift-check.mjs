@@ -14,8 +14,6 @@ const FACTS = join(ROOT, "ldvh-base");
 
 const SPARK = join(SPECS, "22-Spark-火花.md");
 const PITFALL = join(SPECS, "25-Pitfall-踩坑经验.md");
-const GUIDANCE = join(PLUGIN, "lib", "guidance-text.js");
-const SPEC_CONSISTENCY_TEST = "test/spec-consistency.test.mjs";
 
 async function classifyDriftRun(testFile = "test/recall-spec-drift.test.mjs") {
 	try {
@@ -110,17 +108,6 @@ try {
 	results.push(["⑤ 新增未知类型的事实", disclosed ? "被抓住" : "**未报警**", "gaps 须披露该类型被排除"]);
 	await rm(UNKNOWN_DIR, { recursive: true, force: true });
 
-	await backup(SPARK);
-	const contractSource = await readFile(SPARK, "utf8");
-	const contractRow = "| `bogus_field` | string | 条件 | 测试注入字段 | 无 |\n";
-	await writeGuarded(SPARK, contractSource.replace("## 9. 状态与生命周期", `${contractRow}\n## 9. 状态与生命周期`));
-	results.push(["⑥ 修改规范：字段契约表多出一个字段", ...(await driftVerdict("specs/22 注入 bogus_field", SPEC_CONSISTENCY_TEST))]);
-	await restoreAll();
-
-	await backup(GUIDANCE);
-	await writeGuarded(GUIDANCE, (await readFile(GUIDANCE, "utf8")).replace("§1 核心价值", "§1.1 核心价值"));
-	results.push(["⑦ 修改引导：引用不存在的节", ...(await driftVerdict("guidance-text 的 §1 → §1.1", SPEC_CONSISTENCY_TEST))]);
-	await restoreAll();
 } finally {
 	await restoreAll();
 }

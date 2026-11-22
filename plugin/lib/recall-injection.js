@@ -317,7 +317,7 @@ export function renderRecallRow(result) {
   let specGuideLine = null;
   if (facts.length > 0 && result?.limitations?.lexicalOnly === true) {
     const blameLine = "（**能力边界**：字面词法匹配，换个说法就会漏——尤其症状与机制表述常不重合，**未命中不代表没有同类教训**，查故障时请自行按机制检索。）";
-    const fallbackLine = "（**取不到不等于没有**：事实侧按类型枚举用 ldvh_pitfall_list／ldvh_norm_list 等、精读用对应 ldvh_*_read；**规范侧用 ldvh_read_specification_candidates／ldvh_read_specification_content**；按字面搜载体可用 grep。本行只给路径，不承诺命中。）";
+    const fallbackLine = "（**取不到不等于没有**：事实侧按类型枚举用 ldvh_pitfall_list／ldvh_norm_list 等、精读用对应 ldvh_*_read；**规范侧为运行时机制载体，按所示路径读取**；按字面搜载体可用 grep。本行只给路径，不承诺命中。）";
     const hasFallbackRoom = !(typeof result?.budget?.limitBytes === "number"
       && result.budget.limitBytes > 0
       && result.budget.limitBytes < FALLBACK_LINE_MIN_BYTES);
@@ -375,10 +375,8 @@ export function renderRecallRow(result) {
     } else {
       lines.push("规范源：");
     }
-    const fullGuide =
-      "（spec_key 是 L4 全文入口，未定位章节；需 L3 时先调 ldvh_read_specification_candidates(layer=L2) " +
-      "取 section_outline 的逐字 H2/H3，原样作 heading_path 调 ldvh_read_specification_content——勿猜标题。）";
-    const compactGuide = "（spec_key 为 L4 入口；需 L3 章节先取 L2 的 section_outline 逐字标题作 heading_path，勿猜标题。）";
+    const fullGuide = "（下列为开发需求文档，非行动规则；需要时按所示路径直接读取全文。）";
+    const compactGuide = "（开发需求文档，按路径读取；非行动规则。）";
     const guideBudget = typeof result?.budget?.limitBytes === "number" && result.budget.limitBytes > 0
       ? result.budget.limitBytes
       : null;
@@ -392,7 +390,7 @@ export function renderRecallRow(result) {
     for (const spec of specs) {
       const shown = preferAbsolute && typeof spec.absolutePath === "string" ? spec.absolutePath : spec.path;
       const stable = typeof spec.specKey === "string" && spec.specKey !== ""
-        ? `；spec_key=${spec.specKey}（L4 全文入口）`
+        ? `；spec_key=${spec.specKey}`
         : "；无稳定 spec_key（只能按路径读取）";
       lines.push(`- ${spec.title} — ${spec.hitReason}（${shown}${stable}）`);
     }
