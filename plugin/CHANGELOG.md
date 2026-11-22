@@ -8,6 +8,24 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [1.1.2] — 2026-11-23
+
+补丁发布：纳入 1.1.1 封存后 dev 线上的在途改动——把关请示三处统一入口，以及经验与摩擦两类辅助记录按新定义修正代理落笔职责。
+
+### Added
+
+- 把关请示三处统一入口：`ldvh_review_ask` 的 `point` 闭集接纳 `research`，委托既有 `research-consult` 逻辑（内部查找＋联网提请），不再只接受行动前/收口前两处。
+
+### Changed
+
+- 经验侧：`pitfall-fact-type` 的 entry-channels／delegate-draft／cross-type-pairing 改为零上下文代理辅助任务执行体经受控入口落笔、写后回读、回执主控转告 Human，主控只交材料与收执；移除两处被语料校验禁止的跨载体引用。
+- 摩擦侧：`friction-settlement-system-foundation` 的 discovery-trigger 补「代理落笔后回执主控、转告 Human」，落笔权本就不在主控。
+- 引导行：经验主动记录引导行、设置页中英双语开关提示与开发期锚点按新定义同步。
+
+### Known
+
+- 真实 UI 验收（`/ldvh` 路由与 `/ldvh/api/health`）本轮未重做，单元测试通过不替代真机验收；19 项环境依赖 skip 未逐条补跑。
+
 ## [1.1.1] — 2026-11-23
 
 补丁发布：纳入 1.1.0 封存后 dev 线上的在途改动。
