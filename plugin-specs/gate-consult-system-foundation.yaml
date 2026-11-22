@@ -8,15 +8,6 @@ ldvh_spec:
   positioning: 管向人请示这件事：什么时候必须请、问什么、答复算不算数、痕迹留在哪
   scope: 要决定某件事是否该先问人、或要问人时，查阅本文件
 
-  carries:
-    - "gate-consult-system-foundation::6. 进入与退出契约/6.2 适用条件"
-    - "gate-consult-system-foundation::4. 适用范围/4.2 明确排除与证明边界"
-    - "gate-consult-system-foundation::15. 实现边界"
-    - "gate-consult-system-foundation::9. 答复的效力与留痕/9.3 留痕承载"
-    - "gate-consult-system-foundation::19. 反过度设计红线"
-    - "gate-consult-system-foundation::6. 进入与退出契约/6.3 排除条件"
-    - "gate-consult-system-foundation::13. 交付合同"
-
   requirements:
 
     - id: what-it-is

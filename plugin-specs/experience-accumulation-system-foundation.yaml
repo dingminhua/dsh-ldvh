@@ -8,15 +8,6 @@ ldvh_spec:
   positioning: 管一条经验怎么被留下来、怎么被分流、什么时候该回头看它
   scope: 要留下一条经验、或要判断某条经验该怎么用时，查阅本文件
 
-  carries:
-    - "experience-accumulation-system-foundation::8. 过程机制与分支/8.3 沉淀分流的领域展开（公共判据见 02 §6.4）"
-    - "experience-accumulation-system-foundation::8. 过程机制与分支/8.5 反思的触发与去向"
-    - "experience-accumulation-system-foundation::13. 与相邻系统及能力的边界"
-    - "experience-accumulation-system-foundation::8. 过程机制与分支/8.4 候选成立的判据"
-    - "experience-accumulation-system-foundation::10. 召回与消费"
-    - "experience-accumulation-system-foundation::8. 过程机制与分支/8.2 什么不算（入口拦截与理由登记）"
-    - "experience-accumulation-system-foundation::17. 反过度设计红线"
-
   requirements:
 
     - id: what-it-is

@@ -8,12 +8,6 @@ ldvh_spec:
   positioning: 管召回这一侧本身：怎么走两侧、什么算命中、候选与依据怎么交、装不下时怎么取舍、召回范围与未命中怎么披露
   scope: 要开工前把该守的约束找出来、或要判断召回本身做得对不对时，查阅本文件；判断某条召回来的约束有没有真被遵守走核对面那一份
 
-  carries:
-    - "rule-compliance-system-foundation::8. 过程机制与分支/8.2 候选卡与命中依据（本系统召回侧的核心承载）"
-    - "rule-compliance-system-foundation::8. 过程机制与分支/8.4 事实规范的 F1 常驻枚举（经验按需）"
-    - "rule-compliance-system-foundation::11. 风险路由与预检要求"
-    - "rule-compliance-system-foundation::7. 输入与前置条件/7.5 约束来源的层级参考（系统扩展）"
-
   requirements:
 
     - id: what-it-is

@@ -9,15 +9,6 @@ ldvh_spec:
   positioning: 管一个项目级的目标：它是什么、怎么定、什么时候算达成、什么时候要改
   scope: 要确定项目朝哪走、或要判断某个目标是否达成时，查阅本文件
 
-  carries:
-    - "goal-fact-type::8. 字段契约"
-    - "goal-fact-type::13. 受控操作"
-    - "goal-fact-type::10. 来源与证据"
-    - "goal-fact-type::12. 召回与消费"
-    - "goal-fact-type::14. 类型特有验证与类型退出（02 §12.1 第 10 项）/14.1 类型特有验证"
-    - "goal-fact-type::17. 必停情形"
-    - "goal-fact-type::9. 状态与生命周期"
-
   requirements:
 
     - id: what-is
@@ -68,6 +59,12 @@ ldvh_spec:
       text: |
         正文只有一块固定二级标题段「目标陈述」；一级标题只有一个、与标题一致，且由写入入口生成；正文从二级标题写起；该段须存在且非空。
         不得为目标追加第二块内容段，也不得把子目标列进正文。
+
+    - id: frontmatter-authority
+      title: 载体头部是唯一权威文本
+      text: |
+        目标载体头部的权威字段是唯一权威文本，正文对应段只作展开，两者须逐字一致。
+        两者不一致时以载体头部为准，须先改正正文再据此读取或呈现，不得反过来用正文改写载体头部。
 
     - id: subgoals-not-stored
       title: 子目标不放进目标载体

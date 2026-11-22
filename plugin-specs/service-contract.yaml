@@ -10,15 +10,6 @@ ldvh_spec:
   positioning: 管工具回执长什么样、三个完成状态各意味着什么、什么算部分完成、什么算不可用
   scope: 拿到一个工具回执、不确定某个状态代表什么、或要判断某次调用是否真的做成时，查阅本文件
 
-  carries:
-    - "helper-service-contract::8. 最小共同响应语义"
-    - "helper-service-contract::6. 公开操作声明与能力发现/6.2 能力发现"
-    - "helper-service-contract::6. 公开操作声明与能力发现/6.1 领域操作声明"
-    - "helper-service-contract::7. 最小共同请求语义"
-    - "helper-service-contract::5. CLI 契约与接入面/5.2 契约边界"
-    - "helper-service-contract::9. 读取、预热与事实操作协作/9.3 受控状态变更"
-    - "helper-service-contract::12. 必停情形/12.1 领域触发与影响范围"
-
   requirements:
 
     - id: what-is-receipt

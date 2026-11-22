@@ -8,15 +8,6 @@ ldvh_spec:
   positioning: 管一笔已经立账、还没销掉的系统性毛病：什么算一笔账、怎么攒、怎么销、怎么接受它不修
   scope: 要登记一笔待修的毛病、或要判断某笔毛病是否已经销掉时，查阅本文件
 
-  carries:
-    - "friction-fact-type::13. 受控操作"
-    - "friction-fact-type::12. 召回与消费"
-    - "friction-fact-type::9. 状态与生命周期/9.4 配对的转换义务"
-    - "friction-fact-type::9. 状态与生命周期/9.2 状态转换"
-    - "friction-fact-type::9. 状态与生命周期/9.3 补充级更新"
-    - "friction-fact-type::4. 适用范围/4.2 明确排除与证明边界"
-    - "friction-fact-type::11. 关系契约"
-
   requirements:
 
     - id: what-is
@@ -321,6 +312,8 @@ ldvh_spec:
         处置——解药记录、废弃理由或不可清偿理由。
 
         第三段只在已修复、已废弃、已接受时存在，待修时必不在。前两段在任何状态都须非空且答全；只把标题逐字抄一遍不算展开。
+
+        载体头部是索引与摘要，正文是展开，两者不要求逐字一致；差异由读回与呈现如实报告，不阻断写入。
 
     - id: stop
       title: 这些情况必须停下来

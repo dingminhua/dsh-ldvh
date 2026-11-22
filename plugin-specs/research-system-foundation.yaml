@@ -8,15 +8,6 @@ ldvh_spec:
   positioning: 管一次取证与吸收怎么做：什么时候做、怎么算收敛、证据怎么分三态、结论怎么落
   scope: 要查清一个外部事实、或要判断一次调研是否已经收敛时，查阅本文件
 
-  carries:
-    - "research-system-foundation::7. 输入与前置条件/6.6 内部先查与联网提请的前置"
-    - "research-system-foundation::17. 风险路由与预检要求/16.1 风险层引用（指向 03 §6）"
-    - "research-system-foundation::5. 系统定位与价值（02 §12.1 第 1 项）/5.1 服务对象归属（调研围绕谁）"
-    - "research-system-foundation::7. 输入与前置条件/6.5 取证面分流判据"
-    - "research-system-foundation::13. 结论承载与回写/12.1 承载载体"
-    - "research-system-foundation::5. 系统定位与价值（02 §12.1 第 1 项）"
-    - "research-system-foundation::4. 适用范围/4.1.1 目标锚定准入（Human 2026-11-20 决定：调研不再结构化锚定 SubGoal）"
-
   requirements:
 
     - id: what-it-is

@@ -8,15 +8,6 @@ ldvh_spec:
   positioning: 管把一个模糊意图收紧成可判定目标这件事：什么时候做、怎么做、什么时候停
   scope: 要把一个意图变成可核对的目标、或要判断目标是否已经偏离时，查阅本文件
 
-  carries:
-    - "goal-planning-system-foundation::8. 过程机制与分支/8.4 偏离的识别与处置"
-    - "goal-planning-system-foundation::8. 过程机制与分支/8.3 确立路径"
-    - "goal-planning-system-foundation::8. 过程机制与分支/8.2 子目标可核对的判据"
-    - "goal-planning-system-foundation::8. 过程机制与分支/8.5 修订的级联边界"
-    - "goal-planning-system-foundation::10. 召回与消费"
-    - "goal-planning-system-foundation::17. 反过度设计红线"
-    - "goal-planning-system-foundation::8. 过程机制与分支/8.1 可判定目标陈述的判据"
-
   requirements:
 
     - id: what-it-is

@@ -8,15 +8,6 @@ ldvh_spec:
   positioning: 管一条方向线的出生与登记：什么值得留下来、怎么登记、怎么分流
   scope: 有一个还想不清的问题要留下、或要判断某条方向线是否值得保留时，查阅本文件
 
-  carries:
-    - "spark-record-system-foundation::10. 召回与消费"
-    - "spark-record-system-foundation::8. 过程机制与分支/8.4 同题判定与合并/拆分"
-    - "spark-record-system-foundation::9. 结论承载与回写"
-    - "spark-record-system-foundation::13. 与相邻系统及能力的边界"
-    - "spark-record-system-foundation::8. 过程机制与分支/8.2 什么不算（入口拦截与理由登记）"
-    - "spark-record-system-foundation::17. 反过度设计红线"
-    - "spark-record-system-foundation::7. 输入与前置条件/缺失和冲突处理"
-
   requirements:
 
     - id: what-is

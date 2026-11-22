@@ -9,15 +9,6 @@ ldvh_spec:
   positioning: 管目标下面的一个可核对的下级事项：它怎么算达成、什么时候算完、挂在谁下面
   scope: 要把一个目标拆成可核对的下级事项、或要判断某个下级事项是否达成时，查阅本文件
 
-  carries:
-    - "subgoal-fact-type::13. 受控操作"
-    - "subgoal-fact-type::18. 反过度设计红线"
-    - "subgoal-fact-type::8. 字段契约"
-    - "subgoal-fact-type::17. 必停情形"
-    - "subgoal-fact-type::7. 身份与载体"
-    - "subgoal-fact-type::6. 对象边界/6.2 查重"
-    - "subgoal-fact-type::6. 对象边界/6.3 明确不属于本类型"
-
   requirements:
 
     - id: what-is
