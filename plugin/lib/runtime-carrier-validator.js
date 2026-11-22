@@ -8,7 +8,8 @@ export const RUNTIME_CARRIER_LIMITS = Object.freeze({
   minRequirements: 1,
   maxRequirements: 30,
   maxRequirementTextCodePoints: 600,
-  maxDocumentBytes: 20480
+  maxDocumentBytes: 20480,
+  maxCarries: 10
 });
 
 export const RUNTIME_CARRIER_FIELDS = Object.freeze([
@@ -287,16 +288,12 @@ export function parseCarryAnchor(anchor) {
   if (typeof anchor !== "string" || anchor.length === 0) return reject("anchor/form_invalid", "anchor must be a non-empty string");
   if (anchor.includes("\n") || anchor.includes("\r")) return reject("anchor/form_invalid", "anchor must fit on one line");
   const separator = anchor.indexOf("::");
-  if (separator < 0) return reject("anchor/form_invalid", "anchor must use the <target spec_key>::<H2 heading>[/<H3 heading>] form");
+  if (separator < 0 || separator !== anchor.lastIndexOf("::")) return reject("anchor/form_invalid", "anchor must use the <target spec_key>::<H2 heading>[/<H3 heading>] form");
   const specKey = anchor.slice(0, separator);
   const headingPath = anchor.slice(separator + 2);
   if (!ID_PATTERN.test(specKey)) return reject("anchor/form_invalid", "anchor prefix must be a runtime/development identifier");
   if (headingPath.length === 0 || headingPath.trim() !== headingPath) return reject("anchor/form_invalid", "anchor heading path must be non-empty and free of surrounding whitespace");
   const segments = headingPath.split("/");
-  if (segments.length > 2) return reject("anchor/form_invalid", "anchor heading path must be one H2 or one H2/H3 pair");
-  if (segments.some((segment) => segment.length === 0 || segment.trim() !== segment)) {
-    return reject("anchor/form_invalid", "anchor heading segments must be non-empty and free of surrounding whitespace");
-  }
   return { ok: true, value: { specKey, headingPath, segments } };
 }
 
@@ -312,14 +309,50 @@ function sectionOwnBody(text, startLine) {
   return false;
 }
 
+function anchorSplitCandidates(text, headingPath) {
+  const headings = extractHeadings(text);
+  const fileEnd = normalizeNewlines(text).split("\n").length;
+  const sectionEnd = (heading) => {
+    const next = headings.find((item) => item.line > heading.line && item.level <= heading.level);
+    return next === undefined ? fileEnd : next.line - 1;
+  };
+  const attempts = [];
+  for (let index = 0; index < headingPath.length; index += 1) {
+    if (headingPath[index] !== "/") continue;
+    attempts.push({ split: index, h2Text: headingPath.slice(0, index), h3Text: headingPath.slice(index + 1) });
+  }
+  const candidates = [];
+  for (const attempt of attempts) {
+    for (const h2 of headings.filter((heading) => heading.level === 2 && heading.text === attempt.h2Text)) {
+      const h2End = sectionEnd(h2);
+      const h3 = headings.filter((heading) => heading.level === 3 && heading.text === attempt.h3Text && heading.line > h2.line && heading.line <= h2End);
+      for (const match of h3) candidates.push({ split: attempt.split, heading: match, endLine: sectionEnd(match) });
+    }
+  }
+  return candidates;
+}
+
+function resolveSplitHeadingPath(text, headingPath) {
+  const candidates = anchorSplitCandidates(text, headingPath);
+  const splits = new Set(candidates.map((candidate) => candidate.split));
+  if (splits.size > 1) return reject("anchor/ambiguous_split", `heading path "${headingPath}" matches more than one H2/H3 separator position`);
+  if (splits.size === 0) return reject("anchor/heading_not_found", `no H2/H3 heading pair matches "${headingPath}"`);
+  if (candidates.length > 1) return reject("anchor/heading_ambiguous", `heading path "${headingPath}" resolves to ${candidates.length} headings`);
+  const candidate = candidates[0];
+  return { ok: true, value: { startLine: candidate.heading.line, endLine: candidate.endLine } };
+}
+
 export function resolveCarryAnchor(anchor, developmentSpecs) {
   const parsed = parseCarryAnchor(anchor);
   if (!parsed.ok) return parsed;
   const target = (developmentSpecs ?? []).find((spec) => spec.specKey === parsed.value.specKey);
   if (target === undefined) return reject("anchor/target_unknown", `development spec "${parsed.value.specKey}" is not in the corpus`);
   if (typeof target.text !== "string") return reject("anchor/target_unreadable", `development spec "${parsed.value.specKey}" has no readable text`);
-  const resolved = resolveHeadingPath(target.text, parsed.value.headingPath);
+  const resolved = parsed.value.segments.length === 1
+    ? resolveHeadingPath(target.text, parsed.value.headingPath)
+    : resolveSplitHeadingPath(target.text, parsed.value.headingPath);
   if (!resolved.ok) {
+    if (resolved.error.code === "anchor/ambiguous_split") return reject("anchor/ambiguous_split", resolved.error.message);
     if (resolved.error.code === "content/heading_ambiguous") return reject("anchor/heading_ambiguous", resolved.error.message);
     if (resolved.error.code === "content/heading_path_invalid") return reject("anchor/form_invalid", resolved.error.message);
     return reject("anchor/heading_not_found", resolved.error.message);
@@ -751,38 +784,56 @@ function validateVolume(block, requirementsPresent, measurements, findings) {
       }
     });
   }
-  const bytes = Buffer.byteLength(String(measurements.text), "utf8");
+  const carries = Array.isArray(block.carries) ? block.carries.length : 0;
+  if (Array.isArray(block.carries) && carries > limits.maxCarries) {
+    findings.push(finding(
+      "volume/carries_count",
+      8,
+      "error",
+      "ldvh_spec.carries",
+      `the carries registration holds ${carries} anchors; the limit is ${limits.maxCarries}`,
+      { measured: carries, limit: limits.maxCarries, remaining: limits.maxCarries - carries }
+    ));
+  }
+  measurements.carriesCount = carries;
+  measurements.carriesCountRemaining = limits.maxCarries - carries;
+  const fileBytes = measurements.fileBytes;
   const carriesBytes = measurements.carriesBytes;
-  const withoutCarries = bytes - carriesBytes;
-  measurements.documentBytes = bytes;
-  measurements.documentBytesRemaining = limits.maxDocumentBytes - bytes;
+  const textBytes = Buffer.byteLength(String(measurements.text), "utf8");
+  if (fileBytes === null || fileBytes < textBytes || fileBytes < carriesBytes) {
+    measurements.documentBytes = null;
+    measurements.documentBytesRemaining = null;
+    measurements.documentBytesWithoutCarries = null;
+    measurements.documentBytesWithoutCarriesRemaining = null;
+    measurements.carriesBytes = carriesBytes;
+    findings.push(finding(
+      "volume/document_bytes_unmeasurable",
+      8,
+      "gap",
+      "ldvh_spec",
+      fileBytes === null
+        ? "the raw file byte count is not supplied, so the byte limit cannot be decided"
+        : `the raw file byte count (${fileBytes} bytes) cannot be reconciled with the supplied carrier text (${textBytes} bytes) and the carries block span (${carriesBytes} bytes), so the byte limit cannot be decided`,
+      { limit: limits.maxDocumentBytes }
+    ));
+    return;
+  }
+  const withoutCarries = fileBytes - carriesBytes;
+  measurements.documentBytes = fileBytes;
+  measurements.documentBytesRemaining = limits.maxDocumentBytes - fileBytes;
   measurements.documentBytesWithoutCarries = withoutCarries;
   measurements.documentBytesWithoutCarriesRemaining = limits.maxDocumentBytes - withoutCarries;
   measurements.carriesBytes = carriesBytes;
-  if (bytes > limits.maxDocumentBytes && withoutCarries > limits.maxDocumentBytes) {
+  if (withoutCarries > limits.maxDocumentBytes) {
     findings.push(finding(
       "volume/document_bytes",
       8,
       "error",
       "ldvh_spec",
-      `the carrier is ${bytes} bytes and ${withoutCarries} bytes without the carries registration; the limit is ${limits.maxDocumentBytes} under either reading`,
-      { measured: bytes, measuredWithoutCarries: withoutCarries, limit: limits.maxDocumentBytes }
-    ));
-  } else if (bytes > limits.maxDocumentBytes) {
-    findings.push(finding(
-      "volume/document_bytes_scope_gap",
-      8,
-      "gap",
-      "ldvh_spec",
-      `the carrier is ${bytes} bytes with the carries registration (${measurementGap(limits.maxDocumentBytes - bytes)} over) and ${withoutCarries} bytes without it; the contract does not settle whether carries counts, so no verdict is issued`,
-      { measured: bytes, measuredWithoutCarries: withoutCarries, limit: limits.maxDocumentBytes }
+      `the carrier file is ${fileBytes} bytes and ${withoutCarries} bytes without the carries registration; the limit is ${limits.maxDocumentBytes} bytes when the carries registration is excluded`,
+      { measured: fileBytes, measuredWithoutCarries: withoutCarries, limit: limits.maxDocumentBytes }
     ));
   }
-}
-
-function measurementGap(value) {
-  if (value < 0) return `${-value} bytes`;
-  return `${value} bytes within`;
 }
 
 function carriesByteSpan(text, blockNode) {
@@ -821,6 +872,10 @@ function validateAnchors(block, developmentSpecs, findings) {
     }
     if (resolved.error.code === "anchor/heading_ambiguous") {
       findings.push(finding("anchor/heading_ambiguous", "6.2", level, path, resolved.error.message, { anchor }));
+      return;
+    }
+    if (resolved.error.code === "anchor/ambiguous_split") {
+      findings.push(finding("anchor/ambiguous_split", "6.2", level, path, resolved.error.message, { anchor }));
       return;
     }
     if (resolved.error.code === "anchor/empty_locator") {
@@ -891,26 +946,32 @@ function scanValues(block, context, findings) {
 export function validateRuntimeCarrier(input = {}) {
   const text = typeof input.text === "string" ? input.text : "";
   const actualPath = input.actualPath;
+  const fileBytes = Number.isInteger(input.fileBytes) && input.fileBytes >= 0 ? input.fileBytes : null;
   const carrierCatalog = Array.isArray(input.carrierCatalog) ? input.carrierCatalog.filter((carrier) => isNonEmptyString(carrier?.specKey)) : [];
   const developmentSpecs = Array.isArray(input.developmentSpecs) ? input.developmentSpecs.filter((spec) => isNonEmptyString(spec?.specKey)) : [];
   const structure = validateStructure(text);
   const findings = [...structure.findings];
   const measurements = {
     text,
+    fileBytes,
     carriesBytes: carriesByteSpan(text, structure.blockNode),
     requirementCount: 0,
     requirementCountRemaining: RUNTIME_CARRIER_LIMITS.maxRequirements,
+    carriesCount: 0,
+    carriesCountRemaining: RUNTIME_CARRIER_LIMITS.maxCarries,
     maxTextCodePoints: 0,
     maxTextFieldPath: null,
-    documentBytes: 0,
-    documentBytesRemaining: RUNTIME_CARRIER_LIMITS.maxDocumentBytes,
-    documentBytesWithoutCarries: 0,
-    documentBytesWithoutCarriesRemaining: RUNTIME_CARRIER_LIMITS.maxDocumentBytes
+    documentBytes: null,
+    documentBytesRemaining: null,
+    documentBytesWithoutCarries: null,
+    documentBytesWithoutCarriesRemaining: null
   };
   if (structure.block === null) {
-    measurements.documentBytes = Buffer.byteLength(text, "utf8");
-    measurements.documentBytesRemaining = RUNTIME_CARRIER_LIMITS.maxDocumentBytes - measurements.documentBytes;
-    measurements.documentBytesWithoutCarries = measurements.documentBytes;
+    measurements.carriesCount = null;
+    measurements.carriesCountRemaining = null;
+    measurements.documentBytes = fileBytes;
+    measurements.documentBytesRemaining = fileBytes === null ? null : RUNTIME_CARRIER_LIMITS.maxDocumentBytes - fileBytes;
+    measurements.documentBytesWithoutCarries = fileBytes;
     measurements.documentBytesWithoutCarriesRemaining = measurements.documentBytesRemaining;
     return finishCarrierResult(findings, measurements, { specKey: null, canonicalPath: null });
   }
@@ -957,6 +1018,8 @@ function finishCarrierResult(findings, measurements, carrier) {
     measurements: {
       requirementCount: measurements.requirementCount,
       requirementCountRemaining: measurements.requirementCountRemaining,
+      carriesCount: measurements.carriesCount,
+      carriesCountRemaining: measurements.carriesCountRemaining,
       maxTextCodePoints: measurements.maxTextCodePoints,
       maxTextFieldPath: measurements.maxTextFieldPath,
       documentBytes: measurements.documentBytes,
@@ -991,6 +1054,7 @@ export function validateRuntimeCarrierCorpus(input = {}) {
   const catalog = carriers.map((carrier) => descriptorFromText(carrier.text, carrier.actualPath));
   const results = carriers.map((carrier) => validateRuntimeCarrier({
     text: carrier.text,
+    fileBytes: carrier.fileBytes,
     actualPath: carrier.actualPath,
     carrierCatalog: catalog,
     developmentSpecs

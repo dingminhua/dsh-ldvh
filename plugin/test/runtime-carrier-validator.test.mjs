@@ -100,6 +100,66 @@ const ATTACHMENT_TEXT = [
 ].join("\n");
 const ATTACHMENT_DOC = { text: ATTACHMENT_TEXT, path: ATTACHMENT_PATH };
 
+const DEEP_PATH = "specs/80-深层目标.md";
+const DEEP_TEXT = [
+	"---",
+	"ldvh_spec:",
+	'  spec_key: "dev-deep"',
+	'  spec_kind: "spec"',
+	'  spec_id: "80"',
+	'  title: "深层目标"',
+	`  canonical_path: "${DEEP_PATH}"`,
+	'  positioning: "p"',
+	'  scope: "s"',
+	"---",
+	"",
+	"# 深层目标",
+	"",
+	"## 1. 目标",
+	"",
+	"正文。",
+	"",
+	"### 1.1 子目标/2.2 孙目标",
+	"",
+	"子正文。",
+	""
+].join("\n");
+const DEEP_SPEC = { specKey: "dev-deep", canonicalPath: DEEP_PATH, title: "深层目标", text: DEEP_TEXT, path: DEEP_PATH };
+
+const AMB_PATH = "specs/81-切分目标.md";
+const AMB_TEXT = [
+	"---",
+	"ldvh_spec:",
+	'  spec_key: "dev-amb"',
+	'  spec_kind: "spec"',
+	'  spec_id: "81"',
+	'  title: "切分目标"',
+	`  canonical_path: "${AMB_PATH}"`,
+	'  positioning: "p"',
+	'  scope: "s"',
+	"---",
+	"",
+	"# 切分目标",
+	"",
+	"## A",
+	"",
+	"正文。",
+	"",
+	"### B/C",
+	"",
+	"子正文。",
+	"",
+	"## A/B",
+	"",
+	"正文。",
+	"",
+	"### C",
+	"",
+	"子正文。",
+	""
+].join("\n");
+const AMB_SPEC = { specKey: "dev-amb", canonicalPath: AMB_PATH, title: "切分目标", text: AMB_TEXT, path: AMB_PATH };
+
 function carrierText(options = {}) {
 	const {
 		specKey = "demo-carrier",
@@ -158,9 +218,20 @@ function carrierText(options = {}) {
 function validate(text, options = {}) {
 	return validateRuntimeCarrier({
 		text,
+		fileBytes: Object.hasOwn(options, "fileBytes") ? options.fileBytes : Buffer.byteLength(text, "utf8"),
 		actualPath: options.actualPath ?? "plugin-specs/demo-carrier.yaml",
 		carrierCatalog: options.carrierCatalog ?? [],
 		developmentSpecs: options.developmentSpecs ?? DEV_SPECS
+	});
+}
+
+function validateCorpus(input = {}) {
+	return validateRuntimeCarrierCorpus({
+		...input,
+		carriers: (input.carriers ?? []).map((carrier) => ({
+			fileBytes: Buffer.byteLength(carrier.text ?? "", "utf8"),
+			...carrier
+		}))
 	});
 }
 
@@ -213,7 +284,8 @@ test("volume limits match the contract", () => {
 		minRequirements: 1,
 		maxRequirements: 30,
 		maxRequirementTextCodePoints: 600,
-		maxDocumentBytes: 20480
+		maxDocumentBytes: 20480,
+		maxCarries: 10
 	});
 });
 
@@ -753,36 +825,91 @@ test("code point counting is not UTF-16 unit counting", () => {
 	assert.equal(result.measurements.maxTextCodePoints, 600);
 });
 
-test("an oversized carrier without carries is rejected", () => {
-	const fixture = oversizedCarrier({ padding: 3800, carriers: 40 });
+test("a carrier file over the byte limit without the carries criterion is rejected", () => {
+	const fixture = oversizedCarrier({ padding: 3800, carriers: 10 });
 	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
-	assert.deepEqual(shape(result, "volume/document_bytes", ["item", "level", "fieldPath", "limit"]), [
-		{ code: "volume/document_bytes", item: 8, level: "error", fieldPath: "ldvh_spec", limit: 20480 }
-	]);
+	assert.deepEqual({ measured: result.measurements.documentBytes, verdict: result.verdict }, { measured: 21075, verdict: "fail" });
 });
 
-test("a carrier over the byte limit only with carries is a scope gap", () => {
-	const fixture = oversizedCarrier({ padding: 2600, carriers: 40 });
-	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
-	assert.deepEqual(shape(result, "volume/document_bytes_scope_gap", ["item", "level", "fieldPath", "limit"]), [
-		{ code: "volume/document_bytes_scope_gap", item: 8, level: "gap", fieldPath: "ldvh_spec", limit: 20480 }
-	]);
+test("a carrier without fileBytes has an unmeasurable byte volume", () => {
+	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
+	const result = validate(fixture.text, { fileBytes: null, developmentSpecs: fixture.developmentSpecs });
+	assert.deepEqual({
+		findings: shape(result, "volume/document_bytes_unmeasurable", ["item", "level", "fieldPath", "limit"]),
+		verdict: result.verdict,
+		ok: result.ok,
+		documentBytes: result.measurements.documentBytes,
+		documentBytesWithoutCarries: result.measurements.documentBytesWithoutCarries
+	}, {
+		findings: [{ code: "volume/document_bytes_unmeasurable", item: 8, level: "gap", fieldPath: "ldvh_spec", limit: 20480 }],
+		verdict: "undetermined",
+		ok: false,
+		documentBytes: null,
+		documentBytesWithoutCarries: null
+	});
 });
 
-test("the scope gap does not issue an error finding", () => {
-	const fixture = oversizedCarrier({ padding: 2600, carriers: 40 });
-	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
+test("the unmeasurable byte volume does not issue an error finding", () => {
+	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
+	const result = validate(fixture.text, { fileBytes: null, developmentSpecs: fixture.developmentSpecs });
 	assert.deepEqual(result.findings.filter((finding) => finding.level === "error"), []);
 });
 
-test("the scope gap verdicts undetermined and is not ok", () => {
-	const fixture = oversizedCarrier({ padding: 2600, carriers: 40 });
-	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
-	assert.deepEqual({ verdict: result.verdict, ok: result.ok }, { verdict: "undetermined", ok: false });
+test("fileBytes below the supplied text length is unmeasurable", () => {
+	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
+	const result = validate(fixture.text, {
+		fileBytes: Buffer.byteLength(fixture.text, "utf8") - 1,
+		developmentSpecs: fixture.developmentSpecs
+	});
+	assert.deepEqual({ codes: codes(result), documentBytes: result.measurements.documentBytes }, {
+		codes: ["volume/document_bytes_unmeasurable"],
+		documentBytes: null
+	});
 });
 
-test("the corpus carried by a scope gap verdicts undetermined", () => {
-	const fixture = oversizedCarrier({ padding: 2600, carriers: 40 });
+test("total bytes over the limit without the carries criterion over are not reported", () => {
+	const fixture = oversizedCarrier({ padding: 3400, carriers: 10 });
+	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
+	assert.deepEqual({
+		overLimit: result.measurements.documentBytes > 20480,
+		byteFindings: result.findings.filter((finding) => finding.code.startsWith("volume/document_bytes"))
+	}, { overLimit: true, byteFindings: [] });
+});
+
+test("a carrier with twelve carries is rejected", () => {
+	const fixture = oversizedCarrier({ padding: 10, carriers: 12 });
+	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
+	assert.deepEqual({
+		findings: shape(result, "volume/carries_count", ["item", "level", "fieldPath", "measured", "limit", "remaining"]),
+		carriesCount: result.measurements.carriesCount,
+		carriesCountRemaining: result.measurements.carriesCountRemaining
+	}, {
+		findings: [{
+			code: "volume/carries_count",
+			item: 8,
+			level: "error",
+			fieldPath: "ldvh_spec.carries",
+			measured: 12,
+			limit: 10,
+			remaining: -2
+		}],
+		carriesCount: 12,
+		carriesCountRemaining: -2
+	});
+});
+
+test("a carrier with ten carries is accepted", () => {
+	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
+	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
+	assert.deepEqual({
+		findings: findingsOf(result, "volume/carries_count"),
+		carriesCount: result.measurements.carriesCount,
+		carriesCountRemaining: result.measurements.carriesCountRemaining
+	}, { findings: [], carriesCount: 10, carriesCountRemaining: 0 });
+});
+
+test("the corpus carried by an unmeasurable byte volume verdicts undetermined", () => {
+	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
 	const corpus = validateRuntimeCarrierCorpus({
 		carriers: [{ text: fixture.text, actualPath: "plugin-specs/demo-carrier.yaml" }],
 		developmentSpecs: fixture.developmentSpecs
@@ -848,8 +975,6 @@ const MALFORMED_ANCHORS = [
 	["with an empty heading path", "dev-target::"],
 	["with whitespace before the spec_key", " dev-target::1. 目标"],
 	["with whitespace inside the heading path", "dev-target:: 1. 目标"],
-	["with a trailing separator", "dev-target::1. 目标/"],
-	["with three heading segments", "dev-target::1. 目标/1.1 子目标/2.2 孙目标"],
 	["with an uppercase spec_key", "Dev::x"],
 	["with an underscore in the spec_key", "dev_target::1. 目标"],
 	["with a line break", "dev-target::1. 目标\n更多"]
@@ -861,6 +986,42 @@ for (const [label, anchor] of MALFORMED_ANCHORS) {
 		assert.deepEqual({ ok: parsed.ok, code: parsed.error?.code }, { ok: false, code: "anchor/form_invalid" });
 	});
 }
+
+test("a trailing separator is not a form failure but is not addressable", () => {
+	const parsed = parseCarryAnchor("dev-target::1. 目标/");
+	const resolved = resolveCarryAnchor("dev-target::1. 目标/", DEV_SPECS);
+	assert.deepEqual({ parsed: parsed.ok, resolveCode: resolved.error?.code }, { parsed: true, resolveCode: "anchor/heading_not_found" });
+});
+
+test("a three-segment anchor resolves at its only valid split point", () => {
+	assert.deepEqual(resolveCarryAnchor("dev-deep::1. 目标/1.1 子目标/2.2 孙目标", [DEEP_SPEC]), {
+		ok: true,
+		value: {
+			specKey: "dev-deep",
+			canonicalPath: DEEP_PATH,
+			headingPath: "1. 目标/1.1 子目标/2.2 孙目标",
+			startLine: 18,
+			endLine: 21
+		}
+	});
+});
+
+test("a three-segment anchor without a valid split is not addressable", () => {
+	const result = resolveCarryAnchor("dev-target::1. 目标/1.1 子目标/2.2 孙目标", DEV_SPECS);
+	assert.equal(result.error.code, "anchor/heading_not_found");
+});
+
+test("an anchor whose heading path splits two valid ways is rejected", () => {
+	const result = resolveCarryAnchor("dev-amb::A/B/C", [AMB_SPEC]);
+	assert.equal(result.error.code, "anchor/ambiguous_split");
+});
+
+test("an ambiguous split anchor is reported by the carrier check", () => {
+	const result = validate(carrierText({ carries: ["dev-amb::A/B/C"] }), { developmentSpecs: [AMB_SPEC] });
+	assert.deepEqual(shape(result, "anchor/ambiguous_split", ["fieldPath", "anchor"]), [
+		{ code: "anchor/ambiguous_split", fieldPath: "ldvh_spec.carries[0]", anchor: "dev-amb::A/B/C" }
+	]);
+});
 
 test("resolveCarryAnchor returns the resolved target", () => {
 	assert.deepEqual(resolveCarryAnchor("dev-target::1. 目标/1.1 子目标", DEV_SPECS), {
@@ -1050,7 +1211,7 @@ test("a router pointing at another router is rejected", () => {
 });
 
 test("two routers in one corpus are rejected", () => {
-	const corpus = validateRuntimeCarrierCorpus({
+	const corpus = validateCorpus({
 		carriers: [
 			{ text: carrierText({ specKey: "target-one" }), actualPath: "plugin-specs/target-one.yaml" },
 			{
@@ -1082,7 +1243,7 @@ test("two routers in one corpus are rejected", () => {
 });
 
 test("a corpus with two routers fails as a whole", () => {
-	const corpus = validateRuntimeCarrierCorpus({
+	const corpus = validateCorpus({
 		carriers: [
 			{
 				text: carrierText({
@@ -1107,7 +1268,7 @@ test("a corpus with two routers fails as a whole", () => {
 });
 
 test("one router in a corpus is counted once", () => {
-	const corpus = validateRuntimeCarrierCorpus({
+	const corpus = validateCorpus({
 		carriers: [
 			{ text: carrierText({ specKey: "target-one" }), actualPath: "plugin-specs/target-one.yaml" },
 			{
@@ -1290,7 +1451,7 @@ test("an empty corpus summary is zeroed", () => {
 });
 
 test("the corpus summary counts errors and hints", () => {
-	const corpus = validateRuntimeCarrierCorpus({
+	const corpus = validateCorpus({
 		carriers: [
 			{ text: carrierText({}), actualPath: "plugin-specs/demo-carrier.yaml" },
 			{ text: carrierText({ carries: ["nope"] }), actualPath: "plugin-specs/demo-carrier.yaml" }

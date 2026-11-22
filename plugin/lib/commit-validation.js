@@ -107,7 +107,7 @@ export function checkSignatureAgainstRoute(message, route) {
 }
 
 export function isGovernedCommitPath(path) {
-  return path.startsWith("ldvh-base/") || path.startsWith("specs/");
+  return path.startsWith("ldvh-base/") || path.startsWith("specs/") || path.startsWith("plugin-specs/");
 }
 
 export function touchesGovernedContent(paths) {
@@ -192,7 +192,7 @@ export function isTemporaryDocsPath(path) {
 export function isSpecOrFactCarrierPath(path) {
   if (path === "README.md") return true;
   if (path === "plugin/README.md") return true;
-  return path.startsWith("specs/") || path.startsWith("ldvh-base/");
+  return path.startsWith("specs/") || path.startsWith("plugin-specs/") || path.startsWith("ldvh-base/");
 }
 
 export function extractDocsReferences(text) {
