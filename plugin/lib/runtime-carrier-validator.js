@@ -681,6 +681,11 @@ function validateVolume(block, requirementsPresent, measurements, findings) {
       }
     });
   }
+  validateDocumentBytes(measurements, findings);
+}
+
+function validateDocumentBytes(measurements, findings) {
+  const limits = RUNTIME_CARRIER_LIMITS;
   const fileBytes = measurements.fileBytes;
   const textBytes = Buffer.byteLength(String(measurements.text), "utf8");
   if (fileBytes === null || fileBytes < textBytes) {
@@ -788,8 +793,7 @@ export function validateRuntimeCarrier(input = {}) {
     documentBytesRemaining: null
   };
   if (structure.block === null) {
-    measurements.documentBytes = fileBytes;
-    measurements.documentBytesRemaining = fileBytes === null ? null : RUNTIME_CARRIER_LIMITS.maxDocumentBytes - fileBytes;
+    validateDocumentBytes(measurements, findings);
     return finishCarrierResult(findings, measurements, { specKey: null, canonicalPath: null });
   }
   const block = structure.block;
