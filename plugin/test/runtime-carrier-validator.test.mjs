@@ -804,6 +804,61 @@ test("a file byte count over the limit is rejected by the file-byte criterion", 
 	});
 });
 
+test("an unparseable carrier over the byte limit reports structure and volume together", () => {
+	const result = validateRuntimeCarrier({ text: "not: [valid", fileBytes: 30000, actualPath: "plugin-specs/x.yaml" });
+	assert.deepEqual({
+		verdict: result.verdict,
+		volume: shape(result, "volume/document_bytes", ["item", "level", "fieldPath", "measured", "limit", "remaining"]),
+		yamlInvalidItems: findingsOf(result, "structure/yaml_invalid").map((finding) => finding.item),
+		documentBytes: result.measurements.documentBytes,
+		documentBytesRemaining: result.measurements.documentBytesRemaining
+	}, {
+		verdict: "fail",
+		volume: [{
+			code: "volume/document_bytes",
+			item: 8,
+			level: "error",
+			fieldPath: "ldvh_spec",
+			measured: 30000,
+			limit: 20480,
+			remaining: -9520
+		}],
+		yamlInvalidItems: [7],
+		documentBytes: 30000,
+		documentBytesRemaining: -9520
+	});
+});
+
+test("an unparseable carrier within the byte limit reports no volume finding", () => {
+	const result = validateRuntimeCarrier({ text: "not: [valid", fileBytes: 1000, actualPath: "plugin-specs/x.yaml" });
+	assert.deepEqual({
+		codes: codes(result),
+		volumeFindings: result.findings.filter((finding) => finding.code.startsWith("volume/")),
+		documentBytes: result.measurements.documentBytes,
+		documentBytesRemaining: result.measurements.documentBytesRemaining
+	}, {
+		codes: ["structure/yaml_invalid"],
+		volumeFindings: [],
+		documentBytes: 1000,
+		documentBytesRemaining: 19480
+	});
+});
+
+test("an unparseable carrier without fileBytes reports an unmeasurable byte gap", () => {
+	const result = validateRuntimeCarrier({ text: "not: [valid", actualPath: "plugin-specs/x.yaml" });
+	assert.deepEqual({
+		verdict: result.verdict,
+		gap: shape(result, "volume/document_bytes_unmeasurable", ["item", "level", "fieldPath", "limit"]),
+		documentBytes: result.measurements.documentBytes,
+		documentBytesRemaining: result.measurements.documentBytesRemaining
+	}, {
+		verdict: "fail",
+		gap: [{ code: "volume/document_bytes_unmeasurable", item: 8, level: "gap", fieldPath: "ldvh_spec", limit: 20480 }],
+		documentBytes: null,
+		documentBytesRemaining: null
+	});
+});
+
 test("a file byte count at the limit is accepted", () => {
 	const result = validate(carrierText({}), { fileBytes: 20480 });
 	assert.deepEqual({ findings: result.findings, remaining: result.measurements.documentBytesRemaining }, {
