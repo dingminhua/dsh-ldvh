@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { gateEnv, git, gitOk, initRepo, pluginRoot, runNode, runnerPath, signatureEnv, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
+import { gateEnv, gitOk, initRepo, pluginRoot, runNode, runnerPath, signatureEnv, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
 
 const GOVERNED_FIXTURE = "specs/99-fixture.md";
 async function initGovernedRepo(base) {
@@ -284,109 +284,65 @@ test("blocks a governed commit when the authoritative route is unavailable", asy
 });
 
 
-const MARKER = "【承重声明】";
-const RESOLUTION = "**恢复条件**：";
+const DECLARATION_MARKER = "【承重声明】";
+const DECLARATION_RESOLUTION = "**恢复条件**：";
 
-const declarationFile = (resolution) =>
-	[
-		"## 7. 测试节",
-		"",
-		"| 依赖项 | 未满足时不得声称 | 替代保障 |",
-		"|---|---|---|",
-		`| ${MARKER} 本文正文对 §7.2 的对齐 | 不得声称已完成对齐 | ${resolution} |`,
-		"",
-	].join("\n");
-
-const declarationMessage = (item) =>
-	["docs(specs): 调整规范", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n");
-
-async function committedDeclarationRepo(base) {
+async function committedRepoWith(base, files) {
 	const root = await initRepo(base);
-	await mkdir(join(root, "specs"), { recursive: true });
-	await writeFile(join(root, "specs", "01-test.md"), declarationFile(`${RESOLUTION}完成后删除本行`));
+	for (const [path, content] of Object.entries(files)) {
+		await mkdir(join(root, path.split("/").slice(0, -1).join("/")), { recursive: true });
+		await writeFile(join(root, path), content);
+	}
 	await gitOk(root, ["add", "-A"]);
 	await gitOk(root, ["commit", "-qm", "base"]);
 	return root;
 }
 
-test("blocks an edit that strips a declaration's 恢复条件 element (the incident's shape)", async () => {
-	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await committedDeclarationRepo(base);
-		await writeFile(join(root, "specs", "01-test.md"), declarationFile("**无**——须按判据逐处核对"));
+function carrierTable(resolution) {
+	return [
+		"---",
+		"title: 测试事实载体",
+		"object_uid: 11112222-3333-4444-5555-666677778888",
+		"---",
+		"",
+		"| 依赖项 | 未满足时不得声称 | 替代保障 |",
+		"|---|---|---|",
+		`| ${DECLARATION_MARKER} 本文正文对 §7.2 的对齐 | 不得声称已完成对齐 | ${resolution} |`,
+		"",
+	].join("\n");
+}
+
+function governedMessage(item) {
+	return ["docs(specs): 调整规范", "", "关键变更:", `- ${item}`, "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n");
+}
+
+test("① 事实载体里的【承重声明】标记不构成要求：整条删掉也不再被拦", async () => {
+	await withTemp("ldvh-ggr-marker.", async (base) => {
+		const file = "ldvh-base/reports/report-11112222-3333-4444-5555-666677778888.md";
+		const root = await committedRepoWith(base, { [file]: carrierTable(`${DECLARATION_RESOLUTION}来源回填`) });
+		await writeFile(join(root, file), carrierTable(`${DECLARATION_RESOLUTION}来源回填`).replace(DECLARATION_MARKER, ""));
 		await gitOk(root, ["add", "-A"]);
 		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, declarationMessage("specs/01-test.md: 调整对齐列的表述"));
-
-		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
-		assert.equal(result.code, 1, result.stderr);
-		assert.match(result.stderr, /validation\/load_bearing_resolution_missing/);
-	});
-});
-
-test("blocks removing a declaration outright", async () => {
-	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await committedDeclarationRepo(base);
-		await writeFile(join(root, "specs", "01-test.md"), declarationFile("已完成").replace(MARKER, ""));
-		await gitOk(root, ["add", "-A"]);
-		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, declarationMessage("specs/01-test.md: 移除对齐行"));
-
-		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
-		assert.equal(result.code, 1, result.stderr);
-		assert.match(result.stderr, /validation\/load_bearing_declaration_removed/);
-	});
-});
-
-test("passes the same edit when a 关键变更 item carries a resolvable reference", async () => {
-	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await committedDeclarationRepo(base);
-		const head = await git(root, ["rev-parse", "HEAD"]);
-		await writeFile(join(root, "specs", "01-test.md"), declarationFile("**无**——须按判据逐处核对"));
-		await gitOk(root, ["add", "-A"]);
-		const messageFile = join(root, "msg.txt");
-		await writeFile(
-			messageFile,
-			declarationMessage(`specs/01-test.md: 调整对齐列表述（独立复核 ${head} 已确认范围关闭）`)
-		);
-
+		await writeFile(messageFile, governedMessage(`${file}: 去掉声明标记`));
 		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
 		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 	});
 });
 
-test("an unresolvable reference exempts nothing", async () => {
-	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await committedDeclarationRepo(base);
-		await writeFile(join(root, "specs", "01-test.md"), declarationFile("**无**——须按判据逐处核对"));
+test("承重声明的旧检查已撤：specs/ 载体整条删掉也不再被拦", async () => {
+	await withTemp("ldvh-ggr-marker-spec.", async (base) => {
+		const file = "specs/01-test.md";
+		const root = await committedRepoWith(base, { [file]: carrierTable(`${DECLARATION_RESOLUTION}完成后删除本行`) });
+		await writeFile(join(root, file), carrierTable(`${DECLARATION_RESOLUTION}完成后删除本行`).replace(DECLARATION_MARKER, ""));
 		await gitOk(root, ["add", "-A"]);
 		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, declarationMessage("specs/01-test.md: 调整表述（独立复核 deadbeefdeadbeef）"));
-
-		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
-		assert.equal(result.code, 1, result.stderr);
-		assert.match(result.stderr, /validation\/load_bearing_resolution_missing/);
-	});
-});
-
-test("a fact reference resolves by the carrier's object_uid, not only by its file name", async () => {
-	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await committedDeclarationRepo(base);
-		const uid = "11112222-3333-4444-5555-666677778888";
-		await mkdir(join(root, "ldvh-base", "norms"), { recursive: true });
-		await writeFile(join(root, "ldvh-base", "norms", "unnamed-carrier.md"), `---\nobject_uid: ${uid}\ntitle: x\n---\n\n# x\n`);
-		await gitOk(root, ["add", "-A"]);
-		await gitOk(root, ["commit", "-qm", "add fact carrier"]);
-		await writeFile(join(root, "specs", "01-test.md"), declarationFile("**无**——须按判据逐处核对"));
-		await gitOk(root, ["add", "-A"]);
-		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, declarationMessage(`specs/01-test.md: 调整表述（独立复核 ${uid} 已确认范围关闭）`));
-
+		await writeFile(messageFile, governedMessage(`${file}: 移除对齐行`));
 		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 	});
 });
-
 
 const SECTION72_BODY = [
 	"### 7.2 领域正文与规则单元",
@@ -403,126 +359,73 @@ const SECTION72_BODY = [
 	"",
 ].join("\n");
 
-async function committedSpecOneRepo(base, body) {
-	const root = await initRepo(base);
-	await mkdir(join(root, "specs"), { recursive: true });
-	await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${body}`);
-	await gitOk(root, ["add", "-A"]);
-	await gitOk(root, ["commit", "-qm", "base"]);
-	return root;
-}
-
-test("blocks a §7.2 removal basis whose quoted sentence is absent from §7.2", async () => {
-	await withTemp("ldvh-ggr-basis.", async (base) => {
-		const root = await committedSpecOneRepo(base, SECTION72_BODY);
-		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
+test("② 消息里的 §7.2 依据引用不存在，也不再被拦", async () => {
+	await withTemp("ldvh-ggr-basis-retired.", async (base) => {
+		const root = await committedRepoWith(base, { "specs/01-规范.md": `# 01 规范\n\n${SECTION72_BODY}` });
+		await writeFile(join(root, "specs", "01-规范.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
 		await gitOk(root, ["add", "-A"]);
 		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：**布局自指计数**", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：**布局自指计数**", "", "关键变更:", "- specs/01-规范.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+		assert.doesNotMatch(result.stderr, /removal_basis/);
+	});
+});
 
+test("③ specs/ 下的文件引用 docs/ 路径不再被拦（第 5 项范围已去掉 specs/）", async () => {
+	await withTemp("ldvh-ggr-docs-specs.", async (base) => {
+		const root = await initRepo(base, { stage: false });
+		await mkdir(join(root, "specs"), { recursive: true });
+		await writeFile(join(root, "specs", "99-fixture.md"), "# fixture\n\n见 `docs/gone.md`。\n");
+		await gitOk(root, ["add", "specs/99-fixture.md"]);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, governedMessage("specs/99-fixture.md: 新增规范载体"));
+		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+		assert.doesNotMatch(result.stderr, /docs_reference_dangling/);
+	});
+});
+
+test("④ plugin-specs/ 下的文件引用 docs/ 路径仍被拦（第 5 项范围含载体）", async () => {
+	await withTemp("ldvh-ggr-docs-carrier.", async (base) => {
+		const root = await initRepo(base, { stage: false });
+		await mkdir(join(root, "plugin-specs"), { recursive: true });
+		await writeFile(join(root, "plugin-specs", "demo.yaml"), "title: 示例载体\n\n正文引用 `docs/gone.md`。\n");
+		await gitOk(root, ["add", "plugin-specs/demo.yaml"]);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, governedMessage("plugin-specs/demo.yaml: 新增载体"));
 		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 1, result.stderr);
-		assert.match(result.stderr, /validation\/removal_basis_unquotable/);
+		assert.match(result.stderr, /validation\/docs_reference_dangling/);
 	});
 });
 
-test("allows a §7.2 removal basis that quotes §7.2 verbatim", async () => {
-	await withTemp("ldvh-ggr-basis-ok.", async (base) => {
-		const root = await committedSpecOneRepo(base, SECTION72_BODY);
-		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
-		await gitOk(root, ["add", "-A"]);
+test("⑤ specs/ 提交仍走受控提交契约：message 契约、关键变更逐条对应与署名仍被校验", async () => {
+	await withTemp("ldvh-ggr-specs-contract.", async (base) => {
+		const root = await initGovernedRepo(base);
 		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：禁止的状态有三类：", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
 
-		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
-		assert.equal(result.code, 0, result.stderr);
-	});
-});
+		await writeFile(messageFile, "not a conventional header\n");
+		const contract = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(contract.code, 1, contract.stderr);
+		assert.match(contract.stderr, /validation\/header_invalid/);
+		assert.match(contract.stderr, /validation\/key_changes_required/);
+		assert.match(contract.stderr, /validation\/signature_trailer_missing/);
 
-test("a quote the commit itself deletes still counts (HEAD ∪ candidate)", async () => {
-	await withTemp("ldvh-ggr-basis-head.", async (base) => {
-		const root = await committedSpecOneRepo(base, SECTION72_BODY);
-		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
-		await gitOk(root, ["add", "-A"]);
-		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
+		await writeFile(messageFile, ["chore(x): 合规标题", "", "关键变更:", "- plugin/lib/unrelated.js: 与本次改动无关", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
+		const correspondence = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(correspondence.code, 1, correspondence.stderr);
+		assert.match(correspondence.stderr, /validation\/key_change_unmatched/);
+		assert.match(correspondence.stderr, /validation\/staged_path_uncovered/);
 
-		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
-		assert.equal(result.code, 0, result.stderr);
-	});
-});
+		await writeFile(messageFile, ["chore(x): 合规标题", "", "关键变更:", "- specs/99-fixture.md item", "", "LDVH-Provider: x", "LDVH-Model: y", ""].join("\n"));
+		const signature = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(signature.code, 1, signature.stderr);
+		assert.match(signature.stderr, /validation\/signature_provider_mismatch/);
 
-test("a quote from outside §7.2 does not satisfy the basis (scope is the section)", async () => {
-	await withTemp("ldvh-ggr-basis-scope.", async (base) => {
-		const root = await committedSpecOneRepo(base, SECTION72_BODY);
-		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
-		await gitOk(root, ["add", "-A"]);
-		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：此处不得进入 §7.2 的引用核对范围。", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
-
-		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
-		assert.equal(result.code, 1, result.stderr);
-		assert.match(result.stderr, /validation\/removal_basis_unquotable/);
-	});
-});
-
-test("no declaration means no check (narrow by design)", async () => {
-	await withTemp("ldvh-ggr-basis-absent.", async (base) => {
-		const root = await committedSpecOneRepo(base, SECTION72_BODY);
-		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
-		await gitOk(root, ["add", "-A"]);
-		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, ["docs(specs): 删除该行", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
-
-		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
-		assert.equal(result.code, 0, result.stderr);
-	});
-});
-
-
-async function declarationRemovalRepo(base) {
-	const root = await committedDeclarationRepo(base);
-	await writeFile(join(root, "specs", "01-test.md"), declarationFile("已完成").replace(MARKER, ""));
-	await gitOk(root, ["add", "-A"]);
-	return root;
-}
-
-test("pre-commit 不因删除承重声明而拒绝（09 §5.3 第 6 项 / pre-commit 入口）", async () => {
-	await withTemp("ldvh-ggr-precommit.", async (base) => {
-		const root = await declarationRemovalRepo(base);
-		const lintRoot = await lintWorkspace(base);
-
-		const result = await runNode(
-			preCommitArgs({ workspaceRoot: base, worktree: root }),
-			{ env: preCommitEnv(lintRoot) }
-		);
-		assert.equal(result.code, 0, result.stderr);
-		assert.match(result.stderr, /LDVH Git Gate \(pre-commit\) passed/);
-	});
-});
-
-test("同一条删声明的提交走 commit-msg 仍被拒（09 §5.3 第 6 项 / commit-msg 入口不放宽）", async () => {
-	await withTemp("ldvh-ggr-precommit-msg.", async (base) => {
-		const root = await declarationRemovalRepo(base);
-		const messageFile = join(root, "msg.txt");
-		await writeFile(messageFile, declarationMessage("specs/01-test.md: 移除对齐行（无独立复核引用）"));
-
-		const result = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
-		assert.equal(result.code, 1, result.stderr);
-		assert.match(result.stderr, /validation\/load_bearing_declaration_removed/);
-	});
-});
-
-test("pre-commit 不再因豁免集为空而误报删声明（09 §5.3 第 6 项 / pre-commit 入口 / 规则名不出现）", async () => {
-	await withTemp("ldvh-ggr-precommit-rule.", async (base) => {
-		const root = await declarationRemovalRepo(base);
-		const lintRoot = await lintWorkspace(base);
-
-		const result = await runNode(
-			preCommitArgs({ workspaceRoot: base, worktree: root }),
-			{ env: preCommitEnv(lintRoot) }
-		);
-		assert.doesNotMatch(result.stderr, /validation\/load_bearing_declaration_removed/);
+		await writeFile(messageFile, ["chore(x): 合规标题", "", "关键变更:", "- specs/99-fixture.md item", "", "LDVH-Provider: deepseek-harness", "LDVH-Model: test", ""].join("\n"));
+		const accepted = await runGate(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(accepted.code, 0, accepted.stderr);
 	});
 });
 

@@ -12,7 +12,7 @@ import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evid
 import { currentRouteValues } from "./session-signature.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
 import { isFrictionPromotionRunning } from "./friction-promotion-lock.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
 import { detectStaleLibraryModules, detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { REVIEW_ASK_OPERATION, reviewAskParameterSchema, executeReviewAsk } from "./review-ask-tool.js";
@@ -624,13 +624,6 @@ function makeExecute(deps) {
     if (!correspondence.ok) issues.push(...correspondence.issues);
     const docsRefs = await checkDocsReferencesForIndex(governed.project.path, correspondence.changedPaths ?? []);
     if (!docsRefs.ok) issues.push(...docsRefs.issues);
-    const declarations = await checkLoadBearingDeclarationsForIndex(governed.project.path, correspondence.changedPaths ?? [], message);
-    if (collectRemovalBasisDeclarations(message).length > 0) {
-      const sections = await readSection72BothFromIndex(governed.project.path);
-      const basis = checkRemovalBasisDeclarations({ message, sectionTexts: sections });
-      if (!basis.ok) issues.push(...basis.issues);
-    }
-    if (!declarations.ok) issues.push(...declarations.issues);
     const frictionCommits = await checkFrictionCommitTargetsForIndex(governed.project.path);
     if (!frictionCommits.ok) issues.push(...frictionCommits.issues);
     const factIdentity = await checkFactCarrierIdentityForIndex(governed.project.path);
@@ -806,92 +799,6 @@ function makeExecute(deps) {
     return checkFactCarrierIdentity(carriers);
   }
 
-
-  async function readSection72BothFromIndex(projectPath) {
-    try {
-      const listed = await execFileAsync("git", ["-C", projectPath, "ls-files", "--cached", "-z", "--", "specs/01-*.md"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
-      const path = String(listed.stdout ?? "").split("\0").find((line) => line.length > 0);
-      if (path === undefined) return [null, null];
-      const candidate = await execFileAsync("git", ["-C", projectPath, "show", `:${path}`], { encoding: "utf8", timeout: 10000, maxBuffer: 32 * 1024 * 1024 });
-      let baseline = null;
-      try {
-        baseline = (await execFileAsync("git", ["-C", projectPath, "show", `HEAD:${path}`], { encoding: "utf8", timeout: 10000, maxBuffer: 32 * 1024 * 1024 })).stdout;
-      } catch {
-        baseline = null;
-      }
-      return [extractSectionText(candidate.stdout), extractSectionText(baseline)];
-    } catch {
-      return [null, null];
-    }
-  }
-
-  async function checkLoadBearingDeclarationsForIndex(projectPath, changedPaths, message) {
-    const runGit = async (args) => {
-      const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
-      return result.stdout;
-    };
-    const listPaths = async (args, separator) => {
-      try {
-        return new Set((await runGit(args)).split(separator).filter(Boolean));
-      } catch {
-        return new Set();
-      }
-    };
-    const headPaths = await listPaths(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "specs"], "\0");
-    const indexPaths = await listPaths(["ls-files", "--cached", "-z", "--", "specs"], "\0");
-    const factPaths = [
-      ...(await listPaths(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "ldvh-base"], "\0")),
-      ...(await listPaths(["ls-files", "--cached", "-z", "--", "ldvh-base"], "\0"))
-    ];
-    const carriers = [];
-    const unreadable = [];
-    for (const path of changedPaths) {
-      if (!isSpecCarrierPath(path)) continue;
-      let baseline = "";
-      try {
-        baseline = await runGit(["show", `HEAD:${path}`]);
-      } catch {
-        if (headPaths.has(path)) unreadable.push(path);
-      }
-      let content = "";
-      try {
-        content = await runGit(["show", `:${path}`]);
-      } catch {
-        if (indexPaths.has(path)) unreadable.push(path);
-      }
-      if (!baseline.includes(LOAD_BEARING_MARKER)) continue;
-      carriers.push({ path, content, baseline });
-    }
-    if (carriers.length === 0 && unreadable.length === 0) return { ok: true, issues: [] };
-    const resolvable = new Set();
-    for (const token of collectDeclarationReferenceTokens(message)) {
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(token)) {
-        const namedWithoutUid = factPaths.some((path) => path.startsWith("ldvh-base/") && path.includes(token));
-        if (namedWithoutUid || (await declaresObjectUid(token))) resolvable.add(token);
-        continue;
-      }
-      try {
-        await runGit(["rev-parse", "--verify", "--quiet", `${token}^{commit}`]);
-        resolvable.add(token);
-      } catch {
-      }
-    }
-    return checkLoadBearingDeclarations(carriers, { message, resolvable, unreadable });
-
-    async function declaresObjectUid(token) {
-      const pattern = `^object_uid: ${token}$`;
-      for (const args of [
-        ["grep", "--cached", "-l", "-E", pattern, "--", "ldvh-base"],
-        ["grep", "-l", "-E", pattern, "HEAD", "--", "ldvh-base"]
-      ]) {
-        try {
-          if ((await runGit(args)).trim().length > 0) return true;
-        } catch {
-        }
-      }
-      return false;
-    }
-  }
 
   async function executeRegisterGovernedProject(args, exec) {
     const cwd = exec?.agent?.session?.header?.cwd;

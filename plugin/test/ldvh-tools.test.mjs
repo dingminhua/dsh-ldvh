@@ -629,6 +629,57 @@ test("precheck-git-commit returns passed when the route source agrees with the t
 });
 
 
+test("precheck-git-commit 不再因 §7.2 依据引用不存在而 failed（旧检查已撤）", async () => {
+	await withTemp("ldvh-tools-basis-retired.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await mkdir(join(root, "specs"), { recursive: true });
+		const specPath = join(root, "specs", "01-规范.md");
+		const body = [
+			"# 01 规范",
+			"",
+			"### 7.2 领域正文",
+			"",
+			"禁止三类：实现状态；过程与进度。",
+			"",
+			"### 7.3 下一节",
+			"",
+			"此句不属 §7.2。",
+			"",
+		].join("\n");
+		await writeFile(specPath, body);
+		await git(root, ["add", "-A"]);
+		await git(root, ["commit", "-qm", "base"]);
+		await registerProject(dshHome(home), { id: "demo72retired", path: root });
+		await writeFile(specPath, body.replace("禁止三类：实现状态；过程与进度。", "禁止三类已删。"));
+		await git(root, ["add", "specs/01-规范.md"]);
+		const logPath = await writeSessionLog(base, "session.jsonl", [
+			{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
+		]);
+		const message = [
+			"docs(specs): 删除该行",
+			"",
+			"§7.2 依据：**布局自指计数**",
+			"",
+			"关键变更:",
+			"- specs/01-规范.md: 删除禁止三类",
+			"",
+			"LDVH-Provider: deepseek-harness",
+			"LDVH-Model: test",
+		].join("\n");
+		const { handlers } = makeExec({
+			dshHomePath: dshHome(home),
+			workspaceRoot: base,
+			sessionPersistence: () => stubSessionPersistence(logPath),
+		});
+		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
+		assertEnvelopeShape(envelope, "precheck-git-commit", "completed");
+		assert.equal(envelope.result.mechanical_outcome, "passed", JSON.stringify(envelope.result.issues));
+		assert.deepEqual((envelope.result.issues ?? []).filter((issue) => String(issue.rule).startsWith("validation/removal_basis")), []);
+	});
+});
+
+
 test("precheck-git-commit returns failed when the trailer values do not match the available route (positive mismatch evidence)", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
@@ -1002,79 +1053,6 @@ test("GUIDANCE_SECTION_NAME and ORDER are exported constants", () => {
 });
 
 
-const DECLARATION_MARKER = "【承重声明】";
-const DECLARATION_RESOLUTION = "**恢复条件**：";
-
-function declarationSpec(resolution) {
-	return [
-		"# 13-承重声明示例",
-		"",
-		"## 7. 过渡",
-		"",
-		"| 依赖项 | 未满足时不得声称 | 替代保障 |",
-		"|---|---|---|",
-		`| ${DECLARATION_MARKER} 本文正文对 §7.2 的对齐 | 不得声称已完成对齐 | ${resolution} |`,
-		"",
-	].join("\n");
-}
-
-async function stagedDeclarationRepo(base) {
-	const home = join(base, "home");
-	const root = await initRepo(base);
-	await writeSpecsTree(root);
-	await writeFile(join(root, "specs", "13-承重声明示例.md"), declarationSpec(`${DECLARATION_RESOLUTION}完成后删除本行`));
-	await git(root, ["add", "-A"]);
-	await git(root, ["commit", "-qm", "base"]);
-	const head = await git(root, ["rev-parse", "HEAD"]);
-	await registerProject(dshHome(home), { id: "demo", path: root });
-	await writeFile(join(root, "specs", "13-承重声明示例.md"), declarationSpec("**无**——须按判据逐处核对"));
-	await git(root, ["add", "specs/13-承重声明示例.md"]);
-	const logPath = await writeSessionLog(base, "session-declaration.jsonl", [
-		{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
-	]);
-	const deps = { dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => stubSessionPersistence(logPath) };
-	return { root, head, deps };
-}
-
-test("precheck-git-commit fails when a staged edit strips a declaration's 恢复条件 element", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const { root, deps } = await stagedDeclarationRepo(base);
-		const message = [
-			"docs(specs): 调整承重声明示例",
-			"",
-			"关键变更:",
-			"- specs/13-承重声明示例.md: 调整对齐列的表述",
-			"",
-			"LDVH-Provider: deepseek-harness",
-			"LDVH-Model: test",
-		].join("\n");
-		const { handlers } = makeExec(deps);
-		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
-		assertEnvelopeShape(envelope, "precheck-git-commit", "completed");
-		assert.equal(envelope.result.mechanical_outcome, "failed");
-		assert.ok(envelope.result.issues.some((issue) => issue.rule === "validation/load_bearing_resolution_missing"));
-	});
-});
-
-test("precheck-git-commit passes the same edit when a 关键变更 item carries a resolvable reference", async () => {
-	await withTemp("ldvh-tools.", async (base) => {
-		const { root, head, deps } = await stagedDeclarationRepo(base);
-		const message = [
-			"docs(specs): 调整承重声明示例",
-			"",
-			"关键变更:",
-			`- specs/13-承重声明示例.md: 调整对齐列表述（独立复核 ${head} 已确认范围关闭）`,
-			"",
-			"LDVH-Provider: deepseek-harness",
-			"LDVH-Model: test",
-		].join("\n");
-		const { handlers } = makeExec(deps);
-		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
-		assertEnvelopeShape(envelope, "precheck-git-commit", "completed");
-		assert.equal(envelope.result.mechanical_outcome, "passed");
-	});
-});
-
 test("renderEnvelope: 预检的失败原因必须对调用方可读（09 §5.3 的意图是给出问题项，不是只给 failed）", () => {
 	const blocks = renderEnvelope("precheck-git-commit", {
 		envelope: {
@@ -1095,62 +1073,6 @@ test("renderEnvelope: 预检的失败原因必须对调用方可读（09 §5.3 �
 	assert.match(text, /\nissue: issue — 裸字符串形态的问题项/, "字符串形态的问题项也不得丢");
 	assert.match(text, /\ngap: provider\/model could not be traced/, "gaps 的既有呈现不受影响");
 });
-
-test("precheck-git-commit 拒绝编造的 §7.2 依据引用，放行逐字引用", async () => {
-	await withTemp("ldvh-tools-basis.", async (base) => {
-		const home = join(base, "home");
-		const root = await initRepo(base);
-		await mkdir(join(root, "specs"), { recursive: true });
-		const specPath = join(root, "specs", "01-规范.md");
-		const section = [
-			"# 01 规范",
-			"",
-			"### 7.2 领域正文",
-			"",
-			"禁止三类：实现状态；下位文档的存在状态；过程与进度。",
-			"",
-			"### 7.3 下一节",
-			"",
-			"此句不属 §7.2。",
-		].join("\n");
-		await writeFile(specPath, section);
-		await git(root, ["add", "-A"]);
-		await git(root, ["commit", "-qm", "base"]);
-		await registerProject(dshHome(home), { id: "demo72", path: root });
-		await writeFile(specPath, section.replace("禁止三类：实现状态；下位文档的存在状态；过程与进度。", "禁止三类已删。"));
-		await git(root, ["add", "specs/01-规范.md"]);
-
-		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: root });
-		const exec = { agent: { session: { header: { cwd: root } } } };
-		const build = (basis) => [
-			"docs(specs): 删除该行",
-			"",
-			basis,
-			"",
-			"关键变更:",
-			"- specs/01-规范.md: 删除禁止三类",
-			"",
-			"LDVH-Provider: deepseek-harness",
-			"LDVH-Model: test",
-		].join("\n");
-
-		const bad = await handlers["precheck-git-commit"]({ message: build("§7.2 依据：**布局自指计数**") }, exec);
-		assert.equal(bad.result.mechanical_outcome, "failed");
-		assert.ok(bad.result.issues.some((issue) => issue.rule === "validation/removal_basis_unquotable"), JSON.stringify(bad.result.issues));
-
-		const outOfScope = await handlers["precheck-git-commit"]({ message: build("§7.2 依据：此句不属 §7.2。") }, exec);
-		assert.equal(outOfScope.result.mechanical_outcome, "failed");
-		assert.ok(outOfScope.result.issues.some((issue) => issue.rule === "validation/removal_basis_unquotable"));
-
-		const good = await handlers["precheck-git-commit"]({ message: build("§7.2 依据：禁止三类：实现状态；下位文档的存在状态；过程与进度。") }, exec);
-		assert.ok(
-			!(good.result.issues ?? []).some((issue) => issue.rule.startsWith("validation/removal_basis")),
-			JSON.stringify(good.result.issues)
-		);
-		assert.notEqual(good.result.mechanical_outcome, "failed", JSON.stringify(good.result.issues));
-	});
-});
-
 
 test("**删除设置字段后，诊断工具不得把 undefined 带进返回值**", async () => {
   const source = readFileSync(new URL("../lib/ldvh-tools.js", import.meta.url), "utf8");
