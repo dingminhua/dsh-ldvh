@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { toParameterSpec } from "./parameter-spec-adapter.js";
-import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerprint, projectLayer, parseOperationDeclarations as parseDeclarationTable } from "./spec-registry.js";
+import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerprint, projectLayer, parseOperationDeclarations as parseDeclarationTable, loadOperationDeclarationsBundle, operationDeclarationSourceLabel } from "./spec-registry.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
 import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evidence.js";
@@ -42,7 +42,7 @@ const OPERATIONS = {
   },
   "read-specification-candidates": {
     toolName: "ldvh_read_specification_candidates",
-    summary: "Read specification/attachment candidates at L0–L2 disclosure layers by responsibility key or all candidates (specs/01 §10.3)",
+    summary: "Read specification/attachment candidates at L0–L2 disclosure layers by responsibility key or all candidates",
     effect: "read"
   },
   "read-specification-content": {
@@ -52,51 +52,49 @@ const OPERATIONS = {
   },
   "discover-ldvh-capabilities": {
     toolName: "ldvh_discover_capabilities",
-    summary: "Discover every LDVH public capability (all registered LDVH tools) with declared/implemented/callable availability (specs/05 §6.2); a capability that is implemented but absent from the 05 §6.1 declaration table is reported as 已实现 with its service contract, never as 当次可调用",
+    summary: "Discover every LDVH public capability (all registered LDVH tools) with declared/implemented/callable availability. Which operations count as supported is decided only by the packaged public-operation declaration; an operation that is implemented but not declared there is reported as 已实现 or 不可用 with a diagnostic, never as 当次可调用, and discovery does not offer a hand-written contract location for it",
     effect: "read"
   },
   "inspect-loaded-modules": {
     toolName: "ldvh_inspect_loaded_modules",
-    summary: "Report which plugin/lib modules on disk are newer than this host process (mtime vs process start). Purely informational: it never gates a write and cannot say which version is actually loaded (specs/09 §5.4)",
+    summary: "Report which plugin/lib modules on disk are newer than this host process (mtime vs process start). Purely informational: it never gates a write and cannot say which version is actually loaded",
     effect: "read"
   },
   "precheck-git-commit": {
     toolName: "ldvh_precheck_git_commit",
-    summary: "Run the read-only mechanical precheck over a controlled-commit candidate message and the current staged Index (specs/06 §6.2)",
+    summary: "Run the read-only mechanical precheck over a controlled-commit candidate message and the current staged Index",
     effect: "read"
   },
   "register-governed-project": {
     toolName: "ldvh_register_governed_project",
-    summary: "Register a Git project as LDVH-governed through the 07 §5.4 AI entry (preconditions checked; atomic write + read-back)",
+    summary: "Register a Git project as LDVH-governed through the AI entry (preconditions checked; atomic write + read-back)",
     effect: "may_change_state",
     awaitsHumanDecision: true
   },
   "unregister-governed-project": {
     toolName: "ldvh_unregister_governed_project",
-    summary: "Remove a project's LDVH governance registration through the 07 §5.7 AI entry (07 §5.4 preconditions checked)",
+    summary: "Remove a project's LDVH governance registration through the AI entry (registration preconditions checked)",
     effect: "may_change_state",
     awaitsHumanDecision: true
   },
   "probe-host-automation": {
     toolName: "ldvh_probe_host_automation",
-    summary: "Probe whether the host automation capabilities (schedule / sessionController) are available: schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. LDVH no longer depends on periodic tasks for friction discovery (36 §7.6: controller-initiated proxy assistance), so this probe is diagnostic only. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
+    summary: "Probe whether the host automation capabilities (schedule / sessionController) are available: schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. LDVH no longer depends on periodic tasks for friction discovery, so this probe is diagnostic only. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
     effect: "may_change_state"
   }
 };
 
 const TOOL_LAYER_CATALOG = Object.freeze([
-  { layer: "goal", operations: GOAL_OPERATIONS, spec_key: "goal-fact-type", source_path: "specs/20-Goal-项目目标.md", arguments: "13. 受控操作" },
-  { layer: "subgoal", operations: SUBGOAL_OPERATIONS, spec_key: "subgoal-fact-type", source_path: "specs/21-SubGoal-子目标.md", arguments: "13. 受控操作" },
-  { layer: "spark", operations: SPARK_OPERATIONS, spec_key: "spark-fact-type", source_path: "specs/22-Spark-火花.md", arguments: "13. 受控操作" },
-  { layer: "norm", operations: NORM_OPERATIONS, spec_key: "norm-fact-type", source_path: "specs/23-Norm-事实规范.md", arguments: "11. 受控操作" },
-  { layer: "report", operations: REPORT_OPERATIONS, spec_key: "report-fact-type", source_path: "specs/24-Report-报告.md", arguments: "13. 受控操作" },
-  { layer: "pitfall", operations: PITFALL_OPERATIONS, spec_key: "pitfall-fact-type", source_path: "specs/25-Pitfall-踩坑经验.md", arguments: "13. 受控操作" },
-  { layer: "friction", operations: FRICTION_OPERATIONS, spec_key: "friction-fact-type", source_path: "specs/26-Friction-摩擦账本.md", arguments: "13. 受控操作" },
-  { layer: "research-consult", operations: RESEARCH_CONSULT_OPERATIONS, spec_key: "gate-consult-system-foundation", source_path: "specs/32-把关请示系统规范.md", arguments: "7. 输入与前置条件" },
-  { layer: "subagent-result", operations: SUBAGENT_RESULT_OPERATIONS, spec_key: "check-auxiliary-mechanism-foundation", source_path: "specs/04-检查与辅助机制规范.md", arguments: "9. 协同、接管与交还" },
+  { layer: "goal", operations: GOAL_OPERATIONS, spec_key: "goal-fact-type" },
+  { layer: "subgoal", operations: SUBGOAL_OPERATIONS, spec_key: "subgoal-fact-type" },
+  { layer: "spark", operations: SPARK_OPERATIONS, spec_key: "spark-fact-type" },
+  { layer: "norm", operations: NORM_OPERATIONS, spec_key: "norm-fact-type" },
+  { layer: "report", operations: REPORT_OPERATIONS, spec_key: "report-fact-type" },
+  { layer: "pitfall", operations: PITFALL_OPERATIONS, spec_key: "pitfall-fact-type" },
+  { layer: "friction", operations: FRICTION_OPERATIONS, spec_key: "friction-fact-type" },
+  { layer: "research-consult", operations: RESEARCH_CONSULT_OPERATIONS, spec_key: "gate-consult-system-foundation" },
+  { layer: "subagent-result", operations: SUBAGENT_RESULT_OPERATIONS, spec_key: "check-auxiliary-mechanism-foundation" },
 ]);
-
-const COMMON_RESPONSE_CONTRACT = "helper-service-contract::8. 最小共同响应语义";
 
 function envelope(operationKey, outcome, fields) {
   return {
@@ -264,7 +262,7 @@ function makeExecute(deps) {
   async function requestConsent(depsRef, { action, projectId, projectPath, agent, signal }) {
     const gate = depsRef?.hostSeams;
     if (gate === undefined || typeof gate.requestRegistrationConsent !== "function") {
-      return { granted: false, reason: "no host seam registry is wired, so 07 §5.6 consent cannot be obtained" };
+      return { granted: false, reason: "no host seam registry is wired, so the explicit consent this registration requires cannot be obtained" };
     }
     return gate.requestRegistrationConsent({ action, projectId, projectPath, agent, signal });
   }
@@ -351,7 +349,7 @@ function makeExecute(deps) {
         passed: true
       },
       follow_up: evidence !== null
-        ? ["membership_evidence.membership_proven is always false — the semantic remainder requires AI review and the Human decision (01 §9.2)"]
+        ? ["membership_evidence.membership_proven is always false — the semantic remainder requires AI review and the Human decision"]
         : ["read-specification-content for L3/L4 of any candidate"]
     });
   }
@@ -386,9 +384,9 @@ function makeExecute(deps) {
       const keyCollision = scan.collisions.find((group) => group.kind === "duplicate_responsibility_key" && group.key === `key\u0000${key}`);
       const nameExcluded = scan.excluded.filter((entry) => entry.canonical_path.includes(key));
       const reason = keyCollision !== undefined
-        ? `responsibility_key "${key}" collides across ${keyCollision.paths.length} candidates — all affected candidates withheld until resolved (specs/01 §9.1)`
+        ? `responsibility_key "${key}" collides across ${keyCollision.paths.length} candidates — all affected candidates withheld until resolved`
         : nameExcluded.length > 0
-          ? `"${key}" resolves only to a name-excluded carrier — non-member candidate (specs/01 §9.1)`
+          ? `"${key}" resolves only to a name-excluded carrier — non-member candidate`
           : `no member candidate carries responsibility_key "${key}"`;
       return envelope("read-specification-content", "rejected", {
         result: null, scope: { requested: key, completed: [], not_completed: [key] },
@@ -478,32 +476,24 @@ function makeExecute(deps) {
   async function executeDiscoverCapabilities(args, exec) {
     const requestedOperation = typeof args?.operation_key === "string" && args.operation_key.length > 0 ? args.operation_key : null;
     const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
-    const declarations = await parseOperationDeclarations(governed.state === "governed" ? governed.project.path : null, workspaceRoot);
+    const declarationsSource = await resolveOperationDeclarations(governed.state === "governed" ? governed.project.path : null, workspaceRoot);
+    const declarations = declarationsSource.declarations;
+    const declarationTierLabel = operationDeclarationSourceLabel(declarationsSource.tier);
     const declarationReporter = [];
     const catalog = [
       ...Object.entries(OPERATIONS)
-        .map(([key, operation]) => ({ key, operation, implemented: typeof handlers[key] === "function", contract: null })),
+        .map(([key, operation]) => ({ key, operation, implemented: typeof handlers[key] === "function", carrier: null })),
       {
         key: "review-ask",
         operation: { toolName: REVIEW_ASK_OPERATION.toolName, summary: REVIEW_ASK_OPERATION.summary, effect: REVIEW_ASK_OPERATION.effect },
         implemented: true,
-        contract: {
-          spec_key: "gate-consult-system-foundation",
-          source_path: "specs/32-把关请示系统规范.md",
-          arguments_contract: "gate-consult-system-foundation::7. 输入与前置条件",
-          result_contract: COMMON_RESPONSE_CONTRACT
-        }
+        carrier: "gate-consult-system-foundation"
       },
       ...TOOL_LAYER_CATALOG.flatMap((entry) => Object.entries(entry.operations).map(([key, operation]) => ({
         key,
         operation,
         implemented: true,
-        contract: {
-          spec_key: entry.spec_key,
-          source_path: entry.source_path,
-          arguments_contract: `${entry.spec_key}::${entry.arguments}`,
-          result_contract: COMMON_RESPONSE_CONTRACT
-        }
+        carrier: entry.spec_key
       })))
     ];
     const undeclared = [];
@@ -521,14 +511,15 @@ function makeExecute(deps) {
           undeclared.push(key);
           declarationReporter.push({
             operation_key: key,
-            reason: declarations.reason ?? "no declaration table found in the declaring source",
-            detail: "per 05 §6.1 an operation with an unparsable or missing declaration must be reported as a diagnostic, not returned as declared"
+            reason: declarationsSource.reason === "" ? "no declaration table found in the declaring source" : declarationsSource.reason,
+            detail: "the packaged public-operation declaration is the only authority on which operations are supported; an operation absent from it must be reported as a diagnostic, not returned as declared",
+            ...(typeof item.carrier === "string" ? { declaring_carrier: item.carrier } : {})
           });
         } else if (!anchorsOk) {
           declarationReporter.push({
             operation_key: key,
             reason: `declared contract anchor(s) do not resolve: ${declaration.anchor_errors.join("; ")}`,
-            detail: "05 §6.1: a contract that cannot be resolved mechanically equals an undeclared operation"
+            detail: "a contract that cannot be resolved mechanically equals an undeclared operation"
           });
         }
         const availability = !anchorsOk
@@ -546,8 +537,7 @@ function makeExecute(deps) {
           availability_detail: availabilityDetail,
           declaration: anchorsOk
             ? { source: declaration.source, source_path: declaration.source_path, arguments_contract: declaration.arguments_contract, result_contract: declaration.result_contract }
-            : null,
-          service_contract: anchorsOk ? null : item.contract
+            : null
         };
       });
     if (requestedOperation !== null && entries.length === 0) {
@@ -561,22 +551,35 @@ function makeExecute(deps) {
       });
     }
     return envelope("discover-ldvh-capabilities", "completed", {
-      result: { operations: entries, ...(declarationReporter.length > 0 ? { undeclared_or_unresolvable: declarationReporter } : {}) },
+      result: {
+        operations: entries,
+        declaration_source: {
+          tier: declarationsSource.tier,
+          label: declarationTierLabel,
+          ...(typeof declarationsSource.file === "string" && declarationsSource.file.length > 0 ? { file: declarationsSource.file } : {}),
+          ...(declarationsSource.fingerprint === "" ? {} : { fingerprint: declarationsSource.fingerprint }),
+          declared_operations: declarations.size
+        },
+        ...(declarationReporter.length > 0 ? { undeclared_or_unresolvable: declarationReporter } : {})
+      },
       scope: { requested: requestedOperation ?? "all", completed: entries.map((e) => e.operation_key), not_completed: [] },
-      sources: sources({ kind: "tool-batch", module: "plugin/lib/ldvh-tools.js" }),
+      sources: [
+        { kind: "tool-batch", module: "plugin/lib/ldvh-tools.js" },
+        { kind: "operation-declaration-source", tier: declarationsSource.tier, label: declarationTierLabel, ...(typeof declarationsSource.file === "string" && declarationsSource.file.length > 0 ? { path: declarationsSource.file } : {}) }
+      ],
       gaps: [
         ...(governed.state === "unavailable" ? [`governance registration unavailable: ${governed.detail}`] : []),
         ...declarationReporter.map((entry) => `${entry.operation_key}: ${entry.reason}`),
         ...(undeclared.length > 0
-          ? [`${undeclared.length} 项能力未在 05 §6.1 声明表登记（按 05 §6.1 不得被当作已声明或当次可调用；其服务契约位置见条目里的 service_contract）：${undeclared.join("、")}`]
+          ? [`${undeclared.length} 项能力未在随包公开操作声明中登记（按 declaration-file-authority 条目，未声明的操作不得视为可调用或受支持；本入口不再给出任何手写契约定位）：${undeclared.join("、")}；声明来源：${declarationTierLabel}`]
           : [])
       ],
       verification: {
-        checks: ["declaration-table-parse", "declaration-anchor-resolution", "governance-scope"],
+        checks: ["declaration-table-parse", "declaration-anchor-resolution", "declaration-source-tier", "governance-scope"],
         passed: declarationReporter.length === 0
       },
       follow_up: declarationReporter.length > 0
-        ? ["add or fix the 05 §6.1 declaration table in the declaring source; an undeclared operation must not be treated as available"]
+        ? [`声明来源：${declarationTierLabel}；未声明的操作不得视为受支持——补齐声明后重建随包声明文件，而不是在代码里补一份契约位置`]
         : []
     });
   }
@@ -649,7 +652,7 @@ function makeExecute(deps) {
       ...(validatorStale
         ? {
             stale_modules: {
-              reason: "the running host process loaded these validator modules BEFORE their on-disk versions — the verdict would be computed from stale code, so a `failed` result is withheld (09 §5.4 unverifiable)",
+              reason: "the running host process loaded these validator modules BEFORE their on-disk versions — the verdict would be computed from stale code, so a `failed` result is withheld as unverifiable",
               files: staleness.stale.map((entry) => ({ path: entry.file, mtime_ms: entry.mtime_ms })),
               process_start_ms: staleness.start_ms,
               how_to_clear: "restart the host (or reload the plugin), then retry; the Git Gate spawns a fresh process and is unaffected",
@@ -672,7 +675,7 @@ function makeExecute(deps) {
       gaps: validatorStale
         ? [
             ...issues.map((issue) => `${issue.rule}: ${issue.message}`),
-            `the validator modules below are newer on disk than this host process started, so the verdict above was computed by STALE code and is withheld as unverifiable (09 §5.4): ${staleness.stale.map((entry) => entry.file).join(", ")}`,
+            `the validator modules below are newer on disk than this host process started, so the verdict above was computed by STALE code and is withheld as unverifiable: ${staleness.stale.map((entry) => entry.file).join(", ")}`,
           ]
         : route.ok ? [] : [`provider/model could not be traced to the authoritative session record: ${route.reason ?? "session identity unavailable"}`],
       verification: { checks: ["header", "key_changes", "diff_correspondence", "trailers", "signature_traceability", "docs_references"], passed: issues.length === 0 },
@@ -741,7 +744,7 @@ function makeExecute(deps) {
         index += 1;
       }
     } catch {
-      return { ok: false, issues: [newFinding("validation/docs_reference_dangling", "staged statuses unreadable: cannot prove no new docs/ reference was introduced (09 §5.3 item 5 fails closed)")] };
+      return { ok: false, issues: [newFinding("validation/docs_reference_dangling", "staged statuses unreadable: cannot prove no new docs/ reference was introduced, so it fails closed")] };
     }
     const candidates = new Set();
     try {
@@ -819,7 +822,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: target, completed: [], not_completed: ["human-consent", "registration"] },
         sources: [],
-        gaps: [`07 §5.6 requires explicit Human intent: ${consent.reason}`],
+        gaps: [`explicit Human intent is required for this registration: ${consent.reason}`],
         verification: { checks: ["human-gate"], passed: false },
         follow_up: ["obtain explicit Human intent, then retry"]
       });
@@ -881,7 +884,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: target, completed: [], not_completed: ["human-consent", "unregistration"] },
         sources: [],
-        gaps: [`07 §5.6 requires explicit Human intent: ${consent.reason}`],
+        gaps: [`explicit Human intent is required for this registration: ${consent.reason}`],
         verification: { checks: ["human-gate"], passed: false },
         follow_up: ["obtain explicit Human intent, then retry"]
       });
@@ -1039,18 +1042,11 @@ export function toolDescriptor(operationKey, operation, handler) {
   });
 }
 
-async function parseOperationDeclarations(projectRoot, workspaceRoot) {
-  const merged = new Map();
-  const setReason = (reason) => Object.defineProperty(merged, "reason", { value: reason, enumerable: false });
-  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
-    setReason("no governed project root available to parse declarations from");
-    return merged;
-  }
+async function declarationsFromSpecCorpus(projectRoot, workspaceRoot) {
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) return null;
   const scan = await scanSpecCandidates(projectRoot, workspaceRoot);
-  if (!scan.ok) {
-    setReason(`declaration sources are unscannable: ${scan.reason}`);
-    return merged;
-  }
+  if (!scan.ok) return null;
+  const merged = new Map();
   const reasons = [];
   for (const member of scan.members) {
     const rows = parseDeclarationTable(member.markdownText, (headingPath) => resolveHeadingPath(member.markdownText, headingPath).ok);
@@ -1067,10 +1063,26 @@ async function parseOperationDeclarations(projectRoot, workspaceRoot) {
       merged.set(operationKey, { ...row, source: sourceKey, source_path: member.repoPath });
     }
   }
-  if (merged.size === 0) {
-    setReason(reasons.length > 0 ? reasons.join("; ") : "no operation declaration table found in any candidate carrier");
-  }
-  return merged;
+  const reason = merged.size === 0
+    ? (reasons.length > 0 ? reasons.join("; ") : "no operation declaration table found in any candidate carrier")
+    : "";
+  Object.defineProperty(merged, "reason", { value: reason, enumerable: false });
+  return { ok: true, tier: "specs", file: null, fingerprint: "", declarations: merged, reason };
+}
+
+async function resolveOperationDeclarations(projectRoot, workspaceRoot) {
+  const fromSpecs = await declarationsFromSpecCorpus(projectRoot, workspaceRoot);
+  if (fromSpecs !== null) return fromSpecs;
+  const bundled = await loadOperationDeclarationsBundle();
+  if (bundled.ok === true) return bundled;
+  return {
+    ok: false,
+    tier: bundled.tier,
+    file: bundled.file,
+    fingerprint: "",
+    declarations: bundled.declarations,
+    reason: bundled.reason,
+  };
 }
 
 export function registerLdvhTools(ctx, deps) {
@@ -1143,7 +1155,7 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           id: { type: "string", description: "Project id to register under (required; unique among registered projects)" },
-          path: { type: "string", description: "Absolute Git root to register; omit to use the session working directory (07 §5.4)" },
+          path: { type: "string", description: "Absolute Git root to register; omit to use the session working directory" },
           name: { type: "string", description: "Optional display name" },
           description: { type: "string", description: "Optional purpose description" }
         },
@@ -1156,7 +1168,7 @@ function parameterSchemaFor(operationKey) {
         properties: {
           id: { type: "string", description: "Registered project id to remove" },
           path: { type: "string", description: "Absolute Git root of the project; omit to use the session working directory" },
-          next_default_project_id: { type: "string", description: "Required when removing the current default project and others remain (07 §5.7)" }
+          next_default_project_id: { type: "string", description: "Required when removing the current default project and others remain" }
         },
         required: ["id"],
         additionalProperties: false
@@ -1166,8 +1178,8 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           responsibility_key: { type: "string", description: "Target spec_key or attachment_key; omit to enumerate all candidates" },
-          layer: { type: "string", enum: ["L0", "L1", "L2"], description: "Disclosure layer (specs/01 §10.2); default L0" },
-          evidence: { type: "boolean", description: "Conclude the mechanically checkable sub-parts of specs/01 §9.2 items 8/9/11/12 (reads git history; default false)" },
+          layer: { type: "string", enum: ["L0", "L1", "L2"], description: "Disclosure layer; default L0" },
+          evidence: { type: "boolean", description: "Conclude the mechanically checkable membership sub-parts (reads git history; default false)" },
           evidence_bindings: { type: "object", description: "Recorded fingerprint bindings per canonical_path (item 12); carriers without one are reported as gaps, never as passes", additionalProperties: true },
           evidence_reviews: { type: "array", description: "Review records [{ref, date?, carriers?}] — item 8 concludes existence only", items: { type: "object", additionalProperties: true } },
           evidence_decisions: { type: "array", description: "Human decision records [{ref, date?, carriers?}] — item 9 concludes existence only", items: { type: "object", additionalProperties: true } }
@@ -1178,7 +1190,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          responsibility_key: { type: "string", description: "Target spec_key or attachment_key, verbatim (01 §10.3)" },
+          responsibility_key: { type: "string", description: "Target spec_key or attachment_key, verbatim" },
           heading_path: { type: "string", description: "Exact H2 or H2/H3 path for L3; omit for L4 full source" }
         },
         required: ["responsibility_key"],
@@ -1198,7 +1210,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          message: { type: "string", description: "The full candidate commit message text (09 §5.3); the handler refuses an absent or empty message with invalid_request" }
+          message: { type: "string", description: "The full candidate commit message text; the handler refuses an absent or empty message with invalid_request" }
         },
         additionalProperties: false
       };
@@ -1282,6 +1294,10 @@ export function renderEnvelope(operationKey, value) {
   if (operationKey === "discover-ldvh-capabilities") {
     const ops = Array.isArray(env.result?.operations) ? env.result.operations : [];
     lines.push(`operations: ${ops.length}`);
+    const declarationSource = env.result?.declaration_source;
+    if (declarationSource !== undefined && declarationSource !== null) {
+      lines.push(`declaration source: ${declarationSource.label ?? declarationSource.tier} [${declarationSource.tier}]${typeof declarationSource.file === "string" ? ` — ${declarationSource.file}` : ""}`);
+    }
     for (const op of ops) {
       const decl = op?.declaration;
       const anchor = decl?.source_path ?? decl?.source ?? "(no declaration)";

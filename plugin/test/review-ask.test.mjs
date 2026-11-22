@@ -84,7 +84,7 @@ test("COMPLEXITY_CRITERIA：每条都带规范出处，不新增判据", () => {
   for (const item of COMPLEXITY_CRITERIA) {
     assert.equal(typeof item.key, "string");
     assert.equal(typeof item.label, "string");
-    assert.match(item.source, /^specs\/(04|21) /, `${item.key} 的出处须回指 04 §6.1 或 21 §6.3，实际 ${item.source}`);
+    assert.match(item.source, /^gate-consult-system-foundation 的 complex-task 条目/, `${item.key} 的出处须回指载体的 complex-task 条目，实际 ${item.source}`);
   }
 });
 
@@ -97,68 +97,67 @@ test("GATE_POINT_EXCLUSIONS：三类都有承接面、出处与反向边界，�
       assert.equal(typeof item[field], "string", `${item.key} 缺 ${field}`);
       assert.ok(item[field].trim().length > 0, `${item.key} 的 ${field} 不得为空`);
     }
-    assert.match(item.source, /^specs\/32 §4\.2/, `${item.key} 的出处须回指 specs/32 §4.2，实际 ${item.source}`);
-    assert.match(item.carried, /§/, `${item.key} 的承接面须写明条文号，不得只写机制名`);
+    assert.match(item.source, /^gate-consult-system-foundation 的 point-exclusions 条目（第 [1-3] 类）$/, `${item.key} 的出处须回指载体的 point-exclusions 条目，实际 ${item.source}`);
+    assert.match(item.carried, /\S+ 的 [a-z][a-z-]+(?:／[a-z][a-z-]+)* 条目/, `${item.key} 的承接面须点名承接它的载体条目，不得只写机制名`);
+    assert.doesNotMatch(item.carried, /§|specs\//, `${item.key} 的承接面不得再引规范章节号（运行期规则只来自载体）`);
   }
 });
 
 test("点位排除与判据清单必须是两份数据、不得合并（32 §19 第 5 项）", () => {
   const criteriaKeys = new Set(COMPLEXITY_CRITERIA.map((i) => i.key));
   for (const item of GATE_POINT_EXCLUSIONS) {
-    assert.ok(!criteriaKeys.has(item.key), `${item.key} 不得进 COMPLEXITY_CRITERIA：那是 04 §6.1 的编译产物`);
+    assert.ok(!criteriaKeys.has(item.key), `${item.key} 不得进 COMPLEXITY_CRITERIA：那是复杂任务判据的编译产物`);
   }
   for (const item of COMPLEXITY_CRITERIA) {
     assert.doesNotMatch(item.label, /调研取证与报告|受控提交与推送|既有事实对象的操作|逐条转承/,
       `04 侧判据「${item.key}」不得内嵌 32 侧点位排除的条目`);
-    assert.doesNotMatch(item.source, /specs\/32/, `04 侧判据「${item.key}」的出处不得指向 32 号`);
+    assert.doesNotMatch(item.source, /point-exclusions/, `复杂任务判据「${item.key}」的出处不得指向点位排除条目`);
   }
 });
 
 
-test("GATE_POINT_EXCLUSIONS：三类名称与承接条文须能在 specs/32 原文逐字找到", async () => {
+test("GATE_POINT_EXCLUSIONS：类别名与承接条目须能在载体原文逐条找到", async () => {
   const { readFile } = await import("node:fs/promises");
   const { join } = await import("node:path");
-  let spec;
+  const carriersDir = join(import.meta.dirname, "..", "..", "plugin-specs");
+  const pointExclusions = join(carriersDir, "gate-consult-system-foundation.yaml");
+  let gateCarrier;
   try {
-    spec = await readFile(join(import.meta.dirname, "..", "..", "specs/32-把关请示系统规范.md"), "utf8");
+    gateCarrier = await readFile(pointExclusions, "utf8");
   } catch {
-    assert.fail(`语料不可读：specs/32-把关请示系统规范.md（发布包内无语料时须如实失败，不得静默通过）`);
+    assert.fail(`载体不可读：plugin-specs/gate-consult-system-foundation.yaml（运行期来源缺失时须如实失败，不得静默通过）`);
   }
   const drifted = [];
+  const entryIdsOf = (text) => new Set([...text.matchAll(/^\s+- id: ([a-z][a-z0-9-]*)$/gm)].map((match) => match[1]));
+  const categoryPhrase = {
+    "pure-research": "止于取得证据并形成调研结论",
+    "pure-commit": "只是把已经形成的改动按提交契约落盘并推送",
+    "pure-controlled-object-op": "只是对既有事实对象做状态转换、补充记录、勘误级更新或受控退休",
+  };
   for (const item of GATE_POINT_EXCLUSIONS) {
-    const categoryName = item.label.split("（")[0];
-    if (!spec.includes(categoryName)) drifted.push(`${item.key}: 类别名「${categoryName}」`);
-    if (!spec.includes("### 4.2 明确排除与证明边界")) drifted.push(`${item.key}: 32 §4.2 节标题`);
-    const carriedNormalized = item.carried.replace(
-      /(\d\d) §([0-9.]+[a-z]?)((?:\/§[0-9.]+[a-z]?)+)/g,
-      (_all, spec, first, rest) => `${spec} §${first}` + rest.split("/").map((seg) => ` ${spec} ${seg}`).join(""),
-    );
-    for (const sec of carriedNormalized.match(/(?:00|09|02|33|22|27) §[0-9.]+[a-z]?/g) ?? []) {
-      const [specNo, secNo] = [sec.slice(0, 2), sec.slice(4)];
-      const file = { "00": "00", "09": "09", "02": "02", "33": "33", "22": "22", "27": "27" }[specNo];
-      if (!file) continue;
-      const { readFile: rf2 } = await import("node:fs/promises");
-      const text = await rf2(join(import.meta.dirname, "..", "..", `specs/${file}-` + {
-        "09": "受控提交与机械守护规范.md",
-        "02": "事实源与事实模型基础规范.md",
-        "33": "调研吸收系统规范.md",
-        "00": "理念与构成.md",
-        "22": "ADR-决策.md",
-        "27": "Norm-事实规范.md",
-      }[specNo]), "utf8").catch(() => null);
-      if (text === null) { drifted.push(`${item.key}: 语料不可读 specs/${file}`); continue; }
-      const head = secNo.split("/")[0].replace(/^§/, "");
-      if (head.length === 0 || !/^[0-9]/.test(head)) {
-        drifted.push(`${item.key}: 承接条文 ${sec} 的编号解析为空或非数字（解析逻辑失效，非规范漂移）`);
+    const phrase = categoryPhrase[item.key];
+    if (phrase === undefined) drifted.push(`${item.key}: 测试未登记该类的载体判据语句（新增类别须同时补测试，不得静默跳过）`);
+    else if (!gateCarrier.includes(phrase)) drifted.push(`${item.key}: 载体判据语句「${phrase}」不在 point-exclusions 载体里`);
+    const carriedRefs = [...item.carried.matchAll(/([a-z][a-z0-9-]*) 的 ([a-z][a-z0-9-]*(?:／[a-z][a-z0-9-]*)*) 条目/g)];
+    if (carriedRefs.length === 0) {
+      drifted.push(`${item.key}: 承接面没有点名任何载体条目`);
+      continue;
+    }
+    for (const [, carrierKey, ids] of carriedRefs) {
+      let text;
+      try {
+        text = await readFile(join(carriersDir, `${carrierKey}.yaml`), "utf8");
+      } catch {
+        drifted.push(`${item.key}: 承接面点名的载体 ${carrierKey} 不可读`);
         continue;
       }
-      const headingRe = new RegExp(`^#+\\s+${head.replace(/\./g, "\\.")}(?:\\.)?\\s`, "m");
-      if (!headingRe.test(text)) {
-        drifted.push(`${item.key}: 承接条文 ${sec} 在 specs/${file} 无对应标题`);
+      const known = entryIdsOf(text);
+      for (const id of ids.split("／")) {
+        if (!known.has(id)) drifted.push(`${item.key}: 承接面点名的条目 ${carrierKey}/${id} 不存在`);
       }
     }
   }
-  assert.deepEqual(drifted, [], `点位排除常量与规范原文漂移（01 §11.4 禁第二规则源）：\n${drifted.join("\n")}`);
+  assert.deepEqual(drifted, [], `点位排除常量与载体原文漂移（禁第二规则源）：\n${drifted.join("\n")}`);
 });
 
 test("工具描述：点位排除的每个 label **全文**须出现在 ldvh_review_ask 的 summary 里", async () => {

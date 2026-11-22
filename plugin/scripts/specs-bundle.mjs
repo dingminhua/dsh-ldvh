@@ -10,6 +10,12 @@ import {
   RECALL_CRITERIA_VERSION,
   parseRecallCriteriaTable,
 } from "../lib/recall-criteria.js";
+import {
+  OPERATION_DECLARATIONS_VERSION,
+  parseOperationDeclarations,
+  parseSpecDocument,
+  resolveHeadingPath,
+} from "../lib/spec-registry.js";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -27,6 +33,13 @@ const BUNDLE_DEFINITIONS = Object.freeze([
     sourceDir: "specs",
     targetFile: "lib/recall-criteria.bundle.json",
     stampName: ".recall-criteria-bundle-stamp",
+  }),
+  Object.freeze({
+    name: "operation-declarations",
+    kind: "generate",
+    sourceDir: "specs",
+    targetFile: "lib/operation-declarations.bundle.json",
+    stampName: ".operation-declarations-bundle-stamp",
   }),
 ]);
 
@@ -120,8 +133,98 @@ export async function buildRecallCriteriaBundle(sourceRoot) {
   };
 }
 
+async function declarationSourceFiles(sourceRoot) {
+  let entries;
+  try {
+    entries = await readdir(sourceRoot, { withFileTypes: true });
+  } catch (error) {
+    throw new Error(`[specs-bundle] operation declaration source corpus not found: ${sourceRoot} (${String(error?.message ?? error)})`);
+  }
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    if (!/^[0-9]{2,}-[^/]+\.md$/.test(entry.name)) continue;
+    if (isExcludedCarrierName(entry.name)) continue;
+    files.push({ absolutePath: join(sourceRoot, entry.name), repoPath: `specs/${entry.name}` });
+  }
+  const attachmentsRoot = join(sourceRoot, "attachments");
+  let attachments = [];
+  try {
+    attachments = await readdir(attachmentsRoot, { withFileTypes: true });
+  } catch {
+    attachments = [];
+  }
+  for (const entry of attachments) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    if (!/^[0-9]{2,}\.Att\.[0-9]{2,}-[^/]+\.md$/.test(entry.name)) continue;
+    if (isExcludedCarrierName(entry.name)) continue;
+    files.push({ absolutePath: join(attachmentsRoot, entry.name), repoPath: `specs/attachments/${entry.name}` });
+  }
+  files.sort((a, b) => (a.repoPath < b.repoPath ? -1 : a.repoPath > b.repoPath ? 1 : 0));
+  if (files.length === 0) {
+    throw new Error(`[specs-bundle] no specification corpus found under ${sourceRoot}`);
+  }
+  return files;
+}
+
+export async function buildOperationDeclarationsBundle(sourceRoot) {
+  const files = await declarationSourceFiles(sourceRoot);
+  const hash = createHash("sha256");
+  const declarations = {};
+  const failures = [];
+  for (const file of files) {
+    const text = await readFile(file.absolutePath, "utf8");
+    hash.update(`${file.repoPath}\0`);
+    hash.update(text);
+    hash.update("\0");
+    const rows = parseOperationDeclarations(text, (headingPath) => resolveHeadingPath(text, headingPath).ok);
+    if (rows.size === 0) continue;
+    const identity = parseSpecDocument(text, file.repoPath);
+    if (identity.ok !== true) {
+      failures.push(`${file.repoPath}: 身份块解析失败（${identity.error.code}: ${identity.error.message}）`);
+      continue;
+    }
+    const source = identity.value.identity.responsibilityKey;
+    for (const [key, row] of rows) {
+      if (row.anchor_errors.length > 0) {
+        failures.push(`${file.repoPath}: "${key}" 的声明锚点不可解析（${row.anchor_errors.join("; ")}）`);
+        continue;
+      }
+      if (Object.hasOwn(declarations, key)) {
+        failures.push(`${file.repoPath}: operation_key "${key}" 与 ${declarations[key].source_path} 重复`);
+        continue;
+      }
+      declarations[key] = {
+        operation_key: key,
+        summary: row.summary,
+        effect: row.effect,
+        arguments_contract: row.arguments_contract,
+        result_contract: row.result_contract,
+        source,
+        source_path: file.repoPath,
+      };
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`[specs-bundle] operation declarations failed to parse:\n  ${failures.join("\n  ")}`);
+  }
+  if (Object.keys(declarations).length === 0) {
+    throw new Error(`[specs-bundle] no operation declaration table found under ${sourceRoot}`);
+  }
+  const sorted = {};
+  for (const key of Object.keys(declarations).sort()) sorted[key] = declarations[key];
+  return {
+    version: OPERATION_DECLARATIONS_VERSION,
+    fingerprint: hash.digest("hex"),
+    generated_from: "specs/",
+    declarations: sorted,
+  };
+}
+
 async function generateBundle(bundle) {
-  const data = await buildRecallCriteriaBundle(bundle.sourceRoot);
+  const data = bundle.name === "operation-declarations"
+    ? await buildOperationDeclarationsBundle(bundle.sourceRoot)
+    : await buildRecallCriteriaBundle(bundle.sourceRoot);
   await mkdir(dirname(bundle.targetPath), { recursive: true });
   await writeFile(bundle.targetPath, `${JSON.stringify(data, null, 2)}\n`);
   console.log(`[specs-bundle] generated ${bundle.targetPath} from ${bundle.sourceRoot}`);

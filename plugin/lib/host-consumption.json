@@ -1,5 +1,5 @@
 {
-  "$comment": "机器可读消费面清单 — Norm host-upgrade-followup (norm-e188af99) 第 4 步三态判定的比对基准。每一项都必须有代码调用点（callSites 为 plugin/ 相对路径，由 test/host-consumption-consistency.test.mjs 与 lib/*.js 双向核对：清单缺项或代码新增未登记消费点都会被抓）。plane 说明差分通道：host-service/host-event 走 api-catalog.ts 三表，client-slot 走 slot-catalog.ts，value-service 与 client-service 无仓内生成物目录（差分报 uncheckable），non-contract 是宿主未承诺的锚点（宿主改名即静默失效）。",
+  "$comment": "机器可读消费面清单 — Norm host-upgrade-followup (norm-e188af99) 第 4 步三态判定的比对基准。每一项都必须有代码调用点（callSites 为 plugin/ 相对路径，由 test/host-consumption-consistency.test.mjs 与 lib/*.js 双向核对：清单缺项或代码新增未登记消费点都会被抓）。plane 说明差分通道：host-service/host-event 走 api-catalog.ts 三表，client-slot 走 slot-catalog.ts，value-service 与 client-service 无仓内生成物目录（差分报 uncheckable），non-contract 是宿主未承诺的锚点（宿主改名即静默失效）。本清单只登记本插件消费了宿主哪些面，不声明 LDVH 操作——能调用哪些操作只认随包的公开操作声明，本清单既不是操作声明，也不证明任何操作受支持。",
   "version": 1,
   "hostServices": [
     {

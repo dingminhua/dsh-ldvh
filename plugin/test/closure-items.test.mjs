@@ -656,6 +656,9 @@ test("item4: discovery ACTUALLY parses declarations — the integration path, no
 		assert.ok(op.declaration, "discovery must resolve the declaration from the spec carrier text");
 		assert.equal(op.declaration.source_path, "specs/05-Demo.md");
 		assert.equal(op.availability, "当次可调用");
+		assert.equal(envelope.result.declaration_source.tier, "specs", "规范源可读的开发形态下，声明来源须报成规范源");
+		assert.match(envelope.result.declaration_source.label, /规范源/);
+		assert.ok(envelope.sources.some((source) => source.kind === "operation-declaration-source" && source.tier === "specs"), "声明来源的 tier 须能在能力发现的来源与诊断里看出");
 		const reported = (envelope.result.undeclared_or_unresolvable ?? []).map((e) => e.operation_key);
 		assert.ok(!reported.includes("resolve-governance-scope"), "a declared operation must not be reported undeclared");
 		assert.ok(!reported.some((k) => k.includes("placeholder")), "the <...> template must not become an operation");

@@ -1497,9 +1497,10 @@ test("把关提示行：点位排除渲染在判据之后，且带交付义务�
 	assert.ok(exclusionHead < actionHead, "点位排除须先于行为指令渲染，否则 ①② 两句里的「未命中排除」无所指");
 
 	assert.match(text, /整件/, "须写明按当次工作整体判定，不按动作切分");
-	assert.match(text, /方案收敛自查/, "须写明排除不免 04 §6.1 的自查");
-	assert.match(text, /Human Gate/, "须写明排除不免任何 Human Gate 的提请");
-	assert.match(text, /点位排除（32 §4\.2）：命中/, "须给出那行交付声明的模板");
+	assert.match(text, /方案收敛自查/, "须写明排除不免复杂任务判据要求的自查");
+	assert.match(text, /须人决定事项的提请照提/, "须写明排除不免任何须人决定事项的提请");
+	assert.match(text, /点位排除：命中/, "须给出那行交付声明的模板");
+	assert.doesNotMatch(text, /§|specs\//, "注入文本不得再引规范章节号或开发规范路径（运行期规则只来自载体）");
 	assert.match(text, /不写这行按未请示处理/, "交付声明缺写时的后果须当场说出");
 
 	assert.doesNotMatch(text, /点位排除[^\n]*不算复杂任务/, "排除不得被表述为对复杂任务判定的改写");

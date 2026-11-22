@@ -520,7 +520,7 @@ test("discover-ldvh-capabilities enumerates every registered capability", async 
 	}
 });
 
-test("discover-ldvh-capabilities：未在 05 §6.1 声明表登记者报「不可用」+ 诊断，并给出其服务契约位置", async () => {
+test("discover-ldvh-capabilities：声明来源不可用时报「不可用」+ 诊断，且不给出任何手写契约位置", async () => {
 	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
 	const envelope = await handlers["discover-ldvh-capabilities"]({ operation_key: "research-consult" }, {});
 	assert.equal(envelope.outcome, "completed");
@@ -528,9 +528,33 @@ test("discover-ldvh-capabilities：未在 05 §6.1 声明表登记者报「不�
 	assert.equal(op.operation_key, "research-consult");
 	assert.equal(op.availability, "不可用");
 	assert.equal(op.declaration, null);
-	assert.equal(op.service_contract.arguments_contract, "gate-consult-system-foundation::7. 输入与前置条件");
-	assert.equal(op.service_contract.result_contract, "helper-service-contract::8. 最小共同响应语义");
-	assert.ok(envelope.gaps.some((gap) => /未在 05 §6.1 声明表登记/.test(gap)));
+	assert.equal(op.service_contract, undefined, "手写契约定位列已删除：契约位置只由随包声明文件供给，声明缺失时不得再给一份");
+	assert.ok(envelope.gaps.some((gap) => /未在随包公开操作声明中登记/.test(gap)));
+	assert.ok(envelope.gaps.some((gap) => /声明来源：/.test(gap)), "诊断里须能看出声明来源的 tier");
+	assert.equal(envelope.result.declaration_source.tier, "package-data");
+	assert.match(envelope.result.declaration_source.label, /包内数据文件/);
+	assert.ok(envelope.result.declaration_source.file.endsWith("operation-declarations.bundle.json"));
+});
+
+test("renderEnvelope：能力发现把声明来源的 tier 打给模型（否则 Tier 只活在字段里）", () => {
+	const blocks = renderEnvelope("discover-ldvh-capabilities", {
+		envelope: {
+			operation_key: "discover-ldvh-capabilities",
+			outcome: "completed",
+			result: {
+				operations: [{ operation_key: "demo-op", availability: "不可用", summary: "s", declaration: null }],
+				declaration_source: { tier: "package-data", label: "包内数据文件（构建期由开发仓的声明生成源产出，运行期不读规范源）", declared_operations: 36 },
+			},
+			scope: { requested: "all", completed: ["demo-op"], not_completed: [] },
+			sources: [],
+			gaps: [],
+			verification: { checks: [], passed: false },
+			follow_up: [],
+		},
+	});
+	const text = blocks.map((block) => block.text).join("\n");
+	assert.match(text, /declaration source: 包内数据文件/);
+	assert.match(text, /\[package-data\]/);
 });
 
 test("discover-ldvh-capabilities returns a single operation when operation_key is supplied", async () => {
@@ -1019,14 +1043,24 @@ test("Human-facing asks forward the caller's cancellation signal", async () => {
 });
 
 
-test("guidanceTextFor returns the governed text with the anchor set", () => {
-	const text = guidanceTextFor("governed");
+test("guidanceTextFor returns the governed text with the anchor set（分流后：开发期文本带 00 锚点，运行期文本只给载体定位）", () => {
+	const text = guidanceTextFor("governed", "dev");
 	assert.ok(text.length > 0);
 	const anchors = ["身份块", "§1 核心价值", "对齐 Vibe", "协调 Coding", "§2 方法与构成", "§3 Human 权利", "§4 AI 责任与义务", "§4.6", "§4.7", "§4.8", "§5 价值纪律"];
 	for (const anchor of anchors) {
 		assert.ok(text.includes(anchor), `governed guidance missing anchor: ${anchor}（依据：specs/01-规范源与规范模型基础规范.md §10.4 最小规则引导；锚点取自 specs/00-理念与构成.md 各级标题、§1 的两个价值面与 specs/01 §6.1 身份块）`);
 	}
 	assert.equal(text.includes("§1 三大核心价值"), false, "旧漂移锚点不得与 §1 核心价值并存（依据：specs/00-理念与构成.md §1 现行标题为「LDVH 的核心价值」，specs/attachments/01.Att.01-LDVH双语术语表.md 中「三大核心价值」已被「核心价值」取代）");
+});
+
+test("guidanceTextFor governed 运行期文本：只给载体定位，不带 00 锚点", () => {
+	const text = guidanceTextFor("governed");
+	assert.ok(text.length > 0);
+	assert.ok(text.includes("运行时机制："), "运行期文本须说明召回段的「运行时机制：」定位");
+	assert.ok(text.includes("ldvh-root"), "运行期文本须指出底线载体");
+	assert.ok(text.includes("plugin-specs"), "运行期文本须指出运行期规则随包");
+	assert.equal(text.includes("§1 核心价值"), false, "运行期文本不得再以 specs/00 章节号为锚点");
+	assert.equal(text.includes("本会话工作锚点"), false, "运行期文本不承载开发约定锚点");
 });
 
 test("guidanceTextFor not_governed: one-line judgment notice (Human 2026-09-04 上下文注入决定)", () => {
