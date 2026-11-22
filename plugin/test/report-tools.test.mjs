@@ -452,6 +452,25 @@ test("write schema: partial update (title only) passes schema layer", async () =
   assert.equal(violations.length, 0, JSON.stringify(violations));
 });
 
+test("write schema: legacy serves is accepted in frontmatter_draft and frontmatter_after (issue #4)", async () => {
+  const { toolDescriptorFor, OPERATIONS } = await import("../lib/report-tools.js");
+  const desc = toolDescriptorFor("report-write-object", OPERATIONS["report-write-object"], async () => ({}));
+  const legacyUid = "a415bbd4-ee4b-43e1-9bb0-0c4e8761c188";
+  const draftViolations = validateJsonSchemaValue(desc.parameters, {
+    action: "create",
+    frontmatter_draft: { title: "t", report_form: "research", serves: legacyUid }
+  }, "args");
+  assert.equal(draftViolations.length, 0, JSON.stringify(draftViolations));
+  const afterViolations = validateJsonSchemaValue(desc.parameters, {
+    action: "update",
+    object_uid: "x",
+    expected_fingerprint: "y",
+    change_summary: "legacy serves",
+    frontmatter_after: { serves: legacyUid }
+  }, "args");
+  assert.equal(afterViolations.length, 0, JSON.stringify(afterViolations));
+});
+
 
 test("render: research read output carries the FULL 64-char fingerprint and semantic lines (no ellipsis truncation)", async () => {
   await withTemp("ldvh-rt.", async (base) => {

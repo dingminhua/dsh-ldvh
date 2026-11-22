@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildNormDirectory, NORM_DIRECTORY_SECTION_NAME } from "../lib/norm-directory.js";
+import { buildNormDirectory, buildNormDirectoryForRoot, NORM_DIRECTORY_SECTION_NAME } from "../lib/norm-directory.js";
 import { buildRecallInjection } from "../lib/recall-injection.js";
 import { seedFactCorpus } from "./helpers.mjs";
 
@@ -180,6 +180,127 @@ test("目录：召回注入块内不再并列规范段（单一来源），且�
     assert.doesNotMatch(r.text, /事实规范 · active Norm/, "召回块内不得再并列规范段");
     assert.doesNotMatch(r.text, /管什么：/, "召回块内不得再出现定位摘录");
     assert.match(r.text, /经验 · active Pitfall（25 §12 按需索引）/, "经验按需通道不受目录迁移影响");
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test("目录：项目目标与 active 子目标标题注入，retired 不出现，无目标时输出不变", async () => {
+  const project = await mkdtemp(join(tmpdir(), "ldvh-normdir-goal-"));
+  try {
+    const dir = join(project, "ldvh-base", "norms");
+    await mkdir(dir, { recursive: true });
+    await writeNorm(dir, "aaaaaaaa-0000-4000-8000-000000000001", {
+      title: "合成方向甲",
+      directionKey: "fixture-direction-alpha",
+      governs: "本方向管合成语料甲方向的准入边界。",
+      whenToRead: "改动合成语料甲方向前查阅本规范。",
+    });
+    const { loadFacts } = await import("../lib/source-recall.js");
+    const facts = await loadFacts(join(project, "ldvh-base"));
+    const baseline = buildNormDirectory(facts, { budgetChars: 4096 });
+    assert.ok(!baseline.text.includes("【项目目标与子目标】"), "无目标对象时不得出现目标段");
+    assert.ok(baseline.text.startsWith("【事实规范目录"), "无目标时段头不变");
+
+    const withGoals = buildNormDirectory([
+      ...facts,
+      { type: "goal", title: "合成项目目标", status: "active" },
+      { type: "goal", title: "已退休的旧目标", status: "retired" },
+      { type: "subgoal", title: "子目标二", status: "active" },
+      { type: "subgoal", title: "子目标一", status: "active" },
+      { type: "subgoal", title: "已退休的子目标", status: "retired" },
+    ], { budgetChars: 4096 });
+    assert.ok(withGoals.text.startsWith("【项目目标与子目标】"), "目标段须在目录段之前");
+    assert.match(withGoals.text, /· 目标：合成项目目标/, "目标标题须在场");
+    assert.match(withGoals.text, /· 子目标：子目标一/, "active 子目标标题须在场");
+    assert.match(withGoals.text, /· 子目标：子目标二/, "active 子目标标题须在场");
+    assert.doesNotMatch(withGoals.text, /已退休的旧目标|已退休的子目标/, "retired 目标不得出现");
+    assert.ok(withGoals.text.indexOf("子目标一") < withGoals.text.indexOf("子目标二"), "子目标须按标题排序");
+    assert.match(withGoals.text, /【事实规范目录 · active Norm/, "原 norm 段头须保留");
+    assert.equal(withGoals.shown, 1, "norm 条目数不受目标段影响");
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test("目录：ForRoot 补读顶层 goal.md 并纳入子目标标题", async () => {
+  const project = await mkdtemp(join(tmpdir(), "ldvh-normdir-forroot-"));
+  try {
+    const base = join(project, "ldvh-base");
+    const normDir = join(base, "norms");
+    const subgoalDir = join(base, "subgoals");
+    await mkdir(normDir, { recursive: true });
+    await mkdir(subgoalDir, { recursive: true });
+    await writeNorm(normDir, "aaaaaaaa-0000-4000-8000-000000000001", {
+      title: "合成方向甲",
+      directionKey: "fixture-direction-alpha",
+      governs: "本方向管合成语料甲方向的准入边界。",
+      whenToRead: "改动合成语料甲方向前查阅本规范。",
+    });
+    await writeFile(join(base, "goal.md"), [
+      "---",
+      "goal_key: project-goal",
+      "title: 合成根目录目标",
+      "status: active",
+      "---",
+      "",
+      "# 项目目标",
+      "",
+      "## 目标陈述",
+      "",
+      "目标陈述正文。",
+      "",
+    ].join("\n"), "utf8");
+    await writeFile(join(subgoalDir, "subgoal-bbbb.md"), [
+      "---",
+      "title: 根目录子目标",
+      "status: active",
+      "object_uid: bbbbbbbb-0000-4000-8000-000000000001",
+      "fact_type_key: subgoal",
+      "---",
+      "",
+      "# 根目录子目标",
+      "",
+      "## 达成条件",
+      "",
+      "合成达成条件。",
+      "",
+    ].join("\n"), "utf8");
+    const directory = await buildNormDirectoryForRoot({ root: project, budgetChars: 4096 });
+    assert.match(directory.text, /· 目标：合成根目录目标/, "顶层 goal.md 标题须被补读");
+    assert.match(directory.text, /· 子目标：根目录子目标/, "子目标标题须在场");
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test("目录：目标段计入预算，norm 条目在剩余额度内截断", async () => {
+  const project = await mkdtemp(join(tmpdir(), "ldvh-normdir-goal-budget-"));
+  try {
+    const dir = join(project, "ldvh-base", "norms");
+    await mkdir(dir, { recursive: true });
+    for (let i = 1; i <= 5; i += 1) {
+      await writeNorm(dir, `cccccccc-0000-4000-8000-00000000000${i}`, {
+        title: `合成方向${String(i).padStart(2, "0")}`,
+        directionKey: `fixture-direction-${String(i).padStart(2, "0")}`,
+        governs: `本方向管合成语料第${i}号方向的准入边界与例外处理口径。`,
+        whenToRead: `改动合成语料第${i}号方向前查阅本规范。`,
+      });
+    }
+    const { loadFacts } = await import("../lib/source-recall.js");
+    const facts = await loadFacts(join(project, "ldvh-base"));
+    const plain = buildNormDirectory(facts, { budgetChars: 400 });
+    const withGoal = buildNormDirectory([
+      ...facts,
+      { type: "goal", title: "合成目标", status: "active" },
+      { type: "subgoal", title: "合成子目标一", status: "active" },
+      { type: "subgoal", title: "合成子目标二", status: "active" },
+      { type: "subgoal", title: "合成子目标三", status: "active" },
+      { type: "subgoal", title: "合成子目标四", status: "active" },
+    ], { budgetChars: 400 });
+    assert.ok(plain.shown > 0 && withGoal.shown > 0, "两侧都要有 norm 条目");
+    assert.ok(withGoal.shown < plain.shown, "目标段占用预算后 norm 列出数须减少");
+    assert.match(withGoal.text, /· 目标：合成目标|· 子目标：合成子目标/, "预算受限时目标段仍须在场");
   } finally {
     await rm(project, { recursive: true, force: true });
   }

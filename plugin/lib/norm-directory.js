@@ -1,8 +1,9 @@
 
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { l0EnumerationOf, loadFacts } from "./source-recall.js";
+import { l0EnumerationOf, loadFacts, parseObjectFrontmatter } from "./source-recall.js";
 
 export const NORM_DIRECTORY_SECTION_NAME = "事实规范目录";
 
@@ -14,6 +15,8 @@ export function normDirectoryDigest(text) {
 
 const DIRECTORY_HEADER = "【事实规范目录 · active Norm（23 §10）】";
 
+const GOAL_DIRECTORY_HEADER = "【项目目标与子目标】";
+
 const UNAVAILABLE_LINE = "  ↳ （定位不可机械导出：正文不合 23 §8 两句契约；用 ldvh_norm_read 读正文。）";
 
 const DIRECTORY_FOOTER_ALL = "（凡「何时查阅」时机成立即须读全文；目录不证明适用；全量用 ldvh_norm_list。）";
@@ -23,10 +26,27 @@ function directoryFooter(omittedCount) {
   return `（另有 ${omittedCount} 条规范未列出：全量用 ldvh_norm_list。凡「何时查阅」时机成立即须读全文；目录不证明适用。）`;
 }
 
+function goalDirectoryLines(facts) {
+  const all = Array.isArray(facts) ? facts : [];
+  const goals = all.filter((fact) => fact.type === "goal" && fact.status === "active");
+  const subgoals = all.filter((fact) => fact.type === "subgoal" && fact.status === "active");
+  const lines = [];
+  for (const fact of goals) {
+    if (typeof fact.title === "string" && fact.title.trim() !== "") lines.push(`· 目标：${fact.title.trim()}`);
+  }
+  const ordered = [...subgoals].sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0));
+  for (const fact of ordered) {
+    if (typeof fact.title === "string" && fact.title.trim() !== "") lines.push(`· 子目标：${fact.title.trim()}`);
+  }
+  return lines;
+}
+
 export function buildNormDirectory(facts, { budgetChars = 0 } = {}) {
   const limit = Number.isInteger(budgetChars) && budgetChars > 0 ? budgetChars : 0;
   if (limit <= 0) return { text: "", shown: 0, total: 0, truncated: false, unavailable: 0 };
 
+  const goalLines = goalDirectoryLines(facts);
+  const goalBlock = goalLines.length > 0 ? [GOAL_DIRECTORY_HEADER, ...goalLines].join("\n") + "\n" : "";
   const enumeration = l0EnumerationOf(facts);
   const segment = enumeration.find((entry) => entry.type === "norm");
   const entries = Array.isArray(segment?.entries) ? segment.entries : [];
@@ -41,7 +61,7 @@ export function buildNormDirectory(facts, { budgetChars = 0 } = {}) {
   });
   const unavailable = blocks.filter((block) => block.excerptLine === UNAVAILABLE_LINE).length;
 
-  const headerCost = DIRECTORY_HEADER.length + 1;
+  const headerCost = DIRECTORY_HEADER.length + 1 + goalBlock.length;
   const kept = [];
   let used = headerCost;
   let omitted = total;
@@ -57,7 +77,7 @@ export function buildNormDirectory(facts, { budgetChars = 0 } = {}) {
   if (kept.length === 0) return { text: "", shown: 0, total, truncated: omitted > 0, unavailable };
 
   const footer = directoryFooter(omitted);
-  const lines = [DIRECTORY_HEADER];
+  const lines = goalLines.length > 0 ? [GOAL_DIRECTORY_HEADER, ...goalLines, DIRECTORY_HEADER] : [DIRECTORY_HEADER];
   for (const block of kept) lines.push(block.entry, block.excerptLine);
   lines.push(footer);
   const text = lines.join("\n");
@@ -70,6 +90,20 @@ export function buildNormDirectory(facts, { budgetChars = 0 } = {}) {
   };
 }
 
+async function withGoalFact(root, facts) {
+  if (facts.some((fact) => fact.type === "goal")) return facts;
+  try {
+    const text = await readFile(join(root, "ldvh-base", "goal.md"), "utf8");
+    const { data } = parseObjectFrontmatter(text);
+    const title = typeof data?.title === "string" ? data.title.trim() : "";
+    const status = typeof data?.status === "string" ? data.status.trim() : "";
+    if (title === "") return facts;
+    return [...facts, { type: "goal", title, status, ref: "goal", objectUid: null }];
+  } catch {
+    return facts;
+  }
+}
+
 export async function buildNormDirectoryForRoot({ root, budgetChars = 0 } = {}) {
   if (typeof root !== "string" || root === "" || budgetChars <= 0) {
     return { text: "", shown: 0, total: 0, truncated: false, unavailable: 0 };
@@ -80,5 +114,5 @@ export async function buildNormDirectoryForRoot({ root, budgetChars = 0 } = {}) 
   } catch {
     facts = [];
   }
-  return buildNormDirectory(facts, { budgetChars });
+  return buildNormDirectory(await withGoalFact(root, facts), { budgetChars });
 }

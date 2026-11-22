@@ -17,6 +17,7 @@ import {
   resolveGuidanceMode,
 } from "./guidance-text.js";
 import { REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
+import { CAPTURE_NOTICE_SUMMARY } from "./capture-notice.js";
 
 export function createAssembleHandler(agent, { resolve, syncTools, recordScope }) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
@@ -127,7 +128,7 @@ function createPluginMessage(text, summary) {
   };
 }
 
-export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, suppressUngovernedRow, onTurnStart, recallRow, recallSummary, reviewAskRow, reviewAskSummary, normDirectoryRow, normDirectorySummary } = {}) {
+export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, suppressUngovernedRow, onTurnStart, recallRow, recallSummary, reviewAskRow, reviewAskSummary, captureRow, captureSummary, normDirectoryRow, normDirectorySummary } = {}) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
   const state = channel ?? { primePending: false, lastDigest: null };
   const getNormDirectoryRow = typeof normDirectoryRow === "function" ? normDirectoryRow : null;
@@ -139,6 +140,8 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
   const recallLabel = typeof recallSummary === "function" ? recallSummary : () => recallSummary;
   const getReviewAskRow = typeof reviewAskRow === "function" ? reviewAskRow : null;
   const reviewAskLabel = typeof reviewAskSummary === "function" ? reviewAskSummary : () => reviewAskSummary;
+  const getCaptureRow = typeof captureRow === "function" ? captureRow : null;
+  const captureLabel = typeof captureSummary === "function" ? captureSummary : () => captureSummary;
   return {
     prime() { state.primePending = true; },
     resetVisibility() {
@@ -146,6 +149,7 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       state.lastDigest = null;
       state.lastRecallDigest = null;
       state.lastReviewAskDigest = null;
+      state.lastCaptureDigest = null;
     },
     async handler(payload, next) {
       if (payload?.agent !== undefined && agentId !== undefined && payload.agent.id !== agentId) return next();
@@ -248,6 +252,36 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
             const prior = batch.find((m) => isOwnMessage(m) && (m?.source?.summary ?? null) === label);
             if (prior !== undefined) {
               prior.content = [{ type: "text", text: askRow.text }];
+            }
+          }
+        }
+      }
+      if (getCaptureRow !== null) {
+        let capture = null;
+        try {
+          capture = await getCaptureRow({ userText: currentUserText(batch, isOwnMessage) });
+        } catch (error) {
+          agent?.ctx?.logger?.warn?.(`ldvh: capture notice injection failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (capture !== null && capture?.inject === true && typeof capture.text === "string" && capture.text !== "") {
+          const label = captureLabel() ?? CAPTURE_NOTICE_SUMMARY;
+          const alreadyInBatch = batch.some((message) => {
+            if (!isOwnMessage(message)) return false;
+            if ((message?.source?.summary ?? null) !== label) return false;
+            const existing = Array.isArray(message.content)
+              ? message.content.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("")
+              : "";
+            return existing === capture.text;
+          });
+          if (capture.digest !== state.lastCaptureDigest) {
+            state.lastCaptureDigest = capture.digest;
+            if (!alreadyInBatch) {
+              extras.push(createPluginMessage(capture.text, label));
+            }
+          } else {
+            const prior = batch.find((m) => isOwnMessage(m) && (m?.source?.summary ?? null) === label);
+            if (prior !== undefined) {
+              prior.content = [{ type: "text", text: capture.text }];
             }
           }
         }
