@@ -9,18 +9,10 @@ const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const BUNDLE_DEFINITIONS = Object.freeze([
   Object.freeze({
-    name: "specs",
-    sourceDir: "specs",
-    targetDir: "specs",
-    stampName: ".specs-bundle-stamp",
-    excluded: null,
-  }),
-  Object.freeze({
     name: "runtime-carriers",
     sourceDir: "plugin-specs",
     targetDir: "plugin-specs",
     stampName: ".plugin-specs-bundle-stamp",
-    excluded: isExcludedCarrierName,
   }),
 ]);
 
@@ -33,9 +25,7 @@ export function bundlePlan({ repoRoot, packageRoot: root = packageRoot } = {}) {
     sourceRoot: join(repoRoot, definition.sourceDir),
     bundledRoot: join(root, definition.targetDir),
     stampPath: join(root, definition.stampName),
-    filter: definition.excluded === null
-      ? undefined
-      : (source) => !definition.excluded(basename(source)),
+    filter: (source) => !isExcludedCarrierName(basename(source)),
   }));
 }
 

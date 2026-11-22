@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundlePlan, cleanBundles, copyBundles } from "../scripts/specs-bundle.mjs";
 import { RUNTIME_CARRIER_DIR } from "../lib/runtime-carrier-reader.js";
@@ -44,7 +44,7 @@ test("copies the runtime carriers into the package at the reader's package tier"
   await copyBundles({ repoRoot, packageRoot });
 
   assert.deepEqual(yamlNamesOf(join(packageRoot, RUNTIME_CARRIER_DIR)), ["alpha.yaml", "beta.yaml"]);
-  assert.equal(existsSync(join(packageRoot, "specs", "01-demo.md")), true);
+  assert.equal(existsSync(join(packageRoot, "specs", "01-demo.md")), false);
 });
 
 test("excludes draft and temporary carrier files and directories from the copy", async () => {
@@ -61,8 +61,26 @@ test("copy replaces a stale in-package target and writes stamps", async () => {
   writeFileSync(join(packageRoot, RUNTIME_CARRIER_DIR, "stale.yaml"), "stale\n");
   await copyBundles({ repoRoot, packageRoot });
   assert.equal(existsSync(join(packageRoot, RUNTIME_CARRIER_DIR, "stale.yaml")), false);
-  assert.equal(existsSync(join(packageRoot, ".specs-bundle-stamp")), true);
   assert.equal(existsSync(join(packageRoot, ".plugin-specs-bundle-stamp")), true);
+  assert.equal(existsSync(join(packageRoot, ".specs-bundle-stamp")), false);
+  assert.equal(existsSync(join(packageRoot, "specs")), false);
+});
+
+test("the bundle plan carries only the runtime carrier corpus and never the authoring specs", () => {
+  const { repoRoot, packageRoot } = makeFixture();
+  const plan = bundlePlan({ repoRoot, packageRoot });
+  assert.deepEqual(plan.map((bundle) => bundle.name), ["runtime-carriers"]);
+  assert.equal(plan.some((bundle) => basename(bundle.bundledRoot) === "specs"), false);
+  assert.equal(plan.some((bundle) => bundle.bundledRoot === join(packageRoot, "specs")), false);
+  assert.equal(plan.every((bundle) => bundle.bundledRoot === join(packageRoot, RUNTIME_CARRIER_DIR)), true);
+});
+
+test("packing leaves the authoring specs out of the package entirely", async () => {
+  const { repoRoot, packageRoot } = makeFixture();
+  await copyBundles({ repoRoot, packageRoot });
+  assert.equal(existsSync(join(packageRoot, "specs")), false);
+  assert.equal(existsSync(join(packageRoot, RUNTIME_CARRIER_DIR)), true);
+  assert.deepEqual(readdirSync(packageRoot).sort(), [".plugin-specs-bundle-stamp", RUNTIME_CARRIER_DIR].sort());
 });
 
 test("clean removes the copied corpora and stamps after packing", async () => {
@@ -77,6 +95,7 @@ test("clean removes the copied corpora and stamps after packing", async () => {
   ]) {
     assert.equal(existsSync(path), false, path);
   }
+  assert.deepEqual(readdirSync(packageRoot), []);
 });
 
 test("clean leaves an unstamped directory untouched", async () => {
@@ -87,9 +106,11 @@ test("clean leaves an unstamped directory untouched", async () => {
   assert.equal(existsSync(join(packageRoot, RUNTIME_CARRIER_DIR, "handwritten.yaml")), true);
 });
 
-test("package manifest lists the in-package carrier directory", () => {
+test("package manifest lists the in-package carrier directory and not the authoring specs", () => {
   const manifest = JSON.parse(readFileSync(join(pluginRoot, "package.json"), "utf8"));
   assert.equal(manifest.files.includes(RUNTIME_CARRIER_DIR), true);
+  assert.equal(manifest.files.includes("specs"), false);
+  assert.equal(manifest.files.some((entry) => entry === "specs" || entry.startsWith("specs/")), false);
 });
 
 test("the repository carrier corpus is copied without losing any YAML carrier", async () => {

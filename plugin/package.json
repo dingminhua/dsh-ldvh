@@ -40,7 +40,6 @@
     "lib",
     "icons",
     "docs/assets",
-    "specs",
     "plugin-specs",
     "cordis.patch.yml",
     "web/dist",
