@@ -97,12 +97,16 @@ test("internalLookup：只看内部事实类型（经验、报告、事实规范
   assert.deepEqual([...INTERNAL_LOOKUP_TYPES], ["pitfall", "report", "norm"]);
 });
 
-test("composeConsultQuestion：一行标题且不超 200 字符", () => {
+test("composeConsultQuestion：一行标题，长文案原样通过、不被截断不改写", () => {
   const { question } = composeConsultQuestion({ need: "Node 22 的 fetch 是否默认 keep-alive" });
   assert.match(question, /要不要联网调查？/);
-  assert.ok(question.length <= 200);
-  const long = composeConsultQuestion({ need: "x".repeat(400), scope: "y".repeat(400) });
-  assert.ok(long.question.length <= 200);
+  const longNeed = "x".repeat(400);
+  const longScope = "y".repeat(400);
+  const long = composeConsultQuestion({ need: longNeed, scope: longScope });
+  assert.equal(long.question, `${longNeed}——要不要联网调查？（范围：${longScope}）`);
+  assert.ok(long.question.length > 200);
+  assert.ok(long.question.startsWith(longNeed));
+  assert.ok(long.question.endsWith(`${longScope}）`));
 });
 
 test("composeResearchDispatchTemplate：带调研问题、硬性约束与输出格式", () => {

@@ -12,8 +12,6 @@ export const INTERNAL_LOOKUP_TYPES = Object.freeze(["pitfall", "report", "norm"]
 
 export const INTERNAL_LOOKUP_LIMIT = 8;
 
-export const CONSULT_QUESTION_MAX_CHARS = 200;
-
 export const RESEARCH_TOOL_NAME = "ldvh_research_consult";
 
 export const RESEARCH_OPERATION_SUMMARY = [
@@ -113,10 +111,7 @@ export function composeConsultQuestion({ need, scope } = {}) {
   const head = extra === null
     ? `${subject}——要不要联网调查？`
     : `${subject}——要不要联网调查？（范围：${extra}）`;
-  const question = head.length > CONSULT_QUESTION_MAX_CHARS
-    ? `${head.slice(0, CONSULT_QUESTION_MAX_CHARS - 1)}…`
-    : head;
-  return { question };
+  return { question: head };
 }
 
 const RESEARCH_DISCIPLINE = [
