@@ -53,7 +53,6 @@ function operationsAwaitingHuman() {
 		.map((operation) => operation.toolName);
 }
 
-
 const SAMPLE_SPEC_01 = `---
 ldvh_spec:
   spec_key: "sample-spec-1"
@@ -151,7 +150,6 @@ function assertEnvelopeShape(envelope, expectedKey, expectedOutcome) {
 	assert.ok(Array.isArray(envelope.follow_up));
 }
 
-
 test("resolve-governance-scope returns governed with the registered project", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
@@ -192,7 +190,6 @@ test("resolve-governance-scope returns unavailable when the registration is unpa
 		assert.match(envelope.result.detail, /registration unavailable/);
 	});
 });
-
 
 test("read-specification-candidates enumerates all candidates by default", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -237,7 +234,6 @@ test("read-specification-candidates rejects a key that matches no candidate", as
 		assert.ok(envelope.gaps.some((g) => g.includes("no-such-key")));
 	});
 });
-
 
 function specCarrier({ key, id, title, canonicalPath }) {
 	return `---
@@ -403,7 +399,6 @@ test("read-specification-candidates at L2 includes a section outline", async () 
 	});
 });
 
-
 test("read-specification-content returns L4 (full source) when no heading_path is given", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
@@ -479,7 +474,6 @@ test("read-specification-content returns rejected for an ambiguous heading path"
 		assert.ok(envelope404.gaps.some((g) => g.includes("heading_not_found")));
 	});
 });
-
 
 test("discover-ldvh-capabilities enumerates every registered capability", async () => {
 	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
@@ -571,8 +565,6 @@ test("discover-ldvh-capabilities returns rejected for an unknown operation_key",
 	assertEnvelopeShape(envelope, "discover-ldvh-capabilities", "rejected");
 });
 
-
-
 async function writeSessionLog(base, fileName, events) {
 	const path = join(base, fileName);
 	await writeFile(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
@@ -613,7 +605,6 @@ test("precheck-git-commit returns unavailable when the session is not governed",
 	});
 });
 
-
 test("precheck-git-commit returns passed when the route source agrees with the trailers, and attaches snapshot_identity", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
@@ -651,7 +642,6 @@ test("precheck-git-commit returns passed when the route source agrees with the t
 		assert.equal(envelope.scope.not_completed.length, 0);
 	});
 });
-
 
 test("precheck-git-commit 不再因 §7.2 依据引用不存在而 failed（旧检查已撤）", async () => {
 	await withTemp("ldvh-tools-basis-retired.", async (base) => {
@@ -703,7 +693,6 @@ test("precheck-git-commit 不再因 §7.2 依据引用不存在而 failed（旧�
 	});
 });
 
-
 test("precheck-git-commit returns failed when the trailer values do not match the available route (positive mismatch evidence)", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
@@ -740,7 +729,6 @@ test("precheck-git-commit returns failed when the trailer values do not match th
 		assert.equal(envelope.result.signature_source.model, "test");
 	});
 });
-
 
 test("precheck-git-commit returns failed when the trailer is structurally incomplete (no route needed for the verdict)", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -791,7 +779,6 @@ test("precheck-git-commit returns failed when the trailer values are empty (no r
 		assert.ok(envelope.result.issues.some((i) => i.message.includes("LDVH-Provider")));
 	});
 });
-
 
 test("precheck-git-commit refuses a fact carrier whose filename contradicts its object_uid (09 §5.5 same validator)", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
@@ -866,7 +853,6 @@ test("precheck-git-commit returns failed when a 关键变更: item names a chang
 	});
 });
 
-
 test("precheck-git-commit returns unverifiable (NOT passed) when the route source is unavailable and the trailer is structurally complete", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
@@ -929,7 +915,6 @@ test("precheck-git-commit returns unverifiable when the session log exists but c
 	});
 });
 
-
 test("makeExecute returns five handlers and the same OPERATIONS export", () => {
 	const { handlers, OPERATIONS: ops } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
 	assert.equal(typeof handlers["resolve-governance-scope"], "function");
@@ -939,7 +924,6 @@ test("makeExecute returns five handlers and the same OPERATIONS export", () => {
 	assert.equal(typeof handlers["precheck-git-commit"], "function");
 	assert.equal(ops, OPERATIONS);
 });
-
 
 test("output.render returns an array of content blocks (never a bare string)", () => {
 	for (const block of renderAllOutcomes()) {
@@ -992,7 +976,6 @@ test("every tool descriptor declares the DSH registration contract", () => {
 	}
 });
 
-
 test("tools that never wait on a Human keep a bounded timeout budget", () => {
 	const bounded = descriptors().filter((d) => operationsAwaitingHuman().includes(d.name) === false);
 	assert.ok(bounded.length > 0, "expected at least one purely mechanical tool");
@@ -1042,7 +1025,6 @@ test("Human-facing asks forward the caller's cancellation signal", async () => {
 	}
 });
 
-
 test("guidanceTextFor returns the governed text with the anchor set（分流后：开发期文本带 00 锚点，运行期文本只给载体定位）", () => {
 	const text = guidanceTextFor("governed", "dev");
 	assert.ok(text.length > 0);
@@ -1085,7 +1067,6 @@ test("GUIDANCE_SECTION_NAME and ORDER are exported constants", () => {
 	assert.equal(typeof GUIDANCE_SECTION_ORDER, "number");
 	assert.ok(GUIDANCE_SECTION_ORDER > 0);
 });
-
 
 test("renderEnvelope: 预检的失败原因必须对调用方可读（09 §5.3 的意图是给出问题项，不是只给 failed）", () => {
 	const blocks = renderEnvelope("precheck-git-commit", {
@@ -1133,7 +1114,6 @@ test("**删除设置字段后，诊断工具不得把 undefined 带进返回值*
     "state 里不得留 intervalMs 空位（哪怕是 null）——留着会让「间隔机制还在」成为表面事实",
   );
 });
-
 
 const STALE = { stale: [{ file: "/repo/plugin/lib/commit-validation.js", mtime_ms: 9_999_999_999_999 }], unreadable: [], checked: 2, start_ms: 1 };
 const FRESH = { stale: [], unreadable: [], checked: 2, start_ms: 1 };
@@ -1204,7 +1184,7 @@ test("反向半边：模块不陈旧时，同样的 failed 不得被降级", asy
 	});
 });
 
-test("陈旧不改判 passed：陈旧只说明「不知道」，不得伪装成通过（00 §5.6）", async () => {
+test("陈旧不改判 passed：陈旧只说明「不知道」，不得伪装成通过（00 §4.6）", async () => {
 	await withTemp("ldvh-stale.", async (base) => {
 		const home = join(base, "home");
 		const root = await initRepo(base);
@@ -1236,7 +1216,6 @@ test("陈旧不改判 passed：陈旧只说明「不知道」，不得伪装成�
 		assert.match(envelope.result.snapshot_identity, /^[0-9a-f]{64}$/);
 	});
 });
-
 
 test("渲染：候选枚举必须逐条列出 responsibility_key，只回计数即失败", () => {
 	const text = (blocks) => blocks.map((b) => b.text ?? "").join("\n");
@@ -1270,7 +1249,6 @@ test("渲染：候选为空时不伪造条目", () => {
 	assert.match(body, /0 candidate\(s\) at L0/);
 	assert.doesNotMatch(body, /^- [^ ]/m, "零候选不得印出任何条目行");
 });
-
 
 test("渲染：陈旧模块报告的每个字段都须在模型侧可见（不能只印 completed）", () => {
 	const fake = {
@@ -1324,7 +1302,6 @@ test("渲染：stale 为空时也必须印出计数与被检数（空结果同�
 	assert.ok(rendered.includes("checked: 94"), "零陈旧时仍须印受检数，否则无法区分「查了没发现」与「没查」");
 	assert.ok(rendered.includes("stale: 0"));
 });
-
 
 async function renderThroughTool(operationKey, handler, args, exec) {
 	const descriptor = toolDescriptor(operationKey, OPERATIONS[operationKey], handler);
@@ -1566,9 +1543,4 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 		assert.ok(stale.text.includes("follow_up: restart the host"), "重试方向必须可见");
 	});
 });
-
-
-
-
-
 

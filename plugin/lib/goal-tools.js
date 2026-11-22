@@ -115,7 +115,7 @@ export function makeExecute(deps) {
         ...read.value.body_issues,
         ...derivedGaps,
         ...(derivedItems.length === 0
-          ? ["subgoal-empty: 本项目尚无任何子目标对象——既可能未精化，也可能下游未声明；两种情形机械层不可区分（28 §8.1）"]
+          ? ["subgoal-empty: 本项目尚无任何子目标对象——既可能未精化，也可能下游未声明；两种情形机械层不可区分（21 §8.1）"]
           : []),
         ...(hasLegacySubGoalSection(read.value.body)
           ? ["goal/legacy_subgoal_section: goal.md 仍带已移出的子目标段，须迁移到 SubGoal 载体后再删除（25 §7）"]

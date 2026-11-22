@@ -211,6 +211,26 @@ test("锚点：续写继承前缀的判据（36 §7.6／§8.9 的第二段须沿
 	);
 });
 
+test("运行期引导不承载 00 锚点：不适用本检查（01 §10.4 只约束开发期会话）", () => {
+	const runtimeText = guidanceTextFor("governed", "runtime");
+	assert.ok(
+		!runtimeText.includes(ANCHOR_BLOCK_START),
+		"运行期引导须不承载 00 锚点块",
+	);
+	const issues = guidanceAnchorIssues({
+		guidance: runtimeText,
+		anchorBlockStart: ANCHOR_BLOCK_START,
+		anchorBlockEnd: ANCHOR_BLOCK_END,
+		anchorSpecNumber: ANCHOR_SPEC_NUMBER,
+		anchorSpecText: anchorSpec,
+		requiredAnchorsText,
+		requiredAnchorsMarker: REQUIRED_ANCHORS_MARKER,
+		specsByNumber,
+		mode: "runtime",
+	});
+	assert.deepEqual(issues, [], "运行期引导不适用 00 锚点检查，须不报 issues");
+});
+
 test("边界：空输入不得抛未捕获异常，须返回可读 issues", () => {
 	const contract = issuesOf(contractIssues({ specText: "", schema: {} }));
 	assert.ok(contract.includes("字段契约表未解析到任何字段行"));

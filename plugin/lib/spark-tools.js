@@ -49,7 +49,6 @@ const OPERATIONS = {
 
 const FACT_SOURCE_ROOT_DIR = "ldvh-base";
 
-
 function envelope(operationKey, outcome, fields) {
   return { operation_key: operationKey, outcome, ...fields };
 }
@@ -79,7 +78,6 @@ async function signatureFor(deps, exec) {
   if (!route.ok) return { ok: false, reason: route.reason };
   return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
 }
-
 
 async function executeReadObject(args, exec, deps) {
   const governed = await governedProject(deps.dshHomePath, exec);
@@ -211,7 +209,7 @@ async function executeListObject(args, exec, deps) {
     gaps,
     verification: { checks: ["directory-scan", "frontmatter-parse"], passed: gaps.length === 0 },
     follow_up: [
-      "dedup (20 §6.2) is a semantic comparison over title/question — performed by the AI on this projection, never by the tool",
+      "dedup (22 §6.2) is a semantic comparison over title/question — performed by the AI on this projection, never by the tool",
       "spark-read-object for the F3 full content of any candidate",
     ]
   });
@@ -257,8 +255,8 @@ async function requestSparkGate(deps, exec, { action, objectTitle, summary }) {
         result: null,
         scope: { requested: action, completed: [], not_completed: [action] },
         sources: [],
-        gaps: ["ctx.userQuestions.ask is not wired into this composition, so the 20 §16 Human Gate "
-          + "cannot be obtained. 20 §13/§16 require an explicit Human confirmation before this action; "
+        gaps: ["ctx.userQuestions.ask is not wired into this composition, so the 22 §16 Human Gate "
+          + "cannot be obtained. 22 §13/§16 require an explicit Human confirmation before this action; "
           + "REPORT TO HUMAN — an unconfirmed write must not silently become a stable fact."],
         verification: { checks: ["governance-scope", "human-confirmation"], passed: false },
         follow_up: ["human must confirm this Spark action through a session that provides an answerer, then retry"]
@@ -279,7 +277,7 @@ async function requestSparkGate(deps, exec, { action, objectTitle, summary }) {
       result: null,
       scope: { requested: action, completed: [], not_completed: [action] },
       sources: [],
-      gaps: [`20 §16 requires an explicit Human confirmation for this action: ${consent?.reason ?? "no confirmation obtained"}`],
+      gaps: [`22 §16 requires an explicit Human confirmation for this action: ${consent?.reason ?? "no confirmation obtained"}`],
       verification: { checks: ["governance-scope", "human-confirmation"], passed: false },
       follow_up: ["obtain the Human's explicit confirmation, then retry — do not proceed on an assumed consent"]
     })
@@ -396,7 +394,7 @@ async function executeWriteObject(args, exec, deps) {
     }
     const dedupResult = args?.dedup_result;
     if (typeof dedupResult !== "string" || dedupResult.trim().length === 0) {
-      return invalidRequest("spark-write-object", "dedup_result is required for action=create (20 §6.2/§17.7): state the semantic dedup conclusion against existing open and terminal Sparks (e.g. \"no same-topic Spark found\" / \"overlaps <uid> but is a distinct direction\"). Dedup is not mechanically decidable — the conclusion stays with you, but an unrecorded one is a Stop Condition.", "create");
+      return invalidRequest("spark-write-object", "dedup_result is required for action=create (22 §6.2/§17.7): state the semantic dedup conclusion against existing open and terminal Sparks (e.g. \"no same-topic Spark found\" / \"overlaps <uid> but is a distinct direction\"). Dedup is not mechanically decidable — the conclusion stays with you, but an unrecorded one is a Stop Condition.", "create");
     }
     const expectedCandidateFingerprint = typeof args?.expected_candidate_fingerprint === "string"
       && args.expected_candidate_fingerprint.length > 0
@@ -407,7 +405,7 @@ async function executeWriteObject(args, exec, deps) {
         ok: false,
         error: {
           code: "spark/candidate_fingerprint_required",
-          message: "expected_candidate_fingerprint is required for action=create (20 §13: 未携带时按「同一性未确认」零写入) — "
+          message: "expected_candidate_fingerprint is required for action=create (22 §13: 未携带时按「同一性未确认」零写入) — "
             + "run ldvh_spark_precheck_create on this candidate first and pass the candidate_fingerprint it returns",
           details: {},
         },
@@ -420,7 +418,7 @@ async function executeWriteObject(args, exec, deps) {
         ok: false,
         error: {
           code: "spark/candidate_changed",
-          message: "the candidate content changed between precheck and write; the precheck verdict does not carry over (20 §13) — re-run the precheck on the current content",
+          message: "the candidate content changed between precheck and write; the precheck verdict does not carry over (22 §13) — re-run the precheck on the current content",
           details: { expected_candidate_fingerprint: expectedCandidateFingerprint, actual_candidate_fingerprint: actualCandidateFingerprint },
         },
       }, factSourceRoot);
@@ -597,7 +595,7 @@ async function executeWriteObject(args, exec, deps) {
       ? {}
       : {
           boundary_delta: boundaryDelta,
-          boundary_delta_note: "20 §13/§16 大改项为 09 §6 弱约束：本字段交还 question/scope_boundary 的现值与拟改值对照供 Human 判断，不构成该 Human Gate 已取得的证据，也不由机械验证。"
+          boundary_delta_note: "22 §13/§16 大改项为 09 §6 弱约束：本字段交还 question/scope_boundary 的现值与拟改值对照供 Human 判断，不构成该 Human Gate 已取得的证据，也不由机械验证。"
         },
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
     verification: { checks: ["cas-baseline", "frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "refs-resolution", "relations-contract", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
@@ -626,11 +624,10 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     follow_up: code === "spark/cas_conflict"
       ? ["re-read the object (spark-read-object), reconcile the concurrent change, and retry with the fresh fingerprint"]
       : code === "spark/status_terminal"
-        ? ["terminal sparks do NOT change status (20 §9.2: 终态不可重开), but their content stays correctable — fix a wrong or over-long terminal record in place with a correction; for later unresolved info create a NEW open Spark and reference the old uid in its summary/change_log"]
+        ? ["terminal sparks do NOT change status (22 §9.2: 终态不可重开), but their content stays correctable — fix a wrong or over-long terminal record in place with a correction; for later unresolved info create a NEW open Spark and reference the old uid in its summary/change_log"]
         : ["fix the reported mechanical issues and retry; zero write has occurred"]
   });
 }
-
 
 function text(body) {
   return [{ type: "text", text: body }];
@@ -709,17 +706,17 @@ export function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; candidate locating and Human scanning" },
-      status: { type: "string", enum: ["open", "implemented", "discarded"], description: "create must be open; update may transition open→implemented/discarded. A terminal status does NOT change again (20 §9.2: 终态不可重开, 终态不可重开但内容可更正) — content correction is still allowed" },
-      question: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 调查问题 body section (carrier coherence, 20 §14.1; frontmatter is the single authoritative text — the body only expands it)" },
-      scope_boundary: { type: "string", description: "when to stop (boundary, not goal achievement); must appear verbatim in the 调查边界 body section (carrier coherence, 20 §14.1; frontmatter is the single authoritative text — the body only expands it)" },
+      status: { type: "string", enum: ["open", "implemented", "discarded"], description: "create must be open; update may transition open→implemented/discarded. A terminal status does NOT change again (22 §9.2: 终态不可重开, 终态不可重开但内容可更正) — content correction is still allowed" },
+      question: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 调查问题 body section (carrier coherence, 22 §14.1; frontmatter is the single authoritative text — the body only expands it)" },
+      scope_boundary: { type: "string", description: "when to stop (boundary, not goal achievement); must appear verbatim in the 调查边界 body section (carrier coherence, 22 §14.1; frontmatter is the single authoritative text — the body only expands it)" },
       intent: { type: "string", description: "why this is worth keeping + the follow-up direction" },
       summary: { type: "string", description: "complete current semantic snapshot — what this thread currently knows and how to judge it. Index/summary layer: the body 当前理解 section expands it and need NOT repeat it verbatim (02 §7.1, Human 2026-11-10)" },
       evolution: { type: "array", items: evolutionEntry, description: "substantive-pivot log (cap 20); when non-empty the body must carry a 演变 H2 section" },
-      serves: { type: "string", description: "SubGoal object_uid (canonical UUIDv4, 28 §12.3); must resolve to an active/achieved SubGoal object; omit when not applicable" },
-      refs: { type: "array", items: refsEntry, description: "related fact objects (03 §7.2 关联引用型, 20 §8): any type; target status is NOT checked (an association survives the target closing); every target must resolve to an existing, readable, same-project object_uid or the write is rejected; cap 10; state-neutral; omit when none. Surfaced on the F1 list card for Human scanning." },
-      priority: { type: "string", enum: ["P0", "P1", "P2", "P3"], description: "suspension ordering tier (20 §8): closed set P0–P3; REQUIRED when status=open (AI proposes an initial tier, Human may adjust), terminal must omit it" },
+      serves: { type: "string", description: "SubGoal object_uid (canonical UUIDv4, 21 §12.3); must resolve to an active/achieved SubGoal object; omit when not applicable" },
+      refs: { type: "array", items: refsEntry, description: "related fact objects (03 §7.2 关联引用型, 22 §8): any type; target status is NOT checked (an association survives the target closing); every target must resolve to an existing, readable, same-project object_uid or the write is rejected; cap 10; state-neutral; omit when none. Surfaced on the F1 list card for Human scanning." },
+      priority: { type: "string", enum: ["P0", "P1", "P2", "P3"], description: "suspension ordering tier (22 §8): closed set P0–P3; REQUIRED when status=open (AI proposes an initial tier, Human may adjust), terminal must omit it" },
       disposition: { type: "string", description: "terminal destination and scope; required iff status is implemented/discarded, forbidden while open" },
-      relations: { type: "array", items: relationEntry, description: "merged-into (cardinality 1) / split-into (1..n); only on discarded, targets must be existing open sparks (20 §11)" },
+      relations: { type: "array", items: relationEntry, description: "merged-into (cardinality 1) / split-into (1..n); only on discarded, targets must be existing open sparks (22 §11)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "question", "scope_boundary", "intent", "summary"],
@@ -730,9 +727,9 @@ export function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          frontmatter_draft: (() => { const { required: _r, ...rest } = sparkFrontmatter; return { ...rest, description: "the candidate's AI-supplied type fields, exactly as create would receive them (Code-managed fields excluded; `status` is stripped from the candidate fingerprint per 20 §13)" }; })(),
+          frontmatter_draft: (() => { const { required: _r, ...rest } = sparkFrontmatter; return { ...rest, description: "the candidate's AI-supplied type fields, exactly as create would receive them (Code-managed fields excluded; `status` is stripped from the candidate fingerprint per 22 §13)" }; })(),
           body_markdown: { type: "string", description: "the candidate body markdown starting with '## 当前理解' (exactly what create would receive)" },
-          dedup_result: { type: "string", description: "required: 20 §13 puts the create entry's dedup_result check INSIDE the precheck, so the precheck must receive the same dedup conclusion the write would carry" }
+          dedup_result: { type: "string", description: "required: 22 §13 puts the create entry's dedup_result check INSIDE the precheck, so the precheck must receive the same dedup conclusion the write would carry" }
         },
         required: ["frontmatter_draft", "body_markdown", "dedup_result"],
         additionalProperties: false
@@ -750,10 +747,10 @@ export function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["open", "all"], description: "open = default (ordinary unresolved candidates only, 20 §12); all = include implemented/discarded for historical tracing" },
-          keyword: { type: "string", description: "literal case-insensitive substring over title and question (the two semantic inputs 20 §6.2 names for dedup). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (02 §9 第 4 项 / 02:262: Code must not use similarity, embedding or keyword weights to adjudicate relevance)" },
-          priorities: { type: "array", items: { type: "string", enum: ["P0", "P1", "P2", "P3"] }, description: "keep only Sparks whose declared priority is among these (20 §8). Untiered Sparks are never inferred into a tier, so they do not match any priority filter (20 §8: 排序缺失者排末位、不推定档位)" },
-          serves: { type: "string", description: "keep only Sparks serving this SubGoal object_uid verbatim (28 §12.3). Empty result means no Spark declares it — not that the sub-goal is unused" },
+          status: { type: "string", enum: ["open", "all"], description: "open = default (ordinary unresolved candidates only, 22 §12); all = include implemented/discarded for historical tracing" },
+          keyword: { type: "string", description: "literal case-insensitive substring over title and question (the two semantic inputs 22 §6.2 names for dedup). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (02 §9 第 4 项 / 02:262: Code must not use similarity, embedding or keyword weights to adjudicate relevance)" },
+          priorities: { type: "array", items: { type: "string", enum: ["P0", "P1", "P2", "P3"] }, description: "keep only Sparks whose declared priority is among these (22 §8). Untiered Sparks are never inferred into a tier, so they do not match any priority filter (22 §8: 排序缺失者排末位、不推定档位)" },
+          serves: { type: "string", description: "keep only Sparks serving this SubGoal object_uid verbatim (21 §12.3). Empty result means no Spark declares it — not that the sub-goal is unused" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1). The cap applies AFTER filtering, and total is the filtered hit count" }
         },
         additionalProperties: false
@@ -763,7 +760,7 @@ export function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           action: { type: "string", enum: ["create", "update"] },
-          dedup_result: { type: "string", description: "create (required): the semantic dedup conclusion against existing open and terminal Sparks (20 §6.2/§17.7 — 03 §8.2 forbids a mechanical similarity verdict, so the conclusion stays with you, but it is required and is presented to the Human at the 20 §16 Gate). An unrecorded dedup is a Stop Condition." },
+          dedup_result: { type: "string", description: "create (required): the semantic dedup conclusion against existing open and terminal Sparks (22 §6.2/§17.7 — 03 §8.2 forbids a mechanical similarity verdict, so the conclusion stays with you, but it is required and is presented to the Human at the 22 §16 Gate). An unrecorded dedup is a Stop Condition." },
           frontmatter_draft: sparkFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 当前理解' (H2 sections 当前理解/调查问题/调查边界, plus 演变 iff evolution non-empty; the H1 is generated from title)" },
           object_uid: { type: "string", description: "update target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
@@ -772,7 +769,7 @@ export function parameterSchemaFor(operationKey) {
           frontmatter_removals: { type: "array", description: `update: explicit deletion declarations (载体：fact-model-common 的 field-channel 条目——未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-list (SPARK_REMOVABLE_FIELDS for update: ${[...SPARK_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...SPARK_REMOVABLE_FIELDS] } },
           body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown)" },
           change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" },
-          expected_candidate_fingerprint: { type: "string", description: "create (required): the candidate_fingerprint returned by ldvh_spark_precheck_create for THIS candidate content. 20 §13 makes it a required create entry parameter — a create without it is refused with zero writes (「同一性未确认」). The write refuses when the content changed since the precheck." }
+          expected_candidate_fingerprint: { type: "string", description: "create (required): the candidate_fingerprint returned by ldvh_spark_precheck_create for THIS candidate content. 22 §13 makes it a required create entry parameter — a create without it is refused with zero writes (「同一性未确认」). The write refuses when the content changed since the precheck." }
         },
         required: ["action"],
         additionalProperties: false

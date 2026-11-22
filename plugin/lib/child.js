@@ -1,5 +1,5 @@
 
-import { guidanceTextFor } from "./guidance-text.js";
+import { guidanceTextFor, resolveGuidanceMode } from "./guidance-text.js";
 import { DelegatedChildRecord } from "./agent-lifecycle.js";
 
 const RETIRED_LIMIT = 50;
@@ -46,10 +46,12 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
         children.delete(agentId);
       };
       try {
-        stops.push(agent.ctx.on("system-prompt/assemble", (assembly, context, next) => {
+        stops.push(agent.ctx.on("system-prompt/assemble", async (assembly, context, next) => {
           if (context?.agent === undefined || context.agent.id !== agentId) return next();
           if (context.signal?.aborted === true) return next();
-          const text = guidanceTextFor(record.scopeState ?? "not_governed");
+
+          const mode = await resolveGuidanceMode(parentRecord?.lastScope?.project?.path);
+          const text = guidanceTextFor(record.scopeState ?? "not_governed", mode);
           return next().then((assembled) => {
             const sections = (assembled.sections ?? []).filter((section) => section.name !== "ldvh:minimal-guidance");
             if (text !== "") sections.push({ name: "ldvh:minimal-guidance", text });

@@ -182,7 +182,7 @@ export const REAL_CASES = [
     q: "dsh-ldvh@spark-69b1de3f-7202-4abe-9281-93a2840855e1 这个问题当前是什么状态",
     want: [],
     kind: "ref",
-    basis: "引用式且目标是 spark：按 20 §12.1／31 §10 不进引导面自动注入，"
+    basis: "引用式且目标是 spark：按 22 §12.1／31 §10 不进引导面自动注入，"
       + "注入面正确期望为空。该对象须由 AI 用 ldvh_spark_read 主动取。",
   },
   {

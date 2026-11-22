@@ -90,8 +90,11 @@ export function guidanceAnchorIssues({
   requiredAnchorsText,
   requiredAnchorsMarker,
   specsByNumber,
+  mode = "dev",
 }) {
   const issues = [];
+
+  if (mode !== "dev") return issues;
   const start = guidance.indexOf(anchorBlockStart);
   if (start === -1) {
     issues.push("引导文本中未找到工作锚点块起始标记");

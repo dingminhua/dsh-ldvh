@@ -20,14 +20,13 @@ export const HEADER_LANGUAGE_EXEMPTIONS = Object.freeze([
 export const SIGNATURES = ["LDVH-Provider", "LDVH-Model"];
 export const SOURCE_FINGERPRINT = createHash("sha256").update("dsh-ldvh-git-gate-v1", "utf8").digest("hex");
 
-
 export const GATE_RULES = Object.freeze({
   "validation/header_invalid": Object.freeze({ severity: "blocking", description: "first line must be a conventional commit header" }),
   "validation/header_not_chinese": Object.freeze({ severity: "blocking", description: "header description must use Chinese: 09 §5.1 states the message contract in Chinese and requires the 关键变更: literal verbatim, so the description half carries the same language requirement (implementation gap 2026-10-19; two pre-existing Latin headers are registered as exemptions in HEADER_LANGUAGE_EXEMPTIONS)" }),
   "validation/key_changes_required": Object.freeze({ severity: "blocking", description: "body must contain exactly one 关键变更: section with non-empty items" }),
   "validation/signature_trailer_missing": Object.freeze({ severity: "blocking", description: "footer requires exactly one LDVH-Provider: and one LDVH-Model: line" }),
-  "validation/key_change_unmatched": Object.freeze({ severity: "blocking", description: "a 关键变更 item names no staged change (06 §6.1: no items absent from the diff)" }),
-  "validation/staged_path_uncovered": Object.freeze({ severity: "blocking", description: "a staged diff path is covered by no 关键变更 item (06 §6.1: no diff change may be omitted; K1 bidirectional, Human 2026-09-10)" }),
+  "validation/key_change_unmatched": Object.freeze({ severity: "blocking", description: "a 关键变更 item names no staged change (09 §5.1: no items absent from the diff)" }),
+  "validation/staged_path_uncovered": Object.freeze({ severity: "blocking", description: "a staged diff path is covered by no 关键变更 item (09 §5.1: no diff change may be omitted; K1 bidirectional, Human 2026-09-10)" }),
   "validation/signature_provider_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Provider does not match the authoritative session record" }),
   "validation/signature_model_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Model does not match the authoritative session record" }),
   "validation/signature_source_unverifiable": Object.freeze({ severity: "blocking", description: "the authoritative route could not be resolved inside the commit-msg Hook, so the trailers' traceability cannot be verified — 09 §5.5 非 passed 即阻断; rule established by the 09 §8.1 item 2 decision (Human 2026-11-05)" }),
@@ -137,7 +136,7 @@ export function checkKeyChangesAgainstDiff(message, diff) {
       issues.push(newFinding("validation/staged_path_uncovered", `已改路径 "${path}" 没有任何 关键变更 item 覆盖它（该方向要求：每个非豁免的已暂存改动都须在 关键变更 中被点名，否则等于漏报改动）。补一条点名 "${path}" 的 item 即可。只写它所在的单个目录名不算覆盖（会被判为漏报）；可用写法：完整路径、文件名、\`specs/08\` 这类编号载体前缀，或不少于两级的目录前缀（该路径只有一级目录时，写完整路径或文件名）。`, null));
     }
     if (unmatched.length > 0 && uncovered.length > 0) {
-      issues.push(newFinding("validation/key_changes_required", `关键变更 与已暂存改动是**双向一一对应**关系（06 §6.1 K1）：每个 item 须命中一个已改路径，每个已改路径须被一个 item 命中。本次同时有 ${unmatched.length} 个 item 无对应改动、${uncovered.length} 个改动无对应 item——请一并修正后再提交，不必逐轮试探。`, null));
+      issues.push(newFinding("validation/key_changes_required", `关键变更 与已暂存改动是**双向一一对应**关系（09 §5.1 K1）：每个 item 须命中一个已改路径，每个已改路径须被一个 item 命中。本次同时有 ${unmatched.length} 个 item 无对应改动、${uncovered.length} 个改动无对应 item——请一并修正后再提交，不必逐轮试探。`, null));
     }
     return { ok: false, issues };
   }
@@ -198,16 +197,6 @@ export function extractDocsReferences(text) {
   return [...found];
 }
 
-/**
- * 去掉载体 frontmatter 里的 `change_log` 流水块，只留其余部分。
- *
- * 缘由（09 §5.3 第 5 项边界，Human 2026-11-22 决定）：流水条目由 Code 托管且只追加，
- * 受控写入通道不提供既有条目的修改（02 §10.5）。流水里对路径的提及记述的是
- * 「已发生的动作」（含「移除了对某路径的引用」这类动作本身），不是以该路径为权威依据；
- * 若把它计入 docs 引用检查，一次如实记录移除引用的动作就会让该载体永久无法通过本项。
- *
- * 只处理顶层（列 0）的 `change_log:` 键；嵌套键（如 ldvh_spec 内的同名键）不动。
- */
 export function stripChangeLogFromFrontmatter(text) {
   if (typeof text !== "string") return text;
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -226,7 +215,7 @@ export function stripChangeLogFromFrontmatter(text) {
       kept.push(line);
       continue;
     }
-    // 流水块的条目是缩进续行；空行也归该块；下一个顶层键结束该块
+
     if (line.trim() === "" || /^[ \t]/.test(line)) continue;
     skipping = false;
     kept.push(line);
@@ -262,7 +251,7 @@ export function checkDocsReferences(carriers, { exists } = {}) {
       ));
       continue;
     }
-    // 流水条目里的路径提及不构成「引用」（09 §5.3 第 5 项边界）
+
     const scannable = stripChangeLogFromFrontmatter(carrier.content);
     const baselineScannable = typeof carrier.baseline === "string"
       ? stripChangeLogFromFrontmatter(carrier.baseline)
@@ -283,7 +272,6 @@ export function checkDocsReferences(carriers, { exists } = {}) {
   }
   return { ok: issues.length === 0, issues };
 }
-
 
 export const NORM_FACT_DIRECTORY = "ldvh-base/norms";
 
@@ -335,7 +323,6 @@ function parseNormCarrierFrontmatter(content) {
   }
   return { ok: true, frontmatter };
 }
-
 
 export function isNormCarrierPath(path) {
   return path.startsWith(`${NORM_FACT_DIRECTORY}/`) && /\/norm-[^/]+\.md$/.test(path);
@@ -394,7 +381,6 @@ export async function checkFrictionCommitTargets(carriers, { resolves } = {}) {
   }
   return { ok: issues.length === 0, issues, checked };
 }
-
 
 const CARRIER_ID_SEGMENT =
   "(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})";

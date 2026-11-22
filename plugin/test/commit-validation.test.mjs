@@ -38,7 +38,6 @@ const validMessage = [
 	"LDVH-Model: test",
 ].join("\n");
 
-
 test("validateMessage returns no issues for a fully legal message", () => {
 	assert.deepEqual(validateMessage(validMessage), []);
 });
@@ -72,7 +71,6 @@ test("validateMessage accepts the transition-period scoped header (e.g. chore(co
 	assert.deepEqual(validateMessage(msg), []);
 });
 
-
 test("validateMessage rejects a missing header", () => {
 	const msg = ["关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
@@ -90,7 +88,6 @@ test("validateMessage rejects an unknown header type", () => {
 	const issues = validateMessage(msg);
 	assert.ok(issues.some((i) => i.rule.startsWith("validation/header_invalid")));
 });
-
 
 test("validateMessage rejects a header whose description has no Chinese character", () => {
 	const msg = ["fix(injection): stop re-injecting the governance block on adjacent turns", "", "关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
@@ -124,7 +121,6 @@ test("isHeaderDescriptionNonChinese flags a fresh Latin description", () => {
 	assert.equal(isHeaderDescriptionNonChinese("docs: update the readme"), true);
 });
 
-
 test("validateMessage rejects a missing 关键变更: section", () => {
 	const msg = ["chore: add gate", "", "free-form body", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
@@ -142,7 +138,6 @@ test("validateMessage rejects multiple 关键变更: sections", () => {
 	const issues = validateMessage(msg);
 	assert.ok(issues.some((i) => i.rule.startsWith("validation/key_changes_required")));
 });
-
 
 test("validateMessage rejects a message missing LDVH-Provider", () => {
 	const msg = ["chore: add gate", "", "关键变更:", "- x", "", "LDVH-Model: test"].join("\n");
@@ -168,12 +163,10 @@ test("validateMessage rejects an empty LDVH-Provider trailer", () => {
 	assert.ok(issues.some((i) => i.message.includes("LDVH-Provider")));
 });
 
-
 test("validateMessage normalizes CRLF to LF before checking", () => {
 	const crlf = validMessage.replace(/\n/g, "\r\n");
 	assert.deepEqual(validateMessage(crlf), []);
 });
-
 
 test("snapshotIdentity is sha256 hex and stable over (diff, message)", () => {
 	const a = snapshotIdentity("diff", "msg");
@@ -214,7 +207,6 @@ test("snapshotIdentity still separates messages that differ only INSIDE the body
 	assert.notEqual(snapshotIdentity("d", a), snapshotIdentity("d", "subject\n\n关键变更:\n- A "));
 });
 
-
 test("checkKeyChangesAgainstDiff returns ok when every item matches a changed path", () => {
 	const diff = [
 		"diff --git a/plugin/lib/foo.js b/plugin/lib/foo.js",
@@ -244,7 +236,6 @@ test("checkKeyChangesAgainstDiff accepts a single item that names a parent direc
 	const result = checkKeyChangesAgainstDiff(msg, diff);
 	assert.equal(result.ok, true);
 });
-
 
 test("checkKeyChangesAgainstDiff returns ok:false when the 关键变更: section is missing", () => {
 	const msg = ["chore: no items", "", "free body", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
@@ -297,7 +288,6 @@ test("checkKeyChangesAgainstDiff handles a second 关键变更: section by zeroi
 	const result = checkKeyChangesAgainstDiff(msg, diff);
 	assert.equal(result.ok, false);
 });
-
 
 function normCarrier(frontmatter) {
 	return `---\ntitle: T\n${frontmatter}\n---\n\n# T\n`;
@@ -360,7 +350,6 @@ test("isNormCarrierPath recognises only norms/ carriers", () => {
 	assert.equal(isNormCarrierPath("ldvh-base/sparks/spark-x.md"), false);
 });
 
-
 test("HEADER_PATTERN is exported as a RegExp", () => {
 	assert.ok(HEADER_PATTERN instanceof RegExp);
 });
@@ -372,8 +361,6 @@ test("SIGNATURES is the canonical two-element list", () => {
 test("SOURCE_FINGERPRINT is a 64-hex string and stable", () => {
 	assert.match(SOURCE_FINGERPRINT, /^[0-9a-f]{64}$/);
 });
-
-
 
 test("GATE_RULES registers every rule the validator emits, each with severity and description", () => {
 	const expected = [
@@ -425,7 +412,6 @@ test("validateMessage returns structured findings with rule/severity/message fie
 		assert.ok(typeof issue.message === "string");
 	}
 });
-
 
 test("checkKeyChangesAgainstDiff rejects a staged path covered by no item (bidirectional)", () => {
 	const diff = [
@@ -567,7 +553,6 @@ test("isExemptPath matches the registered basenames only", () => {
 	assert.deepEqual([...EXEMPT_BASENAMES], ["package-lock.json", "pnpm-lock.yaml"]);
 });
 
-
 test("extractDocsReferences finds bare docs/ paths and trims trailing punctuation", () => {
 	assert.deepEqual(extractDocsReferences("见 `docs/a.md`（注）"), ["docs/a.md"]);
 	assert.deepEqual(extractDocsReferences("见 docs/archive/b.md，与 docs/c.md。"), ["docs/archive/b.md", "docs/c.md"]);
@@ -595,8 +580,6 @@ test("extractDocsReferences extracts a CJK filename segment to its full extent",
 	);
 	assert.deepEqual(extractDocsReferences("（`docs/候选/x.md`）"), ["docs/候选/x.md"]);
 });
-
-// --- 09 §5.3 第 5 项边界：流水条目里的路径提及不构成「引用」（Human 2026-11-22 决定） ---
 
 test("stripChangeLogFromFrontmatter removes the change_log block and keeps the rest", () => {
 	const carrier = [
@@ -865,7 +848,6 @@ test("docs_reference_dangling is registered in the K1 rule registry", () => {
 	assert.equal(GATE_RULES["validation/docs_reference_dangling"].severity, "blocking");
 });
 
-
 const FRICTION_OK = `---
 title: 示例摩擦
 status: resolved
@@ -942,7 +924,6 @@ test("摩擦载体路径判定只认 frictions/ 下的 friction-*.md", () => {
 	assert.equal(isFrictionCarrierPath("ldvh-base/frictions/notes.md"), false);
 	assert.equal(isFrictionCarrierPath("ldvh-base/pitfalls/pitfall-abc.md"), false);
 });
-
 
 const UID_A = "11111111-1111-4111-8111-111111111111";
 const UID_B = "22222222-2222-4222-8222-222222222222";
@@ -1025,12 +1006,5 @@ test("carrier identity: identity comparison is case-insensitive (uppercase decla
 	assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
 
-
-
-
-
 const SPEC00 = readFileSync(new URL("../../specs/00-理念与构成.md", import.meta.url), "utf8");
-
-
-
 

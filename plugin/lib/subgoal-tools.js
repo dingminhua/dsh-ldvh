@@ -43,7 +43,6 @@ const OPERATIONS = {
 
 const FACT_SOURCE_ROOT_DIR = "ldvh-base";
 
-
 function envelope(operationKey, outcome, fields) {
   return { operation_key: operationKey, outcome, ...fields };
 }
@@ -73,7 +72,6 @@ async function signatureFor(deps, exec) {
   if (!route.ok) return { ok: false, reason: route.reason };
   return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
 }
-
 
 async function executeReadObject(args, exec, deps) {
   const governed = await governedProject(deps.dshHomePath, exec);
@@ -140,12 +138,12 @@ async function executeReadObject(args, exec, deps) {
       ...value.mechanical_issues,
       ...servesLookup.gaps,
       ...(servesLookup.items.length === 0
-        ? ["serving-empty: 该子目标名下暂无 serves 引用——既可能未拆解，也可能下游未声明，两种情形机械层不可区分（28 §8.1）"]
+        ? ["serving-empty: 该子目标名下暂无 serves 引用——既可能未拆解，也可能下游未声明，两种情形机械层不可区分（21 §8.1）"]
         : []),
     ],
     verification: { checks: ["frontmatter-parse", "body-structure", "closed-set", "serves-reverse-lookup"], passed: value.mechanical_issues.length === 0 },
     follow_up: [
-      "whether the criterion is really decidable and whether alignment really tracks the goal statement are AI/Human semantic judgements — NOT mechanical results (28 §15)",
+      "whether the criterion is really decidable and whether alignment really tracks the goal statement are AI/Human semantic judgements — NOT mechanical results (21 §15)",
       "subgoal-write-object action=update with the observed fingerprint when a controlled change is needed",
     ]
   });
@@ -219,7 +217,7 @@ async function executeListObject(args, exec, deps) {
     gaps,
     verification: { checks: ["directory-scan", "frontmatter-parse"], passed: gaps.length === 0 },
     follow_up: [
-      "dedup (28 §6.2) is a semantic comparison over the criterion text — performed by the AI on this projection, never by the tool",
+      "dedup (21 §6.2) is a semantic comparison over the criterion text — performed by the AI on this projection, never by the tool",
       "subgoal-read-object for the F3 full content of any candidate",
     ]
   });
@@ -322,7 +320,7 @@ async function executeWriteObject(args, exec, deps) {
         ok: false,
         error: {
           code: "subgoal/candidate_fingerprint_required",
-          message: "expected_candidate_fingerprint is required for action=create (28 §13: 未携带该指纹的，按「同一性未确认」零写入) — "
+          message: "expected_candidate_fingerprint is required for action=create (21 §13: 未携带该指纹的，按「同一性未确认」零写入) — "
             + "run ldvh_subgoal_precheck_create on this candidate first and pass the candidate_fingerprint it returns",
           details: {},
         },
@@ -357,7 +355,7 @@ async function executeWriteObject(args, exec, deps) {
       gaps: readBack.ok ? [] : [readBack.error.message],
       verification: { checks: ["frontmatter-closed-set", "identity-uniqueness", "parent-goal-resolvable", "body-skeleton", "write-read-back"], passed: readBack.ok },
       follow_up: [
-        "whether this sub-goal really serves the goal statement, and whether the criterion is truly decidable, are AI/Human semantic judgements (28 §15) — this write only proves the shape",
+        "whether this sub-goal really serves the goal statement, and whether the criterion is truly decidable, are AI/Human semantic judgements (21 §15) — this write only proves the shape",
         "subgoal-write-object action=update with the read-back fingerprint for further controlled change",
       ]
     });
@@ -421,10 +419,10 @@ async function executeWriteObject(args, exec, deps) {
     gaps: readBack.ok ? [] : [readBack.error.message],
     verification: { checks: ["cas-fingerprint", "transition-legality", "identity-frozen", "closed-set", "body-skeleton", "write-read-back"], passed: readBack.ok },
     follow_up: updated.value.transition === "achieve"
-      ? "achieved is terminal (28 §9.2): the file is read-only afterwards; if the criterion later proves wrong, create a NEW sub-goal rather than reopening this one"
+      ? "achieved is terminal (21 §9.2): the file is read-only afterwards; if the criterion later proves wrong, create a NEW sub-goal rather than reopening this one"
       : updated.value.transition === "retire"
-        ? "retired is terminal (28 §9.2): existing serves references keep their value and go through the local re-batch path (21 §10.3); a new sub-goal is a new object, never a revival of this one"
-        : "28 §8: `order` is display-only and may be changed freely; `object_uid` is the identity and cannot change",
+        ? "retired is terminal (21 §9.2): existing serves references keep their value and go through the local re-batch path (21 §10.3); a new sub-goal is a new object, never a revival of this one"
+        : "21 §8: `order` is display-only and may be changed freely; `object_uid` is the identity and cannot change",
   });
 }
 
@@ -432,7 +430,7 @@ export function renderIdentityConflictGaps(details) {
   const conflicts = Array.isArray(details?.conflicts) ? details.conflicts : [];
   if (conflicts.length === 0) return [];
   return [
-    `同一对象身份出现在 ${conflicts.length} 条载体上（28 §17 第 5 项：两处权威）——先消除重复载体再继续写入`,
+    `同一对象身份出现在 ${conflicts.length} 条载体上（21 §17 第 5 项：两处权威）——先消除重复载体再继续写入`,
     ...conflicts.map((entry) => `占用者：${entry?.title ?? "(无标题)"}｜文件=${entry?.file ?? "(未知)"}｜status=${entry?.status ?? "(未知)"}`)
   ];
 }
@@ -470,13 +468,12 @@ export function writeRejected(operationKey, result, factSourceRoot, action) {
     ],
     verification: { checks: ["mechanical-checks"], passed: false },
     follow_up: code === "subgoal/identity_duplicated"
-      ? ["two carriers claim the same object_uid — resolve the duplication by hand; the writer will not guess which one is authoritative (28 §17 第 5 项)"]
+      ? ["two carriers claim the same object_uid — resolve the duplication by hand; the writer will not guess which one is authoritative (21 §17 第 5 项)"]
       : code === "subgoal/parent_goal_unresolvable"
-        ? ["the project goal carrier must exist and carry goal_key=project-goal before any sub-goal can be written (28 §14.1)"]
+        ? ["the project goal carrier must exist and carry goal_key=project-goal before any sub-goal can be written (21 §14.1)"]
         : [],
   });
 }
-
 
 function text(body) {
   return [{ type: "text", text: body }];
@@ -529,14 +526,14 @@ function parameterSchemaFor(operationKey) {
     type: "object",
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
-      title: { type: "string", description: "≤ 40 characters; sub-goal short title for locating and Human scanning (28 §8)" },
-      order: { type: "integer", description: "optional display order (28 §8): positive integer, may be omitted, need not be unique or contiguous; it carries NO reference duty, so it may be changed freely at any time" },
-      parent_goal: { type: "string", enum: ["project-goal"], description: "the goal key this sub-goal serves; must match the goal carrier's goal_key (28 §8)" },
-      status: { type: "string", enum: ["active", "achieved", "retired"], description: "create must be active (28 §9.2 — the only legal initial state); update may transition active→achieved or active→retired, both terminal and read-only afterwards" },
-      criterion: { type: "string", description: "the decidable achievement condition — one sentence stating WHAT MATERIAL must appear for this sub-goal to count as achieved (28 §8/§10.2). This statement must appear VERBATIM in the 达成条件 body section (carrier coherence, 28 §8 字段间不变量 1; frontmatter is the single authoritative text — the body only expands it). 'Complete task X' / 'close N tasks' is NOT a criterion (28 §6.3)" },
-      criterion_kind: { type: "string", enum: ["metric", "closure-records", "executable-check"], description: "how the criterion is proven (28 §10.2): metric = an observable value reaches a threshold; closure-records = a chain of closing records constitutes the material; executable-check = a reproducible check passes. This makes 'how would we prove it' a required answer at creation — it does NOT make the criterion decidable by itself" },
-      alignment: { type: "string", description: "why this sub-goal serves the goal statement — must point at specific content of the goal statement, not a generic phrase (28 §8; red line 7). Non-empty is mechanically checkable; whether it is TRUE is a semantic judgement (28 §15)" },
-      disposition: { type: "string", description: "terminal destination & reason; required iff status=retired, forbidden otherwise (28 §8)" },
+      title: { type: "string", description: "≤ 40 characters; sub-goal short title for locating and Human scanning (21 §8)" },
+      order: { type: "integer", description: "optional display order (21 §8): positive integer, may be omitted, need not be unique or contiguous; it carries NO reference duty, so it may be changed freely at any time" },
+      parent_goal: { type: "string", enum: ["project-goal"], description: "the goal key this sub-goal serves; must match the goal carrier's goal_key (21 §8)" },
+      status: { type: "string", enum: ["active", "achieved", "retired"], description: "create must be active (21 §9.2 — the only legal initial state); update may transition active→achieved or active→retired, both terminal and read-only afterwards" },
+      criterion: { type: "string", description: "the decidable achievement condition — one sentence stating WHAT MATERIAL must appear for this sub-goal to count as achieved (21 §8/§10.2). This statement must appear VERBATIM in the 达成条件 body section (carrier coherence, 21 §8 字段间不变量 1; frontmatter is the single authoritative text — the body only expands it). 'Complete task X' / 'close N tasks' is NOT a criterion (21 §6.3)" },
+      criterion_kind: { type: "string", enum: ["metric", "closure-records", "executable-check"], description: "how the criterion is proven (21 §10.2): metric = an observable value reaches a threshold; closure-records = a chain of closing records constitutes the material; executable-check = a reproducible check passes. This makes 'how would we prove it' a required answer at creation — it does NOT make the criterion decidable by itself" },
+      alignment: { type: "string", description: "why this sub-goal serves the goal statement — must point at specific content of the goal statement, not a generic phrase (21 §8; red line 7). Non-empty is mechanically checkable; whether it is TRUE is a semantic judgement (21 §15)" },
+      disposition: { type: "string", description: "terminal destination & reason; required iff status=retired, forbidden otherwise (21 §8)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "parent_goal", "criterion", "criterion_kind", "alignment"],
@@ -570,7 +567,7 @@ function parameterSchemaFor(operationKey) {
     return {
       type: "object",
       properties: {
-        status: { type: "string", enum: ["active", "all"], description: "active = default (ordinary unresolved candidates, 28 §12.4); all = include achieved/retired for historical tracing" },
+        status: { type: "string", enum: ["active", "all"], description: "active = default (ordinary unresolved candidates, 21 §12.4); all = include achieved/retired for historical tracing" },
         limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 02 §9.1)" }
       },
       additionalProperties: false
@@ -579,7 +576,7 @@ function parameterSchemaFor(operationKey) {
   return {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["create", "update"], description: "create: new SubGoal in status=active (Human decision required, 28 §16); update: CAS write against an existing object" },
+      action: { type: "string", enum: ["create", "update"], description: "create: new SubGoal in status=active (Human decision required, 21 §16); update: CAS write against an existing object" },
       frontmatter_draft: subgoalFrontmatter,
       body_markdown: { type: "string", description: "create: the body markdown starting with '## 达成条件' (H2 sections 达成条件/对齐说明, both required and non-empty; criterion and alignment must appear VERBATIM inside them; the H1 is generated from title)" },
       object_uid: { type: "string", description: "update target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
@@ -587,8 +584,8 @@ function parameterSchemaFor(operationKey) {
       frontmatter_after: subgoalFrontmatterAfter,
       frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
       body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown, INCLUDING the H1 line — pass back what a precise read returned)" },
-      change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry; for active→achieved it must state the evidence basis (28 §9.2)" },
-      expected_candidate_fingerprint: { type: "string", description: "create (required): the candidate_fingerprint returned by ldvh_subgoal_precheck_create for THIS candidate content. 28 §13 makes it a required entry parameter — a create without it is refused with zero writes (「同一性未确认」). The write also refuses when the content changed since the precheck." }
+      change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry; for active→achieved it must state the evidence basis (21 §9.2)" },
+      expected_candidate_fingerprint: { type: "string", description: "create (required): the candidate_fingerprint returned by ldvh_subgoal_precheck_create for THIS candidate content. 21 §13 makes it a required entry parameter — a create without it is refused with zero writes (「同一性未确认」). The write also refuses when the content changed since the precheck." }
     },
     required: ["action"],
     additionalProperties: false

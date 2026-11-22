@@ -19,7 +19,6 @@ import {
   silentRunNotice,
 } from "../lib/review-ask.js";
 
-
 test("resolveReviewAskSettings：两代宿主取值形态都认，缺省按关", () => {
   const both = resolveReviewAskSettings({ preActionReviewAskEnabled: true, postWorkReviewAskEnabled: false });
   assert.equal(both.preAction, true);
@@ -78,7 +77,6 @@ test("两个开关互相独立：只开一个时另一个仍为关", () => {
   assert.equal(onlyPost.postWork, true);
 });
 
-
 test("COMPLEXITY_CRITERIA：每条都带规范出处，不新增判据", () => {
   assert.ok(Array.isArray(COMPLEXITY_CRITERIA) && COMPLEXITY_CRITERIA.length > 0);
   for (const item of COMPLEXITY_CRITERIA) {
@@ -87,7 +85,6 @@ test("COMPLEXITY_CRITERIA：每条都带规范出处，不新增判据", () => {
     assert.match(item.source, /^gate-consult-system-foundation 的 complex-task 条目/, `${item.key} 的出处须回指载体的 complex-task 条目，实际 ${item.source}`);
   }
 });
-
 
 test("GATE_POINT_EXCLUSIONS：三类都有承接面、出处与反向边界，且属 32 号不属 04 号", () => {
   assert.ok(Array.isArray(GATE_POINT_EXCLUSIONS) && GATE_POINT_EXCLUSIONS.length === 3,
@@ -114,7 +111,6 @@ test("点位排除与判据清单必须是两份数据、不得合并（32 §19 
     assert.doesNotMatch(item.source, /point-exclusions/, `复杂任务判据「${item.key}」的出处不得指向点位排除条目`);
   }
 });
-
 
 test("GATE_POINT_EXCLUSIONS：类别名与承接条目须能在载体原文逐条找到", async () => {
   const { readFile } = await import("node:fs/promises");
@@ -261,7 +257,7 @@ test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2
     const expected = GATE_POINT_EXCLUSIONS.length;
     values.forEach((v, idx) => {
       const lang = /[㐀-䶿一-鿿]/.test(v) ? "中文" : "英文";
-      // 精简文案可不提「点位排除」字眼，但若写了条数就不得过期（MINOR-2 的复发面）。
+
       for (const m of v.matchAll(/([零一二三四五六七八九十]|[0-9]+)类(?:情况不问|点位排除)/g)) {
         const raw = m[1];
         const got = /^[0-9]+$/.test(raw) ? Number(raw) : numerals.indexOf(raw);
@@ -281,7 +277,6 @@ test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2
   assert.deepEqual(failures, [], `设置页文案中英不同步（行动后复核 MINOR-2 的复发面）：\n${failures.join("\n")}`);
 });
 
-
 test("reviewAskFingerprint：同输入同指纹、异输入异指纹、位置参与指纹", () => {
   const base = { point: "pre-action", task: "改开关", scope: "plugin/lib" };
   assert.equal(reviewAskFingerprint(base), reviewAskFingerprint({ ...base }), "同一件事重试须得到同一指纹（否则重试必重问）");
@@ -290,7 +285,6 @@ test("reviewAskFingerprint：同输入同指纹、异输入异指纹、位置参
   assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ point: "pre-action" }), "缺字段不得与有字段撞指纹");
   assert.match(reviewAskFingerprint(base), /^[a-f0-9]{64}$/);
 });
-
 
 test("composeReviewAsk：只写「要做什么」与「要不要审」，不产出 detail 且不出现判据", () => {
   const pre = composeReviewAsk({ point: REVIEW_ASK_POINTS.PRE_ACTION, task: "重构召回注入" });
@@ -333,7 +327,6 @@ test("开关只认布尔真值：非布尔一律按关（不确定就当关）",
     assert.equal(r.preActionKnown, false, "缺省须报 unknown，不得假装 Human 关掉了");
   }
 });
-
 
 async function withHome(fn) {
   const dir = await mkdtemp(join(tmpdir(), "ldvh-review-ask-"));
@@ -414,7 +407,6 @@ test("载体：无 home resolver 时 fail-closed，不静默当空", async () =>
   assert.equal(read.error.code, "review-ask/unavailable");
 });
 
-
 test("executeReviewAsk：开关关闭时**不得**提问，且如实标注这是设计不是失败", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   let asked = 0;
@@ -469,7 +461,6 @@ test("executeReviewAsk：skip 是合法答复（不得当成拒绝/失败）", a
   assert.equal(env.outcome, "completed", "skip 是明确答复，不是失败");
   assert.equal(env.verification.passed, true);
 });
-
 
 test("reviewAskMode：静默只在询问开关开着时有对象；关着询问时静默不越过它", () => {
   assert.equal(reviewAskMode({ preAction: true, silentRun: false }, "pre-action").mode, "ask");
@@ -565,7 +556,6 @@ test("reviewAskMode：静默键缺失时退回 ask 并标记 silentUnknown（真
   assert.equal(off.mode, "ask");
   assert.equal(off.silentUnknown, false, "显式关掉不是取不到，不得混为一谈");
 });
-
 
 test("两份模板：kind 可区分，且都含五块结构与硬性约束", async () => {
   const { reviewDispatchTemplate } = await import("../lib/review-dispatch-template.js");
@@ -668,7 +658,6 @@ test("模板：只有 task 时它作为对象描述出现且**只出现一次**�
   assert.match(neither, /主控未提供对象描述/);
 });
 
-
 test("renderEnvelope 必须把答复与模板渲染给模型（BLOCKER：原实现恒为 completed）", async () => {
   const { renderEnvelope } = await import("../lib/ldvh-tools.js");
   const mk = (decision, template) => ({
@@ -757,7 +746,6 @@ test("指纹须含会话/项目范围，否则跨项目静默复用（MAJOR #2�
   assert.equal(c, d, "同一会话同一任务应复用（不重复提问）");
 });
 
-
 test("操作声明：effect 必须是 may_change_state（本工具会写答复载体）", async () => {
 	const { REVIEW_ASK_OPERATION } = await import("../lib/review-ask-tool.js");
 	assert.equal(REVIEW_ASK_OPERATION.effect, "may_change_state", "本工具写载体，不得声明为只读");
@@ -785,7 +773,6 @@ test("开关分派只有一处副本（工具面不得另写一遍）", async ()
 	);
 	assert.match(tool, /askEnabledFor\(settings, point\)/);
 });
-
 
 test("弱约束：行动前交还判断依据，且它不改变 decision/outcome", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");

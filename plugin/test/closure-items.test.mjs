@@ -65,7 +65,6 @@ async function writeCarrier(home, body = null) {
 	return file;
 }
 
-
 test("item5: a linked worktree of a registered project is judged governed (07 §5.3 common-dir)", async () => {
 	await withTemp("ldvh-wt.", async (base) => {
 		const home = join(base, "home");
@@ -135,7 +134,6 @@ test("item5: containment inside the registered root still short-circuits (no git
 		assert.equal(scope2.state, "governed");
 	});
 });
-
 
 test("item4: registerProjectFromEntry registers a Git project and reads back", async () => {
 	await withTemp("ldvh-entry.", async (base) => {
@@ -260,7 +258,6 @@ test("item4: the entry refuses a non-Git directory (07 §5.5)", async () => {
 		assert.equal(result.unavailable, undefined);
 	});
 });
-
 
 function fullComposition() {
 	const seen = { guard: 0, invariants: 0, on: [], userQuestions: 0 };
@@ -444,7 +441,6 @@ test("item6: the invariant installer asserts the carrier schema at install time"
 	});
 });
 
-
 async function fixtureMember(base) {
 	const root = await initRepo(base, { name: "specs-repo" });
 	const specsDir = join(root, "specs");
@@ -566,7 +562,6 @@ test("item1: item 11 requires the controlled-commit signature, not merely a comm
 		assert.match(withSig.carriers[0].items["11"].semantic_remainder, /does not prove the commit was authorised/);
 	});
 });
-
 
 test("item4: operation declarations are PARSED from the source, not hardcoded (05 §6.1)", async () => {
 	const { readFile } = await import("node:fs/promises");
@@ -694,7 +689,6 @@ test("item4: an undeclared operation is reported as unavailable + diagnostic, ne
 	});
 });
 
-
 test("item6: the CLI register/unregister entries refuse without explicit Human intent (07 §5.6)", async () => {
 	await withTemp("ldvh-gate-cli.", async (base) => {
 		const repo = await initRepo(base, { name: "p" });
@@ -817,7 +811,6 @@ test("item6: the Web install and uninstall-hook routes require explicit intent (
 	});
 });
 
-
 test("signature: updates land a signed change_log entry through the real writer", async () => {
 	await withTemp("ldvh-sign.", async (base) => {
 		const { mkdir } = await import("node:fs/promises");
@@ -886,7 +879,6 @@ test("signature: an UNBRANDED carrier is refused by the writer (branding is the 
 	assert.equal(resolveAuthoritativeSignature(branded && authoritativeSignature(branded)), null, "branding an already-branded carrier must not pass");
 });
 
-
 test("signature: the writers REFUSE an unsigned change_log write (03 §6.1 / 09)", async () => {
 	await withTemp("ldvh-siggate.", async (base) => {
 		const { mkdir } = await import("node:fs/promises");
@@ -911,7 +903,7 @@ test("signature: the writers REFUSE an unsigned change_log write (03 §6.1 / 09)
 	});
 });
 
-test("signature: the commit layer keeps rejecting an unsigned commit message (06 §6.1)", async () => {
+test("signature: the commit layer keeps rejecting an unsigned commit message (09 §5.1)", async () => {
 	const { validateMessage } = await import("../lib/commit-validation.js");
 	const unsigned = ["fix: 修复缺陷", "", "关键变更:", "- y"].join("\n");
 	const findings = validateMessage(unsigned);

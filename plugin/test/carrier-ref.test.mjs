@@ -1,11 +1,4 @@
 
-// 运行期来源指针的可解析性检查。
-//
-// 运行期规则正文以随插件发布的运行时机制载体（plugin-specs/<spec_key>.yaml）为准。
-// 代码里对「这条要求出自哪里」的指称必须指向真实存在的载体条目：
-// 指向不存在的条目，等于给出一个无法回指的来源，比不写来源更糟。
-//
-// 本检查扫描 plugin/lib/ 下的运行期来源指针形态，逐条核对其载体与条目都存在。
 
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
@@ -18,8 +11,6 @@ const REPO_ROOT = join(import.meta.dirname, "..", "..");
 const LIB_DIR = join(REPO_ROOT, "plugin", "lib");
 const CARRIERS_DIR = join(REPO_ROOT, "plugin-specs");
 
-// 只扫描运行期来源指针的出现面：这些文件是运行期会交给 AI 读的。
-// 构建期路径遍历与语料定位不算来源指针，单独由各自既有的检查覆盖。
 const SCANNED_FILES = Object.freeze([
   "after-integrity.js",
   "friction-tools.js",
@@ -77,7 +68,7 @@ test("运行期来源指针不得回指开发规范的章节号", async () => {
   const problems = [];
   for (const file of SCANNED_FILES) {
     const text = await readFile(join(LIB_DIR, file), "utf8");
-    // 载体条目的 id 本身是 kebab-case，不含 §；此处抓的是仍以章节号指称的旧形态。
+
     for (const match of text.matchAll(/\bspecs\/[0-9]{2}[^\s"')]*\s*§/g)) {
       problems.push(`${file}: 仍以开发规范章节号指称来源（${match[0].trim()}）`);
     }

@@ -14,7 +14,6 @@ import { parseObjectIdentifier, resolveShortId } from "./object-identifier.js";
 import { carrierCoherenceMessage } from "./coherence-report.js";
 import { summaryLimitIssue } from "./summary-limit.js";
 
-
 const SPARK_TYPE_KEY = "spark";
 
 export const SPARK_DIRECTORY = "sparks";
@@ -49,7 +48,6 @@ const MAX_DISPOSITION_LENGTH = 200;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-
 function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
 }
@@ -79,7 +77,6 @@ function success(value) {
   return { ok: true, value };
 }
 
-
 export function isSingleSentence(text) {
   if (typeof text !== "string" || text.length === 0) return false;
   const terminals = text.match(/[。？！]/g) ?? [];
@@ -96,7 +93,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
 
   for (const k of Object.keys(frontmatter)) {
     if (!VALID_FM_KEYS.has(k)) {
-      issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 20 §8)`);
+      issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 22 §8)`);
     }
   }
 
@@ -109,7 +106,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
   if (typeof frontmatter.title !== "string" || frontmatter.title.length === 0) {
     issues.push("title: required non-empty string");
   } else if (frontmatter.title.length > MAX_TITLE_LENGTH) {
-    issues.push(repairedLengthMessage("title", frontmatter.title, MAX_TITLE_LENGTH, "20 §8"));
+    issues.push(repairedLengthMessage("title", frontmatter.title, MAX_TITLE_LENGTH, "22 §8"));
   }
   if (typeof frontmatter.created_at !== "string" || frontmatter.created_at.length === 0) {
     issues.push("created_at: required non-empty string (Code-assigned)");
@@ -118,7 +115,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
   if (typeof frontmatter.question !== "string" || frontmatter.question.length === 0) {
     issues.push("question: required non-empty string");
   } else if (!isSingleSentence(frontmatter.question)) {
-    issues.push("question: must be a single readable sentence — at most one terminal (。？！) and it must end the string (20 §8/§13)");
+    issues.push("question: must be a single readable sentence — at most one terminal (。？！) and it must end the string (22 §8/§13)");
   }
 
   for (const field of ["scope_boundary", "intent", "summary"]) {
@@ -128,14 +125,14 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
   }
 
   if (typeof frontmatter.summary === "string" && frontmatter.summary.length > 0) {
-    const limitIssue = summaryLimitIssue(frontmatter.summary, { clause: "20 §8" });
+    const limitIssue = summaryLimitIssue(frontmatter.summary, { clause: "22 §8" });
     if (limitIssue !== null && options?.skipSummaryLimit !== true) issues.push(limitIssue);
   }
 
   if (frontmatter.serves === undefined || frontmatter.serves === null || frontmatter.serves === "") {
     issues.push("serves: required — every Spark must declare the SubGoal it serves (22 §8; Human decision)");
   } else if (typeof frontmatter.serves !== "string" || !UUID_PATTERN.test(frontmatter.serves)) {
-    issues.push(`serves: must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(frontmatter.serves)}`);
+    issues.push(`serves: must be a SubGoal object_uid (canonical UUIDv4, 21 §12.3), got ${JSON.stringify(frontmatter.serves)}`);
   }
 
   if (frontmatter.refs !== undefined) {
@@ -145,7 +142,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
       issues.push("refs: must be omitted when there is no association — an empty array fabricates a conditional field (03 §6.1)");
     } else {
       if (frontmatter.refs.length > MAX_REFS_ENTRIES) {
-        issues.push(`refs: exceeds the ${MAX_REFS_ENTRIES}-entry cap (20 §8)`);
+        issues.push(`refs: exceeds the ${MAX_REFS_ENTRIES}-entry cap (22 §8)`);
       }
       const seenTargets = new Set();
       for (const entry of frontmatter.refs) {
@@ -170,14 +167,13 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     }
   }
 
-
   if (!STATUSES.has(frontmatter.status)) {
     issues.push(`status: must be one of ${[...STATUSES].join("/")}`);
   }
 
   if (frontmatter.status === "open" && frontmatter.priority === undefined) {
     issues.push(
-      "priority: required when status=open (20 §8 — 悬置必须带处置档位；AI 出初值, Human 可调整)",
+      "priority: required when status=open (22 §8 — 悬置必须带处置档位；AI 出初值, Human 可调整)",
     );
   }
   if (frontmatter.priority !== undefined) {
@@ -191,7 +187,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
     }
     if (frontmatter.status !== "open") {
       issues.push(
-        `priority: may appear only while status=open (20 §8 — 终态必须省略), got status=${JSON.stringify(frontmatter.status)}`,
+        `priority: may appear only while status=open (22 §8 — 终态必须省略), got status=${JSON.stringify(frontmatter.status)}`,
       );
     }
   }
@@ -204,7 +200,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
         issues.push("evolution: must be omitted when there are no pivot entries — an empty array fabricates a conditional field (03 §6.1)");
       }
       if (frontmatter.evolution.length > MAX_EVOLUTION_ENTRIES) {
-        issues.push(`evolution: exceeds the ${MAX_EVOLUTION_ENTRIES}-entry cap (20 §8)`);
+        issues.push(`evolution: exceeds the ${MAX_EVOLUTION_ENTRIES}-entry cap (22 §8)`);
       }
       for (const e of frontmatter.evolution) {
         if (typeof e !== "object" || e === null) {
@@ -212,7 +208,7 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
           continue;
         }
         const extra = Object.keys(e).filter((k) => k !== "at" && k !== "summary");
-        if (extra.length > 0) issues.push(`evolution[]: unexpected field(s) ${extra.join(", ")} (only at/summary, 20 §8)`);
+        if (extra.length > 0) issues.push(`evolution[]: unexpected field(s) ${extra.join(", ")} (only at/summary, 22 §8)`);
         if (typeof e.at !== "string" || e.at.length === 0) issues.push("evolution[].at: required non-empty");
         if (typeof e.summary !== "string" || e.summary.length === 0) issues.push("evolution[].summary: required non-empty");
       }
@@ -221,13 +217,13 @@ export function validateSparkFrontmatter(frontmatter, options = {}) {
 
   if (frontmatter.status === "open") {
     if (frontmatter.disposition !== undefined) {
-      issues.push("disposition: must not be present when status=open (20 §8: 出现 ⇔ 终态)");
+      issues.push("disposition: must not be present when status=open (22 §8: 出现 ⇔ 终态)");
     }
   } else {
     if (typeof frontmatter.disposition !== "string" || frontmatter.disposition.length === 0) {
-      issues.push("disposition: required non-empty when status is implemented/discarded (20 §8/§14.1)");
+      issues.push("disposition: required non-empty when status is implemented/discarded (22 §8/§14.1)");
     } else if (frontmatter.disposition.length > MAX_DISPOSITION_LENGTH) {
-      issues.push(repairedLengthMessage("disposition", frontmatter.disposition, MAX_DISPOSITION_LENGTH, "20 §9.1"));
+      issues.push(repairedLengthMessage("disposition", frontmatter.disposition, MAX_DISPOSITION_LENGTH, "22 §9.1"));
     }
   }
 
@@ -252,12 +248,12 @@ export function validateSparkRelations(frontmatter, selfUid = null) {
     return { ok: false, issues };
   }
   if (relations.length === 0) {
-    issues.push("relations: when present must be non-empty (20 §11)");
+    issues.push("relations: when present must be non-empty (22 §11)");
     return { ok: false, issues };
   }
 
   if (frontmatter.status !== "discarded") {
-    issues.push(`relations: merged-into/split-into may only appear on status=discarded, got status=${JSON.stringify(frontmatter.status)} (20 §11)`);
+    issues.push(`relations: merged-into/split-into may only appear on status=discarded, got status=${JSON.stringify(frontmatter.status)} (22 §11)`);
   }
 
   const seen = new Set();
@@ -275,7 +271,7 @@ export function validateSparkRelations(frontmatter, selfUid = null) {
 
     const key = rel.relation_key;
     if (typeof key !== "string" || !SPARK_RELATION_KEYS.has(key)) {
-      issues.push(`relations[]: relation_key ${JSON.stringify(key)} not in closed set {merged-into, split-into} (20 §11)`);
+      issues.push(`relations[]: relation_key ${JSON.stringify(key)} not in closed set {merged-into, split-into} (22 §11)`);
       continue;
     }
     keysSeen.add(key);
@@ -291,7 +287,7 @@ export function validateSparkRelations(frontmatter, selfUid = null) {
     }
 
     if (selfUid !== null && target.object_uid === selfUid) {
-      issues.push(`relations[]: ${key} target must not be the object itself (20 §11)`);
+      issues.push(`relations[]: ${key} target must not be the object itself (22 §11)`);
     }
 
     if (key === "merged-into") mergedCount += 1;
@@ -302,10 +298,10 @@ export function validateSparkRelations(frontmatter, selfUid = null) {
   }
 
   if (keysSeen.has("merged-into") && keysSeen.has("split-into")) {
-    issues.push("relations[]: merged-into and split-into must not be mixed on one object (20 §9.3 — a spark is either merged or split)");
+    issues.push("relations[]: merged-into and split-into must not be mixed on one object (22 §9.3 — a spark is either merged or split)");
   }
   if (keysSeen.has("merged-into") && mergedCount !== 1) {
-    issues.push(`relations[]: merged-into has cardinality 1 (20 §11), got ${mergedCount}`);
+    issues.push(`relations[]: merged-into has cardinality 1 (22 §11), got ${mergedCount}`);
   }
 
   return { ok: issues.length === 0, issues };
@@ -319,7 +315,6 @@ function relationTargetUids(frontmatter, selfUid) {
   }
   return uids;
 }
-
 
 export async function readServableSubGoals(factSourceRoot) {
   const listed = await listResolvableSubGoals(factSourceRoot);
@@ -385,8 +380,6 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
   return { ok: true, resolved };
 }
 
-
-
 export function validateSparkBodyStructure(body, title, evolutionCount) {
   const issues = [];
   const expectedH2 = [...BODY_H2_REQUIRED];
@@ -396,11 +389,11 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
   const lines = body.replace(/\r\n?/g, "\n").split("\n");
   const firstNonEmpty = lines.find((l) => l.trim().length > 0) ?? "";
   if (firstNonEmpty.trimEnd().replace(/^ {0,3}/, "").replace(/(?<=^#+)[ \t]+/, " ") !== `# ${title}`) {
-    issues.push(`body: first heading must be "# ${title}" (H1 generated from title, 20 §8)`);
+    issues.push(`body: first heading must be "# ${title}" (H1 generated from title, 22 §8)`);
   }
   const h1Count = countAtxHeadings(body, 1);
   if (h1Count !== 1) {
-    issues.push(`body: expected exactly 1 H1 heading, found ${h1Count} (20 §8: H1 由 Code 从 title 生成，正文自 H2 起)`);
+    issues.push(`body: expected exactly 1 H1 heading, found ${h1Count} (22 §8: H1 由 Code 从 title 生成，正文自 H2 起)`);
   }
 
   const h2 = h2Titles(body);
@@ -423,7 +416,7 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
 
   const hasEvolutionH2 = h2.includes(BODY_H2_EVOLUTION);
   if (hasEvolutionH2 !== expectEvolution) {
-    issues.push(`body: "## 演变" section presence (${hasEvolutionH2}) must match a non-empty evolution array (${expectEvolution}) — 20 §8 条件出现`);
+    issues.push(`body: "## 演变" section presence (${hasEvolutionH2}) must match a non-empty evolution array (${expectEvolution}) — 22 §8 条件出现`);
   }
 
   return { ok: issues.length === 0, issues };
@@ -443,13 +436,12 @@ export function validateCarrierCoherence(frontmatter, body) {
     if (content === null) continue;
     if (!content.includes(text)) {
       warnings.push(carrierCoherenceMessage({
-        section, field, declared: text, actual: content, clause: "20 §14.1",
+        section, field, declared: text, actual: content, clause: "22 §14.1",
       }));
     }
   }
   return { ok: true, issues: [], warnings };
 }
-
 
 export function sparkFileName(uid) { return `spark-${uid}.md`; }
 
@@ -500,8 +492,6 @@ function assembleBody(title, bodyMarkdown) {
   return `# ${title}\n\n${bodyMarkdown.trim()}`;
 }
 
-
-
 const PRECHECK_PLACEHOLDER_UID = "00000000-0000-4000-8000-000000000000";
 
 export function computeSparkCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
@@ -526,7 +516,7 @@ export async function precheckSparkCreate({ factSourceRoot, frontmatterDraft, bo
     return success({
       mechanical_outcome: "unverifiable",
       candidate_fingerprint: candidateFingerprint,
-      issues: ["dedup_result is required for a Spark create precheck (20 §13: 预检须包含 create 入口对 dedup_result 的必填检查)"],
+      issues: ["dedup_result is required for a Spark create precheck (22 §13: 预检须包含 create 入口对 dedup_result 的必填检查)"],
       error_code: "spark/dedup_result_required",
       error_message: "dedup_result is required for a Spark create precheck",
     });
@@ -576,14 +566,14 @@ async function evaluateSparkCreateCandidate({
   frontmatter.fact_type_key = SPARK_TYPE_KEY;
   frontmatter.created_at = createdAt;
   if (frontmatter.status !== undefined && frontmatter.status !== "open") {
-    return failure("spark/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (20 §9)`);
+    return failure("spark/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (22 §9)`);
   }
   frontmatter.status = "open";
   if (frontmatter.disposition !== undefined) {
-    return failure("spark/frontmatter_invalid", "create must not carry disposition (20 §8: disposition ⇔ terminal status; create is always open)");
+    return failure("spark/frontmatter_invalid", "create must not carry disposition (22 §8: disposition ⇔ terminal status; create is always open)");
   }
   if (frontmatter.relations !== undefined) {
-    return failure("spark/frontmatter_invalid", "create must not carry relations (20 §11: merged-into/split-into only attach to a discarded transition)");
+    return failure("spark/frontmatter_invalid", "create must not carry relations (22 §11: merged-into/split-into only attach to a discarded transition)");
   }
   frontmatter.change_log = [{
     at: createdAt,
@@ -603,7 +593,7 @@ async function evaluateSparkCreateCandidate({
   if (frontmatter.serves !== undefined) {
     const resolved = await resolveSubGoal(factSourceRoot, frontmatter.serves);
     if (!resolved.ok) {
-      return failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${frontmatter.serves} cannot be resolved (28 §12.3)`);
+      return failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${frontmatter.serves} cannot be resolved (21 §12.3)`);
     }
   }
 
@@ -642,7 +632,7 @@ export async function createSparkObject(args) {
     if (typeof expectedCandidateFingerprint !== "string" || expectedCandidateFingerprint.length === 0) {
       return failure(
         "spark/candidate_fingerprint_required",
-        "expected_candidate_fingerprint is required for create (20 §13: 未携带时按「同一性未确认」零写入) — "
+        "expected_candidate_fingerprint is required for create (22 §13: 未携带时按「同一性未确认」零写入) — "
           + "run ldvh_spark_precheck_create on this candidate first and pass the candidate_fingerprint it returns",
       );
     }
@@ -650,7 +640,7 @@ export async function createSparkObject(args) {
     if (actualCandidateFingerprint !== expectedCandidateFingerprint) {
       return failure(
         "spark/candidate_changed",
-        "the candidate content changed between precheck and write; the precheck verdict does not carry over (20 §13) — re-run the precheck on the current content",
+        "the candidate content changed between precheck and write; the precheck verdict does not carry over (22 §13) — re-run the precheck on the current content",
         { expected_candidate_fingerprint: expectedCandidateFingerprint, actual_candidate_fingerprint: actualCandidateFingerprint },
       );
     }
@@ -681,7 +671,6 @@ export async function createSparkObject(args) {
   const fingerprint = fileFingerprint(content);
   return success({ object_uid: uid, file: filePath, fingerprint });
 }
-
 
 export async function resolveSparkObjectUid(factSourceRoot, input, currentProjectId = null) {
   const parsed = parseObjectIdentifier(input);
@@ -750,7 +739,6 @@ export async function readSparkObject(args) {
     fingerprint: fileFingerprint(content),
   });
 }
-
 
 export async function listSparkObjects(args) {
   const { factSourceRoot, includeTerminal = false, limit = 200, keyword = null, priorities = null, serves = null } = args;
@@ -891,7 +879,6 @@ export async function listSparkObjects(args) {
   });
 }
 
-
 export async function updateSparkObject(args) {
   const {
     factSourceRoot, objectUid: objectUidInput, expectedFingerprint,
@@ -923,7 +910,7 @@ export async function updateSparkObject(args) {
   if (prevTerminal) {
     const requested = frontmatterAfter?.status;
     if (requested !== undefined && requested !== prevStatus) {
-      return failure("spark/status_terminal", `status=${prevStatus} is terminal; reopen (status=${requested}) is forbidden (20 §9.2) — content correction is allowed, status reversal is not; later unresolved info belongs to a NEW open Spark`);
+      return failure("spark/status_terminal", `status=${prevStatus} is terminal; reopen (status=${requested}) is forbidden (22 §9.2) — content correction is allowed, status reversal is not; later unresolved info belongs to a NEW open Spark`);
     }
   }
 
@@ -943,7 +930,7 @@ export async function updateSparkObject(args) {
 
   const nextStatus = fm.status;
   if (nextStatus === undefined || !STATUSES.has(nextStatus)) {
-    return failure("spark/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (open/implemented/discarded, 20 §9)`);
+    return failure("spark/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (open/implemented/discarded, 22 §9)`);
   }
 
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
@@ -962,7 +949,7 @@ export async function updateSparkObject(args) {
   const servesCheck = (fm.serves !== undefined && fm.serves !== current.value.frontmatter.serves)
     ? await resolveSubGoal(factSourceRoot, fm.serves).then((resolved) => (resolved.ok
       ? null
-      : failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${fm.serves} cannot be resolved (28 §12.3)`)))
+      : failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${fm.serves} cannot be resolved (21 §12.3)`)))
     : null;
 
   const refsCheck = fm.refs !== undefined
@@ -986,7 +973,7 @@ export async function updateSparkObject(args) {
       return failure("spark/relation_target_unresolvable", `${targetUid} does not resolve to an existing Spark object: ${targetRead.error.message}`);
     }
     if (targetRead.value.frontmatter.status !== "open") {
-      return failure("spark/relation_target_unresolvable", `${targetUid} is status=${targetRead.value.frontmatter.status}, not open — merge/split targets must be open at write time (20 §11 write-precondition)`);
+      return failure("spark/relation_target_unresolvable", `${targetUid} is status=${targetRead.value.frontmatter.status}, not open — merge/split targets must be open at write time (22 §11 write-precondition)`);
     }
   }
 

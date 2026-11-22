@@ -47,7 +47,7 @@ test("repairedLengthMessage: under-limit keeps classic message without draft", (
 });
 
 test("repairedLengthMessage: over-limit gives current value, limit, over-by and review-labeled candidate", () => {
-  const msg = repairedLengthMessage("disposition", "一二三四五", 3, "20 §9.1");
+  const msg = repairedLengthMessage("disposition", "一二三四五", 3, "22 §9.1");
   assert.match(msg, /got 5/);
   assert.match(msg, /over by 2/);
   assert.match(msg, /机械截取候选值/);

@@ -169,7 +169,7 @@ test("03 §6.2 快通道五要素：代码常量须逐字来自原文", async ()
 	assertVerbatim(spec, "03 号", "快通道要素", FAST_PATH_REQUIREMENTS.map((item) => item.label));
 });
 
-test("34 §7.3 复用条件：代码常量须逐字来自原文", async () => {
+test("03 §7.3 复用条件：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const spec03 = await readSpec("03-业务系统基础规范.md");
 	for (const condition of REUSE_CONDITIONS) {
@@ -204,7 +204,6 @@ test("34 §11 环节级声明：每个环节名须逐字来自原文", async () 
 		assert.ok(spec.includes(stage), `环节「${stage}」不在 34 §11 原文中`);
 	}
 });
-
 
 const SECTION_17_LEADINGS = [
 	"不建立持久搜索索引",
@@ -292,7 +291,7 @@ test("六条必停：每条的依据须逐字可回指载体原文", async () =>
 		`本切片承接数（${STOP_RULES.length}）不得超过原文条数（${itemsInSpec}）`,
 	);
 
-	// 运行期依据以载体为准：代码指向的载体条目须存在，且其必停情形条数与原文一致。
+
 	const carrier = await readCarrier("rule-compliance-verification");
 	const stopEntry = carrier.requirements.find((entry) => entry.id === "stop");
 	assert.ok(stopEntry !== undefined, "rule-compliance-verification 载体须有 stop 条目");

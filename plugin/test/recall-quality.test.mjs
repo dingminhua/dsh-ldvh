@@ -65,11 +65,6 @@ export async function runSuite(limit = 3) {
   };
 }
 
-// 防漂移／漂移报警：以活语料规模为期望值的断言（specs/06 §5 形态 5 豁免段）。
-// 期望值所据基线提交：父提交 `44cf2841` ＋ 本次提交引入的语料变化——`specs/11` 登记进
-// `01 §8.1` 后成为规范源成员并进入召回语料，候选总量由 61 行增至 62 行（relevant 4、hits 4/7 未变）。
-// 归因口径（specs/06 §7「基线归因的比对锚点」第 ③ 项）：已取两侧实测——移走 `specs/11` 即回到 61/4，
-// 故该红是「期望值未随语料同步」，不是召回实现退化；此处只同步期望值，不改召回实现。
 const BASELINE = {
   limit3: { lines: 62, relevant: 4, hits: 4, topicCases: 7, quietClean: 1 },
 };
