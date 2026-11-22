@@ -47,9 +47,13 @@ export function recallStatusPolicyOf(criteria, type) {
     }
   }
   const parseFailed = (criteria?.errors ?? []).some((error) => error.type === type);
+  const named = DEFAULT_STATUSES_BY_TYPE[type];
+  if (named === undefined) {
+    return { kind: parseFailed ? "disabled" : "unregistered", statuses: [] };
+  }
   return {
     kind: parseFailed ? "disabled" : "fallback",
-    statuses: DEFAULT_STATUSES_BY_TYPE[type] ?? DEFAULT_STATUSES_FALLBACK,
+    statuses: named,
   };
 }
 
@@ -1153,10 +1157,30 @@ export function selectFactsBySection(hits, plan = {}) {
   return { selected, groups, droppedByQuota, droppedByTotal, unassigned, unassignedByType };
 }
 
+function unregisteredStatusTypesOf(facts) {
+  return [...new Set(
+    facts
+      .filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type))
+      .filter((fact) => DEFAULT_STATUSES_BY_TYPE[fact.type] === undefined)
+      .map((fact) => fact.type),
+  )].sort();
+}
+
+function unregisteredStatusGapOf(types, reason) {
+  return `该类型的机械判据不可用，故不作为候选：${types.join("、")}（${reason}）`;
+}
+
 function criteriaGapsOf(criteria, facts) {
   const gaps = [];
+  const unregisteredStatusTypes = unregisteredStatusTypesOf(facts);
   if (criteria === null) {
     gaps.push("判据表不可用：未找到任何规范源，全部事实类型的机器判据已停用（类型点名／核心语义字段／关系展开不生效）");
+    if (unregisteredStatusTypes.length > 0) {
+      gaps.push(unregisteredStatusGapOf(
+        unregisteredStatusTypes,
+        "判据表不可读，且这些类型没有登记机械值，不按任何兜底状态放行",
+      ));
+    }
     return gaps;
   }
   for (const error of criteria.errors) {
@@ -1170,6 +1194,12 @@ function criteriaGapsOf(criteria, facts) {
     if (policy.kind === "disabled") continue;
     if (policy.kind === "fallback") {
       gaps.push(`判据表未登记该类型（${type}）：默认候选状态回落具名兜底 ${policy.statuses.join("/")}，类型点名／核心语义字段／关系展开不生效（该类型尚无判据表条目，不是判据表损坏）`);
+    }
+    if (policy.kind === "unregistered") {
+      gaps.push(unregisteredStatusGapOf(
+        [type],
+        "该类型没有判据表条目，也没有登记机械值，不按任何兜底状态放行",
+      ));
     }
   }
   return gaps;
@@ -1321,7 +1351,7 @@ export async function recallForAction(input = {}) {
   const statusAllowed = (type, status) => {
     if (explicitStatuses !== null) return explicitStatuses.includes(status);
     const policy = statusPolicy(type);
-    if (policy.kind === "non-candidate") return false;
+    if (policy.kind === "non-candidate" || policy.kind === "unregistered") return false;
     return policy.statuses.includes(status);
   };
   const factsDir = join(root, "ldvh-base");
@@ -1689,11 +1719,15 @@ export async function recallForAction(input = {}) {
       excludedByStatus: scopedFacts
         .filter((fact) => types === null || types.includes(fact.type))
         .filter((fact) => statusPolicyOfType(fact.type).kind !== "non-candidate")
+        .filter((fact) => statusPolicyOfType(fact.type).kind !== "unregistered")
         .filter((fact) => !statusAllowed(fact.type, fact.status))
         .map((fact) => ({ type: fact.type, status: fact.status, title: fact.title, path: fact.path })),
       excludedByNonCandidate: scopedFacts
         .filter((fact) => types === null || types.includes(fact.type))
-        .filter((fact) => statusPolicyOfType(fact.type).kind === "non-candidate")
+        .filter((fact) => {
+          const kind = statusPolicyOfType(fact.type).kind;
+          return kind === "non-candidate" || kind === "unregistered";
+        })
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
       excludedByFacet: appliedFacets.length === 0 ? [] : scopedFacts
         .filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type))
