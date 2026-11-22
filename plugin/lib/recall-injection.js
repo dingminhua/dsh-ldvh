@@ -9,7 +9,7 @@ import {
   recallForAction,
 } from "./source-recall.js";
 
-export const RECALL_SUMMARY = "双源召回 · dsh-ldvh · 行动前候选";
+export const RECALL_SUMMARY = "双源召回 · 行动前候选";
 
 export function renderStructuralTag(structural) {
   if (structural === null || typeof structural !== "object") return "";

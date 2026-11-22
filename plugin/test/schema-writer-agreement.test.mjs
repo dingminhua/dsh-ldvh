@@ -69,7 +69,12 @@ async function writerKeysFromSource(fileName) {
 	const source = await readFile(join(LIB, fileName), "utf8");
 	const match = source.match(/VALID_FM_KEYS = new Set\(\[([\s\S]*?)\]\)/);
 	if (match === null) throw new Error(`no VALID_FM_KEYS closed set found in ${fileName}`);
-	return new Set([...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+	const keys = new Set([...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+	const tolerated = source.match(/LEGACY_TOLERATED_FM_KEYS = new Set\(\[([\s\S]*?)\]\)/);
+	if (tolerated !== null) {
+		for (const m of tolerated[1].matchAll(/"([^"]+)"/g)) keys.add(m[1]);
+	}
+	return keys;
 }
 
 function frontmatterSchema(descriptor) {

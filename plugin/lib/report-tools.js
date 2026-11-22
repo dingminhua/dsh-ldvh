@@ -796,6 +796,7 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log",
     properties: {
       title: { type: "string" },
+      serves: { type: "string", description: "LEGACY optional field (24 §8.1): SubGoal object_uid carried by存量 report objects. Tolerated verbatim by the writer — no resolve/reject (33 §4.1.1: new reports no longer set serves). Use frontmatter_removals to clear it." },
       status: { type: "string", enum: ["active", "retired"], description: "create must be active; update may transition to retired (24 §9)" },
       report_form: { type: "string", enum: ["research", "summary", "audit", "action", "reference"], description: "来源形态（24 §5/§8）：research=对外部对象取证（要求 urls）；summary=对内部过程的阶段性总结（内部来源逐字摘录进正文，禁 urls）；audit=一次独立审核/复核的完整结论（四项门槛见 24 §6.3）；action=一次已完成行动的执行过程与结论（一次行动一条，内部来源锚点，禁 urls）；reference=未验证但需记录的参考内容（confirmed 必空、内容进 uncertain/gaps、禁 sufficient、内部锚点、禁 urls）。创建必填；存量缺失按 research 认定（24 §8.2 过渡条款）。创建后不可变更" },
       research_question: { type: "string", description: "the research question under study. Must appear VERBATIM in the 研究问题 body section (carrier coherence, 24 §8 invariant 10; frontmatter is the single authoritative text — the body only expands it). Rejected as question-coherence when the section does not contain this string" },

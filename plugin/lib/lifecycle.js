@@ -5,7 +5,8 @@ import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { recallLimitForBudget } from "./source-recall.js";
-import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
+import { noticeTextFor, noticeSummaryFor, resolveGuidanceMode, GUIDANCE_MODE_DEV } from "./guidance-text.js";
+import { buildCaptureNotice, captureNoticeDigest, resolveCaptureSwitches, CAPTURE_NOTICE_SUMMARY } from "./capture-notice.js";
 import { createTurnTriggers } from "./triggers.js";
 import { recordRun } from "./idle-runlog.js";
 import { COMPLEXITY_CRITERIA, GATE_POINT_EXCLUSIONS, REVIEW_ASK_ROW_SUMMARY } from "./review-ask.js";
@@ -470,7 +471,39 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             return { inject: false, reason: "error" };
           }
         },
-        reviewAskSummary: () => REVIEW_ASK_ROW_SUMMARY
+        reviewAskSummary: () => REVIEW_ASK_ROW_SUMMARY,
+        captureRow: async () => {
+          try {
+            if (lifecycle.scopeState !== "governed") {
+              try {
+                const cwd = agent?.session?.header?.cwd;
+                if (typeof cwd === "string" && cwd.length > 0) {
+                  const late = await resolve(cwd);
+                  if (late !== undefined && late !== null && lifecycle.scopeState !== late.state) {
+                    lifecycle.setScope?.(late);
+                  }
+                }
+              } catch (error) {
+                agent?.ctx?.logger?.warn?.(`[dsh-ldvh] capture: late scope resolve failed: ${String(error?.message ?? error)}`);
+              }
+            }
+            if (lifecycle.scopeState !== "governed") return { inject: false, reason: "not-governed" };
+            const projectPath = lifecycle.lastScope?.project?.path ?? agent?.session?.header?.cwd;
+            if (typeof projectPath !== "string" || projectPath === "") return { inject: false, reason: "no-project" };
+            const mode = await resolveGuidanceMode(projectPath);
+            if (mode === GUIDANCE_MODE_DEV) return { inject: false, reason: "dev-guidance-covers" };
+            const idle = typeof getIdleSettings === "function" ? getIdleSettings() : null;
+            if (idle === null) return { inject: false, reason: "settings-unavailable" };
+            const { experienceEnabled, frictionEnabled } = resolveCaptureSwitches(idle);
+            const text = buildCaptureNotice({ experienceEnabled, frictionEnabled });
+            if (text === "") return { inject: false, reason: "all-switches-off" };
+            return { inject: true, text, digest: captureNoticeDigest(text) };
+          } catch (error) {
+            agent?.ctx?.logger?.warn?.(`[dsh-ldvh] capture row failed: ${String(error?.message ?? error)}`);
+            return { inject: false, reason: "error" };
+          }
+        },
+        captureSummary: () => CAPTURE_NOTICE_SUMMARY
       });
       lifecycle.preStepResetVisibility = () => onPreStep.resetVisibility();
       const turnTriggers = createTurnTriggers(agent, {
