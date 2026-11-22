@@ -16,7 +16,7 @@ export function buildCaptureNotice({ experienceEnabled = false, frictionEnabled 
   if (experienceEnabled === true) {
     lines.push(
       "",
-      "- 经验：当次行动中发现已查明验证、且可能重现的失败机制时（when-it-applies），由主控当场判定并整理上下文，派生零上下文代理起草（context-supply / delegate-draft），再由主控在同一动作里受控写入并写后精确回读；材料须可回指、适用范围须说得出来（entry-prerequisite）。归不了类时登记待决定，不先创建对象。",
+      "- 经验：当次行动中发现已查明验证、且可能重现的失败机制时（when-it-applies），由主控当场判定并整理上下文，派生零上下文代理辅助任务执行体（context-supply / delegate-draft），执行体经统一受控入口落笔并写后回读、把结果回执主控，主控转告 Human；材料须可回指、适用范围须说得出来（entry-prerequisite）。归不了类时登记待决定，不先创建对象。",
     );
   }
   if (frictionEnabled === true) {

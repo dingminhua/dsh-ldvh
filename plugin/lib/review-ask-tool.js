@@ -1,6 +1,7 @@
 
 import { reviewDispatchTemplate } from "./review-dispatch-template.js";
-import { GATE_POINT_EXCLUSIONS, REVIEW_ASK_CARRIER_ENTRIES, askEnabledFor, carrierEntrySource, reviewAskMode, silentRunNotice } from "./review-ask.js";
+import { REVIEW_ASK_POINTS, GATE_POINT_EXCLUSIONS, REVIEW_ASK_CARRIER_ENTRIES, askEnabledFor, carrierEntrySource, reviewAskMode, silentRunNotice } from "./review-ask.js";
+import { executeResearchConsult } from "./research-consult-tools.js";
 
 import { normalizeQuotationText } from "./quotation-text.js";
 
@@ -14,8 +15,8 @@ function envelope(operationKey, outcome, fields) {
 export const REVIEW_ASK_OPERATION = Object.freeze({
   toolName: "ldvh_review_ask",
   summary:
-    "两处把关询问（2026-11-13 Human 决定：改为「要不要安排代理审查／复核」两问）。"
-    + "\n\nWHEN TO CALL: 仅当对应开关打开、你判定当次任务属「复杂任务」、**该次工作未命中点位排除**、**且该处的前置时点已到**时。行动前那处的前置时点是「方案已形成候选、尚未产生副作用」（不是「任务的第一个动作之前」）；收口前那处是「工作已做完、尚未形成完成声明」。"
+    "三处把关询问统一入口（行动前审查／收口前复核／第三处联网调查提请）。"
+    + "\n\nWHEN TO CALL: 仅当对应开关打开、你判定当次任务属「复杂任务」、**该次工作未命中点位排除**、**且该处的前置时点已到**时。行动前那处的前置时点是「方案已形成候选、尚未产生副作用」（不是「任务的第一个动作之前」）；收口前那处是「工作已做完、尚未形成完成声明」。第三处 point=research 走内部查找＋提请，不受复杂任务判据与点位排除约束、受自身开关约束（research-entry）。"
     + `两步判据都不新造，两步各自只按其载体条目判断。**第一步**看 ${COMPLEXITY_CRITERIA_SOURCE}：该条目列出三条正面形状（建立或修改结构性事物／存在多个可选路径的选型／方向可能与既定决策冲突）与一份排除清单；条目只有排除清单、没有正面规定「什么情况算复杂任务」，故正面三条是条目原文，而「排除清单取反」是据此推导的判据、不是条目原文。`
     + `**第二步**看 ${POINT_EXCLUSIONS_SOURCE}：判为复杂之后，当次工作**整件**属于该条目列出的三类之一时，该处**不问**，也不派代理——\n`
     + GATE_POINT_EXCLUSIONS.map((item) => `  · ${item.label}`).join("\n")
@@ -42,8 +43,38 @@ export function reviewAskParameterSchema() {
     properties: {
       point: {
         type: "string",
-        enum: ["pre-action", "post-work"],
-        description: "pre-action = 行动前的审查询问（时点是「方案已有候选、尚未产生副作用」，不是「任务的第一个动作之前」）；post-work = 收口前的复核询问",
+        enum: ["pre-action", "post-work", "research"],
+        description: "pre-action = 行动前的审查询问（时点是「方案已有候选、尚未产生副作用」，不是「任务的第一个动作之前」）；post-work = 收口前的复核询问；research = 第三处联网调查提请（主控自查发现依赖外部信息且自己不掌握时，先查内部事实源、未命中才提请）——本处内部先查，故需 need 等参数",
+      },
+      need: {
+        type: "string",
+        description: "仅 point=research 用：要查清什么（一句话），写主控自己不掌握、依赖外部对象信息的那一点"
+      },
+      keywords: {
+        type: "array",
+        items: { type: "string" },
+        description: "仅 point=research 用：内部查找的检索词，多写几个同义说法"
+      },
+      scope: {
+        type: "string",
+        description: "仅 point=research 用：范围限定（时间、版本、适用场景）"
+      },
+      purpose: {
+        type: "string",
+        description: "仅 point=research 用：这次查证服务于哪个判断"
+      },
+      sub_questions: {
+        type: "array",
+        items: { type: "string" },
+        description: "仅 point=research 用：子问题，交给调研会话做覆盖检查"
+      },
+      internal_gap: {
+        type: "string",
+        description: "仅 point=research 用：「内部已有 X 仍缺 Y」，提供则即使内部有命中也继续提请"
+      },
+      limit: {
+        type: "number",
+        description: "仅 point=research 用：内部查找返回条数上限"
       },
       task: {
         type: "string",
@@ -117,17 +148,23 @@ function buildCandidateBasis(args, exec, deps) {
 
 export async function executeReviewAsk(args, exec, deps) {
   const point = args?.point;
-  if (point !== "pre-action" && point !== "post-work") {
+  if (point !== "pre-action" && point !== "post-work" && point !== "research") {
     return envelope("review-ask", "rejected", {
       result: null,
       scope: { requested: point ?? null, completed: [], not_completed: [point ?? "(missing)"] },
       sources: [],
-      gaps: [`point must be "pre-action" or "post-work", got ${JSON.stringify(point ?? null)}`],
+      gaps: [`point must be "pre-action", "post-work" or "research", got ${JSON.stringify(point ?? null)}`],
       verification: { checks: ["point-closed-set"], passed: false },
-      follow_up: ["pass point=\"pre-action\" (行动前的审查，时点是方案已有候选、尚未产生副作用) or point=\"post-work\" (收口前的复核)"],
+      follow_up: ["pass point=\"pre-action\" (行动前的审查) / point=\"post-work\" (收口前的复核) / point=\"research\" (第三处联网调查提请)"],
     });
   }
+
   const task = typeof args?.task === "string" && args.task.trim().length > 0 ? args.task.trim() : null;
+
+  if (point === REVIEW_ASK_POINTS.RESEARCH) {
+    const research = await executeResearchConsult(args, exec, deps);
+    return { ...research, operation_key: "review-ask" };
+  }
 
   const candidateBasis = point === "pre-action" ? buildCandidateBasis(args, exec, deps) : null;
 

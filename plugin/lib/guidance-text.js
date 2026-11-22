@@ -88,7 +88,7 @@ export function migrationLineFor(fromState, toState) {
 const GOVERNED_GUIDANCE_DEV = `本会话工作锚点（specs/00-理念与构成.md；这是开发约定，不是运行期规则）：
 1. 身份块——每个 specs/ 载体首部 ldvh_spec/ldvh_attachment 声明身份、依据与关系
 2. §1 核心价值——对齐 Vibe（人与 AI 对项目的由来、现状、去向形成一致认识）、协调 Coding（明晰权责、记录火花、确立规范、构建报告、积累经验、发现摩擦）
-3. §2 方法与构成——根方案六条（§2.1）+ 能力承载（LDVH CLI 确定性服务/宿主原生机制，§2.3）+ 规范源与事实源（元规范与事实规范两级承载，§2.4）+ 检查机制（主控自查/代理审核/机械校验，§2.5）+ 业务系统（目标规划/火花记录/把关请示/调研吸收/双源召回/经验积累/摩擦销账，§2.6 名录）+ 技术与机械保障（§2.7）+ 插件四种价值交付（§2.8）+ 下位承接（§2.9）
+3. §2 方法与构成——根方案六条（§2.1）+ 能力承载（LDVH CLI 确定性服务/宿主原生机制，§2.3）+ 规范源与事实源（§2.4：开发规范是开发需求与开发约定，运行期规则由运行时机制承载）+ 检查机制（主控自查/机械校验/代理审核/代理复核，§2.5）+ 业务系统（目标规划/火花记录/把关请示/调研吸收/双源召回/经验积累/摩擦销账，§2.6 名录）+ 技术与机械保障（§2.7）+ 插件四种价值交付（§2.8）+ 下位承接（§2.9）
 4. §3 Human 权利——根决定清单（§3.2）、Human Gate、受保护内容（§3.3）、可决提请与回应效力（§3.4）
 5. §4 AI 责任与义务——主控发起的行动由单一主控 AI 最终负责、代理辅助任务由机械校验保障（00 §4.5）、非全知、委派不转责（代理辅助任务除外，00 §4.3）、反稀释（01 §5 第 13 项）；§4.6 据实声明、§4.7 必停情形与恢复、§4.8 交还与撤回
 6. §5 价值纪律——机制准入（§5.1）、价值不因材料存在而成立（§5.2）、冲突与变更（§5.3）
@@ -97,7 +97,7 @@ const GOVERNED_GUIDANCE_DEV = `本会话工作锚点（specs/00-理念与构成.
 模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，question 长短不限，判断依据写进对话正文；detail 不随弹窗送达（宿主静默丢弃），凡需 Human 判读的内容一律写进对话正文；携带 detail 等未允许字段的提请会被本仓 guard 机械拒绝——「不写 detail」这一半有机械保障，且它只约束字段形状、不约束字数；
 创建确认不重复：当该类型载体规定创建由人决定、且写入工具已内置该确认时，主控不就同一动作另发确认弹窗（spark-fact-type 的 ask-human、norm-fact-type 的 create-needs-human）；呈报要素在调用工具前逐项写进对话正文。本行只免同一动作的重复弹窗，不减任何类型的确认义务——无工具内部 Gate 的类型（如 subgoal-fact-type 的 create-human）仍按该类型载体提请；合并/拆分等组合处置按 spark-fact-type 的 ask-human 归属，逐步骤多出的询问属已知实现限制，须如实披露。此为对 AI 的指令、无机械保障（本仓 guard 只约束模型面提请的字段形状，不判弹窗次数）；
 失败留痕：代理辅助任务（经验积累、发现摩擦）失败时按 fail-closed 处置——停止该次任务、保留已发生的副作用、如实登记，不得继续、不得自行重试，也不得把部分写入当作完成；停止原因与残留范围由执行体当次回执交还，并留可跨会话查到的运行痕迹（ldvh-root 的 proxy-auxiliary-failure）。
-经验主动记录：主控在当次行动中发现已查明验证的失败机制时，按 pitfall-fact-type 的 entry-channels 整理该发现所需的上下文材料，派生零上下文、不继承主控上下文的代理起草（context-supply）；起草代理只起草、不写入经验目录、不取得授权或完成效力（delegate-draft）；再由主控在同一动作内经受控写入并写后精确回读（entry-channels）。摩擦的发现同形，由主控当场发起、交代理记录（friction-settlement-system-foundation 的 discovery-trigger、discovery-context、discovery-closed-set）。
+经验主动记录：主控在当次行动中发现已查明验证的失败机制时，按 pitfall-fact-type 的 entry-channels 整理该发现所需的上下文材料，派生零上下文、不继承主控上下文的代理辅助任务执行体（context-supply）；执行体经统一受控入口落笔并写后回读、把结果回执主控，主控转告 Human、不重复读回（delegate-draft、entry-channels）。摩擦的发现同形，由主控当场发起、交代理落笔并回执（friction-settlement-system-foundation 的 discovery-trigger、discovery-context、discovery-closed-set）。
 管辖状态：ldvh_resolve_governance_scope。本引导只给定位与必要要点，不复制条目正文。
 运行期规则以随插件发布的运行时机制为准；定位信息由行动前召回段的「运行时机制：」段给出（spec_key／标题／路径／positioning／scope），需要条目正文时按该路径读取，项目根下没有 plugin-specs/ 时它在插件包目录内。specs/ 里描述运行期做法的文字是开发需求记录，不构成运行期规则。
 若本仓库不是 LDVH 开发仓库（例如只是带了 specs/ 与 plugin-specs/ 副本的第三方项目），以上开发约定不适用，按运行期会话处理。`;

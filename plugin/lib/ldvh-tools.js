@@ -943,6 +943,7 @@ export function registerLdvhTools(ctx, deps) {
           hostSeams: deps.hostSeams,
           getReviewAskSettings: deps.getReviewAskSettings,
           readCurrentTurnText: deps.readCurrentTurnText,
+          dshHomePath: deps.dshHomePath,
         }))) };
       } catch (error) {
         return {
@@ -1038,7 +1039,25 @@ export function renderEnvelope(operationKey, value) {
     if (r.asked !== undefined) lines.push(`asked: ${r.asked}`);
     if (r.reused === true) lines.push(`reused: true (同一候选内容已答复过，未重复提问)`);
     if (r.fingerprint !== undefined) lines.push(`fingerprint: ${r.fingerprint}`);
-    if (r.decision === "review") {
+    if (r.point === "research") {
+      if (r.need !== undefined) lines.push(`need: ${r.need}`);
+      if (r.internal_found !== undefined) lines.push(`internal_found: ${r.internal_found}（命中 ${r.internal_hit_count ?? 0} 条，弱命中 ${r.internal_weak_hit_count ?? 0} 条）`);
+      if (r.internal_source_read !== undefined) lines.push(`internal_source_read: ${r.internal_source_read}`);
+      if (Array.isArray(r.internal_hits)) {
+        for (const line of r.internal_hits) lines.push(`internal_hit: ${typeof line === "string" ? line : JSON.stringify(line)}`);
+      }
+      if (r.decision === "research") {
+        lines.push(`decision: research — Human 已同意开一次联网调查（安排零上下文调研子代理走 33 号机器）`);
+      } else if (r.decision === "skip") {
+        lines.push(`decision: skip — Human 选择本次不联网，按既有路径继续`);
+      } else if (r.asked === false && r.switch_enabled === false) {
+        lines.push("decision: null — 第三处开关关闭，本次未提请（这是配置的结果）");
+      } else if (r.asked === false && r.internal_found === true) {
+        lines.push("decision: null — 内部查找已命中可用候选，按规范不提请联网（先精读内部对象，不足时带 internal_gap 再提请）");
+      } else {
+        lines.push("decision: null — 第三处未取得明确答复（未决策不是答复，下次仍会问；不得当成不联网）");
+      }
+    } else if (r.decision === "review") {
       lines.push(`decision: review — Human 已同意安排${r.point === "post-work" ? "复核" : "审查"}`);
     } else if (r.decision === "skip") {
       lines.push(`decision: skip — Human 选择不安排独立把关，直接推进（主控自查仍在）`);
@@ -1077,6 +1096,14 @@ export function renderEnvelope(operationKey, value) {
       if (typeof template.prompt === "string" && template.prompt.length > 0) {
         lines.push("review_template.prompt: |");
         for (const line of template.prompt.split("\n")) lines.push(`  ${line}`);
+      }
+    }
+    const researchTemplate = r.research_template;
+    if (researchTemplate !== undefined && researchTemplate !== null && typeof researchTemplate === "object") {
+      if (typeof researchTemplate.kind === "string") lines.push(`research_template.kind: ${researchTemplate.kind}`);
+      if (typeof researchTemplate.prompt === "string" && researchTemplate.prompt.length > 0) {
+        lines.push("research_template.prompt（须原样作为零上下文调研子代理的 prompt）: |");
+        for (const line of researchTemplate.prompt.split("\n")) lines.push(`  ${line}`);
       }
     }
     for (const item of env.scope?.not_completed ?? []) lines.push(`not_completed: ${item}`);

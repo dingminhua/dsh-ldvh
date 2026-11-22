@@ -230,7 +230,7 @@ async function executeWriteObject(args, exec, deps) {
         sources: [],
         gaps: ["arming_ledger_unavailable: 本组合未装配经验授权账，分身不得写入事实源（fail-closed）"],
         verification: { checks: ["governance-scope", "arming-ledger"], passed: false },
-        follow_up: ["改由主控经受控入口写入（25 §13 Human 入口/主控路径）"]
+        follow_up: ["无有效经验授权账，分身不得写入；把未完成范围与残留风险写进回执交还主控，由主控转告 Human，交由主控或 Human 处置（25 §13，Human 2026-11-23 决定；fail-closed）"]
       });
     }
     const childSessionId = exec?.agent?.session?.header?.id ?? exec?.agent?.id;
@@ -242,7 +242,7 @@ async function executeWriteObject(args, exec, deps) {
         sources: [{ kind: "authorization", path: "experience-arming ledger" }],
         gaps: [`arming_check_failed: ${verified.reason}${verified.detail ? ` — ${verified.detail}` : ""}。无有效开工授权的分身不得写入经验`],
         verification: { checks: ["governance-scope", "arming-validity", "project-alignment"], passed: false },
-        follow_up: ["把该次发现交回主控，由主控经受控入口写入；不要重试"]
+        follow_up: ["授权核验未通过，分身不得写入；把未完成范围与残留风险写进回执交还主控，由主控转告 Human，不自行重试（25 §13，Human 2026-11-23 决定；fail-closed）"]
       });
     }
   }
@@ -471,7 +471,7 @@ async function executeArmDelegate(args, exec, deps) {
     sources: [{ kind: "authorization", path: "experience-arming ledger" }],
     gaps: [],
     verification: { checks: ["caller-kind", "governance-scope", "arm-persist"], passed: true },
-    follow_up: ["派生分身并交其任务书；分身写入后主控须精确读回核对存在性与 status，并在当次交还报告（25 §13）"]
+    follow_up: ["派生分身并交其任务书；分身经统一受控入口落笔后把结果回执主控，主控据回执转告 Human、不重复读回对象（25 §13，Human 2026-11-23 决定）"]
   });
 }
 
