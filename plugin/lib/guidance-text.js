@@ -97,7 +97,7 @@ const GOVERNED_GUIDANCE_DEV = `本会话工作锚点（specs/00-理念与构成.
 模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，question 长短不限，判断依据写进对话正文；detail 不随弹窗送达（宿主静默丢弃），凡需 Human 判读的内容一律写进对话正文；携带 detail 等未允许字段的提请会被本仓 guard 机械拒绝——「不写 detail」这一半有机械保障，且它只约束字段形状、不约束字数；
 创建确认不重复：当该类型载体规定创建由人决定、且写入工具已内置该确认时，主控不就同一动作另发确认弹窗（spark-fact-type 的 ask-human、norm-fact-type 的 create-needs-human）；呈报要素在调用工具前逐项写进对话正文。本行只免同一动作的重复弹窗，不减任何类型的确认义务——无工具内部 Gate 的类型（如 subgoal-fact-type 的 create-human）仍按该类型载体提请；合并/拆分等组合处置按 spark-fact-type 的 ask-human 归属，逐步骤多出的询问属已知实现限制，须如实披露。此为对 AI 的指令、无机械保障（本仓 guard 只约束模型面提请的字段形状，不判弹窗次数）；
 失败留痕：代理辅助任务（经验积累、发现摩擦）失败时按 fail-closed 处置——停止该次任务、保留已发生的副作用、如实登记，不得继续、不得自行重试，也不得把部分写入当作完成；停止原因与残留范围由执行体当次回执交还，并留可跨会话查到的运行痕迹（ldvh-root 的 proxy-auxiliary-failure）。
-经验主动记录：主控在当次行动中发现已查明验证的失败机制时，按 pitfall-fact-type 的 entry-channels 整理该发现所需的上下文材料，派生零上下文、不继承主控上下文的代理起草（context-supply）；起草代理只起草、不写入经验目录、不取得授权或完成效力（delegate-draft）；再由主控在同一动作内经受控写入并写后精确回读（entry-channels）。摩擦的发现同形，由主控当场发起、交代理记录（friction-settlement-system-foundation 的 discovery-trigger、discovery-context、discovery-closed-set）。
+经验主动记录：主控在当次行动中发现已查明验证的失败机制时，按 pitfall-fact-type 的 entry-channels 整理该发现所需的上下文材料，派生零上下文、不继承主控上下文的代理辅助任务执行体（context-supply）；执行体经统一受控入口落笔并写后回读、把结果回执主控，主控转告 Human、不重复读回（delegate-draft、entry-channels）。摩擦的发现同形，由主控当场发起、交代理落笔并回执（friction-settlement-system-foundation 的 discovery-trigger、discovery-context、discovery-closed-set）。
 管辖状态：ldvh_resolve_governance_scope。本引导只给定位与必要要点，不复制条目正文。
 运行期规则以随插件发布的运行时机制为准；定位信息由行动前召回段的「运行时机制：」段给出（spec_key／标题／路径／positioning／scope），需要条目正文时按该路径读取，项目根下没有 plugin-specs/ 时它在插件包目录内。specs/ 里描述运行期做法的文字是开发需求记录，不构成运行期规则。
 若本仓库不是 LDVH 开发仓库（例如只是带了 specs/ 与 plugin-specs/ 副本的第三方项目），以上开发约定不适用，按运行期会话处理。`;
