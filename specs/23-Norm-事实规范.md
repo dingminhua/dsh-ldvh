@@ -266,7 +266,7 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 
 1. **第一层：受控写入前**——受控写入入口在创建/更新前扫描 `ldvh-base/norms/` 全部现存 Norm 载体、解析 frontmatter，发现同 `direction_key` 的 active Norm 时拒绝写入（`ERR_DIRECTION_ALREADY_EXISTS`）。
 2. **第二层：提交前 Git Gate**——即使绕过受控写入工具（手工编辑或 shell 写入），提交时 Git Gate 遍历工作树与暂存区的 `ldvh-base/norms/norm-*.md`，提取 active Norm 的 `direction_key` 构建频次 Map，任何 key 出现次数 > 1 时拒绝提交（判定 `facts/norm_direction_collision`）；载体不可解析时以 `facts/norm_carrier_unparseable` fail-closed。
-3. **第三层：消费/读取诊断**——主控通过 LDVH CLI 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入成员读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。
+3. **第三层：消费/读取诊断**——主控通过 LDVH CLI 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入当前有效开发规范的读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。
 
 **反重复版的「一方向一规范」判据**：
 

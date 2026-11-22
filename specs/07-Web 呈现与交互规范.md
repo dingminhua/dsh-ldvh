@@ -28,7 +28,7 @@ ldvh_spec:
 本文直接依据：
 
 1. `ldvh-root`：00 §2.8 的 DSH 原生插件与 Web 信息呈现、00 §3 的 Human 权利、00 §4.7 的必停情形与恢复（本文 §6 的暂停呈现依其触发）、00 §4.8 的交还与 Output Envelope、00 §4.9 的流程轻重与后果相称（本文 §5 的呈现详略依其约束）；
-2. `specification-model-foundation`：01 §7 的共同章节结构、§9 的当前规则源条件、§12 的独立审核；
+2. `specification-model-foundation`：01 §7 的共同章节结构、§9 的当前有效开发规范成立条件、§12 的独立审核；
 3. `check-auxiliary-mechanism-foundation`：检查与辅助机制规范 §6 的检查机制四类与 §8 的检查结果与声明边界（本文 §5.5 的呈现边界与 §9 的验证边界依其约束）
 
 Web 与可访问性标准只提供呈现和交互技术参考，不取得 LDVH 领域语义权威。
