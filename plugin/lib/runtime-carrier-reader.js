@@ -1,5 +1,5 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, readFile, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parseAllDocuments } from "yaml";
 
 export const RUNTIME_CARRIER_DIR = "plugin-specs";
@@ -194,11 +194,30 @@ export async function resolveRuntimeCarrierRoot(projectRoot) {
   return null;
 }
 
-function descriptorOf(carrier) {
+export function readablePathOf(carrier, tier) {
+  const absolutePath = typeof carrier?.absolutePath === "string" && carrier.absolutePath !== ""
+    ? carrier.absolutePath
+    : null;
+  const canonicalPath = typeof carrier?.canonicalPath === "string" && carrier.canonicalPath !== ""
+    ? carrier.canonicalPath
+    : null;
+  if (tier === "package" && absolutePath !== null) {
+    return { path: absolutePath, kind: "absolute" };
+  }
+  if (canonicalPath !== null) return { path: canonicalPath, kind: "project-relative" };
+  return { path: absolutePath, kind: absolutePath === null ? null : "absolute" };
+}
+
+function descriptorOf(carrier, tier = null) {
+  const readable = readablePathOf(carrier, tier);
   return {
     specKey: carrier.specKey,
     title: carrier.title,
     canonicalPath: carrier.canonicalPath,
+    absolutePath: carrier.absolutePath,
+    readablePath: readable.path,
+    readablePathKind: readable.kind,
+    carrierRootTier: tier,
     positioning: carrier.positioning,
     scope: carrier.scope,
     role: carrier.role,
@@ -258,7 +277,7 @@ async function loadCarrierDocuments(projectRoot) {
 
 export async function loadRuntimeCarrierIndex({ root } = {}) {
   const loaded = await loadCarrierDocuments(root);
-  const carriers = loaded.carriers.map(descriptorOf);
+  const carriers = loaded.carriers.map((carrier) => descriptorOf(carrier, loaded.tier));
   return {
     ok: true,
     available: !loaded.missing && carriers.length > 0,
@@ -274,32 +293,100 @@ export async function loadRuntimeCarrierIndex({ root } = {}) {
   };
 }
 
-export async function readRuntimeCarrier({ root, specKey, canonicalPath } = {}) {
-  const hasPath = nonEmptyString(canonicalPath);
-  const hasKey = nonEmptyString(specKey);
-  if (hasPath && hasKey) {
-    return failure("carrier/request_invalid", "a read request must carry either a spec_key or a canonical_path, not both");
+function insideResolved(base, candidate) {
+  const offset = relative(base, candidate);
+  if (offset === "" || offset === ".") return true;
+  return !offset.startsWith("..") && !isAbsolute(offset);
+}
+
+async function realPathOrNull(value) {
+  try {
+    return await realpath(value);
+  } catch {
+    return null;
   }
-  if (!hasPath && !hasKey) {
-    return failure("carrier/request_invalid", "a read request must carry a spec_key or a canonical_path");
+}
+
+async function insideDirectory(directory, target) {
+  if (typeof directory !== "string" || directory === "") return false;
+  const base = resolve(directory);
+  const candidate = resolve(target);
+  if (insideResolved(base, candidate)) return true;
+  const [realBase, realCandidate] = await Promise.all([realPathOrNull(base), realPathOrNull(candidate)]);
+  if (realBase === null || realCandidate === null) return false;
+  return insideResolved(realBase, realCandidate);
+}
+
+function resolveRequestedPath({ root, carrierRootDir, rawPath }) {
+  if (isAbsolute(rawPath)) return [resolve(rawPath)];
+  const bases = [];
+  if (typeof root === "string" && root !== "") bases.push(resolve(root));
+  bases.push(resolve(dirname(carrierRootDir)));
+  return [...new Set(bases.map((base) => resolve(base, rawPath)))];
+}
+
+export async function readRuntimeCarrier({ root, specKey, canonicalPath, path } = {}) {
+  const requested = [
+    nonEmptyString(specKey),
+    nonEmptyString(canonicalPath),
+    nonEmptyString(path),
+  ].filter((given) => given).length;
+  if (requested > 1) {
+    return failure(
+      "carrier/request_invalid",
+      "a read request must carry exactly one of spec_key, canonical_path or path",
+    );
+  }
+  if (requested === 0) {
+    return failure("carrier/request_invalid", "a read request must carry a spec_key, a canonical_path or a path");
   }
   const loaded = await loadCarrierDocuments(root);
   if (loaded.missing) {
     return failure("carrier/source_missing", "the runtime carrier source is missing: plugin-specs/ is not readable");
   }
-  const matches = hasPath
-    ? loaded.carriers.filter((carrier) => carrier.canonicalPath === canonicalPath)
-    : loaded.carriers.filter((carrier) => carrier.specKey === specKey);
+  const hasPath = nonEmptyString(path);
+  const hasCanonicalPath = nonEmptyString(canonicalPath);
+  let matches;
+  if (hasPath) {
+    const wanted = resolveRequestedPath({ root, carrierRootDir: loaded.dir, rawPath: path });
+    matches = loaded.carriers.filter((carrier) => wanted.includes(resolve(carrier.absolutePath)));
+    if (matches.length === 0 && !isAbsolute(path)) {
+      matches = loaded.carriers.filter((carrier) => carrier.canonicalPath === path);
+    }
+    if (matches.length === 0) {
+      const target = wanted[0];
+      const escaped = !(await Promise.all(wanted.map((entry) => insideDirectory(loaded.dir, entry)))).some(Boolean);
+      if (escaped) {
+        return failure(
+          "carrier/path_outside_root",
+          `path ${JSON.stringify(path)} resolves outside the runtime carrier root ${JSON.stringify(loaded.dir)}`,
+          { root: loaded.dir },
+        );
+      }
+      return failure(
+        "carrier/not_found",
+        `no readable runtime carrier lives at path ${JSON.stringify(path)}`,
+        { root: loaded.dir, resolved: target },
+      );
+    }
+  } else {
+    matches = hasCanonicalPath
+      ? loaded.carriers.filter((carrier) => carrier.canonicalPath === canonicalPath)
+      : loaded.carriers.filter((carrier) => carrier.specKey === specKey);
+  }
   if (matches.length === 0) {
-    const invalidHit = loaded.invalid.find((entry) => hasPath
-      ? entry.file === canonicalPath.slice(canonicalPath.lastIndexOf("/") + 1)
-      : entry.file === `${specKey}.yaml`);
+    const requestedFile = hasPath
+      ? String(path).slice(String(path).lastIndexOf("/") + 1)
+      : hasCanonicalPath
+        ? canonicalPath.slice(canonicalPath.lastIndexOf("/") + 1)
+        : `${specKey}.yaml`;
+    const invalidHit = loaded.invalid.find((entry) => entry.file === requestedFile);
     if (invalidHit !== undefined) {
       return failure("carrier/parse_failed", invalidHit.reason, { file: invalidHit.file, code: invalidHit.code });
     }
     return failure(
       "carrier/not_found",
-      hasPath
+      hasCanonicalPath
         ? `no readable runtime carrier has canonical_path ${JSON.stringify(canonicalPath)}`
         : `no readable runtime carrier has spec_key ${JSON.stringify(specKey)}`,
     );
@@ -308,6 +395,7 @@ export async function readRuntimeCarrier({ root, specKey, canonicalPath } = {}) 
     return failure("carrier/ambiguous", "more than one runtime carrier matches the request");
   }
   const carrier = matches[0];
+  const readable = readablePathOf(carrier, loaded.tier);
   return {
     ok: true,
     carrier: {
@@ -321,6 +409,10 @@ export async function readRuntimeCarrier({ root, specKey, canonicalPath } = {}) 
       requirements: carrier.requirements.map((entry) => ({ ...entry })),
       file: carrier.file,
       absolutePath: carrier.absolutePath,
+      readablePath: readable.path,
+      readablePathKind: readable.kind,
+      carrierRootTier: loaded.tier,
+      carrierRootDir: loaded.dir,
     },
     invalid: loaded.invalid,
   };
@@ -381,7 +473,8 @@ function carrierMatchOf(carrier, queryTokens) {
   };
 }
 
-function carrierCandidateOf(match) {
+function carrierCandidateOf(match, tier = null) {
+  const readable = readablePathOf(match.carrier, tier);
   return {
     kind: "runtime-carrier",
     label: "载体条目",
@@ -390,7 +483,11 @@ function carrierCandidateOf(match) {
     specKey: match.carrier.specKey,
     title: match.carrier.title,
     canonicalPath: match.carrier.canonicalPath,
-    path: match.carrier.canonicalPath,
+    absolutePath: match.carrier.absolutePath,
+    readablePath: readable.path,
+    readablePathKind: readable.kind,
+    carrierRootTier: tier,
+    path: readable.path,
     positioning: match.carrier.positioning,
     scope: match.carrier.scope,
     role: match.carrier.role,
@@ -402,7 +499,7 @@ function carrierCandidateOf(match) {
     hits: match.hits,
     hitReason: match.hitReason,
     provesApplicability: false,
-    note: "载体条目候选只给定位引用（canonical_path + 条目 id），正文须按该引用读取",
+    note: "载体条目候选只给定位引用（canonical_path／可读路径 + 条目 id），正文须按该引用读取；可读路径为 absolute 者可直接打开，为 project-relative 者相对项目根",
   };
 }
 
@@ -414,7 +511,7 @@ export async function matchRuntimeCarriers({ root, query, limit = RUNTIME_CARRIE
     for (const carrier of loaded.carriers) {
       const match = carrierMatchOf(carrier, queryTokens);
       if (match === null) continue;
-      matched.push(carrierCandidateOf(match));
+      matched.push(carrierCandidateOf(match, loaded.tier));
     }
   }
   matched.sort(
@@ -429,6 +526,9 @@ export async function matchRuntimeCarriers({ root, query, limit = RUNTIME_CARRIE
     specKey: carrier.specKey,
     title: carrier.title,
     canonicalPath: carrier.canonicalPath,
+    absolutePath: carrier.absolutePath,
+    readablePath: carrier.readablePath,
+    readablePathKind: carrier.readablePathKind,
     entryIds: carrier.entryIds,
   }));
   return {
@@ -446,7 +546,7 @@ export async function matchRuntimeCarriers({ root, query, limit = RUNTIME_CARRIE
     },
     truncated: matched.length > carriers.length,
     invalid: loaded.invalid,
-    note: "载体侧候选按索引字段与条目词面确定性匹配；索引正文不随候选返回，按 canonical_path + 条目 id 读取",
+    note: "载体侧候选按索引字段与条目词面确定性匹配；索引正文不随候选返回，按 canonical_path 或可读路径 + 条目 id 读取",
   };
 }
 
@@ -501,7 +601,7 @@ export async function routeRuntimeCarriers({ root, scene, limit = RUNTIME_CARRIE
   const requested = Number.isInteger(limit) && limit > 0 ? limit : RUNTIME_CARRIER_ROUTE_LIMIT;
   if (routers.length > 0 && queryTokens.length > 0) {
     const descriptorsByPath = new Map(
-      loaded.carriers.map((carrier) => [carrier.canonicalPath, descriptorOf(carrier)]),
+      loaded.carriers.map((carrier) => [carrier.canonicalPath, descriptorOf(carrier, loaded.tier)]),
     );
     const router = routers[0];
     const routes = routerRouteOf(router, queryTokens, descriptorsByPath);
@@ -539,7 +639,7 @@ export async function routeRuntimeCarriers({ root, scene, limit = RUNTIME_CARRIE
     const match = carrierMatchOf(carrier, queryTokens);
     if (match === null) continue;
     candidates.push({
-      ...descriptorOf(carrier),
+      ...descriptorOf(carrier, loaded.tier),
       reason: match.hitReason,
       heuristic: true,
       hits: match.hits,

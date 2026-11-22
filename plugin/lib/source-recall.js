@@ -1599,7 +1599,7 @@ export async function recallForAction(input = {}) {
       missing: carrierSource.missing === true,
       invalid: carrierSource.invalid,
       note: carrierSource.note,
-      locatorFields: ["canonicalPath", "entryIds"],
+      locatorFields: ["canonicalPath", "readablePath", "entryIds"],
       provesApplicability: false,
     },
     l0Enumeration: {
@@ -1663,7 +1663,8 @@ export async function recallForAction(input = {}) {
       facts: diffByPath(allFactHits, keptFacts),
       runtimeCarriers: (carrierSource.unchecked ?? []).map((carrier) => ({
         title: carrier.title,
-        path: carrier.canonicalPath,
+        path: carrier.readablePath ?? carrier.canonicalPath,
+        canonicalPath: carrier.canonicalPath,
       })),
     },
     gaps: [

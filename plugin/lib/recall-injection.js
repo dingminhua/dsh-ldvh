@@ -184,6 +184,48 @@ export function currentUserText(messages, isOwnMessage) {
   return "";
 }
 
+function carrierLocatorOf(carrier) {
+  const parts = [];
+  const specKey = typeof carrier?.specKey === "string" ? carrier.specKey : "";
+  const canonicalPath = typeof carrier?.canonicalPath === "string" ? carrier.canonicalPath : "";
+  const readablePath = typeof carrier?.readablePath === "string" ? carrier.readablePath : "";
+  const readablePathKind = typeof carrier?.readablePathKind === "string" ? carrier.readablePathKind : "";
+  if (specKey !== "") parts.push(`spec_key=${specKey}`);
+  const needsReadable =
+    readablePath !== "" && readablePath !== canonicalPath && readablePathKind === "absolute";
+  if (needsReadable) {
+    parts.push(`实读=${readablePath}`);
+  } else if (canonicalPath !== "") {
+    parts.push(canonicalPath);
+  }
+  return { locator: parts.join("；"), showsAbsolute: needsReadable };
+}
+
+function renderCarrierRow(carrier) {
+  const positioning = typeof carrier?.positioning === "string" ? carrier.positioning : "";
+  const scope = typeof carrier?.scope === "string" ? carrier.scope : "";
+  const { locator, showsAbsolute } = carrierLocatorOf(carrier);
+  const title = typeof carrier?.title === "string" ? carrier.title : "";
+  return {
+    row: `- 载体条目：${title}（${locator}）— ${positioning}；何时查阅：${scope}`,
+    showsAbsolute,
+  };
+}
+
+function carrierBasisLine({ omitted, total, shown, anyAbsolute }) {
+  const pathNote = anyAbsolute
+    ? "实读= 为插件包内绝对路径，可直接打开且与 canonical_path 同指一份；未带 实读= 者路径相对项目根"
+    : "正文按行内路径按需读取";
+  if (omitted > 0) {
+    return `（索引：只给定位，不含条目正文；按词面相关度取前 ${shown} 份，共 ${total} 份命中，未列出者不代表不存在；${pathNote}。）`;
+  }
+  return `（索引：只给定位，不含条目正文；${pathNote}。本段不证明适用。）`;
+}
+
+function carrierYieldLineOf(total) {
+  return `（运行时机制索引让位：${total} 份相关载体，正文按行内路径按需读取。）`;
+}
+
 function appendRuntimeCarrierIndex(lines, result, limitBytes, charLimit) {
   const candidates = Array.isArray(result?.runtimeCarriers?.candidates)
     ? result.runtimeCarriers.candidates
@@ -204,29 +246,27 @@ function appendRuntimeCarrierIndex(lines, result, limitBytes, charLimit) {
     return true;
   };
   const rows = [];
+  let anyAbsolute = false;
   for (const carrier of candidates.slice(0, RUNTIME_CARRIER_INJECTION_MAX)) {
-    const positioning = typeof carrier.positioning === "string" ? carrier.positioning : "";
-    const scope = typeof carrier.scope === "string" ? carrier.scope : "";
-    const row = `- 载体条目：${carrier.title}（spec_key=${carrier.specKey}；${carrier.canonicalPath}）— ${positioning}；何时查阅：${scope}`;
+    const { row, showsAbsolute } = renderCarrierRow(carrier);
     if (Buffer.byteLength(row, "utf8") + 1 > sectionBudgetBytes) break;
     const probe = [...lines, RUNTIME_CARRIER_INJECTION_HEADER, ...rows, row].join("\n");
     const probeBytes = Buffer.byteLength(probe, "utf8") + Buffer.byteLength(RUNTIME_CARRIER_INJECTION_HEADER, "utf8");
     if (limitBytes !== null && limitBytes > 0 && probe.length > charLimit) break;
     if (limitBytes !== null && limitBytes > 0 && probeBytes > limitBytes) break;
     rows.push(row);
+    if (showsAbsolute) anyAbsolute = true;
   }
   if (rows.length === 0) {
-    const compact = `（运行时机制索引让位：${total} 份相关载体，正文按 canonical_path 按需读取。）`;
+    const compact = carrierYieldLineOf(total);
     if (fits(compact)) lines.push(compact);
     return;
   }
   const omitted = total - rows.length;
-  const basis = omitted > 0
-    ? `（索引：只给定位，不含条目正文；按词面相关度取前 ${rows.length} 份，共 ${total} 份命中，未列出者不代表不存在；正文按 canonical_path 按需读取。）`
-    : "（索引：只给定位，不含条目正文；正文按 canonical_path 按需读取。本段不证明适用。）";
+  const basis = carrierBasisLine({ omitted, total, shown: rows.length, anyAbsolute });
   const header = RUNTIME_CARRIER_INJECTION_HEADER;
   if (!fits([header, ...rows, basis].join("\n"))) {
-    const compact = `（运行时机制索引让位：${total} 份相关载体，正文按 canonical_path 按需读取。）`;
+    const compact = carrierYieldLineOf(total);
     if (rows.length === 1 && fits(compact)) {
       lines.push(compact);
       return;
