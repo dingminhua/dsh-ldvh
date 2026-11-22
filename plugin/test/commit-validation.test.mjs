@@ -296,7 +296,7 @@ function normCarrier(frontmatter) {
 const NORM_A = "ldvh-base/norms/norm-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.md";
 const NORM_B = "ldvh-base/norms/norm-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.md";
 
-test("norm uniqueness: two ACTIVE carriers on one direction_key are blocked (27 §11)", () => {
+test("norm uniqueness: two ACTIVE carriers on one direction_key are blocked (23 §11)", () => {
 	const result = checkNormDirectionUniqueness([
 		{ path: NORM_A, content: normCarrier("status: active\ndirection_key: code-style") },
 		{ path: NORM_B, content: normCarrier("status: active\ndirection_key: code-style") },
@@ -318,7 +318,7 @@ test("norm uniqueness: a CRLF carrier is parsed, not silently skipped (fail-open
 	assert.ok(result.issues.some((issue) => issue.rule === "facts/norm_direction_collision"));
 });
 
-test("norm uniqueness: retired carriers do not occupy a direction (27 §11 counts active only)", () => {
+test("norm uniqueness: retired carriers do not occupy a direction (23 §11 counts active only)", () => {
 	const result = checkNormDirectionUniqueness([
 		{ path: NORM_A, content: normCarrier("status: active\ndirection_key: code-style") },
 		{ path: NORM_B, content: normCarrier("status: retired\ndirection_key: code-style") },

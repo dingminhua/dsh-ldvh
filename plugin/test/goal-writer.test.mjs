@@ -307,7 +307,7 @@ test("anchor stability: rewriting or reordering SG-n is refused; adding is allow
 	assert.equal(added.ok, true, JSON.stringify(added.issues));
 });
 
-test("readServableSubGoals resolves sub-goals from SubGoal carriers, not from goal.md (28 §12.3)", async () => {
+test("readServableSubGoals resolves sub-goals from SubGoal carriers, not from goal.md (21 §12.3)", async () => {
 	await withTemp("goal.", async (base) => {
 		const root = await freshRoot(base);
 		await createGoalObject({

@@ -249,16 +249,16 @@ export function createHostSeams() {
   async function requestSparkConsent({ action, objectTitle, summary, agent, signal }) {
     const ask = seams.ask;
     if (typeof ask !== "function") {
-      return { granted: false, reason: "no human-answerer entry is available; 20 §16 requires an explicit Human confirmation, so consent cannot be assumed" };
+      return { granted: false, reason: "no human-answerer entry is available; 22 §16 requires an explicit Human confirmation, so consent cannot be assumed" };
     }
     const verb = action === "terminal" ? "转入终态" : "创建";
     const report = typeof summary === "string" && summary.trim().length > 0
       ? summary.trim()
       : null;
     if (report === null) {
-      return { granted: false, reason: "20 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
+      return { granted: false, reason: "22 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
     }
-    const head = [`Spark ${verb}确认（20 §16）`];
+    const head = [`Spark ${verb}确认（22 §16）`];
     if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
     const composed = composeAskTitle({ head });
     try {

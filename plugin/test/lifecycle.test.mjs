@@ -1552,7 +1552,7 @@ test("pre-step 规范目录: 独立成一行注入（标签「事实规范目录
 		recallSummary: () => "双源召回 · 行动前候选",
 		normDirectoryRow: async () => ({
 			inject: true,
-			text: "【事实规范目录 · active Norm（27 §10）】\n· 合成方向甲（fixture-direction-alpha）",
+			text: "【事实规范目录 · active Norm（23 §10）】\n· 合成方向甲（fixture-direction-alpha）",
 			digest: "nd1",
 		}),
 	});
@@ -1568,7 +1568,7 @@ test("pre-step 规范目录: 独立成一行注入（标签「事实规范目录
 test("pre-step 规范目录: 每回合都注一行（内容稳定也照注），内容变了由下一行反映", async () => {
 	const agent = makeAgent("s1", "/cwd");
 	let digest = "nd-same";
-	let text = "【事实规范目录 · active Norm（27 §10）】\n· 甲（a）";
+	let text = "【事实规范目录 · active Norm（23 §10）】\n· 甲（a）";
 	const channel = createPreStepHandler(agent, {
 		isGoverned: () => true,
 		normDirectoryRow: async () => ({ inject: true, text, digest }),
@@ -1581,7 +1581,7 @@ test("pre-step 规范目录: 每回合都注一行（内容稳定也照注），
 	const rows2 = r2.messages.filter((m) => (m?.source?.summary ?? null) === "事实规范目录");
 	assert.equal(rows2.length, 1, "每回合都要有一行目录（内容稳定也照注）");
 	digest = "nd-next";
-	text = "【事实规范目录 · active Norm（27 §10）】\n· 甲（a）\n· 乙（b）";
+	text = "【事实规范目录 · active Norm（23 §10）】\n· 甲（a）\n· 乙（b）";
 	const r3 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
 	const rows3 = r3.messages.filter((m) => (m?.source?.summary ?? null) === "事实规范目录");
 	assert.equal(rows3.length, 1, "同批次内不得出现两份目录");

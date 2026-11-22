@@ -1010,7 +1010,7 @@ test("split: A discarded+split-into→B,C (both open) succeeds (22 §9.3 拆分)
   });
 });
 
-test("readServableSubGoals returns SubGoal objects, not SG-n strings (28 §12.3)", async () => {
+test("readServableSubGoals returns SubGoal objects, not SG-n strings (21 §12.3)", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     await seedGoalAnchorObjects(root);
@@ -1486,7 +1486,7 @@ test("既有关系中目标已终态，但写入时若同时新增非 open 目�
   });
 });
 
-test("update: 历史的 serves 指向已 retired 子目标时，更新仍被允许（28 §12.3 第 3 条）", async () => {
+test("update: 历史的 serves 指向已 retired 子目标时，更新仍被允许（21 §12.3 第 3 条）", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     await seedGoalAnchorObjects(root);

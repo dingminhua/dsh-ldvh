@@ -78,7 +78,7 @@ async function createOne(root, overrides = {}) {
 }
 
 
-test("carrier lives under subgoals/ and carries the type key (28 §7)", async () => {
+test("carrier lives under subgoals/ and carries the type key (21 §7)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const { result } = await createOne(root);
@@ -91,7 +91,7 @@ test("carrier lives under subgoals/ and carries the type key (28 §7)", async ()
 	});
 });
 
-test("create requires the parent goal carrier to resolve (28 §14.1)", async () => {
+test("create requires the parent goal carrier to resolve (21 §14.1)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = join(base, "ldvh-base");
 		await mkdir(root, { recursive: true });
@@ -109,7 +109,7 @@ test("create requires the parent goal carrier to resolve (28 §14.1)", async () 
 	});
 });
 
-test("create refuses a parent_goal that is not the singleton key (28 §8)", async () => {
+test("create refuses a parent_goal that is not the singleton key (21 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ parent_goal: "some-other-goal" });
@@ -130,7 +130,7 @@ test("create refuses a parent_goal that is not the singleton key (28 §8)", asyn
 });
 
 
-test("two sub-goals may share the same order — it is display-only, not an identity (28 §8)", async () => {
+test("two sub-goals may share the same order — it is display-only, not an identity (21 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const a = await createOne(root);
@@ -142,7 +142,7 @@ test("two sub-goals may share the same order — it is display-only, not an iden
 	});
 });
 
-test("order may be omitted entirely — a missing order is a legal state (28 §8)", async () => {
+test("order may be omitted entirely — a missing order is a legal state (21 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft();
@@ -161,7 +161,7 @@ test("order may be omitted entirely — a missing order is a legal state (28 §8
 	});
 });
 
-test("order must be a positive integer when present (28 §8)", async () => {
+test("order must be a positive integer when present (21 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		for (const order of [0, -1, 1.5, "1"]) {
@@ -180,7 +180,7 @@ test("order must be a positive integer when present (28 §8)", async () => {
 	});
 });
 
-test("a RETIRED object keeps its uid but is no longer a serves target (28 §9.2/§12.3)", async () => {
+test("a RETIRED object keeps its uid but is no longer a serves target (21 §9.2/§12.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const first = await createOne(root);
@@ -205,7 +205,7 @@ test("a RETIRED object keeps its uid but is no longer a serves target (28 §9.2/
 });
 
 
-test("create refuses a status other than active (28 §9.2 初态必为 active)", async () => {
+test("create refuses a status other than active (21 §9.2 初态必为 active)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ status: "achieved" });
@@ -222,7 +222,7 @@ test("create refuses a status other than active (28 §9.2 初态必为 active)",
 	});
 });
 
-test("achieved is terminal — a later update is refused (28 §9.2)", async () => {
+test("achieved is terminal — a later update is refused (21 §9.2)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const created = (await createOne(root)).result.value;
@@ -253,7 +253,7 @@ test("achieved is terminal — a later update is refused (28 §9.2)", async () =
 	});
 });
 
-test("retired requires a disposition (28 §8/§9.3)", async () => {
+test("retired requires a disposition (21 §8/§9.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const created = (await createOne(root)).result.value;
@@ -273,7 +273,7 @@ test("retired requires a disposition (28 §8/§9.3)", async () => {
 });
 
 
-test("order can be changed in place — supplement-level update (28 §8/§9.3)", async () => {
+test("order can be changed in place — supplement-level update (21 §8/§9.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const created = (await createOne(root, { order: 1 })).result.value;
@@ -296,7 +296,7 @@ test("order can be changed in place — supplement-level update (28 §8/§9.3)",
 });
 
 
-test("body must carry 达成条件 then 对齐说明 (28 §8)", () => {
+test("body must carry 达成条件 then 对齐说明 (21 §8)", () => {
 	const good = validateSubGoalBodyStructure(
 		"# 标题\n\n## 达成条件\n\n某判据。\n\n## 对齐说明\n\n某对齐。\n",
 		"标题",
@@ -322,7 +322,7 @@ test("criterion and alignment 与正文段的差异只报告不阻断（02 §7.1
 	assert.equal(good.warnings.length, 0, JSON.stringify(good.warnings));
 });
 
-test("a third status value is not in the closure (28 §9)", () => {
+test("a third status value is not in the closure (21 §9)", () => {
 	const r = validateSubGoalFrontmatter({
 		object_uid: "00000000-0000-4000-8000-000000000000",
 		fact_type_key: "subgoal",
@@ -340,7 +340,7 @@ test("a third status value is not in the closure (28 §9)", () => {
 	assert.ok(r.issues.some((i) => /status/.test(i)));
 });
 
-test("criterion_kind is a closed set — an unknown kind is refused (28 §10.2)", async () => {
+test("criterion_kind is a closed set — an unknown kind is refused (21 §10.2)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ criterion_kind: "vibes" });
@@ -357,7 +357,7 @@ test("criterion_kind is a closed set — an unknown kind is refused (28 §10.2)"
 	});
 });
 
-test("a retired-era `anchor` key is no longer part of the closed set (28 §8, 2026-11-01)", async () => {
+test("a retired-era `anchor` key is no longer part of the closed set (21 §8, 2026-11-01)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ anchor: "SG-1" });
@@ -376,7 +376,7 @@ test("a retired-era `anchor` key is no longer part of the closed set (28 §8, 20
 });
 
 
-test("resolveSubGoal: active and achieved resolve; retired does not (28 §12.3)", async () => {
+test("resolveSubGoal: active and achieved resolve; retired does not (21 §12.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const a = (await createOne(root)).result.value;
@@ -418,7 +418,7 @@ test("resolveSubGoal: active and achieved resolve; retired does not (28 §12.3)"
 	});
 });
 
-test("resolveSubGoal refuses a non-uuid value — the anchor form is gone (28 §12.3)", async () => {
+test("resolveSubGoal refuses a non-uuid value — the anchor form is gone (21 §12.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		await createOne(root);
@@ -428,7 +428,7 @@ test("resolveSubGoal refuses a non-uuid value — the anchor form is gone (28 §
 	});
 });
 
-test("listResolvableSubGoals sorts by order, then created_at — never by identifier (28 §8)", async () => {
+test("listResolvableSubGoals sorts by order, then created_at — never by identifier (21 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		for (const [title, order] of [["第三条", 30], ["第一条", 10], ["第二条", 20]]) {
@@ -443,7 +443,7 @@ test("listResolvableSubGoals sorts by order, then created_at — never by identi
 });
 
 
-test("listSubGoalObjects sorts by display order too — it must not fall back to directory order (28 §8)", async () => {
+test("listSubGoalObjects sorts by display order too — it must not fall back to directory order (21 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		for (const [title, order] of [["第三条", 30], ["第一条", 10], ["第二条", 20]]) {
@@ -462,7 +462,7 @@ test("listSubGoalObjects sorts by display order too — it must not fall back to
 	});
 });
 
-test("listSubGoalObjects does not project a business number — `anchor` is gone (28 §7)", async () => {
+test("listSubGoalObjects does not project a business number — `anchor` is gone (21 §7)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		await createOne(root);
@@ -477,7 +477,7 @@ test("listSubGoalObjects does not project a business number — `anchor` is gone
 	});
 });
 
-test("list defaults to active only; status=all includes both terminals (28 §12.4)", async () => {
+test("list defaults to active only; status=all includes both terminals (21 §12.4)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const keep = (await createOne(root)).result.value;
@@ -573,7 +573,7 @@ test("the created entry carries the authoritative signature (02 §7.1)", async (
 });
 
 
-test("precheck: a valid candidate passes and yields a fingerprint, writing NOTHING (28 §13)", async () => {
+test("precheck: a valid candidate passes and yields a fingerprint, writing NOTHING (21 §13)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft();
@@ -587,7 +587,7 @@ test("precheck: a valid candidate passes and yields a fingerprint, writing NOTHI
 	});
 });
 
-test("precheck: an invalid candidate reports issues instead of writing (28 §13)", async () => {
+test("precheck: an invalid candidate reports issues instead of writing (21 §13)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft({ criterion_kind: "vibes" });
@@ -599,7 +599,7 @@ test("precheck: an invalid candidate reports issues instead of writing (28 §13)
 	});
 });
 
-test("precheck: an unresolved parent goal is 'failed', not 'unverifiable' (28 §14.1)", async () => {
+test("precheck: an unresolved parent goal is 'failed', not 'unverifiable' (21 §14.1)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = join(base, "ldvh-base");
 		await mkdir(root, { recursive: true });
@@ -619,7 +619,7 @@ test("precheck: a body it cannot evaluate at all is 'unverifiable', not 'failed'
 	});
 });
 
-test("双入口一致性: precheck and create reach the SAME verdict on the same candidate (28 §13)", async () => {
+test("双入口一致性: precheck and create reach the SAME verdict on the same candidate (21 §13)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
 
@@ -656,7 +656,7 @@ test("双入口一致性: a passing candidate passes BOTH entries", async () => 
 	});
 });
 
-test("候选指纹: 剥离 status、保留变更摘要（28 §13 逐字登记）", () => {
+test("候选指纹: 剥离 status、保留变更摘要（21 §13 逐字登记）", () => {
 	const d = draft();
 	const body = validBody(d);
 	const a = computeSubGoalCreateCandidateFingerprint(d, body);
@@ -668,7 +668,7 @@ test("候选指纹: 剥离 status、保留变更摘要（28 §13 逐字登记）
 	assert.notEqual(computeSubGoalCreateCandidateFingerprint(d, `${body}\n补一句。`), a);
 });
 
-test("write refuses when the candidate changed after the precheck (28 §13)", async () => {
+test("write refuses when the candidate changed after the precheck (21 §13)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft();
@@ -690,7 +690,7 @@ test("write refuses when the candidate changed after the precheck (28 §13)", as
 	});
 });
 
-test("a create without a precheck fingerprint is REFUSED with zero writes (28 §13)", async () => {
+test("a create without a precheck fingerprint is REFUSED with zero writes (21 §13)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft();
@@ -707,7 +707,7 @@ test("a create without a precheck fingerprint is REFUSED with zero writes (28 §
 	});
 });
 
-test("守卫：预检的占位 object_uid 绝不会落盘（28 §13 不生成对象标识）", async () => {
+test("守卫：预检的占位 object_uid 绝不会落盘（21 §13 不生成对象标识）", async () => {
 	await withTemp("subgoal-placeholder.", async (base) => {
 		const root = await freshRoot(base);
 		const d = draft();
@@ -850,7 +850,7 @@ test("subgoal tools: 预检工具只读运行，交还指纹与结论，不写�
 	});
 });
 
-test("subgoal tools: 未带指纹的创建按 28 §13 零写入拒绝（同一性未确认）", async () => {
+test("subgoal tools: 未带指纹的创建按 21 §13 零写入拒绝（同一性未确认）", async () => {
 	const { makeExecute } = await import("../lib/subgoal-tools.js");
 	const { initRepo, git, sessionPersistenceWithRoutingLog } = await import("./helpers.mjs");
 	await withTemp("subgoal-tools-noprecheck.", async (base) => {
