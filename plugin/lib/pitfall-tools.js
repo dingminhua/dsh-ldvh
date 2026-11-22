@@ -471,7 +471,7 @@ async function executeArmDelegate(args, exec, deps) {
     sources: [{ kind: "authorization", path: "experience-arming ledger" }],
     gaps: [],
     verification: { checks: ["caller-kind", "governance-scope", "arm-persist"], passed: true },
-    follow_up: ["派生分身并交其任务书；分身写入后主控须精确读回核对存在性与 status，并在当次交还报告（25 §13）"]
+    follow_up: ["派生分身并交其任务书；分身经统一受控入口落笔后把结果回执主控，主控据回执转告 Human、不重复读回对象（25 §13，Human 2026-11-23 决定）"]
   });
 }
 
