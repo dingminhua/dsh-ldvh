@@ -129,7 +129,7 @@ test("norm consent: the cancellation signal is forwarded (sole release for an ab
 });
 
 
-test("norm consent: a very long 呈报内容 still yields a bounded, detail-free dialog", async () => {
+test("norm consent: a very long 呈报内容 still yields a detail-free dialog", async () => {
   const longReport = Array.from({ length: 80 }, (_, i) => `第${i}行为退休据实说明的一部分，内容用于撑长呈报。`).join("\n\n");
   let seen = null;
   const { seams, install } = installWith(async (request) => {
@@ -137,14 +137,13 @@ test("norm consent: a very long 呈报内容 still yields a bounded, detail-free
     return { answers: [{ id: QUESTION_ID, selected: ["确认"] }] };
   });
   await seams.requestNormConsent({ ...CALL, action: "retire", summary: longReport });
-  assert.ok(seen.question.length <= 200, `question must stay within the 200-char bound, got ${seen.question.length}`);
   assert.equal(seen.detail, undefined, "呈报不随弹窗下发（Human 2026-11-13）");
   assert.ok(!seen.question.includes("第0行为"), "the report must not be pushed into the title");
   assert.ok(seen.question.includes("Norm"), "the shell still names the Gate so the Human knows what is being asked");
   install.dispose();
 });
 
-test("norm consent: an over-long shell is actually clamped (the bound must BIND, not merely cap)", async () => {
+test("norm consent: an over-long object title is passed through whole (no 200-char clamp)", async () => {
   const hugeTitle = "超长标题".repeat(200);
   let seen = null;
   const { seams, install } = installWith(async (request) => {
@@ -152,9 +151,9 @@ test("norm consent: an over-long shell is actually clamped (the bound must BIND,
     return { answers: [{ id: QUESTION_ID, selected: ["确认"] }] };
   });
   await seams.requestNormConsent({ ...CALL, objectTitle: hugeTitle, summary: REPORT });
-  assert.ok(seen.question.length <= 200, `the shell must be clamped to 200, got ${seen.question.length}`);
-  assert.ok(seen.question.length > 100, `the shell must not be over-truncated, got ${seen.question.length}`);
-  assert.ok(!seen.question.includes(hugeTitle), "an over-long title must be cut, not passed through whole");
+  assert.ok(seen.question.includes(hugeTitle), "an over-long title must not be cut");
+  assert.ok(seen.question.length > 200, `no length bound applies any more, got ${seen.question.length}`);
+  assert.equal(seen.detail, undefined, "呈报不随弹窗下发（Human 2026-11-13）");
   install.dispose();
 });
 

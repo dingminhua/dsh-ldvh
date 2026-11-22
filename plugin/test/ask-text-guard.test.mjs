@@ -22,23 +22,25 @@ function validQuestion(overrides = {}) {
 }
 
 
-test("纯校验器：恰好 200 字符通过（边界包含）", () => {
-  const q = "字".repeat(200);
-  assert.equal(validateAskText(validQuestion({ question: q })).ok, true);
-});
-
-test("纯校验器：201 字符被拒，且不截断不改写", () => {
-  const q = "字".repeat(201);
+test("纯校验器：5000 字符的长 question 通过形状校验（长度不再受限）", () => {
+  const q = "字".repeat(5000);
   const r = validateAskText(validQuestion({ question: q }));
-  assert.equal(r.ok, false);
-  assert.match(r.reason, /201/);
-  assert.match(r.reason, /不会截断|不截断|重发/);
+  assert.equal(r.ok, true, JSON.stringify(r));
 });
 
-test("纯校验器：UTF-16 码元计量，全 emoji 标题按 .length 超限必拒", () => {
-  const q = "\u{1F600}".repeat(200);
-  assert.equal(q.length, 400);
-  assert.equal(validateAskText(validQuestion({ question: q })).ok, false);
+test("纯校验器：长 question ＋ detail 仍被字段闭集拒绝（去长度不去形状）", () => {
+  const req = validQuestion({ question: "字".repeat(5000) });
+  req.questions[0].detail = "这是一大段呈报细节";
+  const r = validateAskText(req);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /detail/);
+  assert.match(r.reason, /未允许的字段/);
+});
+
+test("纯校验器：超长全 emoji 标题通过（不再按 UTF-16 码元计量判拒）", () => {
+  const q = "\u{1F600}".repeat(2000);
+  assert.equal(q.length, 4000);
+  assert.equal(validateAskText(validQuestion({ question: q })).ok, true);
 });
 
 test("纯校验器：题内出现 detail 字段被拒（宿主会静默丢弃，审核必须拦）", () => {
@@ -117,9 +119,16 @@ test("tools.guard：管辖会话里畸形提请被拒（返回字符串）", () 
   assert.match(denial, /fail-closed/);
 });
 
-test("tools.guard：管辖会话里超长标题被拒", () => {
+test("tools.guard：管辖会话里超长标题放行（长度不再受限）", () => {
   const guard = guardOf(createHostSeams());
-  assert.match(guard(execAt("/p", validQuestion({ question: "字".repeat(201) }))), /200/);
+  assert.equal(guard(execAt("/p", validQuestion({ question: "字".repeat(5000) }))), undefined);
+});
+
+test("tools.guard：管辖会话里长标题带 detail 仍被拒（形状约束未被长度放开波及）", () => {
+  const guard = guardOf(createHostSeams());
+  const denial = guard(execAt("/p", validQuestion({ question: "字".repeat(5000), detail: "x" })));
+  assert.equal(typeof denial, "string");
+  assert.match(denial, /detail/);
 });
 
 test("tools.guard：格式良好的短提问放行（不误伤）", () => {
@@ -166,12 +175,21 @@ test("seams.ask：畸形服务提请被拒绝，宿主 ask 根本没被调用", 
   assert.equal(called, 0, "fail-closed：不得先把畸形提请发给宿主");
 });
 
-test("seams.ask：超长标题被拒绝且宿主未被调用", () => {
+test("seams.ask：超长标题原样送达宿主（不拒绝、不截断、不改写）", async () => {
+  const q = "字".repeat(5000);
+  let seen = null;
+  const seams = serviceSeam(async (r) => { seen = r; return { answers: [] }; });
+  await seams.ask(validQuestion({ question: q }));
+  assert.ok(seen !== null, "长标题不得被接缝拦下");
+  assert.equal(seen.questions[0].question, q, "不得截断或改写");
+});
+
+test("seams.ask：超长标题＋detail 仍被拒且宿主未被调用（形状约束保留）", () => {
   let called = 0;
   const seams = serviceSeam(async () => { called += 1; return { answers: [] }; });
   assert.throws(
-    () => seams.ask(validQuestion({ question: "字".repeat(201) })),
-    /200/,
+    () => seams.ask(validQuestion({ question: "字".repeat(5000), detail: "x" })),
+    /detail/,
   );
   assert.equal(called, 0);
 });

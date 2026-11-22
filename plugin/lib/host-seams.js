@@ -8,7 +8,7 @@ import { REVIEW_ASK_ANSWERS,
   recordReviewAskDecision,
   reviewAskFingerprint,
 } from "./review-ask.js";
-import { askTextDenial, validateAskText, ASK_TEXT_MAX_CHARS as ASK_QUESTION_MAX_CHARS } from "./ask-text-guard.js";
+import { askTextDenial, validateAskText } from "./ask-text-guard.js";
 import { composeConsultQuestion } from "./research-consult.js";
 
 const REVIEW_ASK_QUESTION_ID = "ldvh-review-ask";
@@ -37,21 +37,11 @@ function customTextOf(entry) {
   return text.length > 0 ? text : null;
 }
 
-export { ASK_QUESTION_MAX_CHARS };
-
-function clampHead(text, budget) {
-  if (text.length <= budget) return text;
-  let cut = Math.max(0, budget - 1);
-  const prev = text.charCodeAt(cut - 1);
-  if (cut > 0 && prev >= 0xd800 && prev <= 0xdbff) cut -= 1;
-  return `${text.slice(0, cut)}…`;
-}
-
 function composeAskTitle({ head }) {
   const lines = (Array.isArray(head) ? head : [])
     .filter((line) => typeof line === "string" && line.trim().length > 0)
     .map((line) => line.trim());
-  return { question: clampHead(lines.join("\n"), ASK_QUESTION_MAX_CHARS) };
+  return { question: lines.join("\n") };
 }
 
 
