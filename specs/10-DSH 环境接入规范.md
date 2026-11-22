@@ -195,7 +195,7 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 |---|---|
 | 00 | `specs/00-理念与构成.md` |
 | README（一类，本域展开为两条路径） | `README.md`（仓库首页）与 `plugin/README.md`（插件市场页） |
-| 插件 AI 面向语义文本 | 经 `system-prompt/assemble` 注入的 `ldvh:minimal-guidance` 段，文本源为 `plugin/lib/guidance-text.js` |
+| 插件 AI 面向语义文本 | 经 `system-prompt/assemble` 注入的 `ldvh:minimal-guidance` 段，文本源为 `plugin/lib/guidance-text.js`；运行期读物为 `plugin-specs/*.yaml`（运行时机制，非规范源成员，不占编号与职责标识符命名空间） |
 | LICENSE | `LICENSE` |
 | 版本声明点 | `plugin/CHANGELOG.md` 的最新 `## [<版本>]` 条目 + `plugin/package.json` 的 `version` + `README.md` 与 `plugin/README.md` 的版本行 |
 
