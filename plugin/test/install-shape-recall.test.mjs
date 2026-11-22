@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { pluginRoot, withTemp } from "./helpers.mjs";
+import { buildRecallCriteriaBundle } from "../scripts/specs-bundle.mjs";
 
 const RECALL_MODULE_CLOSURE = Object.freeze([
 	"source-recall.js",
@@ -42,10 +43,14 @@ function criteriaTable() {
 	].join("\n");
 }
 
-async function installShapedRecall(base) {
+async function installShapedRecall(base, options = {}) {
 	await mkdir(join(base, "lib"), { recursive: true });
 	for (const name of RECALL_MODULE_CLOSURE) {
 		await cp(join(pluginRoot, "lib", name), join(base, "lib", name));
+	}
+	if (options.withCriteriaBundle === true) {
+		const data = await buildRecallCriteriaBundle(join(pluginRoot, "..", "specs"));
+		await writeFile(join(base, "lib", "recall-criteria.bundle.json"), `${JSON.stringify(data, null, 2)}\n`, "utf8");
 	}
 	await mkdir(join(base, "node_modules"), { recursive: true });
 	await cp(join(pluginRoot, "node_modules", "yaml"), join(base, "node_modules", "yaml"), { recursive: true });
@@ -142,5 +147,43 @@ test("判据表可读但缺该类型条目：goal 仍不按兜底 active 成为�
 			r.gaps.some((gap) => gap.includes("该类型的机械判据不可用，故不作为候选") && gap.includes("goal")),
 			"缺口披露须点明 goal 的机械判据不可用",
 		);
+	});
+});
+
+
+test("安装形态：规范源不可读时读包内判据表数据文件，判据表可用且 goal 仍不进候选", async () => {
+	await withTemp("ldvh-install-shape-bundle-", async (base) => {
+		const recall = await installShapedRecall(base, { withCriteriaBundle: true });
+		const project = join(base, "project");
+		await writeProject(project);
+
+		assert.equal(
+			await recall.resolveSpecsRoot(project),
+			null,
+			"前提：安装形态下三级回退均无规范语料（本次读的是包内数据文件）",
+		);
+
+		const r = await recall.recallForAction({ ...QUERY, root: project });
+		assert.equal(r.ok, true);
+		assert.equal(r.criteria.ok, true, `包内判据表须可用：${JSON.stringify(r.criteria.errors)}`);
+		assert.equal(r.criteria.tier, "package-data", "来源须如实标为包内数据文件");
+		assert.ok(
+			!r.gaps.some((gap) => gap.includes("判据表不可用")),
+			`判据表可用时不得报不可用：${JSON.stringify(r.gaps)}`,
+		);
+		assert.ok(
+			r.gaps.some((gap) => gap.includes("判据表来源：包内数据文件")),
+			"缺口披露须说明读的是包内数据文件而非规范源原文",
+		);
+		assert.ok(r.criteria.note.includes("包内数据文件"), "criteria.note 须披露 tier");
+		assert.ok(
+			!r.facts.some((fact) => fact.ref === GOAL_UID),
+			"goal 的默认候选状态为「不采用」，不得因读到了判据表就成为候选",
+		);
+		assert.ok(
+			r.facts.some((fact) => fact.ref === PIT_UID),
+			"对照：pitfall 的判据表默认候选状态为 active，仍是候选",
+		);
+		assert.ok(r.criteria.nonCandidateTypes.includes("goal"), "goal 须报为「不采用」类型");
 	});
 });

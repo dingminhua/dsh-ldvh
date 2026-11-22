@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 export const RECALL_CRITERIA_VERSION = "recall-criteria/v1";
 
+export const RECALL_CRITERIA_BUNDLE_FILE = join(import.meta.dirname, "recall-criteria.bundle.json");
+
 export const RECALL_CRITERIA_COLUMNS = Object.freeze([
   "判据项（recall-criteria/v1）",
   "本类型规则",
@@ -438,6 +440,7 @@ export async function loadRecallCriteria(specsDir) {
       errors: [],
       unreadable: true,
       fingerprint: "",
+      tier: "specs",
     };
   }
 
@@ -457,6 +460,7 @@ export async function loadRecallCriteria(specsDir) {
       )],
       unreadable: true,
       fingerprint: "",
+      tier: "specs",
     };
   }
 
@@ -526,6 +530,7 @@ export async function loadRecallCriteria(specsDir) {
     errors,
     unreadable: false,
     fingerprint,
+    tier: "specs",
   };
   if (cached === undefined) {
     CRITERIA_CACHE.set(dir, new Map([[fingerprint, loaded]]));
@@ -537,4 +542,249 @@ export async function loadRecallCriteria(specsDir) {
     }
   }
   return loaded;
+}
+
+
+const BUNDLE_MACHINE_ITEMS = Object.freeze([
+  { item: "默认候选状态", key: "defaultStatuses", pattern: STATUS_RE },
+  { item: "核心语义字段", key: "coreFields", pattern: FIELD_RE },
+  { item: "类型词别名", key: "typeAliases", pattern: ALIAS_RE },
+  { item: "关系展开", key: "relations", pattern: null },
+]);
+
+function bundleStructuralErrors(file, code, message) {
+  return FACTSOURCE_TYPE_KEYS.map((type) => {
+    const specId = Object.keys(FACT_TYPE_BY_SPEC_ID).find((id) => FACT_TYPE_BY_SPEC_ID[id] === type) ?? "";
+    return { code, message, type, specId, file };
+  });
+}
+
+function validateBundleValues(raw, context) {
+  const errors = [];
+  const file = context.file;
+  const type = context.type;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return [error("recall-criteria/bad_bundle_values", `包内判据表条目不是对象：${type}`, { file, type })];
+  }
+  const notApplicable = raw.notApplicable;
+  if (notApplicable === null || typeof notApplicable !== "object" || Array.isArray(notApplicable)) {
+    return [error("recall-criteria/bad_bundle_values", `包内判据表条目缺 notApplicable 对象：${type}`, { file, type })];
+  }
+  const notApplicableKeys = Object.keys(notApplicable).sort();
+  const expectedKeys = [...RECALL_CRITERIA_MACHINE_ITEMS].sort();
+  if (notApplicableKeys.length !== expectedKeys.length || notApplicableKeys.some((key, index) => key !== expectedKeys[index])) {
+    errors.push(error(
+      "recall-criteria/bad_bundle_values",
+      `包内判据表条目的 notApplicable 键集不符（应为 ${expectedKeys.join("、")}，实得 ${notApplicableKeys.join("、")}）：${type}`,
+      { file, type },
+    ));
+    return errors;
+  }
+  for (const key of expectedKeys) {
+    if (typeof notApplicable[key] !== "boolean") {
+      errors.push(error("recall-criteria/bad_bundle_values", `包内判据表条目的 notApplicable.${key} 不是布尔值：${type}`, { file, type }));
+      return errors;
+    }
+  }
+  for (const spec of BUNDLE_MACHINE_ITEMS) {
+    const list = raw[spec.key];
+    if (!Array.isArray(list)) {
+      errors.push(error("recall-criteria/bad_bundle_values", `包内判据表条目的 ${spec.key} 不是数组：${type}`, { file, type }));
+      continue;
+    }
+    if (notApplicable[spec.item] === true) {
+      if (list.length > 0) {
+        errors.push(error(
+          "recall-criteria/bad_bundle_values",
+          `包内判据表条目登记为「不采用」却带机械值（${spec.key}）：${type}`,
+          { file, type },
+        ));
+      }
+      continue;
+    }
+    if (list.length === 0) {
+      errors.push(error(
+        "recall-criteria/bad_bundle_values",
+        `包内判据表条目的 ${spec.key} 为空且未登记「不采用」：${type}`,
+        { file, type },
+      ));
+      continue;
+    }
+    if (spec.key === "relations") {
+      const keys = [];
+      for (const entry of list) {
+        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+          errors.push(error("recall-criteria/bad_bundle_values", `包内判据表条目的关系边不是对象：${type}`, { file, type }));
+          continue;
+        }
+        const relationKey = entry.relationKey;
+        const targets = entry.targets;
+        if (typeof relationKey !== "string" || !RELATION_KEY_RE.test(relationKey)) {
+          errors.push(error("recall-criteria/bad_bundle_values", `包内判据表条目的关系键非法：${String(relationKey)}`, { file, type }));
+          continue;
+        }
+        if (!Array.isArray(targets) || targets.length === 0 || targets.some((t) => typeof t !== "string" || !TARGET_TYPE_RE.test(t))) {
+          errors.push(error("recall-criteria/bad_bundle_values", `包内判据表条目的关系目标非法：${relationKey}`, { file, type }));
+          continue;
+        }
+        keys.push(relationKey);
+      }
+      const dupKeys = uniqueViolations(keys);
+      if (dupKeys.length > 0) {
+        errors.push(error("recall-criteria/bad_bundle_values", `包内判据表条目的关系键重复：${dupKeys.join("、")}`, { file, type }));
+      }
+      continue;
+    }
+    const bad = list.filter((entry) => typeof entry !== "string" || !spec.pattern.test(entry));
+    const dup = uniqueViolations(list);
+    if (bad.length > 0) {
+      errors.push(error("recall-criteria/bad_bundle_values", `包内判据表条目的 ${spec.key} 含非法值：${bad.join("、")}`, { file, type }));
+    }
+    if (dup.length > 0) {
+      errors.push(error("recall-criteria/bad_bundle_values", `包内判据表条目的 ${spec.key} 含重复值：${dup.join("、")}`, { file, type }));
+    }
+  }
+  return errors;
+}
+
+function bundleValuesOf(raw) {
+  return {
+    defaultStatuses: [...raw.defaultStatuses],
+    coreFields: [...raw.coreFields],
+    typeAliases: [...raw.typeAliases],
+    relations: raw.relations.map((entry) => ({ relationKey: entry.relationKey, targets: [...entry.targets] })),
+    notApplicable: {
+      默认候选状态: raw.notApplicable["默认候选状态"],
+      核心语义字段: raw.notApplicable["核心语义字段"],
+      类型词别名: raw.notApplicable["类型词别名"],
+      关系展开: raw.notApplicable["关系展开"],
+    },
+  };
+}
+
+export async function loadRecallCriteriaBundle(file = RECALL_CRITERIA_BUNDLE_FILE) {
+  const path = String(file ?? "");
+  const base = {
+    ok: false,
+    version: RECALL_CRITERIA_VERSION,
+    byType: new Map(),
+    tables: [],
+    errors: [],
+    unreadable: false,
+    fingerprint: "",
+    tier: "package-data",
+    file: path,
+  };
+  if (path === "") return { ...base, unreadable: true };
+
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (readError) {
+    return {
+      ...base,
+      unreadable: true,
+      errors: [error(
+        "recall-criteria/bundle_unreadable",
+        `包内判据表数据文件不可读：${String(readError?.message ?? readError)}`,
+        { file: path },
+      )],
+    };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (parseError) {
+    return {
+      ...base,
+      errors: bundleStructuralErrors(
+        path,
+        "recall-criteria/bad_bundle_json",
+        `包内判据表数据文件不是合法 JSON：${String(parseError?.message ?? parseError)}`,
+      ),
+    };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ...base,
+      errors: bundleStructuralErrors(path, "recall-criteria/bad_bundle_shape", "包内判据表数据文件的顶层不是对象"),
+    };
+  }
+  if (parsed.version !== RECALL_CRITERIA_VERSION) {
+    return {
+      ...base,
+      errors: bundleStructuralErrors(
+        path,
+        "recall-criteria/unknown_version",
+        `包内判据表数据文件版本标记不识别：${String(parsed.version)}；本实现只认 \`${RECALL_CRITERIA_VERSION}\``,
+      ),
+    };
+  }
+  if (typeof parsed.fingerprint !== "string" || parsed.fingerprint === "") {
+    return {
+      ...base,
+      errors: bundleStructuralErrors(path, "recall-criteria/bad_bundle_fingerprint", "包内判据表数据文件缺指纹"),
+    };
+  }
+  const types = parsed.types;
+  if (types === null || typeof types !== "object" || Array.isArray(types) || Object.keys(types).length === 0) {
+    return {
+      ...base,
+      errors: bundleStructuralErrors(path, "recall-criteria/bad_bundle_types", "包内判据表数据文件没有登记任何类型判据表"),
+    };
+  }
+
+  const byType = new Map();
+  const tables = [];
+  const errors = [];
+  for (const type of Object.keys(types)) {
+    const specId = String(types[type]?.specId ?? "");
+    if (!FACTSOURCE_TYPE_KEYS.includes(type) || FACT_TYPE_BY_SPEC_ID[specId] !== type) {
+      errors.push(error(
+        "recall-criteria/bad_bundle_type",
+        `包内判据表数据文件登记了不认识的类型／规范编号：${type}（specId=${specId}）`,
+        { file: path, type, specId },
+      ));
+      continue;
+    }
+    const typeErrors = validateBundleValues(types[type], { file: path, type });
+    if (typeErrors.length > 0) {
+      tables.push({ ok: false, file: path, specId, type, errors: typeErrors });
+      for (const item of typeErrors) errors.push({ type, specId, file: path, ...item });
+      continue;
+    }
+    const result = { ok: true, version: RECALL_CRITERIA_VERSION, file: path, specId, type, values: bundleValuesOf(types[type]) };
+    tables.push(result);
+    byType.set(type, result);
+  }
+
+  const seenAlias = new Map();
+  for (const [type, result] of byType) {
+    for (const alias of result.values.typeAliases) {
+      if (seenAlias.has(alias)) {
+        const owner = seenAlias.get(alias);
+        errors.push(error(
+          "recall-criteria/alias_conflict",
+          `类型词别名「${alias}」同时登记于 ${owner} 与 ${type}（02 §12.4：成员必须唯一）`,
+          { type, file: path, alias },
+        ));
+        byType.delete(type);
+        break;
+      }
+      seenAlias.set(alias, type);
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    version: RECALL_CRITERIA_VERSION,
+    byType,
+    tables,
+    errors,
+    unreadable: false,
+    fingerprint: parsed.fingerprint,
+    tier: "package-data",
+    file: path,
+  };
 }

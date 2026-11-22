@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
+import { loadRecallCriteria, loadRecallCriteriaBundle, typeKeyDerivedWords } from "./recall-criteria.js";
 import { FRICTION_DEFAULT_CANDIDATE_STATUSES } from "./friction-writer.js";
 import { normPositioningOf, positioningExcerptLine } from "./norm-positioning.js";
 import { RUNTIME_CARRIER_RECALL_LIMIT, matchRuntimeCarriers } from "./runtime-carrier-reader.js";
@@ -670,10 +670,17 @@ export async function loadSpecs(specsDir) {
   });
 }
 
+export async function loadRecallCriteriaForRoot(root, specsSource = undefined) {
+  const source = specsSource === null || specsSource === undefined
+    ? await resolveSpecsRoot(root)
+    : specsSource;
+  if (source !== null) return await loadRecallCriteria(source.dir);
+  const bundled = await loadRecallCriteriaBundle();
+  return bundled.unreadable === true ? null : bundled;
+}
+
 async function resolveRecallCriteriaForFacts(baseDir) {
-  const specsSource = await resolveSpecsRoot(dirname(baseDir));
-  if (specsSource === null) return null;
-  return loadRecallCriteria(specsSource.dir);
+  return loadRecallCriteriaForRoot(dirname(baseDir));
 }
 
 function coreFieldTextOf(fm, field) {
@@ -1170,11 +1177,16 @@ function unregisteredStatusGapOf(types, reason) {
   return `该类型的机械判据不可用，故不作为候选：${types.join("、")}（${reason}）`;
 }
 
+function criteriaTierGapOf(criteria) {
+  if (criteria?.tier !== "package-data") return null;
+  return "判据表来源：包内数据文件，由类型规范判据表生成（非规范源原文）";
+}
+
 function criteriaGapsOf(criteria, facts) {
   const gaps = [];
   const unregisteredStatusTypes = unregisteredStatusTypesOf(facts);
   if (criteria === null) {
-    gaps.push("判据表不可用：未找到任何规范源，全部事实类型的机器判据已停用（类型点名／核心语义字段／关系展开不生效）");
+    gaps.push("判据表不可用：未找到规范源，也没有可用包内判据表数据文件，全部事实类型的机器判据已停用（类型点名／核心语义字段／关系展开不生效）");
     if (unregisteredStatusTypes.length > 0) {
       gaps.push(unregisteredStatusGapOf(
         unregisteredStatusTypes,
@@ -1183,6 +1195,8 @@ function criteriaGapsOf(criteria, facts) {
     }
     return gaps;
   }
+  const tierGap = criteriaTierGapOf(criteria);
+  if (tierGap !== null) gaps.push(tierGap);
   for (const error of criteria.errors) {
     gaps.push(`判据表不可用（${error.type ?? "未知类型"}／规范 ${error.specId ?? "?"}）：${error.code}：${error.message}`);
   }
@@ -1345,8 +1359,7 @@ export async function recallForAction(input = {}) {
 
   const root = input.root ?? join(import.meta.dirname, "..", "..");
   const specsSource = includeSpecs ? await resolveSpecsRoot(root) : null;
-  const criteriaSource = specsSource ?? (await resolveSpecsRoot(root));
-  const criteria = criteriaSource === null ? null : await loadRecallCriteria(criteriaSource.dir);
+  const criteria = await loadRecallCriteriaForRoot(root, specsSource);
   const statusPolicy = (type) => recallStatusPolicyOf(criteria, type);
   const statusAllowed = (type, status) => {
     if (explicitStatuses !== null) return explicitStatuses.includes(status);
@@ -1625,7 +1638,10 @@ export async function recallForAction(input = {}) {
       disabledTypes: disabledCriteriaTypes,
       fallbackTypes: fallbackStatusTypes,
       nonCandidateTypes,
-      note: "判据表不可用的类型已停用类型点名／核心语义字段／关系展开，按 partial 口径披露",
+      tier: criteria === null ? null : criteria.tier,
+      note: criteria === null
+        ? "判据表不可用（未找到规范源，也没有可用包内判据表数据文件）：类型点名／核心语义字段／关系展开全部停用，按 partial 口径披露"
+        : `${criteria.tier === "package-data" ? "判据表来源：包内数据文件（由类型规范判据表构建期生成，非规范源原文）；" : "判据表来源：规范源（开发形态）；"}判据表不可用的类型已停用类型点名／核心语义字段／关系展开，按 partial 口径披露`,
     },
     counts: {
       specHits: allSpecHits.length,

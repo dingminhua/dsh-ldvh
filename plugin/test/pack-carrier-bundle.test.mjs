@@ -6,6 +6,12 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundlePlan, cleanBundles, copyBundles } from "../scripts/specs-bundle.mjs";
 import { RUNTIME_CARRIER_DIR } from "../lib/runtime-carrier-reader.js";
+import {
+  RECALL_CRITERIA_VERSION,
+  loadRecallCriteria,
+  loadRecallCriteriaBundle,
+  parseRecallCriteriaTable,
+} from "../lib/recall-criteria.js";
 
 const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -15,11 +21,33 @@ function yamlNamesOf(directory) {
     .sort();
 }
 
+function criteriaTable({ status, core, alias, relations }) {
+  return [
+    "| 判据项（recall-criteria/v1） | 本类型规则 | 机械值 | 依据/理由 |",
+    "|---|---|---|---|",
+    "| 召回时机 | 任意 |  | 说明 |",
+    `| 默认候选状态 | 见机械值 | ${status} | 说明 |`,
+    `| 核心语义字段 | 见机械值 | ${core} | 说明 |`,
+    `| 类型词别名 | 见机械值 | ${alias} | 说明 |`,
+    `| 关系展开 | 见机械值 | ${relations} | 说明 |`,
+    "| F3/F4 展开 | 不采用 |  | 说明 |",
+    "| 条数上限归属 | 不采用 | 不采用 | 说明 |",
+  ].join("\n");
+}
+
 function makeFixture() {
   const repoRoot = mkdtempSync(join(tmpdir(), "ldvh-specs-bundle-repo-"));
   const packageRoot = mkdtempSync(join(tmpdir(), "ldvh-specs-bundle-pkg-"));
   mkdirSync(join(repoRoot, "specs"), { recursive: true });
   writeFileSync(join(repoRoot, "specs", "01-demo.md"), "# demo\n");
+  writeFileSync(
+    join(repoRoot, "specs", "20-Goal-项目目标.md"),
+    `# 目标\n\n${criteriaTable({ status: "不采用", core: "不采用", alias: "不采用", relations: "不采用" })}\n`,
+  );
+  writeFileSync(
+    join(repoRoot, "specs", "22-Spark-火花.md"),
+    `# 火花\n\n${criteriaTable({ status: "open", core: "question, summary", alias: "火花", relations: "merged-into->spark" })}\n`,
+  );
   const carriers = join(repoRoot, "plugin-specs");
   mkdirSync(carriers, { recursive: true });
   writeFileSync(join(carriers, "alpha.yaml"), "ldvh_spec:\n  spec_key: alpha\n");
@@ -62,17 +90,26 @@ test("copy replaces a stale in-package target and writes stamps", async () => {
   await copyBundles({ repoRoot, packageRoot });
   assert.equal(existsSync(join(packageRoot, RUNTIME_CARRIER_DIR, "stale.yaml")), false);
   assert.equal(existsSync(join(packageRoot, ".plugin-specs-bundle-stamp")), true);
+  assert.equal(existsSync(join(packageRoot, ".recall-criteria-bundle-stamp")), true);
   assert.equal(existsSync(join(packageRoot, ".specs-bundle-stamp")), false);
   assert.equal(existsSync(join(packageRoot, "specs")), false);
+  assert.equal(existsSync(join(packageRoot, "lib", "recall-criteria.bundle.json")), true);
 });
 
-test("the bundle plan carries only the runtime carrier corpus and never the authoring specs", () => {
+test("the bundle plan carries only the runtime carriers and the generated criteria data file, never the authoring specs", () => {
   const { repoRoot, packageRoot } = makeFixture();
   const plan = bundlePlan({ repoRoot, packageRoot });
-  assert.deepEqual(plan.map((bundle) => bundle.name), ["runtime-carriers"]);
-  assert.equal(plan.some((bundle) => basename(bundle.bundledRoot) === "specs"), false);
+  assert.deepEqual(plan.map((bundle) => bundle.name), ["runtime-carriers", "recall-criteria"]);
+  assert.deepEqual(plan.map((bundle) => bundle.kind), ["copy", "generate"]);
+  const carrierBundle = plan.find((bundle) => bundle.name === "runtime-carriers");
+  const criteriaBundle = plan.find((bundle) => bundle.name === "recall-criteria");
+  assert.equal(carrierBundle.bundledRoot, join(packageRoot, RUNTIME_CARRIER_DIR));
+  assert.equal(criteriaBundle.sourceRoot, join(repoRoot, "specs"));
+  assert.equal(criteriaBundle.targetPath, join(packageRoot, "lib", "recall-criteria.bundle.json"));
+  assert.equal(criteriaBundle.stampPath, join(packageRoot, ".recall-criteria-bundle-stamp"));
   assert.equal(plan.some((bundle) => bundle.bundledRoot === join(packageRoot, "specs")), false);
-  assert.equal(plan.every((bundle) => bundle.bundledRoot === join(packageRoot, RUNTIME_CARRIER_DIR)), true);
+  assert.equal(plan.some((bundle) => bundle.targetPath === join(packageRoot, "specs")), false);
+  assert.equal(plan.some((bundle) => basename(bundle.bundledRoot ?? bundle.targetPath) === "specs"), false);
 });
 
 test("packing leaves the authoring specs out of the package entirely", async () => {
@@ -80,7 +117,11 @@ test("packing leaves the authoring specs out of the package entirely", async () 
   await copyBundles({ repoRoot, packageRoot });
   assert.equal(existsSync(join(packageRoot, "specs")), false);
   assert.equal(existsSync(join(packageRoot, RUNTIME_CARRIER_DIR)), true);
-  assert.deepEqual(readdirSync(packageRoot).sort(), [".plugin-specs-bundle-stamp", RUNTIME_CARRIER_DIR].sort());
+  assert.equal(existsSync(join(packageRoot, "lib", "recall-criteria.bundle.json")), true);
+  assert.deepEqual(
+    readdirSync(packageRoot).sort(),
+    [".plugin-specs-bundle-stamp", ".recall-criteria-bundle-stamp", "lib", RUNTIME_CARRIER_DIR].sort(),
+  );
 });
 
 test("clean removes the copied corpora and stamps after packing", async () => {
@@ -90,12 +131,15 @@ test("clean removes the copied corpora and stamps after packing", async () => {
   for (const path of [
     join(packageRoot, "specs"),
     join(packageRoot, RUNTIME_CARRIER_DIR),
+    join(packageRoot, "lib", "recall-criteria.bundle.json"),
     join(packageRoot, ".specs-bundle-stamp"),
     join(packageRoot, ".plugin-specs-bundle-stamp"),
+    join(packageRoot, ".recall-criteria-bundle-stamp"),
   ]) {
     assert.equal(existsSync(path), false, path);
   }
-  assert.deepEqual(readdirSync(packageRoot), []);
+  assert.deepEqual(readdirSync(packageRoot).filter((name) => name !== "lib"), []);
+  assert.deepEqual(readdirSync(join(packageRoot, "lib")), []);
 });
 
 test("clean leaves an unstamped directory untouched", async () => {
@@ -125,4 +169,48 @@ test("the repository carrier corpus is copied without losing any YAML carrier", 
   const packageRoot = mkdtempSync(join(tmpdir(), "ldvh-specs-bundle-real-"));
   await copyBundles({ repoRoot, packageRoot });
   assert.deepEqual(yamlNamesOf(join(packageRoot, RUNTIME_CARRIER_DIR)), sourceNames);
+});
+
+
+test("the generated criteria data file carries exactly the values parsed from the authoring specs", async () => {
+  const { repoRoot, packageRoot } = makeFixture();
+  await copyBundles({ repoRoot, packageRoot });
+  const bundleFile = join(packageRoot, "lib", "recall-criteria.bundle.json");
+  const raw = JSON.parse(readFileSync(bundleFile, "utf8"));
+  assert.equal(raw.version, RECALL_CRITERIA_VERSION);
+  assert.deepEqual(Object.keys(raw.types).sort(), ["goal", "spark"]);
+
+  const specsDir = join(repoRoot, "specs");
+  const loaded = await loadRecallCriteriaBundle(bundleFile);
+  assert.equal(loaded.ok, true, JSON.stringify(loaded.errors));
+  assert.equal(loaded.tier, "package-data");
+  assert.equal(loaded.fingerprint, raw.fingerprint);
+  for (const [type, entry] of Object.entries(raw.types)) {
+    const name = readdirSync(specsDir).find((file) => file.startsWith(`${entry.specId}-`));
+    const parser = parseRecallCriteriaTable(readFileSync(join(specsDir, name), "utf8"), {
+      file: `specs/${name}`,
+      specId: entry.specId,
+      type,
+    });
+    assert.equal(parser.ok, true, name);
+    assert.deepEqual(loaded.byType.get(type).values, parser.values, `生成物与规范源逐值不符：${type}`);
+  }
+});
+
+test("the real repository criteria data file matches every value the parser reads from specs/", async () => {
+  const repoRoot = dirname(pluginRoot);
+  const packageRoot = mkdtempSync(join(tmpdir(), "ldvh-specs-bundle-criteria-real-"));
+  await copyBundles({ repoRoot, packageRoot });
+  const bundleFile = join(packageRoot, "lib", "recall-criteria.bundle.json");
+
+  const fromSpecs = await loadRecallCriteria(join(repoRoot, "specs"));
+  const fromBundle = await loadRecallCriteriaBundle(bundleFile);
+  assert.equal(fromSpecs.ok, true);
+  assert.equal(fromBundle.ok, true, JSON.stringify(fromBundle.errors));
+  assert.equal(fromBundle.tier, "package-data");
+  assert.equal(fromBundle.fingerprint, fromSpecs.fingerprint, "指纹须与规范源同法计算");
+  assert.deepEqual([...fromBundle.byType.keys()].sort(), [...fromSpecs.byType.keys()].sort());
+  for (const [type, table] of fromSpecs.byType) {
+    assert.deepEqual(fromBundle.byType.get(type).values, table.values, `生成物与 specs/ 逐值不符：${type}`);
+  }
 });

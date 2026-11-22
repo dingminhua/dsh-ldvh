@@ -1,18 +1,32 @@
 #!/usr/bin/env node
 
-import { access, cp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isExcludedCarrierName } from "../lib/carrier-scan.js";
+import {
+  FACT_TYPE_BY_SPEC_ID,
+  RECALL_CRITERIA_VERSION,
+  parseRecallCriteriaTable,
+} from "../lib/recall-criteria.js";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const BUNDLE_DEFINITIONS = Object.freeze([
   Object.freeze({
     name: "runtime-carriers",
+    kind: "copy",
     sourceDir: "plugin-specs",
     targetDir: "plugin-specs",
     stampName: ".plugin-specs-bundle-stamp",
+  }),
+  Object.freeze({
+    name: "recall-criteria",
+    kind: "generate",
+    sourceDir: "specs",
+    targetFile: "lib/recall-criteria.bundle.json",
+    stampName: ".recall-criteria-bundle-stamp",
   }),
 ]);
 
@@ -20,13 +34,21 @@ export function bundlePlan({ repoRoot, packageRoot: root = packageRoot } = {}) {
   if (typeof repoRoot !== "string" || repoRoot === "") {
     throw new Error("[specs-bundle] a repository root is required");
   }
-  return BUNDLE_DEFINITIONS.map((definition) => ({
-    name: definition.name,
-    sourceRoot: join(repoRoot, definition.sourceDir),
-    bundledRoot: join(root, definition.targetDir),
-    stampPath: join(root, definition.stampName),
-    filter: (source) => !isExcludedCarrierName(basename(source)),
-  }));
+  return BUNDLE_DEFINITIONS.map((definition) => {
+    const entry = {
+      name: definition.name,
+      kind: definition.kind,
+      sourceRoot: join(repoRoot, definition.sourceDir),
+      stampPath: join(root, definition.stampName),
+    };
+    if (definition.kind === "copy") {
+      entry.bundledRoot = join(root, definition.targetDir);
+      entry.filter = (source) => !isExcludedCarrierName(basename(source));
+      return entry;
+    }
+    entry.targetPath = join(root, definition.targetFile);
+    return entry;
+  });
 }
 
 async function pathExists(path) {
@@ -38,6 +60,73 @@ async function pathExists(path) {
   }
 }
 
+export async function buildRecallCriteriaBundle(sourceRoot) {
+  let entries;
+  try {
+    entries = await readdir(sourceRoot, { withFileTypes: true });
+  } catch (error) {
+    throw new Error(`[specs-bundle] recall criteria source corpus not found: ${sourceRoot} (${String(error?.message ?? error)})`);
+  }
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const match = /^(\d{2})-/.exec(entry.name);
+    if (match === null) continue;
+    const type = FACT_TYPE_BY_SPEC_ID[match[1]];
+    if (type === undefined) continue;
+    files.push({ specId: match[1], type, name: entry.name });
+  }
+  files.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  if (files.length === 0) {
+    throw new Error(`[specs-bundle] no recall criteria type specs found under ${sourceRoot}`);
+  }
+
+  const hash = createHash("sha256");
+  const types = {};
+  const failures = [];
+  for (const file of files) {
+    const text = await readFile(join(sourceRoot, file.name), "utf8");
+    hash.update(`${file.name}\0`);
+    hash.update(text);
+    hash.update("\0");
+    const result = parseRecallCriteriaTable(text, {
+      file: `specs/${file.name}`,
+      specId: file.specId,
+      type: file.type,
+    });
+    if (result.ok !== true) {
+      failures.push(`specs/${file.name}: ${(result.errors ?? []).map((item) => `${item.code} ${item.message}`).join(" / ")}`);
+      continue;
+    }
+    types[file.type] = {
+      specId: file.specId,
+      notApplicable: { ...result.values.notApplicable },
+      defaultStatuses: [...result.values.defaultStatuses],
+      coreFields: [...result.values.coreFields],
+      typeAliases: [...result.values.typeAliases],
+      relations: result.values.relations.map((relation) => ({
+        relationKey: relation.relationKey,
+        targets: [...relation.targets],
+      })),
+    };
+  }
+  if (failures.length > 0) {
+    throw new Error(`[specs-bundle] recall criteria tables failed to parse:\n  ${failures.join("\n  ")}`);
+  }
+  return {
+    version: RECALL_CRITERIA_VERSION,
+    fingerprint: hash.digest("hex"),
+    types,
+  };
+}
+
+async function generateBundle(bundle) {
+  const data = await buildRecallCriteriaBundle(bundle.sourceRoot);
+  await mkdir(dirname(bundle.targetPath), { recursive: true });
+  await writeFile(bundle.targetPath, `${JSON.stringify(data, null, 2)}\n`);
+  console.log(`[specs-bundle] generated ${bundle.targetPath} from ${bundle.sourceRoot}`);
+}
+
 export async function copyBundles({ repoRoot, packageRoot: root = packageRoot } = {}) {
   const plan = bundlePlan({ repoRoot, packageRoot: root });
   for (const bundle of plan) {
@@ -45,11 +134,16 @@ export async function copyBundles({ repoRoot, packageRoot: root = packageRoot } 
     if (sourceInfo === null || !sourceInfo.isDirectory()) {
       throw new Error(`[specs-bundle] source corpus not found: ${bundle.sourceRoot}`);
     }
-    await rm(bundle.bundledRoot, { recursive: true, force: true });
     await mkdir(root, { recursive: true });
-    await cp(bundle.sourceRoot, bundle.bundledRoot, { recursive: true, filter: bundle.filter });
+    if (bundle.kind === "copy") {
+      await rm(bundle.bundledRoot, { recursive: true, force: true });
+      await cp(bundle.sourceRoot, bundle.bundledRoot, { recursive: true, filter: bundle.filter });
+      console.log(`[specs-bundle] copied ${bundle.sourceRoot} -> ${bundle.bundledRoot}`);
+    } else {
+      await rm(bundle.targetPath, { recursive: true, force: true });
+      await generateBundle(bundle);
+    }
     await writeFile(bundle.stampPath, `${new Date().toISOString()}\n`);
-    console.log(`[specs-bundle] copied ${bundle.sourceRoot} -> ${bundle.bundledRoot}`);
   }
   return plan;
 }
@@ -58,11 +152,18 @@ export async function cleanBundles({ packageRoot: root = packageRoot } = {}) {
   const plan = bundlePlan({ repoRoot: dirname(root), packageRoot: root });
   for (const bundle of plan) {
     if (await pathExists(bundle.stampPath)) {
-      await rm(bundle.bundledRoot, { recursive: true, force: true });
+      if (bundle.kind === "copy") {
+        await rm(bundle.bundledRoot, { recursive: true, force: true });
+        console.log(`[specs-bundle] removed generated ${bundle.bundledRoot}`);
+      } else {
+        await rm(bundle.targetPath, { force: true });
+        console.log(`[specs-bundle] removed generated ${bundle.targetPath}`);
+      }
       await rm(bundle.stampPath, { force: true });
-      console.log(`[specs-bundle] removed generated ${bundle.bundledRoot}`);
-    } else {
+    } else if (bundle.kind === "copy") {
       console.log(`[specs-bundle] no stamp present — leaving ${bundle.bundledRoot} untouched`);
+    } else {
+      console.log(`[specs-bundle] no stamp present — leaving ${bundle.targetPath} untouched`);
     }
   }
   return plan;

@@ -1,15 +1,30 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
 	DEFAULT_STATUSES_BY_TYPE,
 	MATCHED_FACT_FIELDS,
 	REGISTERED_FACT_TYPES,
+	loadFacts,
 	recallForAction,
 } from "../lib/source-recall.js";
+import {
+	FACTSOURCE_TYPE_KEYS,
+	allTypeKeyDerivedWords,
+	loadRecallCriteria,
+} from "../lib/recall-criteria.js";
+import { VALID_FM_KEYS as SPARK_FM_KEYS } from "../lib/spark-writer.js";
+import { VALID_FM_KEYS as SUBGOAL_FM_KEYS } from "../lib/subgoal-writer.js";
+import { VALID_FM_KEYS as NORM_FM_KEYS } from "../lib/norm-writer.js";
+import { VALID_FM_KEYS as PITFALL_FM_KEYS } from "../lib/pitfall-writer.js";
+import { VALID_FM_KEYS as FRICTION_FM_KEYS } from "../lib/friction-writer.js";
+import { validateResearchFrontmatter, validateResearchRelations } from "../lib/report-writer.js";
+import { validateSparkRelations } from "../lib/spark-writer.js";
+import { validateFrictionRelations } from "../lib/friction-writer.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 const SPECS_DIR = join(ROOT, "specs");
@@ -212,4 +227,155 @@ test("⑥ frontmatter 匹配字段清单须与类型规范的字段定义一致"
 		`以下参与匹配的 frontmatter 字段在 02 或 20–26 原文中都找不到——` +
 			`可能是字段已改名/废弃而代码未跟随：${missing.join(" / ")}`,
 	);
+});
+
+
+const WRITER_FM_KEYS = Object.freeze({
+	spark: SPARK_FM_KEYS,
+	subgoal: SUBGOAL_FM_KEYS,
+	norm: NORM_FM_KEYS,
+	pitfall: PITFALL_FM_KEYS,
+	friction: FRICTION_FM_KEYS,
+});
+
+const TARGET_UID = "11111111-1111-4111-8111-111111111111";
+
+function relationCheckOf(type, relationKey) {
+	const relation = { relation_key: relationKey, target: { object_uid: TARGET_UID } };
+	if (type === "spark") return validateSparkRelations({ status: "discarded", relations: [relation] });
+	if (type === "report") return validateResearchRelations({ relations: [relation] });
+	if (type === "friction") {
+		return validateFrictionRelations({
+			status: relationKey === "informs" ? "resolved" : "open",
+			relations: [relation],
+		});
+	}
+	return null;
+}
+
+test("判据表四类机械值须与代码消费面同源：默认候选状态／核心语义字段／类型词别名／关系展开", async () => {
+	const criteria = await loadRecallCriteria(SPECS_DIR);
+	assert.equal(criteria.ok, true, `判据表须全部可解析：${JSON.stringify(criteria.errors)}`);
+	assert.deepEqual([...criteria.byType.keys()].sort(), [...FACTSOURCE_TYPE_KEYS].sort(), "七类型都须有条目");
+
+	for (const [type, table] of criteria.byType) {
+		const values = table.values;
+		const specFile = TYPE_SPEC_FILES[type];
+		assert.ok(specFile !== undefined, `类型「${type}」缺规范映射`);
+
+		if (values.notApplicable["默认候选状态"]) {
+			assert.equal(DEFAULT_STATUSES_BY_TYPE[type], undefined,
+				`类型「${type}」判据表登记「不采用」，代码却仍登记了默认候选状态`);
+		} else {
+			assert.deepEqual(values.defaultStatuses, [...DEFAULT_STATUSES_BY_TYPE[type]],
+				`类型「${type}」的默认候选状态与判据表机械值不一致`);
+		}
+
+		if (values.notApplicable["核心语义字段"]) {
+			assert.deepEqual(values.coreFields, [], `类型「${type}」登记「不采用」却带核心字段`);
+		} else {
+			assert.ok(values.coreFields.length > 0, `类型「${type}」缺核心语义字段`);
+			if (type === "report") {
+				for (const field of values.coreFields) {
+					const frontmatter = {
+						object_uid: TARGET_UID,
+						fact_type_key: "report",
+						title: "标题",
+						created_at: "2026-01-01T00:00:00Z",
+						status: "active",
+						report_form: "research",
+						urls: [],
+						[field]: "标记",
+					};
+					const result = validateResearchFrontmatter(frontmatter);
+					assert.equal(
+						result.issues.some((issue) => issue.includes(`unexpected field "${field}"`)),
+						false,
+						`类型 report 的核心语义字段「${field}」不在 report-writer 的 frontmatter 闭集内`,
+					);
+				}
+			} else {
+				const keys = WRITER_FM_KEYS[type];
+				assert.ok(keys instanceof Set, `类型「${type}」缺 writer frontmatter 闭集`);
+				for (const field of values.coreFields) {
+					assert.ok(
+						keys.has(field),
+						`类型「${type}」的核心语义字段「${field}」不在 writer 的 frontmatter 闭集内（规范已改，writer 未跟随）`,
+					);
+				}
+			}
+		}
+
+		const derived = allTypeKeyDerivedWords();
+		for (const alias of values.typeAliases) {
+			assert.equal(derived.has(alias.toLowerCase()), false,
+				`类型「${type}」的类型词别名「${alias}」与 fact_type_key 派生词冲突`);
+		}
+		if (values.notApplicable["类型词别名"]) {
+			assert.deepEqual(values.typeAliases, [], `类型「${type}」登记「不采用」却带别名`);
+		} else {
+			assert.ok(values.typeAliases.length > 0, `类型「${type}」缺类型词别名`);
+		}
+
+		if (values.notApplicable["关系展开"]) {
+			assert.deepEqual(values.relations, [], `类型「${type}」登记「不采用」却带关系展开`);
+			continue;
+		}
+		assert.ok(values.relations.length > 0, `类型「${type}」缺关系展开`);
+		for (const relation of values.relations) {
+			assert.ok(
+				FACTSOURCE_TYPE_KEYS.includes(relation.relationKey) === false,
+				`关系键「${relation.relationKey}」不得是类型键`,
+			);
+			for (const target of relation.targets) {
+				assert.ok(
+					FACTSOURCE_TYPE_KEYS.includes(target),
+					`类型「${type}」关系「${relation.relationKey}」的目标「${target}」不是已登记事实类型`,
+				);
+			}
+			const checked = relationCheckOf(type, relation.relationKey);
+			assert.notEqual(checked, null, `类型「${type}」登记了关系展开，但没有对应的 writer 关系校验器`);
+			assert.equal(
+				checked.ok,
+				true,
+				`类型「${type}」的关系键「${relation.relationKey}」未被 writer 关系闭集接受：${checked.issues.join("；")}`,
+			);
+		}
+	}
+});
+
+test("类型词别名须由 loadFacts 实际注入 typeNames（判据表读到 ≠ 代码用上）", async () => {
+	const criteria = await loadRecallCriteria(SPECS_DIR);
+	const base = await mkdtemp(join(tmpdir(), "ldvh-criteria-alias-"));
+	const DIRS = {
+		goal: "goals", subgoal: "subgoals", spark: "sparks", norm: "norms",
+		report: "reports", pitfall: "pitfalls", friction: "frictions",
+	};
+	const uids = new Map();
+	let counter = 0;
+	for (const type of FACTSOURCE_TYPE_KEYS) {
+		counter += 1;
+		const uid = `aaaaaaaa-aaaa-4aaa-8aaa-${String(counter).padStart(12, "0")}`;
+		uids.set(type, uid);
+		await mkdir(join(base, DIRS[type]), { recursive: true });
+		await writeFile(
+			join(base, DIRS[type], `${type}.md`),
+			`---\ntitle: ${type} 标题\nstatus: active\nobject_uid: ${uid}\nfact_type_key: ${type}\n---\n\n正文\n`,
+			"utf8",
+		);
+	}
+	const facts = await loadFacts(base, { criteria });
+	for (const [type, table] of criteria.byType) {
+		const fact = facts.find((item) => item.ref === uids.get(type));
+		assert.ok(fact !== undefined, `未读到 ${type} 事实`);
+		for (const alias of table.values.typeAliases) {
+			assert.ok(
+				fact.typeNames.includes(alias.toLowerCase()),
+				`类型「${type}」的别名「${alias}」未进入 typeNames（类型点名失效）`,
+			);
+		}
+		for (const word of [`${type}`, `${type}s`]) {
+			assert.ok(fact.typeNames.includes(word), `typeNames 缺 fact_type_key 派生词「${word}」`);
+		}
+	}
 });
