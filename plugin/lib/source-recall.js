@@ -6,6 +6,7 @@ import { parse as parseYaml } from "yaml";
 import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
 import { FRICTION_DEFAULT_CANDIDATE_STATUSES } from "./friction-writer.js";
 import { normPositioningOf, positioningExcerptLine } from "./norm-positioning.js";
+import { RUNTIME_CARRIER_RECALL_LIMIT, matchRuntimeCarriers } from "./runtime-carrier-reader.js";
 
 
 export const MATCHED_FACT_FIELDS = Object.freeze([
@@ -1330,6 +1331,23 @@ export async function recallForAction(input = {}) {
     isReadableDir(factsDir),
   ]);
 
+  const includeCarriers = input.includeCarriers !== false;
+  const carrierSource = includeCarriers
+    ? await matchRuntimeCarriers({ root, query, limit: RUNTIME_CARRIER_RECALL_LIMIT })
+    : {
+      ok: true,
+      available: false,
+      missing: false,
+      dir: null,
+      tier: null,
+      carriers: [],
+      counts: { scanned: 0, hits: 0, returned: 0 },
+      truncated: false,
+      invalid: [],
+      note: "运行时机制载体未读取（includeCarriers:false）",
+    };
+  const allCarrierHits = carrierSource.carriers.map((carrier) => ({ ...carrier }));
+
   const scopedFacts = excludedTypes === null
     ? facts
     : facts.filter((c) => !excludedTypes.includes(c.type));
@@ -1505,12 +1523,14 @@ export async function recallForAction(input = {}) {
 
   const specSideUnreadable = includeSpecs && specsSource === null;
   const factSideUnreadable = !factsReadable;
+  const carrierSideUnreadable = includeCarriers && carrierSource.missing === true;
   const sourceUnreadable = specSideUnreadable || factSideUnreadable;
   const returnedCount = keptSpecs.length + keptFacts.length;
+  const carrierReturnedCount = allCarrierHits.length;
   const recallCompletenessValue = (() => {
     const filteredOut = scopedFacts.length - pool.length > 0;
     const singleSourceByCaller = includeSpecs === false;
-    if (sourceUnreadable && returnedCount === 0) return "unavailable";
+    if (sourceUnreadable && returnedCount === 0 && carrierReturnedCount === 0) return "unavailable";
     if (truncated || filteredOut || sourceUnreadable || singleSourceByCaller) return "partial";
     return "complete";
   })();
@@ -1521,6 +1541,24 @@ export async function recallForAction(input = {}) {
     query: { action, scope: input.scope ?? "", tokens: tokens.length },
     specs: keptSpecs,
     facts: keptFacts,
+    runtimeCarriers: {
+      available: carrierSource.available === true,
+      read: includeCarriers,
+      tier: carrierSource.tier ?? null,
+      dir: carrierSource.dir ?? null,
+      candidates: allCarrierHits,
+      counts: {
+        scanned: carrierSource.counts.scanned,
+        hits: carrierSource.counts.hits,
+        returned: carrierReturnedCount,
+      },
+      truncated: carrierSource.truncated === true,
+      missing: carrierSource.missing === true,
+      invalid: carrierSource.invalid,
+      note: carrierSource.note,
+      locatorFields: ["canonicalPath", "entryIds"],
+      provesApplicability: false,
+    },
     l0Enumeration: {
       order: [...L0_SEGMENT_ORDER],
       segments: l0Plan.segments,
@@ -1562,8 +1600,10 @@ export async function recallForAction(input = {}) {
     counts: {
       specHits: allSpecHits.length,
       factHits: allFactHits.length,
+      carrierHits: carrierSource.counts.hits,
       specsReturned: keptSpecs.length,
       factsReturned: keptFacts.length,
+      carriersReturned: carrierReturnedCount,
       candidatesScanned: specs.length + pool.length,
       candidatesExcluded: scopedFacts.length - pool.length,
     },
@@ -1575,6 +1615,10 @@ export async function recallForAction(input = {}) {
     unchecked: {
       specs: diffByPath(allSpecHits, keptSpecs),
       facts: diffByPath(allFactHits, keptFacts),
+      runtimeCarriers: (carrierSource.unchecked ?? []).map((carrier) => ({
+        title: carrier.title,
+        path: carrier.canonicalPath,
+      })),
     },
     gaps: [
       ...criteriaGapsOf(criteria, scopedFacts),
@@ -1589,6 +1633,16 @@ export async function recallForAction(input = {}) {
         : []),
       ...(specSideUnreadable
         ? ["规范源不可读：01 §10.3 三级回退均无可用语料，该源未检查"]
+        : []),
+      ...(includeCarriers ? [] : ["运行时机制载体未读取（includeCarriers:false）"]),
+      ...(carrierSideUnreadable
+        ? ["运行时机制载体源缺失：项目内 plugin-specs/ 不存在或不可读，该源未检查"]
+        : []),
+      ...(carrierSource.invalid.length > 0
+        ? [`运行时机制载体有 ${carrierSource.invalid.length} 份未能解析：${carrierSource.invalid.map((item) => item.file ?? "?").join("、")}`]
+        : []),
+      ...(carrierSource.truncated === true
+        ? [`运行时机制载体侧按相关度截断：命中 ${carrierSource.counts.hits} 份，返回 ${carrierSource.counts.returned} 份`]
         : []),
       ...(factSideUnreadable
         ? ["事实源不可读：项目内 ldvh-base/ 不存在或不可读，该源未检查"]
@@ -1691,8 +1745,10 @@ export async function recallForAction(input = {}) {
         ...(includeSpecs ? [] : ["规范源（includeSpecs:false，未读取）"]),
         ...(specSideUnreadable ? ["规范源（01 §10.3 三级回退均无可用语料，不可读，未读取）"] : []),
         ...(factSideUnreadable ? ["事实源（项目内 ldvh-base/ 不存在或不可读，未读取）"] : []),
+        ...(includeCarriers ? [] : ["运行时机制载体（includeCarriers:false，未读取）"]),
+        ...(carrierSideUnreadable ? ["运行时机制载体（项目内 plugin-specs/ 不存在或不可读，未读取）"] : []),
       ],
-      note: `本次实际扫描：${specSideUnreadable ? "规范源不可读（未扫描）" : includeSpecs ? `规范源（01 §10.3 第 ${specsSource?.tier === "project" ? "1（项目自著）" : specsSource?.tier === "source-repo" ? "2（插件源仓库）" : "3（插件包内副本）"}级）` : "规范源（includeSpecs:false，未扫描）"}；${factSideUnreadable ? "事实源 ldvh-base/ 不存在或不可读（未扫描）" : "事实源（项目内 ldvh-base/）"}。其它目录、其它 worktree、回退来源之外的语料均未检查`,
+      note: `本次实际扫描：${specSideUnreadable ? "规范源不可读（未扫描）" : includeSpecs ? `规范源（01 §10.3 第 ${specsSource?.tier === "project" ? "1（项目自著）" : specsSource?.tier === "source-repo" ? "2（插件源仓库）" : "3（插件包内副本）"}级）` : "规范源（includeSpecs:false，未扫描）"}；${factSideUnreadable ? "事实源 ldvh-base/ 不存在或不可读（未扫描）" : "事实源（项目内 ldvh-base/）"}；${!includeCarriers ? "运行时机制载体未读取（includeCarriers:false）" : carrierSideUnreadable ? "运行时机制载体 plugin-specs/ 不存在或不可读（未扫描）" : `运行时机制载体（plugin-specs/，${carrierSource.counts.scanned} 份）`}。其它目录、其它 worktree、回退来源之外的语料均未检查`,
     },
     ranking: {
       keys: ["tier", "hits", "path"],
@@ -1730,6 +1786,9 @@ export async function recallForAction(input = {}) {
       specs: specsSource === null ? null : { tier: specsSource.tier, dir: specsSource.dir },
       specsAreProjectAuthored: specsSource !== null && specsSource.tier === "project",
       facts: { dir: join(root, "ldvh-base") },
+      runtimeCarriers: includeCarriers && carrierSource.dir !== null
+        ? { tier: carrierSource.tier, dir: carrierSource.dir, read: true }
+        : { tier: null, dir: null, read: false },
     },
   };
 }

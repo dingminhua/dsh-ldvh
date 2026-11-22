@@ -49,6 +49,12 @@ export function decideInjection(input) {
 
 export const RECALL_BYTE_BUDGET = 2400;
 
+export const RUNTIME_CARRIER_INJECTION_MAX = 3;
+
+export const RUNTIME_CARRIER_INJECTION_BYTES = 1400;
+
+export const RUNTIME_CARRIER_INJECTION_HEADER = "运行时机制：";
+
 export const FACT_SECTION_ORDER = Object.freeze([
   "norm", "pitfall", "friction", "report",
 ]);
@@ -176,6 +182,60 @@ export function currentUserText(messages, isOwnMessage) {
     if (text !== "") return text;
   }
   return "";
+}
+
+function appendRuntimeCarrierIndex(lines, result, limitBytes, charLimit) {
+  const candidates = Array.isArray(result?.runtimeCarriers?.candidates)
+    ? result.runtimeCarriers.candidates
+    : [];
+  if (candidates.length === 0) return;
+  if (lines.some((line) => line.startsWith("（**本次注入"))) return;
+  const total = Number.isInteger(result?.runtimeCarriers?.counts?.hits)
+    ? result.runtimeCarriers.counts.hits
+    : candidates.length;
+  const sectionBudgetBytes = Math.min(
+    RUNTIME_CARRIER_INJECTION_BYTES,
+    limitBytes === null ? RUNTIME_CARRIER_INJECTION_BYTES : Math.floor(limitBytes / 3),
+  );
+  const fits = (text) => {
+    const probe = [...lines, text].join("\n");
+    if (limitBytes !== null && limitBytes > 0 && Buffer.byteLength(probe, "utf8") > limitBytes) return false;
+    if (limitBytes !== null && limitBytes > 0 && probe.length > charLimit) return false;
+    return true;
+  };
+  const rows = [];
+  for (const carrier of candidates.slice(0, RUNTIME_CARRIER_INJECTION_MAX)) {
+    const positioning = typeof carrier.positioning === "string" ? carrier.positioning : "";
+    const scope = typeof carrier.scope === "string" ? carrier.scope : "";
+    const row = `- 载体条目：${carrier.title}（spec_key=${carrier.specKey}；${carrier.canonicalPath}）— ${positioning}；何时查阅：${scope}`;
+    if (Buffer.byteLength(row, "utf8") + 1 > sectionBudgetBytes) break;
+    const probe = [...lines, RUNTIME_CARRIER_INJECTION_HEADER, ...rows, row].join("\n");
+    const probeBytes = Buffer.byteLength(probe, "utf8") + Buffer.byteLength(RUNTIME_CARRIER_INJECTION_HEADER, "utf8");
+    if (limitBytes !== null && limitBytes > 0 && probe.length > charLimit) break;
+    if (limitBytes !== null && limitBytes > 0 && probeBytes > limitBytes) break;
+    rows.push(row);
+  }
+  if (rows.length === 0) {
+    const compact = `（运行时机制索引让位：${total} 份相关载体，正文按 canonical_path 按需读取。）`;
+    if (fits(compact)) lines.push(compact);
+    return;
+  }
+  const omitted = total - rows.length;
+  const basis = omitted > 0
+    ? `（索引：只给定位，不含条目正文；按词面相关度取前 ${rows.length} 份，共 ${total} 份命中，未列出者不代表不存在；正文按 canonical_path 按需读取。）`
+    : "（索引：只给定位，不含条目正文；正文按 canonical_path 按需读取。本段不证明适用。）";
+  const header = RUNTIME_CARRIER_INJECTION_HEADER;
+  if (!fits([header, ...rows, basis].join("\n"))) {
+    const compact = `（运行时机制索引让位：${total} 份相关载体，正文按 canonical_path 按需读取。）`;
+    if (rows.length === 1 && fits(compact)) {
+      lines.push(compact);
+      return;
+    }
+    rows.pop();
+  }
+  lines.push(header);
+  lines.push(...rows);
+  lines.push(basis);
 }
 
 export function renderBaselineOnlyRow({ l0Enumeration = null, why, limitBytes = null } = {}) {
@@ -350,7 +410,8 @@ export function renderRecallRow(result) {
     }
   }
 
-  if (specs.length === 0 && facts.length === 0) {
+  if (specs.length === 0 && facts.length === 0
+    && (result?.runtimeCarriers?.candidates?.length ?? 0) === 0) {
     const scopeHint = scopeExcludedTypes.length > 0
       ? `本路径不扫描 ${scopeExcludedTypes.join("、")}，扩大检索也取不到它们——须另行查询（见下一行的入口）。`
       : "必要时请自行扩大检索。";
@@ -520,7 +581,7 @@ export function renderRecallRow(result) {
     if (quotaLine !== -1) trimmed.splice(quotaLine, 1);
   }
   for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-    if (!/^(?:事实源(?: · .+)?|规范源(?:（.*）)?)：$/.test(trimmed[i])) continue;
+    if (!/^(?:事实源(?: · .+)?|规范源(?:（.*）)?|运行时机制：)$/.test(trimmed[i])) continue;
     let hasCandidateBelow = false;
     for (let j = i + 1; j < trimmed.length; j += 1) {
       if (trimmed[j].startsWith("- ")) { hasCandidateBelow = true; break; }
@@ -625,6 +686,7 @@ export function renderRecallRow(result) {
       );
     }
   }
+  appendRuntimeCarrierIndex(trimmed, result, limitBytes, charLimit);
   return trimmed.join("\n");
 }
 
@@ -673,7 +735,8 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     }
     return { inject: false, reason: `recall-unavailable:${code ?? "unknown"}` };
   }
-  const total = (result.specs?.length ?? 0) + (result.facts?.length ?? 0);
+  const total = (result.specs?.length ?? 0) + (result.facts?.length ?? 0)
+    + (result.runtimeCarriers?.candidates?.length ?? 0);
   const residentIndexHasContent = residentIndexPresentOf(result?.l0Enumeration);
   if (!decideInjection({
     candidateCount: total,
