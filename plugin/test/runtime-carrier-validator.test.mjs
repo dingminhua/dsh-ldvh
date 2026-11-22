@@ -1,21 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
 	buildDevelopmentSpecCorpus,
 	createSpecNamespaceView,
-	parseCarryAnchor,
-	resolveCarryAnchor,
 	resolveSpecReference,
 	RUNTIME_CARRIER_FIELDS,
 	RUNTIME_CARRIER_GUIDANCE_PHRASES,
 	RUNTIME_CARRIER_LIMITS,
 	RUNTIME_CARRIER_NAMESPACES,
+	RUNTIME_CARRIER_OPTIONAL_FIELDS,
+	RUNTIME_CARRIER_RELATION_FIELDS,
 	RUNTIME_CARRIER_REQUIRED_FIELDS,
 	RUNTIME_CARRIER_WEAK_WORDING,
+	RUNTIME_REQUIREMENT_FIELDS,
 	validateRuntimeCarrier,
 	validateRuntimeCarrierCorpus,
 } from "../lib/runtime-carrier-validator.js";
+
+const SPECS_ROOT = join(import.meta.dirname, "..", "..", "plugin-specs");
 
 const DEV_PATH = "specs/77-开发目标.md";
 const DEV_TEXT = [
@@ -35,50 +40,10 @@ const DEV_TEXT = [
 	"## 1. 目标",
 	"",
 	"正文。",
-	"",
-	"### 1.1 子目标",
-	"",
-	"子正文。",
-	"",
-	"## 2. 空节",
-	"",
-	"### 2.1 只有子节",
-	"",
-	"子正文。",
-	"",
-	"## 3. 建议事项",
-	"",
-	"正文。",
 	""
 ].join("\n");
 const DEV_SPEC = { specKey: "dev-target", canonicalPath: DEV_PATH, title: "开发目标", text: DEV_TEXT, path: DEV_PATH };
 const DEV_SPECS = [DEV_SPEC];
-
-const DUP_PATH = "specs/78-重复目标.md";
-const DUP_TEXT = [
-	"---",
-	"ldvh_spec:",
-	'  spec_key: "dev-dup"',
-	'  spec_kind: "spec"',
-	'  spec_id: "78"',
-	'  title: "重复目标"',
-	`  canonical_path: "${DUP_PATH}"`,
-	'  positioning: "p"',
-	'  scope: "s"',
-	"---",
-	"",
-	"# 重复目标",
-	"",
-	"## 1. 重名",
-	"",
-	"正文。",
-	"",
-	"## 1. 重名",
-	"",
-	"正文。",
-	""
-].join("\n");
-const DUP_SPEC = { specKey: "dev-dup", canonicalPath: DUP_PATH, title: "重复目标", text: DUP_TEXT, path: DUP_PATH };
 
 const ATTACHMENT_PATH = "specs/attachments/77.Att.01-附件样例.md";
 const ATTACHMENT_TEXT = [
@@ -100,66 +65,6 @@ const ATTACHMENT_TEXT = [
 ].join("\n");
 const ATTACHMENT_DOC = { text: ATTACHMENT_TEXT, path: ATTACHMENT_PATH };
 
-const DEEP_PATH = "specs/80-深层目标.md";
-const DEEP_TEXT = [
-	"---",
-	"ldvh_spec:",
-	'  spec_key: "dev-deep"',
-	'  spec_kind: "spec"',
-	'  spec_id: "80"',
-	'  title: "深层目标"',
-	`  canonical_path: "${DEEP_PATH}"`,
-	'  positioning: "p"',
-	'  scope: "s"',
-	"---",
-	"",
-	"# 深层目标",
-	"",
-	"## 1. 目标",
-	"",
-	"正文。",
-	"",
-	"### 1.1 子目标/2.2 孙目标",
-	"",
-	"子正文。",
-	""
-].join("\n");
-const DEEP_SPEC = { specKey: "dev-deep", canonicalPath: DEEP_PATH, title: "深层目标", text: DEEP_TEXT, path: DEEP_PATH };
-
-const AMB_PATH = "specs/81-切分目标.md";
-const AMB_TEXT = [
-	"---",
-	"ldvh_spec:",
-	'  spec_key: "dev-amb"',
-	'  spec_kind: "spec"',
-	'  spec_id: "81"',
-	'  title: "切分目标"',
-	`  canonical_path: "${AMB_PATH}"`,
-	'  positioning: "p"',
-	'  scope: "s"',
-	"---",
-	"",
-	"# 切分目标",
-	"",
-	"## A",
-	"",
-	"正文。",
-	"",
-	"### B/C",
-	"",
-	"子正文。",
-	"",
-	"## A/B",
-	"",
-	"正文。",
-	"",
-	"### C",
-	"",
-	"子正文。",
-	""
-].join("\n");
-const AMB_SPEC = { specKey: "dev-amb", canonicalPath: AMB_PATH, title: "切分目标", text: AMB_TEXT, path: AMB_PATH };
-
 function carrierText(options = {}) {
 	const {
 		specKey = "demo-carrier",
@@ -168,8 +73,6 @@ function carrierText(options = {}) {
 		canonicalPath = `plugin-specs/${specKey}.yaml`,
 		positioning = "管示例领域。",
 		scope = "在示例场景查阅。",
-		carries,
-		carriesRaw,
 		role,
 		omit = [],
 		extra = [],
@@ -186,15 +89,6 @@ function carrierText(options = {}) {
 		["scope", JSON.stringify(scope)]
 	].filter(([name]) => !omit.includes(name));
 	const lines = ["ldvh_spec:", ...fields.map(([name, value]) => `  ${name}: ${value}`)];
-	if (carriesRaw !== undefined) {
-		lines.push(carriesRaw);
-	} else if (carries !== undefined) {
-		if (carries.length === 0) {
-			lines.push("  carries: []");
-		} else {
-			lines.push("  carries:", ...carries.map((anchor) => `    - ${JSON.stringify(anchor)}`));
-		}
-	}
 	if (role !== undefined) lines.push(`  role: ${JSON.stringify(role)}`);
 	lines.push(...extra);
 	if (requirementsRaw !== undefined) {
@@ -251,11 +145,10 @@ function shape(result, code, keys) {
 	});
 }
 
-function weakRequirement(text, extra = {}) {
-	return carrierText({ carries: ["dev-target::1. 目标"], requirements: [{ id: "one", title: "第一条", text }], ...extra });
+function weakRequirement(text) {
+	return carrierText({ requirements: [{ id: "one", title: "第一条", text }] });
 }
 
-const BASE_CARRIES = ["dev-target::1. 目标"];
 const OTHER_CATALOG = [{ specKey: "other-key", canonicalPath: "plugin-specs/other-key.yaml" }];
 
 test("weak wording closed set matches the contract", () => {
@@ -284,8 +177,7 @@ test("volume limits match the contract", () => {
 		minRequirements: 1,
 		maxRequirements: 30,
 		maxRequirementTextCodePoints: 600,
-		maxDocumentBytes: 20480,
-		maxCarries: 10
+		maxDocumentBytes: 20480
 	});
 });
 
@@ -293,23 +185,35 @@ test("runtime carrier namespace mapping matches the contract", () => {
 	assert.deepEqual({ ...RUNTIME_CARRIER_NAMESPACES }, { RUNTIME: "plugin-specs", DEVELOPMENT: "specs" });
 });
 
-test("the identity field closed sets match the contract", () => {
+test("the carrier field closed sets match the contract", () => {
 	assert.deepEqual({
 		fields: [...RUNTIME_CARRIER_FIELDS],
-		required: [...RUNTIME_CARRIER_REQUIRED_FIELDS]
+		required: [...RUNTIME_CARRIER_REQUIRED_FIELDS],
+		optional: [...RUNTIME_CARRIER_OPTIONAL_FIELDS]
 	}, {
-		fields: ["spec_key", "spec_kind", "title", "canonical_path", "positioning", "scope", "carries", "role", "requirements"],
-		required: ["spec_key", "spec_kind", "title", "canonical_path", "positioning", "scope"]
+		fields: ["spec_key", "spec_kind", "title", "canonical_path", "positioning", "scope", "role", "requirements"],
+		required: ["spec_key", "spec_kind", "title", "canonical_path", "positioning", "scope"],
+		optional: ["role"]
+	});
+});
+
+test("the requirement and relation field closed sets match the contract", () => {
+	assert.deepEqual({
+		requirementFields: [...RUNTIME_REQUIREMENT_FIELDS],
+		relationFields: [...RUNTIME_CARRIER_RELATION_FIELDS]
+	}, {
+		requirementFields: ["id", "title", "text"],
+		relationFields: ["supersedes", "parent_spec", "relation", "related_specs"]
 	});
 });
 
 test("a fully conforming carrier yields no findings", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES }));
+	const result = validate(carrierText({}));
 	assert.deepEqual(result.findings, []);
 });
 
 test("a fully conforming carrier is reported as passing", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES }));
+	const result = validate(carrierText({}));
 	assert.deepEqual({ verdict: result.verdict, ok: result.ok }, { verdict: "pass", ok: true });
 });
 
@@ -319,12 +223,12 @@ test("a carrier with an error finding is reported as failing", () => {
 });
 
 test("a second top-level mapping is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, rootExtra: ["ldvh_attachment:", '  attachment_key: "x"'] }));
+	const result = validate(carrierText({ rootExtra: ["ldvh_attachment:", '  attachment_key: "x"'] }));
 	assert.deepEqual(codes(result), ["structure/attachment_form", "structure/top_level_mapping"]);
 });
 
 test("a duplicate ldvh_spec key is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, rootExtra: ["ldvh_spec:", '  spec_key: "second-key"'] }));
+	const result = validate(carrierText({ rootExtra: ["ldvh_spec:", '  spec_key: "second-key"'] }));
 	assert.deepEqual(codes(result), [
 		"structure/duplicate_key",
 		"structure/top_level_mapping",
@@ -343,44 +247,55 @@ test("an empty document is rejected", () => {
 });
 
 test("two YAML documents are rejected", () => {
-	const text = `${carrierText({ carries: BASE_CARRIES })}\n---\nldvh_spec:\n  spec_key: "second-key"\n`;
+	const text = `${carrierText({})}\n---\nldvh_spec:\n  spec_key: "second-key"\n`;
 	const result = validate(text);
 	assert.deepEqual(codes(result), ["structure/top_level_document_count"]);
 });
 
 test("spec_id is rejected with a dedicated finding", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, extra: ['  spec_id: "99"'] }));
+	const result = validate(carrierText({ extra: ['  spec_id: "99"'] }));
 	assert.deepEqual(codes(result), ["structure/spec_id", "structure/unknown_field"]);
 });
 
 test("supersedes is rejected as a relation field", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, extra: ['  supersedes: "old-one"'] }));
+	const result = validate(carrierText({ extra: ['  supersedes: "old-one"'] }));
 	assert.deepEqual(codes(result), ["structure/relation_field", "structure/unknown_field"]);
 });
 
 test("parent_spec is rejected as a relation field", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, extra: ['  parent_spec: "parent-one"'] }));
+	const result = validate(carrierText({ extra: ['  parent_spec: "parent-one"'] }));
 	assert.deepEqual(codes(result), ["structure/relation_field", "structure/unknown_field"]);
 });
 
 test("relation is rejected as a relation field", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, extra: ['  relation: "replaces"'] }));
+	const result = validate(carrierText({ extra: ['  relation: "replaces"'] }));
 	assert.deepEqual(codes(result), ["structure/relation_field", "structure/unknown_field"]);
 });
 
 test("related_specs is rejected as a relation field", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, extra: ['  related_specs: ["other-one"]'] }));
+	const result = validate(carrierText({ extra: ['  related_specs: ["other-one"]'] }));
 	assert.deepEqual(codes(result), ["structure/relation_field", "structure/unknown_field"]);
 });
 
 test("an unrelated field outside the closed set is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, extra: ['  notes: "说明"'] }));
+	const result = validate(carrierText({ extra: ['  notes: "说明"'] }));
 	assert.deepEqual(codes(result), ["structure/unknown_field"]);
+});
+
+test("a top-level carries field is rejected by the closed-set channel", () => {
+	const result = validate(carrierText({ extra: ['  carries:', '    - "a::b"'] }));
+	assert.deepEqual({
+		findings: shape(result, "structure/unknown_field", ["item", "level", "fieldPath"]),
+		verdict: result.verdict
+	}, {
+		findings: [{ code: "structure/unknown_field", item: 7, level: "error", fieldPath: "ldvh_spec.carries" }],
+		verdict: "fail"
+	});
 });
 
 test("each missing identity field is reported", () => {
 	for (const field of ["spec_key", "spec_kind", "title", "canonical_path", "positioning", "scope"]) {
-		const result = validate(carrierText({ carries: BASE_CARRIES, omit: [field] }));
+		const result = validate(carrierText({ omit: [field] }));
 		assert.deepEqual(shape(result, "structure/identity_missing", ["fieldPath"]), [
 			{ code: "structure/identity_missing", fieldPath: `ldvh_spec.${field}` }
 		]);
@@ -388,70 +303,70 @@ test("each missing identity field is reported", () => {
 });
 
 test("an invalid spec_key is rejected", () => {
-	const result = validate(carrierText({ specKey: "Demo", carries: BASE_CARRIES }), { actualPath: "plugin-specs/Demo.yaml" });
+	const result = validate(carrierText({ specKey: "Demo" }), { actualPath: "plugin-specs/Demo.yaml" });
 	assert.deepEqual(shape(result, "structure/identity_invalid", ["fieldPath"]), [
 		{ code: "structure/identity_invalid", fieldPath: "ldvh_spec.spec_key" }
 	]);
 });
 
 test("a spec_kind other than spec is rejected", () => {
-	const result = validate(carrierText({ specKind: "attachment", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ specKind: "attachment" }));
 	assert.deepEqual(shape(result, "structure/identity_invalid", ["fieldPath"]), [
 		{ code: "structure/identity_invalid", fieldPath: "ldvh_spec.spec_kind" }
 	]);
 });
 
 test("a title with a path separator is rejected", () => {
-	const result = validate(carrierText({ title: "a/b", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ title: "a/b" }));
 	assert.deepEqual(shape(result, "structure/identity_invalid", ["fieldPath"]), [
 		{ code: "structure/identity_invalid", fieldPath: "ldvh_spec.title" }
 	]);
 });
 
 test("a title with a control character is rejected", () => {
-	const result = validate(carrierText({ title: "a\tb", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ title: "a\tb" }));
 	assert.deepEqual(shape(result, "structure/identity_invalid", ["fieldPath"]), [
 		{ code: "structure/identity_invalid", fieldPath: "ldvh_spec.title" }
 	]);
 });
 
 test("a title with surrounding whitespace is rejected", () => {
-	const result = validate(carrierText({ title: " 示例载体 ", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ title: " 示例载体 " }));
 	assert.deepEqual(shape(result, "structure/identity_invalid", ["fieldPath"]), [
 		{ code: "structure/identity_invalid", fieldPath: "ldvh_spec.title" }
 	]);
 });
 
 test("empty positioning is rejected", () => {
-	const result = validate(carrierText({ positioning: "", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ positioning: "" }));
 	assert.deepEqual(shape(result, "structure/identity_invalid", ["fieldPath"]), [
 		{ code: "structure/identity_invalid", fieldPath: "ldvh_spec.positioning" }
 	]);
 });
 
 test("empty scope is rejected", () => {
-	const result = validate(carrierText({ scope: "  ", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ scope: "  " }));
 	assert.deepEqual(shape(result, "structure/identity_invalid", ["fieldPath"]), [
 		{ code: "structure/identity_invalid", fieldPath: "ldvh_spec.scope" }
 	]);
 });
 
 test("canonical_path must match the actual path", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES }), { actualPath: "plugin-specs/elsewhere.yaml" });
+	const result = validate(carrierText({}), { actualPath: "plugin-specs/elsewhere.yaml" });
 	assert.deepEqual(shape(result, "structure/path_mismatch", ["fieldPath", "actualPath"]), [
 		{ code: "structure/path_mismatch", fieldPath: "ldvh_spec.canonical_path", actualPath: "plugin-specs/elsewhere.yaml" }
 	]);
 });
 
 test("canonical_path must equal plugin-specs/<spec_key>.yaml", () => {
-	const result = validate(carrierText({ canonicalPath: "plugin-specs/not-demo.yaml", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ canonicalPath: "plugin-specs/not-demo.yaml" }));
 	assert.deepEqual(shape(result, "structure/identity_invalid", ["fieldPath", "expected"]), [
 		{ code: "structure/identity_invalid", fieldPath: "ldvh_spec.canonical_path", expected: "plugin-specs/demo-carrier.yaml" }
 	]);
 });
 
 test("a spec_key already used by another path is ambiguous", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES }), {
+	const result = validate(carrierText({}), {
 		carrierCatalog: [{ specKey: "demo-carrier", canonicalPath: "plugin-specs/demo-carrier-other.yaml" }]
 	});
 	assert.deepEqual(shape(result, "structure/ident_ambiguous", ["fieldPath"]), [
@@ -459,36 +374,22 @@ test("a spec_key already used by another path is ambiguous", () => {
 	]);
 });
 
-test("carries written as an empty list is rejected", () => {
-	const result = validate(carrierText({ carries: [] }));
-	assert.deepEqual(shape(result, "structure/optional_field_empty", ["fieldPath"]), [
-		{ code: "structure/optional_field_empty", fieldPath: "ldvh_spec.carries" }
-	]);
-});
-
-test("carries written as a scalar is rejected", () => {
-	const result = validate(carrierText({ carriesRaw: '  carries: "dev-target::1. 目标"' }));
-	assert.deepEqual(shape(result, "structure/optional_field_invalid", ["fieldPath"]), [
-		{ code: "structure/optional_field_invalid", fieldPath: "ldvh_spec.carries" }
-	]);
-});
-
 test("role with an empty string is rejected", () => {
-	const result = validate(carrierText({ role: "", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ role: "" }));
 	assert.deepEqual(shape(result, "structure/optional_field_empty", ["fieldPath"]), [
 		{ code: "structure/optional_field_empty", fieldPath: "ldvh_spec.role" }
 	]);
 });
 
 test("role other than router is rejected", () => {
-	const result = validate(carrierText({ role: "index", carries: BASE_CARRIES }));
+	const result = validate(carrierText({ role: "index" }));
 	assert.deepEqual(shape(result, "structure/role_invalid", ["fieldPath"]), [
 		{ code: "structure/role_invalid", fieldPath: "ldvh_spec.role" }
 	]);
 });
 
 test("requirements missing is rejected", () => {
-	const text = carrierText({ carries: BASE_CARRIES }).replace(/ {2}requirements:\n(?: {4}.*\n?)+/, "");
+	const text = carrierText({}).replace(/ {2}requirements:\n(?: {4}.*\n?)+/, "");
 	const result = validate(text);
 	assert.deepEqual(shape(result, "structure/requirements_missing", ["fieldPath"]), [
 		{ code: "structure/requirements_missing", fieldPath: "ldvh_spec.requirements" }
@@ -496,14 +397,14 @@ test("requirements missing is rejected", () => {
 });
 
 test("requirements as a mapping is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirementsRaw: '  requirements: {"one": "x"}' }));
+	const result = validate(carrierText({ requirementsRaw: '  requirements: {"one": "x"}' }));
 	assert.deepEqual(shape(result, "structure/requirements_invalid", ["fieldPath"]), [
 		{ code: "structure/requirements_invalid", fieldPath: "ldvh_spec.requirements" }
 	]);
 });
 
 test("a non-mapping requirement entry is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirementsRaw: '  requirements:\n    - "just a string"' }));
+	const result = validate(carrierText({ requirementsRaw: '  requirements:\n    - "just a string"' }));
 	assert.deepEqual(shape(result, "structure/requirements_invalid", ["fieldPath"]), [
 		{ code: "structure/requirements_invalid", fieldPath: "ldvh_spec.requirements[0]" }
 	]);
@@ -516,7 +417,7 @@ test("each missing requirement field is reported", () => {
 		text: "  requirements:\n    - id: \"one\"\n      title: \"第一条\""
 	};
 	for (const field of ["id", "title", "text"]) {
-		const result = validate(carrierText({ carries: BASE_CARRIES, requirementsRaw: entries[field] }));
+		const result = validate(carrierText({ requirementsRaw: entries[field] }));
 		assert.deepEqual(shape(result, "structure/requirement_field_missing", ["fieldPath"]), [
 			{ code: "structure/requirement_field_missing", fieldPath: `ldvh_spec.requirements[0].${field}` }
 		]);
@@ -524,7 +425,7 @@ test("each missing requirement field is reported", () => {
 });
 
 test("a requirement source field is rejected", () => {
-	const text = carrierText({ carries: BASE_CARRIES }).replace('    - id: "one"\n', '    - id: "one"\n      source: "somewhere"\n');
+	const text = carrierText({}).replace('    - id: "one"\n', '    - id: "one"\n      source: "somewhere"\n');
 	const result = validate(text);
 	assert.deepEqual(shape(result, "structure/requirement_unknown_field", ["fieldPath"]), [
 		{ code: "structure/requirement_unknown_field", fieldPath: "ldvh_spec.requirements[0].source" }
@@ -532,13 +433,12 @@ test("a requirement source field is rejected", () => {
 });
 
 test("a second requirement container is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, extra: ['  rules:', '    - id: "x"', '      text: "y"'] }));
+	const result = validate(carrierText({ extra: ['  rules:', '    - id: "x"', '      text: "y"'] }));
 	assert.deepEqual(codes(result), ["structure/requirement_container", "structure/unknown_field"]);
 });
 
 test("a duplicated requirement id is rejected", () => {
 	const result = validate(carrierText({
-		carries: BASE_CARRIES,
 		requirements: [
 			{ id: "one", title: "第一条", text: "正文一。" },
 			{ id: "one", title: "第二条", text: "正文二。" }
@@ -550,21 +450,21 @@ test("a duplicated requirement id is rejected", () => {
 });
 
 test("a non-kebab requirement id is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirements: [{ id: "One", title: "第一条", text: "正文。" }] }));
+	const result = validate(carrierText({ requirements: [{ id: "One", title: "第一条", text: "正文。" }] }));
 	assert.deepEqual(shape(result, "structure/requirement_id_invalid", ["fieldPath"]), [
 		{ code: "structure/requirement_id_invalid", fieldPath: "ldvh_spec.requirements[0].id" }
 	]);
 });
 
 test("an empty requirement title is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirements: [{ id: "one", title: " ", text: "正文。" }] }));
+	const result = validate(carrierText({ requirements: [{ id: "one", title: " ", text: "正文。" }] }));
 	assert.deepEqual(shape(result, "structure/requirement_value_invalid", ["fieldPath"]), [
 		{ code: "structure/requirement_value_invalid", fieldPath: "ldvh_spec.requirements[0].title" }
 	]);
 });
 
 test("an empty requirement text is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirements: [{ id: "one", title: "第一条", text: "  " }] }));
+	const result = validate(carrierText({ requirements: [{ id: "one", title: "第一条", text: "  " }] }));
 	assert.deepEqual(shape(result, "structure/requirement_value_invalid", ["fieldPath"]), [
 		{ code: "structure/requirement_value_invalid", fieldPath: "ldvh_spec.requirements[0].text" }
 	]);
@@ -591,6 +491,67 @@ test("another carrier filename reference is reported", () => {
 	]);
 });
 
+test("another carrier filename at a sentence end is reported", () => {
+	const result = validate(weakRequirement("另读 goal-fact-type.yaml. 后续。另读 goal-fact-type.yaml。"), {
+		carrierCatalog: [{ specKey: "goal-fact-type", canonicalPath: "plugin-specs/goal-fact-type.yaml" }]
+	});
+	assert.deepEqual(shape(result, "prohibited/other_runtime_carrier", ["matched", "matchedForm"]), [
+		{ code: "prohibited/other_runtime_carrier", matched: "goal-fact-type.yaml", matchedForm: "filename" },
+		{ code: "prohibited/other_runtime_carrier", matched: "goal-fact-type.yaml", matchedForm: "filename" }
+	]);
+});
+
+test("another carrier filename at the end of the text is reported", () => {
+	const result = validate(weakRequirement("另读 goal-fact-type.yaml."), {
+		carrierCatalog: [{ specKey: "goal-fact-type", canonicalPath: "plugin-specs/goal-fact-type.yaml" }]
+	});
+	assert.deepEqual(shape(result, "prohibited/other_runtime_carrier", ["matched", "matchedForm"]), [
+		{ code: "prohibited/other_runtime_carrier", matched: "goal-fact-type.yaml", matchedForm: "filename" }
+	]);
+});
+
+test("a filename with a preceding identifier character is not reported", () => {
+	const result = validate(weakRequirement("另读 xgoal-fact-type.yaml 的内容。"), {
+		carrierCatalog: [{ specKey: "goal-fact-type", canonicalPath: "plugin-specs/goal-fact-type.yaml" }]
+	});
+	assert.deepEqual(result.findings, []);
+});
+
+test("a filename that is a suffix of another carrier filename is reported for itself", () => {
+	const result = validate(weakRequirement("另读 subgoal-fact-type.yaml 的内容。"), {
+		carrierCatalog: [
+			{ specKey: "goal-fact-type", canonicalPath: "plugin-specs/goal-fact-type.yaml" },
+			{ specKey: "subgoal-fact-type", canonicalPath: "plugin-specs/subgoal-fact-type.yaml" }
+		]
+	});
+	assert.deepEqual(shape(result, "prohibited/other_runtime_carrier", ["matched", "matchedForm", "reference"]), [
+		{
+			code: "prohibited/other_runtime_carrier",
+			matched: "subgoal-fact-type.yaml",
+			matchedForm: "filename",
+			reference: "subgoal-fact-type"
+		}
+	]);
+});
+
+test("a filename with a trailing hyphen is reported as a spec_key reference only", () => {
+	const result = validate(weakRequirement("另读 goal-fact-type.yaml-x 的内容。"), {
+		carrierCatalog: [{ specKey: "goal-fact-type", canonicalPath: "plugin-specs/goal-fact-type.yaml" }]
+	});
+	assert.deepEqual(shape(result, "prohibited/other_runtime_carrier", ["matched", "matchedForm", "reference"]), [
+		{ code: "prohibited/other_runtime_carrier", matched: "goal-fact-type", matchedForm: "spec_key", reference: "goal-fact-type" }
+	]);
+});
+
+test("a filename with a trailing underscore is reported as a spec_key reference only", () => {
+	const result = validate(weakRequirement("另读 goal-fact-type.yaml_ 的内容。"), {
+		carrierCatalog: [{ specKey: "goal-fact-type", canonicalPath: "plugin-specs/goal-fact-type.yaml" }]
+	});
+	assert.deepEqual(shape(result, "prohibited/other_runtime_carrier", ["matched", "matchedForm", "reference"]), [
+		{ code: "prohibited/other_runtime_carrier", matched: "goal-fact-type", matchedForm: "spec_key", reference: "goal-fact-type" }
+	]);
+});
+
 test("another carrier canonical_path reference is reported", () => {
 	const result = validate(weakRequirement("另读 plugin-specs/other-key.yaml 的内容。"), { carrierCatalog: OTHER_CATALOG });
 	assert.deepEqual(shape(result, "prohibited/other_runtime_carrier", ["matched", "matchedForm"]), [
@@ -609,15 +570,6 @@ test("the carrier's own identity is not reported as a reference", () => {
 	const result = validate(weakRequirement("本文件 plugin-specs/demo-carrier.yaml 与 demo-carrier 都指自身。"), {
 		carrierCatalog: [{ specKey: "alias-key", canonicalPath: "plugin-specs/demo-carrier.yaml" }]
 	});
-	assert.deepEqual(result.findings, []);
-});
-
-test("the carrier's own spec_key is not a development spec reference", () => {
-	const result = validate(carrierText({
-		specKey: "dev-target",
-		carries: ["dev-target::1. 目标"],
-		requirements: [{ id: "one", title: "第一条", text: "本载体 dev-target 不指向开发规范。" }]
-	}), { actualPath: "plugin-specs/dev-target.yaml" });
 	assert.deepEqual(result.findings, []);
 });
 
@@ -647,27 +599,38 @@ test("plugin-specs is not a development spec path segment", () => {
 	assert.deepEqual(result.findings, []);
 });
 
-test("section and clause designations are reported", () => {
-	const result = validate(weakRequirement("见§5、第12章、第3节与第4条。"));
-	assert.deepEqual(findingsOf(result, "prohibited/section_reference").map((finding) => finding.matched), [
-		"§",
-		"第12章",
-		"第3节",
-		"第4条"
-	]);
-});
-
-test("a clause reference without digits is not reported", () => {
-	const result = validate(weakRequirement("第三条规定的内容，第二次复核。"));
+test("the carrier's own spec_key is not a development spec reference", () => {
+	const result = validate(carrierText({
+		specKey: "dev-target",
+		requirements: [{ id: "one", title: "第一条", text: "本载体 dev-target 不指向开发规范。" }]
+	}), { actualPath: "plugin-specs/dev-target.yaml" });
 	assert.deepEqual(result.findings, []);
 });
 
-test("spaced clause designations are reported", () => {
-	const result = validate(weakRequirement("第 12 章与第 3 条都需要重写。"));
+test("section and clause designations are reported", () => {
+	const result = validate(weakRequirement("见§5、第3条、第 3 条、第12章与第 3 节。"));
 	assert.deepEqual(findingsOf(result, "prohibited/section_reference").map((finding) => finding.matched), [
-		"第 12 章",
-		"第 3 条"
+		"§",
+		"第3条",
+		"第 3 条",
+		"第12章",
+		"第 3 节"
 	]);
+});
+
+test("a Chinese numeral clause reference is not reported", () => {
+	const result = validate(weakRequirement("第三条规定的内容。"));
+	assert.deepEqual(result.findings, []);
+});
+
+test("a full-width digit clause reference is not reported", () => {
+	const result = validate(weakRequirement("第３条的内容。"));
+	assert.deepEqual(result.findings, []);
+});
+
+test("a decimal clause reference is not reported", () => {
+	const result = validate(weakRequirement("第3.2节、见 3.2 节与 Section 3 的内容。"));
+	assert.deepEqual(result.findings, []);
 });
 
 test("GFM table rows are reported", () => {
@@ -729,8 +692,8 @@ test("text without guidance phrases is not reported", () => {
 test("load-bearing markers are reported as hints only", () => {
 	const result = validate(weakRequirement("满足条件后可以用。【承重声明】**恢复条件**：某件事完成。"));
 	assert.deepEqual(shape(result, "hint/load_bearing_claim", ["item", "level", "matched"]), [
-		{ code: "hint/load_bearing_claim", item: "5.5-乙类8", level: "hint", matched: "【承重声明】" },
-		{ code: "hint/load_bearing_claim", item: "5.5-乙类8", level: "hint", matched: "**恢复条件**：" }
+		{ code: "hint/load_bearing_claim", item: "5.5-乙类7", level: "hint", matched: "【承重声明】" },
+		{ code: "hint/load_bearing_claim", item: "5.5-乙类7", level: "hint", matched: "**恢复条件**：" }
 	]);
 });
 
@@ -741,16 +704,11 @@ test("load-bearing markers do not fail the carrier", () => {
 
 test("comments are outside the scanned field values", () => {
 	const result = validate(carrierText({ extra: ["  # 应当 详见 §5 specs/ 见上 【承重声明】"] }));
-	assert.deepEqual(codes(result), ["hint/source_missing"]);
-});
-
-test("the carries registration is outside the scanned field values", () => {
-	const result = validate(carrierText({ carries: ["dev-target::3. 建议事项"] }));
-	assert.deepEqual(result.findings, []);
+	assert.deepEqual({ codes: codes(result), verdict: result.verdict }, { codes: [], verdict: "pass" });
 });
 
 test("a carrier with zero requirements is rejected", () => {
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirements: null }));
+	const result = validate(carrierText({ requirements: null }));
 	assert.deepEqual(shape(result, "volume/requirement_count", ["item", "level", "fieldPath", "measured", "limit"]), [
 		{
 			code: "volume/requirement_count",
@@ -769,7 +727,7 @@ test("31 requirements are rejected", () => {
 		title: `条目${index + 1}`,
 		text: "正文。"
 	}));
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirements }));
+	const result = validate(carrierText({ requirements }));
 	assert.deepEqual(shape(result, "volume/requirement_count", ["measured", "limit"]), [
 		{ code: "volume/requirement_count", measured: 31, limit: [1, 30] }
 	]);
@@ -781,7 +739,7 @@ test("the remaining requirement budget turns negative beyond the limit", () => {
 		title: `条目${index + 1}`,
 		text: "正文。"
 	}));
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirements }));
+	const result = validate(carrierText({ requirements }));
 	assert.equal(result.measurements.requirementCountRemaining, -1);
 });
 
@@ -791,7 +749,7 @@ test("30 requirements are accepted", () => {
 		title: `条目${index + 1}`,
 		text: "正文。"
 	}));
-	const result = validate(carrierText({ carries: BASE_CARRIES, requirements }));
+	const result = validate(carrierText({ requirements }));
 	assert.deepEqual(result.findings, []);
 });
 
@@ -825,94 +783,70 @@ test("code point counting is not UTF-16 unit counting", () => {
 	assert.equal(result.measurements.maxTextCodePoints, 600);
 });
 
-test("a carrier file over the byte limit without the carries criterion is rejected", () => {
-	const fixture = oversizedCarrier({ padding: 3800, carriers: 10 });
-	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
-	assert.deepEqual({ measured: result.measurements.documentBytes, verdict: result.verdict }, { measured: 21075, verdict: "fail" });
+test("a file byte count over the limit is rejected by the file-byte criterion", () => {
+	const result = validate(carrierText({}), { fileBytes: 25000 });
+	assert.deepEqual({
+		findings: shape(result, "volume/document_bytes", ["item", "level", "fieldPath", "measured", "limit", "remaining"]),
+		documentBytes: result.measurements.documentBytes,
+		documentBytesRemaining: result.measurements.documentBytesRemaining
+	}, {
+		findings: [{
+			code: "volume/document_bytes",
+			item: 8,
+			level: "error",
+			fieldPath: "ldvh_spec",
+			measured: 25000,
+			limit: 20480,
+			remaining: -4520
+		}],
+		documentBytes: 25000,
+		documentBytesRemaining: -4520
+	});
+});
+
+test("a file byte count at the limit is accepted", () => {
+	const result = validate(carrierText({}), { fileBytes: 20480 });
+	assert.deepEqual({ findings: result.findings, remaining: result.measurements.documentBytesRemaining }, {
+		findings: [],
+		remaining: 0
+	});
 });
 
 test("a carrier without fileBytes has an unmeasurable byte volume", () => {
-	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
-	const result = validate(fixture.text, { fileBytes: null, developmentSpecs: fixture.developmentSpecs });
+	const result = validate(carrierText({}), { fileBytes: null });
 	assert.deepEqual({
 		findings: shape(result, "volume/document_bytes_unmeasurable", ["item", "level", "fieldPath", "limit"]),
 		verdict: result.verdict,
 		ok: result.ok,
 		documentBytes: result.measurements.documentBytes,
-		documentBytesWithoutCarries: result.measurements.documentBytesWithoutCarries
+		documentBytesRemaining: result.measurements.documentBytesRemaining
 	}, {
 		findings: [{ code: "volume/document_bytes_unmeasurable", item: 8, level: "gap", fieldPath: "ldvh_spec", limit: 20480 }],
 		verdict: "undetermined",
 		ok: false,
 		documentBytes: null,
-		documentBytesWithoutCarries: null
+		documentBytesRemaining: null
 	});
-});
-
-test("the unmeasurable byte volume does not issue an error finding", () => {
-	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
-	const result = validate(fixture.text, { fileBytes: null, developmentSpecs: fixture.developmentSpecs });
-	assert.deepEqual(result.findings.filter((finding) => finding.level === "error"), []);
 });
 
 test("fileBytes below the supplied text length is unmeasurable", () => {
-	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
-	const result = validate(fixture.text, {
-		fileBytes: Buffer.byteLength(fixture.text, "utf8") - 1,
-		developmentSpecs: fixture.developmentSpecs
-	});
-	assert.deepEqual({ codes: codes(result), documentBytes: result.measurements.documentBytes }, {
+	const text = carrierText({});
+	const result = validate(text, { fileBytes: Buffer.byteLength(text, "utf8") - 1 });
+	assert.deepEqual({
+		codes: codes(result),
+		verdict: result.verdict,
+		documentBytes: result.measurements.documentBytes
+	}, {
 		codes: ["volume/document_bytes_unmeasurable"],
+		verdict: "undetermined",
 		documentBytes: null
 	});
 });
 
-test("total bytes over the limit without the carries criterion over are not reported", () => {
-	const fixture = oversizedCarrier({ padding: 3400, carriers: 10 });
-	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
-	assert.deepEqual({
-		overLimit: result.measurements.documentBytes > 20480,
-		byteFindings: result.findings.filter((finding) => finding.code.startsWith("volume/document_bytes"))
-	}, { overLimit: true, byteFindings: [] });
-});
-
-test("a carrier with twelve carries is rejected", () => {
-	const fixture = oversizedCarrier({ padding: 10, carriers: 12 });
-	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
-	assert.deepEqual({
-		findings: shape(result, "volume/carries_count", ["item", "level", "fieldPath", "measured", "limit", "remaining"]),
-		carriesCount: result.measurements.carriesCount,
-		carriesCountRemaining: result.measurements.carriesCountRemaining
-	}, {
-		findings: [{
-			code: "volume/carries_count",
-			item: 8,
-			level: "error",
-			fieldPath: "ldvh_spec.carries",
-			measured: 12,
-			limit: 10,
-			remaining: -2
-		}],
-		carriesCount: 12,
-		carriesCountRemaining: -2
-	});
-});
-
-test("a carrier with ten carries is accepted", () => {
-	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
-	const result = validate(fixture.text, { developmentSpecs: fixture.developmentSpecs });
-	assert.deepEqual({
-		findings: findingsOf(result, "volume/carries_count"),
-		carriesCount: result.measurements.carriesCount,
-		carriesCountRemaining: result.measurements.carriesCountRemaining
-	}, { findings: [], carriesCount: 10, carriesCountRemaining: 0 });
-});
-
 test("the corpus carried by an unmeasurable byte volume verdicts undetermined", () => {
-	const fixture = oversizedCarrier({ padding: 10, carriers: 10 });
+	const text = carrierText({});
 	const corpus = validateRuntimeCarrierCorpus({
-		carriers: [{ text: fixture.text, actualPath: "plugin-specs/demo-carrier.yaml" }],
-		developmentSpecs: fixture.developmentSpecs
+		carriers: [{ text, actualPath: "plugin-specs/demo-carrier.yaml" }]
 	});
 	assert.deepEqual({
 		verdict: corpus.verdict,
@@ -920,206 +854,6 @@ test("the corpus carried by an unmeasurable byte volume verdicts undetermined", 
 		summaryVerdict: corpus.summary.verdict,
 		gapCount: corpus.summary.gapCount
 	}, { verdict: "undetermined", ok: false, summaryVerdict: "undetermined", gapCount: 1 });
-});
-
-function oversizedCarrier({ padding, carriers }) {
-	const anchors = Array.from({ length: carriers }, (_, index) => `padding-target::段落 ${String(index + 1).padStart(2, "0")}`);
-	const headings = Array.from({ length: carriers }, (_, index) => `## 段落 ${String(index + 1).padStart(2, "0")}\n\n正文。`);
-	const specText = [
-		"---",
-		"ldvh_spec:",
-		'  spec_key: "padding-target"',
-		'  spec_kind: "spec"',
-		'  spec_id: "79"',
-		'  title: "排版目标"',
-		'  canonical_path: "specs/79-排版目标.md"',
-		'  positioning: "p"',
-		'  scope: "s"',
-		"---",
-		"",
-		"# 排版目标",
-		"",
-		...headings,
-		""
-	].join("\n");
-	const requirements = Array.from({ length: 30 }, (_, index) => ({
-		id: `req-${index + 1}`,
-		title: `条目${index + 1}`,
-		text: "a".repeat(500)
-	}));
-	const text = carrierText({
-		positioning: "a".repeat(padding),
-		carries: anchors,
-		requirements
-	});
-	return { text, developmentSpecs: [{ specKey: "padding-target", canonicalPath: "specs/79-排版目标.md", title: "排版目标", text: specText, path: "specs/79-排版目标.md" }] };
-}
-
-test("parseCarryAnchor accepts an H2 heading path", () => {
-	assert.deepEqual(parseCarryAnchor("dev-target::1. 目标"), {
-		ok: true,
-		value: { specKey: "dev-target", headingPath: "1. 目标", segments: ["1. 目标"] }
-	});
-});
-
-test("parseCarryAnchor accepts an H2/H3 heading path", () => {
-	assert.deepEqual(parseCarryAnchor("dev-target::1. 目标/1.1 子目标"), {
-		ok: true,
-		value: { specKey: "dev-target", headingPath: "1. 目标/1.1 子目标", segments: ["1. 目标", "1.1 子目标"] }
-	});
-});
-
-const MALFORMED_ANCHORS = [
-	["empty", ""],
-	["without a separator", "dev-target"],
-	["with an empty heading path", "dev-target::"],
-	["with whitespace before the spec_key", " dev-target::1. 目标"],
-	["with whitespace inside the heading path", "dev-target:: 1. 目标"],
-	["with an uppercase spec_key", "Dev::x"],
-	["with an underscore in the spec_key", "dev_target::1. 目标"],
-	["with a line break", "dev-target::1. 目标\n更多"]
-];
-
-for (const [label, anchor] of MALFORMED_ANCHORS) {
-	test(`parseCarryAnchor rejects an anchor ${label}`, () => {
-		const parsed = parseCarryAnchor(anchor);
-		assert.deepEqual({ ok: parsed.ok, code: parsed.error?.code }, { ok: false, code: "anchor/form_invalid" });
-	});
-}
-
-test("a trailing separator is not a form failure but is not addressable", () => {
-	const parsed = parseCarryAnchor("dev-target::1. 目标/");
-	const resolved = resolveCarryAnchor("dev-target::1. 目标/", DEV_SPECS);
-	assert.deepEqual({ parsed: parsed.ok, resolveCode: resolved.error?.code }, { parsed: true, resolveCode: "anchor/heading_not_found" });
-});
-
-test("a three-segment anchor resolves at its only valid split point", () => {
-	assert.deepEqual(resolveCarryAnchor("dev-deep::1. 目标/1.1 子目标/2.2 孙目标", [DEEP_SPEC]), {
-		ok: true,
-		value: {
-			specKey: "dev-deep",
-			canonicalPath: DEEP_PATH,
-			headingPath: "1. 目标/1.1 子目标/2.2 孙目标",
-			startLine: 18,
-			endLine: 21
-		}
-	});
-});
-
-test("a three-segment anchor without a valid split is not addressable", () => {
-	const result = resolveCarryAnchor("dev-target::1. 目标/1.1 子目标/2.2 孙目标", DEV_SPECS);
-	assert.equal(result.error.code, "anchor/heading_not_found");
-});
-
-test("an anchor whose heading path splits two valid ways is rejected", () => {
-	const result = resolveCarryAnchor("dev-amb::A/B/C", [AMB_SPEC]);
-	assert.equal(result.error.code, "anchor/ambiguous_split");
-});
-
-test("an ambiguous split anchor is reported by the carrier check", () => {
-	const result = validate(carrierText({ carries: ["dev-amb::A/B/C"] }), { developmentSpecs: [AMB_SPEC] });
-	assert.deepEqual(shape(result, "anchor/ambiguous_split", ["fieldPath", "anchor"]), [
-		{ code: "anchor/ambiguous_split", fieldPath: "ldvh_spec.carries[0]", anchor: "dev-amb::A/B/C" }
-	]);
-});
-
-test("resolveCarryAnchor returns the resolved target", () => {
-	assert.deepEqual(resolveCarryAnchor("dev-target::1. 目标/1.1 子目标", DEV_SPECS), {
-		ok: true,
-		value: {
-			specKey: "dev-target",
-			canonicalPath: DEV_PATH,
-			headingPath: "1. 目标/1.1 子目标",
-			startLine: 18,
-			endLine: 21
-		}
-	});
-});
-
-test("resolveCarryAnchor rejects an unknown target", () => {
-	const result = resolveCarryAnchor("ghost-target::1. 目标", DEV_SPECS);
-	assert.equal(result.error.code, "anchor/target_unknown");
-});
-
-test("resolveCarryAnchor rejects a missing heading", () => {
-	const result = resolveCarryAnchor("dev-target::9. 不存在", DEV_SPECS);
-	assert.equal(result.error.code, "anchor/heading_not_found");
-});
-
-test("resolveCarryAnchor rejects an ambiguous heading", () => {
-	const result = resolveCarryAnchor("dev-dup::1. 重名", [DUP_SPEC]);
-	assert.equal(result.error.code, "anchor/heading_ambiguous");
-});
-
-test("resolveCarryAnchor rejects an empty locator", () => {
-	const result = resolveCarryAnchor("dev-target::2. 空节", DEV_SPECS);
-	assert.equal(result.error.code, "anchor/empty_locator");
-});
-
-test("resolveCarryAnchor rejects an unreadable target", () => {
-	const result = resolveCarryAnchor("dev-target::1. 目标", [{ specKey: "dev-target" }]);
-	assert.equal(result.error.code, "anchor/target_unreadable");
-});
-
-test("a malformed anchor is reported at its field path", () => {
-	const result = validate(carrierText({ carries: ["nope"] }));
-	assert.deepEqual(shape(result, "anchor/form_invalid", ["item", "level", "fieldPath", "anchor"]), [
-		{ code: "anchor/form_invalid", item: "6.2", level: "error", fieldPath: "ldvh_spec.carries[0]", anchor: "nope" }
-	]);
-});
-
-test("an unknown anchor target is reported", () => {
-	const result = validate(carrierText({ carries: ["ghost-target::1. 目标"] }));
-	assert.deepEqual(shape(result, "anchor/target_unknown", ["fieldPath", "anchor"]), [
-		{ code: "anchor/target_unknown", fieldPath: "ldvh_spec.carries[0]", anchor: "ghost-target::1. 目标" }
-	]);
-});
-
-test("a missing anchor heading path is reported", () => {
-	const result = validate(carrierText({ carries: ["dev-target::9. 不存在"] }));
-	assert.deepEqual(shape(result, "anchor/heading_not_found", ["fieldPath"]), [
-		{ code: "anchor/heading_not_found", fieldPath: "ldvh_spec.carries[0]" }
-	]);
-});
-
-test("an ambiguous anchor heading is reported", () => {
-	const result = validate(carrierText({ carries: ["dev-dup::1. 重名"] }), { developmentSpecs: [DUP_SPEC] });
-	assert.deepEqual(shape(result, "anchor/heading_ambiguous", ["fieldPath"]), [
-		{ code: "anchor/heading_ambiguous", fieldPath: "ldvh_spec.carries[0]" }
-	]);
-});
-
-test("a duplicated anchor is reported at the duplicate index", () => {
-	const result = validate(carrierText({ carries: ["dev-target::1. 目标", "dev-target::1. 目标"] }));
-	assert.deepEqual(shape(result, "anchor/duplicate", ["fieldPath"]), [
-		{ code: "anchor/duplicate", fieldPath: "ldvh_spec.carries[1]" }
-	]);
-});
-
-test("an anchor pointing at an empty locator is reported", () => {
-	const result = validate(carrierText({ carries: ["dev-target::2. 空节"] }));
-	assert.deepEqual(shape(result, "anchor/empty_locator", ["fieldPath"]), [
-		{ code: "anchor/empty_locator", fieldPath: "ldvh_spec.carries[0]" }
-	]);
-});
-
-test("a non-string carries member is rejected", () => {
-	const result = validate(carrierText({ carriesRaw: '  carries:\n    - "dev-target::1. 目标"\n    - 7' }));
-	assert.deepEqual(shape(result, "structure/optional_field_invalid", ["fieldPath"]), [
-		{ code: "structure/optional_field_invalid", fieldPath: "ldvh_spec.carries[1]" }
-	]);
-});
-
-test("a missing carries registration is a hint, not a failure", () => {
-	const result = validate(carrierText({}));
-	assert.deepEqual(shape(result, "hint/source_missing", ["item", "level", "fieldPath"]), [
-		{ code: "hint/source_missing", item: "6.2", level: "hint", fieldPath: "ldvh_spec.carries" }
-	]);
-});
-
-test("a source-missing hint does not fail the carrier", () => {
-	const result = validate(carrierText({}));
-	assert.equal(result.ok, true);
 });
 
 test("a router without carries does not report source missing", () => {
@@ -1135,7 +869,6 @@ test("a router entry with one existing target path is clean", () => {
 	const result = validate(carrierText({
 		specKey: "router-one",
 		role: "router",
-		carries: BASE_CARRIES,
 		requirements: [{ id: "go", title: "去目标", text: "读 plugin-specs/target-one.yaml。" }]
 	}), { actualPath: "plugin-specs/router-one.yaml", carrierCatalog: [{ specKey: "target-one", canonicalPath: "plugin-specs/target-one.yaml" }] });
 	assert.deepEqual(result.findings, []);
@@ -1145,7 +878,6 @@ test("a router entry with two target paths is rejected", () => {
 	const result = validate(carrierText({
 		specKey: "router-one",
 		role: "router",
-		carries: BASE_CARRIES,
 		requirements: [{ id: "go", title: "去目标", text: "读 plugin-specs/target-one.yaml 或 plugin-specs/target-two.yaml。" }]
 	}), {
 		actualPath: "plugin-specs/router-one.yaml",
@@ -1165,7 +897,6 @@ test("a router entry mentioning a target spec_key loses the exemption", () => {
 	const result = validate(carrierText({
 		specKey: "router-one",
 		role: "router",
-		carries: BASE_CARRIES,
 		requirements: [{ id: "go", title: "去目标", text: "读 plugin-specs/target-one.yaml，目标标识 target-one。" }]
 	}), { actualPath: "plugin-specs/router-one.yaml", carrierCatalog: [{ specKey: "target-one", canonicalPath: "plugin-specs/target-one.yaml" }] });
 	assert.deepEqual(codes(result), ["prohibited/other_runtime_carrier", "prohibited/other_runtime_carrier"]);
@@ -1175,7 +906,6 @@ test("an unresolved router target is rejected", () => {
 	const result = validate(carrierText({
 		specKey: "router-one",
 		role: "router",
-		carries: BASE_CARRIES,
 		requirements: [{ id: "go", title: "去目标", text: "读 plugin-specs/ghost.yaml。" }]
 	}), { actualPath: "plugin-specs/router-one.yaml" });
 	assert.deepEqual(shape(result, "structure/router_target_unresolved", ["fieldPath", "matched"]), [
@@ -1187,7 +917,6 @@ test("a router pointing at itself is rejected", () => {
 	const result = validate(carrierText({
 		specKey: "router-one",
 		role: "router",
-		carries: BASE_CARRIES,
 		requirements: [{ id: "go", title: "去目标", text: "读 plugin-specs/router-one.yaml。" }]
 	}), { actualPath: "plugin-specs/router-one.yaml" });
 	assert.deepEqual(shape(result, "structure/router_target_self", ["fieldPath"]), [
@@ -1199,7 +928,6 @@ test("a router pointing at another router is rejected", () => {
 	const result = validate(carrierText({
 		specKey: "router-one",
 		role: "router",
-		carries: BASE_CARRIES,
 		requirements: [{ id: "go", title: "去目标", text: "读 plugin-specs/router-two.yaml。" }]
 	}), {
 		actualPath: "plugin-specs/router-one.yaml",
@@ -1281,7 +1009,7 @@ test("one router in a corpus is counted once", () => {
 			}
 		]
 	});
-	assert.deepEqual(corpus.summary, { carrierCount: 2, verdict: "pass", errorCount: 0, hintCount: 1, gapCount: 0, routerCount: 1 });
+	assert.deepEqual(corpus.summary, { carrierCount: 2, verdict: "pass", errorCount: 0, hintCount: 0, gapCount: 0, routerCount: 1 });
 });
 
 test("a two-namespace view lists both namespaces as a set", () => {
@@ -1454,7 +1182,7 @@ test("the corpus summary counts errors and hints", () => {
 	const corpus = validateCorpus({
 		carriers: [
 			{ text: carrierText({}), actualPath: "plugin-specs/demo-carrier.yaml" },
-			{ text: carrierText({ carries: ["nope"] }), actualPath: "plugin-specs/demo-carrier.yaml" }
+			{ text: carrierText({ extra: ['  notes: "说明"'] }), actualPath: "plugin-specs/demo-carrier.yaml" }
 		],
 		developmentSpecs: DEV_SPECS
 	});
@@ -1464,5 +1192,32 @@ test("the corpus summary counts errors and hints", () => {
 		verdict: corpus.verdict,
 		summaryVerdict: corpus.summary.verdict,
 		ok: corpus.ok
-	}, { errors: 1, hints: 1, verdict: "fail", summaryVerdict: "fail", ok: false });
+	}, { errors: 1, hints: 0, verdict: "fail", summaryVerdict: "fail", ok: false });
+});
+
+test("a corpus of load-bearing hints reports hints without failing", () => {
+	const corpus = validateCorpus({
+		carriers: [{ text: carrierText({ requirements: [{ id: "one", title: "第一条", text: "写【承重声明】。" }] }), actualPath: "plugin-specs/demo-carrier.yaml" }]
+	});
+	assert.deepEqual({
+		hints: corpus.summary.hintCount,
+		errors: corpus.summary.errorCount,
+		verdict: corpus.verdict
+	}, { hints: 1, errors: 0, verdict: "pass" });
+});
+
+test("the real plugin-specs corpus has no errors, hints or gaps", async () => {
+	const carriers = [];
+	for (const name of await readdir(SPECS_ROOT)) {
+		if (!name.endsWith(".yaml")) continue;
+		const bytes = await readFile(join(SPECS_ROOT, name));
+		carriers.push({ text: bytes.toString("utf8"), fileBytes: bytes.byteLength, actualPath: `plugin-specs/${name}` });
+	}
+	const corpus = validateRuntimeCarrierCorpus({ carriers });
+	assert.deepEqual({
+		errors: corpus.summary.errorCount,
+		hints: corpus.summary.hintCount,
+		gaps: corpus.summary.gapCount,
+		verdict: corpus.verdict
+	}, { errors: 0, hints: 0, gaps: 0, verdict: "pass" });
 });

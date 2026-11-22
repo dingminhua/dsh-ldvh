@@ -1,5 +1,5 @@
 import { parseAllDocuments, isMap, isScalar } from "yaml";
-import { ID_PATTERN, parseSpecDocument, extractHeadings, resolveHeadingPath } from "./spec-registry.js";
+import { ID_PATTERN, parseSpecDocument } from "./spec-registry.js";
 import { normalizeNewlines } from "./markdown-structure.js";
 
 export const RUNTIME_CARRIER_NAMESPACES = Object.freeze({ RUNTIME: "plugin-specs", DEVELOPMENT: "specs" });
@@ -8,8 +8,7 @@ export const RUNTIME_CARRIER_LIMITS = Object.freeze({
   minRequirements: 1,
   maxRequirements: 30,
   maxRequirementTextCodePoints: 600,
-  maxDocumentBytes: 20480,
-  maxCarries: 10
+  maxDocumentBytes: 20480
 });
 
 export const RUNTIME_CARRIER_FIELDS = Object.freeze([
@@ -19,7 +18,6 @@ export const RUNTIME_CARRIER_FIELDS = Object.freeze([
   "canonical_path",
   "positioning",
   "scope",
-  "carries",
   "role",
   "requirements"
 ]);
@@ -33,7 +31,7 @@ export const RUNTIME_CARRIER_REQUIRED_FIELDS = Object.freeze([
   "scope"
 ]);
 
-export const RUNTIME_CARRIER_OPTIONAL_FIELDS = Object.freeze(["carries", "role"]);
+export const RUNTIME_CARRIER_OPTIONAL_FIELDS = Object.freeze(["role"]);
 
 export const RUNTIME_REQUIREMENT_FIELDS = Object.freeze(["id", "title", "text"]);
 
@@ -92,11 +90,7 @@ function identifierPattern(key) {
 }
 
 function filenamePattern(name) {
-  return new RegExp(`(?<![A-Za-z0-9._/-])${escapePattern(name)}`, "g");
-}
-
-function carrierFilenamePattern(name) {
-  return new RegExp(`(?<![A-Za-z0-9._-])${escapePattern(name)}(?![A-Za-z0-9._-])`, "g");
+  return new RegExp(`(?<![A-Za-z0-9._-])${escapePattern(name)}(?![A-Za-z0-9_-]|\\.[!-~])`, "g");
 }
 
 function canonicalPathPattern(path) {
@@ -116,7 +110,7 @@ function collectCarrierReferenceHits(text, carriers) {
     }
     const filename = isNonEmptyString(carrier.canonicalPath) ? basenameOf(carrier.canonicalPath) : (isNonEmptyString(carrier.specKey) ? `${carrier.specKey}.yaml` : null);
     if (isNonEmptyString(filename)) {
-      for (const match of collectMatches(carrierFilenamePattern(filename), text)) {
+      for (const match of collectMatches(filenamePattern(filename), text)) {
         hits.push({ ...match, form: "filename", reference });
       }
     }
@@ -284,97 +278,8 @@ export function buildDevelopmentSpecCorpus(documents) {
   };
 }
 
-export function parseCarryAnchor(anchor) {
-  if (typeof anchor !== "string" || anchor.length === 0) return reject("anchor/form_invalid", "anchor must be a non-empty string");
-  if (anchor.includes("\n") || anchor.includes("\r")) return reject("anchor/form_invalid", "anchor must fit on one line");
-  const separator = anchor.indexOf("::");
-  if (separator < 0 || separator !== anchor.lastIndexOf("::")) return reject("anchor/form_invalid", "anchor must use the <target spec_key>::<H2 heading>[/<H3 heading>] form");
-  const specKey = anchor.slice(0, separator);
-  const headingPath = anchor.slice(separator + 2);
-  if (!ID_PATTERN.test(specKey)) return reject("anchor/form_invalid", "anchor prefix must be a runtime/development identifier");
-  if (headingPath.length === 0 || headingPath.trim() !== headingPath) return reject("anchor/form_invalid", "anchor heading path must be non-empty and free of surrounding whitespace");
-  const segments = headingPath.split("/");
-  return { ok: true, value: { specKey, headingPath, segments } };
-}
-
-function sectionOwnBody(text, startLine) {
-  const lines = normalizeNewlines(text).split("\n");
-  const headings = extractHeadings(text);
-  const nextHeading = headings.find((heading) => heading.line > startLine);
-  const ownEnd = nextHeading === undefined ? lines.length : nextHeading.line - 1;
-  for (let line = startLine + 1; line <= ownEnd; line += 1) {
-    if ((lines[line - 1] ?? "").trim() === "") continue;
-    return true;
-  }
-  return false;
-}
-
-function anchorSplitCandidates(text, headingPath) {
-  const headings = extractHeadings(text);
-  const fileEnd = normalizeNewlines(text).split("\n").length;
-  const sectionEnd = (heading) => {
-    const next = headings.find((item) => item.line > heading.line && item.level <= heading.level);
-    return next === undefined ? fileEnd : next.line - 1;
-  };
-  const attempts = [];
-  for (let index = 0; index < headingPath.length; index += 1) {
-    if (headingPath[index] !== "/") continue;
-    attempts.push({ split: index, h2Text: headingPath.slice(0, index), h3Text: headingPath.slice(index + 1) });
-  }
-  const candidates = [];
-  for (const attempt of attempts) {
-    for (const h2 of headings.filter((heading) => heading.level === 2 && heading.text === attempt.h2Text)) {
-      const h2End = sectionEnd(h2);
-      const h3 = headings.filter((heading) => heading.level === 3 && heading.text === attempt.h3Text && heading.line > h2.line && heading.line <= h2End);
-      for (const match of h3) candidates.push({ split: attempt.split, heading: match, endLine: sectionEnd(match) });
-    }
-  }
-  return candidates;
-}
-
-function resolveSplitHeadingPath(text, headingPath) {
-  const candidates = anchorSplitCandidates(text, headingPath);
-  const splits = new Set(candidates.map((candidate) => candidate.split));
-  if (splits.size > 1) return reject("anchor/ambiguous_split", `heading path "${headingPath}" matches more than one H2/H3 separator position`);
-  if (splits.size === 0) return reject("anchor/heading_not_found", `no H2/H3 heading pair matches "${headingPath}"`);
-  if (candidates.length > 1) return reject("anchor/heading_ambiguous", `heading path "${headingPath}" resolves to ${candidates.length} headings`);
-  const candidate = candidates[0];
-  return { ok: true, value: { startLine: candidate.heading.line, endLine: candidate.endLine } };
-}
-
-export function resolveCarryAnchor(anchor, developmentSpecs) {
-  const parsed = parseCarryAnchor(anchor);
-  if (!parsed.ok) return parsed;
-  const target = (developmentSpecs ?? []).find((spec) => spec.specKey === parsed.value.specKey);
-  if (target === undefined) return reject("anchor/target_unknown", `development spec "${parsed.value.specKey}" is not in the corpus`);
-  if (typeof target.text !== "string") return reject("anchor/target_unreadable", `development spec "${parsed.value.specKey}" has no readable text`);
-  const resolved = parsed.value.segments.length === 1
-    ? resolveHeadingPath(target.text, parsed.value.headingPath)
-    : resolveSplitHeadingPath(target.text, parsed.value.headingPath);
-  if (!resolved.ok) {
-    if (resolved.error.code === "anchor/ambiguous_split") return reject("anchor/ambiguous_split", resolved.error.message);
-    if (resolved.error.code === "content/heading_ambiguous") return reject("anchor/heading_ambiguous", resolved.error.message);
-    if (resolved.error.code === "content/heading_path_invalid") return reject("anchor/form_invalid", resolved.error.message);
-    return reject("anchor/heading_not_found", resolved.error.message);
-  }
-  if (!sectionOwnBody(target.text, resolved.value.startLine)) {
-    return reject("anchor/empty_locator", `heading path "${parsed.value.headingPath}" carries no body of its own`);
-  }
-  return {
-    ok: true,
-    value: {
-      specKey: parsed.value.specKey,
-      canonicalPath: target.canonicalPath,
-      headingPath: parsed.value.headingPath,
-      startLine: resolved.value.startLine,
-      endLine: resolved.value.endLine
-    }
-  };
-}
-
 function isScanSkippedPath(path) {
   if (path === "ldvh_spec.spec_key" || path === "ldvh_spec.canonical_path") return true;
-  if (path === "ldvh_spec.carries" || path.startsWith("ldvh_spec.carries[")) return true;
   if (/^ldvh_spec\.requirements\[\d+\]\.id$/.test(path)) return true;
   return false;
 }
@@ -510,7 +415,7 @@ function scanLoadBearingMarkers(text, path, output) {
     while (index !== -1) {
       output.push(finding(
         "hint/load_bearing_claim",
-        "5.5-乙类8",
+        "5.5-乙类7",
         "hint",
         path,
         `contains the load-bearing marker "${marker}"; independent review decides whether it is a claim or a description`,
@@ -680,14 +585,6 @@ function validateIdentity(block, actualPath, context, findings) {
   if (typeof specKey === "string" && ownDescriptor.length > 0) {
     findings.push(finding("structure/ident_ambiguous", 7, "error", "ldvh_spec.spec_key", `spec_key "${specKey}" is already used by ${ownDescriptor.map((carrier) => carrier.canonicalPath).join(", ")}`));
   }
-  if (Object.hasOwn(block, "carries")) {
-    const carries = block.carries;
-    if (!Array.isArray(carries)) {
-      findings.push(finding("structure/optional_field_invalid", 7, "error", "ldvh_spec.carries", "carries must be an array of anchor strings"));
-    } else if (carries.length === 0) {
-      findings.push(finding("structure/optional_field_empty", 7, "error", "ldvh_spec.carries", "an optional field without a value must be omitted entirely, not written as an empty list"));
-    }
-  }
   if (Object.hasOwn(block, "role")) {
     if (block.role !== "router") {
       if (typeof block.role === "string" && block.role.length === 0) {
@@ -784,28 +681,11 @@ function validateVolume(block, requirementsPresent, measurements, findings) {
       }
     });
   }
-  const carries = Array.isArray(block.carries) ? block.carries.length : 0;
-  if (Array.isArray(block.carries) && carries > limits.maxCarries) {
-    findings.push(finding(
-      "volume/carries_count",
-      8,
-      "error",
-      "ldvh_spec.carries",
-      `the carries registration holds ${carries} anchors; the limit is ${limits.maxCarries}`,
-      { measured: carries, limit: limits.maxCarries, remaining: limits.maxCarries - carries }
-    ));
-  }
-  measurements.carriesCount = carries;
-  measurements.carriesCountRemaining = limits.maxCarries - carries;
   const fileBytes = measurements.fileBytes;
-  const carriesBytes = measurements.carriesBytes;
   const textBytes = Buffer.byteLength(String(measurements.text), "utf8");
-  if (fileBytes === null || fileBytes < textBytes || fileBytes < carriesBytes) {
+  if (fileBytes === null || fileBytes < textBytes) {
     measurements.documentBytes = null;
     measurements.documentBytesRemaining = null;
-    measurements.documentBytesWithoutCarries = null;
-    measurements.documentBytesWithoutCarriesRemaining = null;
-    measurements.carriesBytes = carriesBytes;
     findings.push(finding(
       "volume/document_bytes_unmeasurable",
       8,
@@ -813,77 +693,23 @@ function validateVolume(block, requirementsPresent, measurements, findings) {
       "ldvh_spec",
       fileBytes === null
         ? "the raw file byte count is not supplied, so the byte limit cannot be decided"
-        : `the raw file byte count (${fileBytes} bytes) cannot be reconciled with the supplied carrier text (${textBytes} bytes) and the carries block span (${carriesBytes} bytes), so the byte limit cannot be decided`,
+        : `the raw file byte count (${fileBytes} bytes) is smaller than the supplied carrier text (${textBytes} bytes), so the byte limit cannot be decided`,
       { limit: limits.maxDocumentBytes }
     ));
     return;
   }
-  const withoutCarries = fileBytes - carriesBytes;
   measurements.documentBytes = fileBytes;
   measurements.documentBytesRemaining = limits.maxDocumentBytes - fileBytes;
-  measurements.documentBytesWithoutCarries = withoutCarries;
-  measurements.documentBytesWithoutCarriesRemaining = limits.maxDocumentBytes - withoutCarries;
-  measurements.carriesBytes = carriesBytes;
-  if (withoutCarries > limits.maxDocumentBytes) {
+  if (fileBytes > limits.maxDocumentBytes) {
     findings.push(finding(
       "volume/document_bytes",
       8,
       "error",
       "ldvh_spec",
-      `the carrier file is ${fileBytes} bytes and ${withoutCarries} bytes without the carries registration; the limit is ${limits.maxDocumentBytes} bytes when the carries registration is excluded`,
-      { measured: fileBytes, measuredWithoutCarries: withoutCarries, limit: limits.maxDocumentBytes }
+      `the carrier file is ${fileBytes} bytes; the limit is ${limits.maxDocumentBytes} bytes`,
+      { measured: fileBytes, limit: limits.maxDocumentBytes, remaining: measurements.documentBytesRemaining }
     ));
   }
-}
-
-function carriesByteSpan(text, blockNode) {
-  if (blockNode === null || !isMap(blockNode)) return 0;
-  const pair = blockNode.items.find((item) => isScalar(item.key) && item.key.value === "carries");
-  if (pair === undefined) return 0;
-  const start = pair.key.range?.[0];
-  const end = pair.value?.range?.[1];
-  if (typeof start !== "number" || typeof end !== "number" || end < start) return 0;
-  return Buffer.byteLength(String(text).slice(start, end), "utf8");
-}
-
-function validateAnchors(block, developmentSpecs, findings) {
-  if (!Object.hasOwn(block, "carries") || !Array.isArray(block.carries)) return;
-  const seen = new Set();
-  block.carries.forEach((anchor, index) => {
-    const path = `ldvh_spec.carries[${index}]`;
-    if (typeof anchor !== "string" || anchor.trim().length === 0) {
-      findings.push(finding("structure/optional_field_invalid", 7, "error", path, "a carries member must be a non-empty anchor string"));
-      return;
-    }
-    if (seen.has(anchor)) {
-      findings.push(finding("anchor/duplicate", "6.2", "error", path, `anchor "${anchor}" appears more than once in this carrier's carries`));
-    }
-    seen.add(anchor);
-    const resolved = resolveCarryAnchor(anchor, developmentSpecs);
-    if (resolved.ok) return;
-    const level = "error";
-    if (resolved.error.code === "anchor/form_invalid") {
-      findings.push(finding("anchor/form_invalid", "6.2", level, path, resolved.error.message, { anchor }));
-      return;
-    }
-    if (resolved.error.code === "anchor/target_unknown") {
-      findings.push(finding("anchor/target_unknown", "6.2", level, path, resolved.error.message, { anchor }));
-      return;
-    }
-    if (resolved.error.code === "anchor/heading_ambiguous") {
-      findings.push(finding("anchor/heading_ambiguous", "6.2", level, path, resolved.error.message, { anchor }));
-      return;
-    }
-    if (resolved.error.code === "anchor/ambiguous_split") {
-      findings.push(finding("anchor/ambiguous_split", "6.2", level, path, resolved.error.message, { anchor }));
-      return;
-    }
-    if (resolved.error.code === "anchor/empty_locator") {
-      findings.push(finding("anchor/empty_locator", "6.2", level, path, resolved.error.message, { anchor }));
-      return;
-    }
-    findings.push(finding("anchor/heading_not_found", "6.2", level, path, resolved.error.message, { anchor }));
-  });
 }
 
 function exploreRouterEntries(block, allCarriers, ownKey, role, findings, routerSpans) {
@@ -954,25 +780,16 @@ export function validateRuntimeCarrier(input = {}) {
   const measurements = {
     text,
     fileBytes,
-    carriesBytes: carriesByteSpan(text, structure.blockNode),
     requirementCount: 0,
     requirementCountRemaining: RUNTIME_CARRIER_LIMITS.maxRequirements,
-    carriesCount: 0,
-    carriesCountRemaining: RUNTIME_CARRIER_LIMITS.maxCarries,
     maxTextCodePoints: 0,
     maxTextFieldPath: null,
     documentBytes: null,
-    documentBytesRemaining: null,
-    documentBytesWithoutCarries: null,
-    documentBytesWithoutCarriesRemaining: null
+    documentBytesRemaining: null
   };
   if (structure.block === null) {
-    measurements.carriesCount = null;
-    measurements.carriesCountRemaining = null;
     measurements.documentBytes = fileBytes;
     measurements.documentBytesRemaining = fileBytes === null ? null : RUNTIME_CARRIER_LIMITS.maxDocumentBytes - fileBytes;
-    measurements.documentBytesWithoutCarries = fileBytes;
-    measurements.documentBytesWithoutCarriesRemaining = measurements.documentBytesRemaining;
     return finishCarrierResult(findings, measurements, { specKey: null, canonicalPath: null });
   }
   const block = structure.block;
@@ -986,16 +803,6 @@ export function validateRuntimeCarrier(input = {}) {
   validateRequirements(block, findings, measurements);
   const requirementsPresent = Object.hasOwn(block, "requirements");
   validateVolume(block, requirementsPresent, measurements, findings);
-  validateAnchors(block, developmentSpecs, findings);
-  if (!Object.hasOwn(block, "carries") && identity.role !== "router") {
-    findings.push(finding(
-      "hint/source_missing",
-      "6.2",
-      "hint",
-      "ldvh_spec.carries",
-      "the carrier declares no carries registration; this is a source-missing hint for independent review, not a form failure"
-    ));
-  }
   exploreRouterEntries(block, allCarriers, identity.specKey, identity.role, findings, context.routerSpans);
   scanValues(block, context, findings);
   return finishCarrierResult(findings, measurements, { specKey: identity.specKey, canonicalPath: typeof block.canonical_path === "string" ? block.canonical_path : null });
@@ -1018,15 +825,10 @@ function finishCarrierResult(findings, measurements, carrier) {
     measurements: {
       requirementCount: measurements.requirementCount,
       requirementCountRemaining: measurements.requirementCountRemaining,
-      carriesCount: measurements.carriesCount,
-      carriesCountRemaining: measurements.carriesCountRemaining,
       maxTextCodePoints: measurements.maxTextCodePoints,
       maxTextFieldPath: measurements.maxTextFieldPath,
       documentBytes: measurements.documentBytes,
-      documentBytesRemaining: measurements.documentBytesRemaining,
-      documentBytesWithoutCarries: measurements.documentBytesWithoutCarries,
-      documentBytesWithoutCarriesRemaining: measurements.documentBytesWithoutCarriesRemaining,
-      carriesBytes: measurements.carriesBytes
+      documentBytesRemaining: measurements.documentBytesRemaining
     }
   };
 }
@@ -1035,8 +837,7 @@ function orderFindings(findings) {
   const rank = (item) => {
     if (item === 7) return 0;
     if (item === 8) return 1;
-    if (item === "6.2") return 2;
-    if (item === "5.7") return 3;
+    if (item === "5.7") return 2;
     if (typeof item === "number") return 4 + item;
     return 20;
   };
