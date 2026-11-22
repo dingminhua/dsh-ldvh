@@ -20,18 +20,18 @@ import { objectRef, objectRefOf } from "./object-reference.js";
 const OPERATIONS = {
   "pitfall-read-object": {
     toolName: "ldvh_pitfall_read",
-    summary: "Precise read of one Pitfall fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/25 §13)",
+    summary: "Precise read of one Pitfall fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (载体：fact-model-common 的 read-path-kinds 条目；pitfall-fact-type 的 body-sections 条目)",
     effect: "read"
   },
   "pitfall-list-objects": {
     toolName: "ldvh_pitfall_list",
-    summary: "Enumerate Pitfall fact objects (F0/F1 discovery): dedup/precheck-relevant projection (title/scope/status/trigger_signal) for the governed project; active-only by default (specs/03 §8, specs/25 §12)",
+    summary: "Enumerate Pitfall fact objects (F0/F1 discovery): dedup/precheck-relevant projection (title/scope/status/trigger_signal) for the governed project; active-only by default (载体：fact-model-common 的 read-path-kinds 条目；pitfall-fact-type 的 recall-default 条目)",
     effect: "read"
   },
   "pitfall-write-object": {
     toolName: "ldvh_pitfall_write",
     writeShaped: true,
-    summary: "Controlled write of Pitfall fact objects: create (受控创建，通道与授权依 25 §13：代理记录通道/Human 入口) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 25 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/25 §13). **A delegated (subagent) caller may only create** — update, errata and terminal transitions are refused for it by this surface (25 §13 代理记录通道边界、Human 2026-11-16)",
+    summary: "Controlled write of Pitfall fact objects: create (受控创建，通道与授权依载体：pitfall-fact-type 的 entry-channels 条目——代理记录通道/Human 入口) and CAS update with change_log; same-status updates (active→active, discarded→discarded errata) are errata/supplement-only (scope field-identical, 载体：pitfall-fact-type 的 correct-vs-new 条目), active→discarded is terminal (载体：pitfall-fact-type 的 state-discarded 与 no-reopen 条目). **A delegated (subagent) caller may only create** — update, errata and terminal transitions are refused for it by this surface (载体：pitfall-fact-type 的 delegate-draft 条目；Human 2026-11-16)",
     effect: "may_change_state"
   },
   "pitfall-arm-delegate": {
@@ -299,7 +299,7 @@ async function executeWriteObject(args, exec, deps) {
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
       gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
       verification: { checks: ["frontmatter-closed-set", "body-structure", "carrier-coherence", "atomic-write", "read-back"], passed: true },
-      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
+      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (载体：controlled-commit)"]
     });
   }
 
@@ -369,7 +369,7 @@ async function executeWriteObject(args, exec, deps) {
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
     verification: { checks: ["cas-baseline", "frontmatter-closed-set", "body-structure", "carrier-coherence", "supplement-boundary", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
-    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
+    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (载体：controlled-commit)"]
   });
 }
 

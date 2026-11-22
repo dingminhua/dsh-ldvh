@@ -377,7 +377,7 @@ export async function updateNormObject(args) {
   if (!uidResolution.ok) return uidResolution.error;
   const objectUid = uidResolution.objectUid;
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
-    return failure("norm/change_summary_required", "changeSummary is required for update (specs/02 :331: exactly one change_log entry per actual modification)");
+    return failure("norm/change_summary_required", "changeSummary is required for update (载体：fact-model-common 的 change-log-once 条目——exactly one change_log entry per actual modification)");
   }
 
   const filePath = objectFilePath(factSourceRoot, objectUid);
@@ -391,7 +391,7 @@ export async function updateNormObject(args) {
 
   const baselineFingerprint = fileFingerprint(raw);
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
-    return failure("norm/fingerprint_required", "expectedFingerprint is required (specs/02 :333 CAS baseline)");
+    return failure("norm/fingerprint_required", "expectedFingerprint is required (载体：fact-model-common 的 fingerprint-baseline 条目——CAS baseline)");
   }
   if (expectedFingerprint !== baselineFingerprint) {
     return failure("norm/fingerprint_mismatch", `CAS baseline mismatch: expected ${expectedFingerprint}, current ${baselineFingerprint}`, { current_fingerprint: baselineFingerprint });

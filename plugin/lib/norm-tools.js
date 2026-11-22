@@ -25,19 +25,19 @@ import { sectionContent } from "./markdown-structure.js";
 const OPERATIONS = {
   "norm-read-object": {
     toolName: "ldvh_norm_read",
-    summary: "Precise read of one Norm fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/23 §11)",
+    summary: "Precise read of one Norm fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (载体：fact-model-common 的 read-path-kinds 条目；norm-fact-type 的 body-sections 条目)",
     effect: "read"
   },
   "norm-list-objects": {
     toolName: "ldvh_norm_list",
-    summary: "Enumerate Norm fact objects (F0/F1 discovery): direction_key/title/status AND the two bounded 方向定位与适用范围 sentences per Norm (positioning = 管什么, when_to_read = 何时查阅), so the consumer can decide which Norm governs the current matter before opening it with ldvh_norm_read; either sentence breaking the specs/23 §8 writing contract withholds BOTH and reports positioning_status=unavailable (never a truncated half-sentence); active-only by default; a collision on one direction_key withholds every colliding Norm and reports direction_collision (fail-closed, specs/23 §11 item 3 / §10)",
+    summary: "Enumerate Norm fact objects (F0/F1 discovery): direction_key/title/status AND the two bounded 方向定位与适用范围 sentences per Norm (positioning = 管什么, when_to_read = 何时查阅), so the consumer can decide which Norm governs the current matter before opening it with ldvh_norm_read; either sentence breaking the writing contract withholds BOTH and reports positioning_status=unavailable (never a truncated half-sentence); active-only by default; a collision on one direction_key withholds every colliding Norm and reports direction_collision (载体：norm-fact-type 的 positioning-two-lines 与 collision 条目)",
     effect: "read"
   },
   "norm-write-object": {
     toolName: "ldvh_norm_write",
     writeShaped: true,
     awaitsHumanDecision: true,
-    summary: "Controlled write of Norm fact objects: create (requires an explicit Human confirmation per 23 §15 item 1 and a recorded dedup conclusion; requires a direction_key with no existing active Norm, else ERR_DIRECTION_ALREADY_EXISTS) and CAS update with change_log; active→active holds direction_key fixed (23 §13.2), active→retired requires a Human confirmation per 23 §15 item 2 and is terminal (specs/03 §9.4–§9.5, specs/23 §11). IMPORTANT: the 呈报内容 (dedup conclusion, title, direction_key, and the 方向定位与适用范围 points) MUST be written into the conversation body BEFORE calling — the dialog carries only the action line, so the Human judges from what you wrote there (23 §15.2)",
+    summary: "Controlled write of Norm fact objects: create (requires an explicit Human confirmation and a recorded dedup conclusion; requires a direction_key with no existing active Norm, else ERR_DIRECTION_ALREADY_EXISTS) and CAS update with change_log; active→active holds direction_key fixed, active→retired requires a Human confirmation and is terminal (载体：norm-fact-type 的 create-needs-human、retire-needs-human、revise-active 与 terminal 条目；fact-model-common 的 fingerprint-baseline 与 change-log-once 条目). IMPORTANT: the 呈报内容 (dedup conclusion, title, direction_key, and the 方向定位与适用范围 points) MUST be written into the conversation body BEFORE calling — the dialog carries only the action line, so the Human judges from what you wrote there",
     effect: "may_change_state"
   }
 };
@@ -354,7 +354,7 @@ async function executeWriteObject(args, exec, deps) {
       result: null,
       scope: { requested: action, completed: [], not_completed: [action] },
       sources: [],
-      gaps: [`authoritative signature unavailable (${sig.reason}): refusing to write an unsigned change_log entry (specs/09)`],
+      gaps: [`authoritative signature unavailable (${sig.reason}): refusing to write an unsigned change_log entry (见 controlled-commit 的 message-trailer 条目)`],
       verification: { checks: ["session-signature"], passed: false },
       follow_up: ["report to Human: this write cannot be signed, so it must not be recorded as a stable fact"]
     });

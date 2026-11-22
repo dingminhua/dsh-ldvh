@@ -32,6 +32,7 @@ import {
 } from "../lib/precheck-record.js";
 
 const SPECS_DIR = join(import.meta.dirname, "..", "..", "specs");
+const CARRIERS_DIR = join(import.meta.dirname, "..", "..", "plugin-specs");
 
 async function readSpec(fileName) {
 	try {
@@ -39,6 +40,27 @@ async function readSpec(fileName) {
 	} catch (error) {
 		return null;
 	}
+}
+
+async function readCarrier(specKey) {
+	const text = await readFile(join(CARRIERS_DIR, `${specKey}.yaml`), "utf8");
+	const block = text.slice(text.indexOf("ldvh_spec:"));
+	const requirements = [];
+	const entryPattern = /^\s{4}- id: (\S+)\n\s{6}title: (.+)$/gm;
+	const positions = [];
+	for (const match of block.matchAll(entryPattern)) positions.push({ id: match[1], title: match[2], at: match.index });
+	for (let index = 0; index < positions.length; index += 1) {
+		const start = positions[index].at;
+		const end = index + 1 < positions.length ? positions[index + 1].at : block.length;
+		const chunk = block.slice(start, end);
+		const textMatch = /\n\s{6}text: \|\n([\s\S]*)$/.exec(chunk);
+		requirements.push({
+			id: positions[index].id,
+			title: positions[index].title,
+			text: textMatch === null ? "" : textMatch[1].replace(/^\s{8}/gm, "").trimEnd(),
+		});
+	}
+	return { specKey, requirements };
 }
 
 function assertVerbatim(specText, specLabel, groupLabel, values) {
@@ -249,14 +271,14 @@ test("34 §6 退出条件与停止情形：代码常量须逐字来自原文", a
 	assert.ok(spec.includes("不得以「上次已确认」代替本次判断"));
 });
 
-test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async () => {
+test("六条必停：每条的依据须逐字可回指载体原文", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const section = spec.slice(spec.indexOf("### 16.1"));
 	const stopSection = section.slice(0, section.indexOf("### 16.2"));
-	assert.equal(STOP_RULES.length, 6, "本切片承接 §16.1 第 1–6 项");
+	assert.equal(STOP_RULES.length, 6, "本切片承接必停情形的第 1–6 条");
 	for (const rule of STOP_RULES) {
-		const anchor = rule.specRef.match(/第 (\d) 项/)[1];
-		assert.ok(stopSection.includes(`${anchor}.`), `§16.1 第 ${anchor} 项须在原文中`);
+		const anchor = rule.specRef.match(/第 (\d) 条/)[1];
+		assert.equal(Number(anchor), rule.index, `specRef 的条次须与 index 一致（第 ${anchor} 条 vs index ${rule.index}）`);
 	}
 
 	const itemsInSpec = (stopSection.match(/^\d+\. /gm) ?? []).length;
@@ -269,6 +291,26 @@ test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async (
 		STOP_RULES.length <= itemsInSpec,
 		`本切片承接数（${STOP_RULES.length}）不得超过原文条数（${itemsInSpec}）`,
 	);
+
+	// 运行期依据以载体为准：代码指向的载体条目须存在，且其必停情形条数与原文一致。
+	const carrier = await readCarrier("rule-compliance-verification");
+	const stopEntry = carrier.requirements.find((entry) => entry.id === "stop");
+	assert.ok(stopEntry !== undefined, "rule-compliance-verification 载体须有 stop 条目");
+	const carrierItems = (stopEntry.text.match(/^\s*-\s+/gm) ?? []).length;
+	assert.equal(
+		carrierItems,
+		itemsInSpec,
+		`载体 stop 条目的必停情形条数（${carrierItems}）须与原文 §16.1 的条数（${itemsInSpec}）一致`,
+	);
+	for (const rule of STOP_RULES) {
+		const anchor = Number(rule.specRef.match(/第 (\d) 条/)[1]);
+		const bullet = (stopEntry.text.match(/^\s*-\s+(.*)$/gm) ?? [])[anchor - 1] ?? "";
+		assert.ok(bullet.length > 0, `载体 stop 条目第 ${anchor} 条须有内容`);
+		assert.ok(
+			rule.specRef.includes("rule-compliance-verification 的 stop 条目"),
+			`第 ${anchor} 条的依据须指向 rule-compliance-verification 的 stop 条目`,
+		);
+	}
 });
 
 test("34 §16.2 四种允许动作与 §16.3 恢复要求：代码常量须逐字来自原文", async () => {

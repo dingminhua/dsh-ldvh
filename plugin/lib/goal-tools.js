@@ -17,12 +17,12 @@ import { registerWriteShapedTool } from "./host-seams.js";
 const OPERATIONS = {
   "goal-read-object": {
     toolName: "ldvh_goal_read",
-    summary: "Precise read of the singleton Goal object (ldvh-base/goal.md): frontmatter, body, sub-goal anchors and file fingerprint (specs/25 §12, specs/03 §9.2)",
+    summary: "Precise read of the singleton Goal object (ldvh-base/goal.md): frontmatter, body, sub-goal anchors and file fingerprint (载体：fact-model-common 的 read-path-kinds 条目；goal-fact-type 的 body-structure 条目)",
     effect: "read"
   },
   "goal-write-object": {
     toolName: "ldvh_goal_write",
-    summary: "Controlled create (project init conversation) or CAS update of the singleton Goal object; create is refused when goal.md exists and every revision requires Human confirmation (specs/25 §11, §13)",
+    summary: "Controlled create (project init conversation) or CAS update of the singleton Goal object; create is refused when goal.md exists and every revision requires Human confirmation (载体：goal-fact-type 的 human-decides 与 create 条目；fact-model-common 的 fingerprint-baseline 与 change-log-once 条目)",
     effect: "may_change_state",
     writeShaped: true
   }

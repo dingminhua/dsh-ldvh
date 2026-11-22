@@ -20,23 +20,23 @@ import { registerWriteShapedTool } from "./host-seams.js";
 const OPERATIONS = {
   "subgoal-read-object": {
     toolName: "ldvh_subgoal_read",
-    summary: "Precise read of one SubGoal fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/02 §9.2, specs/28 §13)",
+    summary: "Precise read of one SubGoal fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (载体：fact-model-common 的 read-path-kinds 条目；subgoal-fact-type 的 body-structure 条目)",
     effect: "read"
   },
   "subgoal-list-objects": {
     toolName: "ldvh_subgoal_list",
-    summary: "Enumerate SubGoal fact objects (F0/F1 discovery): order/title/status/criterion projection for the governed project; active-only by default; ordered by the optional `order` field, then created_at — never by identifier (specs/28 §12.4)",
+    summary: "Enumerate SubGoal fact objects (F0/F1 discovery): order/title/status/criterion projection for the governed project; active-only by default; ordered by the optional `order` field, then created_at — never by identifier (载体：fact-model-common 的 read-path-kinds 条目；subgoal-fact-type 的 display-order 条目)",
     effect: "read"
   },
   "subgoal-precheck-create": {
     toolName: "ldvh_subgoal_precheck_create",
-    summary: "只读机械预检一份 SubGoal 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/28 §13 提请前机械预检；与 devlog-precheck-create 同形——同一 validator 的两个入口）",
+    summary: "只读机械预检一份 SubGoal 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（载体：subgoal-fact-type 的 precheck 条目；fact-model-common 的 precheck-equivalent 条目——同一 validator 的两个入口）",
     effect: "read"
   },
   "subgoal-write-object": {
     toolName: "ldvh_subgoal_write",
     writeShaped: true,
-    summary: "Controlled write of SubGoal fact objects: create (after Human-confirmed proposal; requires a resolvable parent goal) and CAS update with change_log; `order` is freely adjustable, `object_uid` is not (28 §8), active→achieved and active→retired are terminal (specs/02 §10, specs/28 §13)",
+    summary: "Controlled write of SubGoal fact objects: create (after Human-confirmed proposal; requires a resolvable parent goal) and CAS update with change_log; `order` is freely adjustable, `object_uid` is not (载体：subgoal-fact-type 的 display-order 条目), active→achieved and active→retired are terminal (载体：subgoal-fact-type 的 states 与 no-reopen 条目；fact-model-common 的 fingerprint-baseline 与 change-log-once 条目)",
     effect: "may_change_state"
   }
 };
@@ -301,7 +301,7 @@ async function executeWriteObject(args, exec, deps) {
       result: null,
       scope: { requested: action, completed: [], not_completed: [action] },
       sources: [],
-      gaps: [`authoritative signature unavailable (${sig.reason}): refusing to write an unsigned change_log entry (specs/09)`],
+      gaps: [`authoritative signature unavailable (${sig.reason}): refusing to write an unsigned change_log entry (见 controlled-commit 的 message-trailer 条目)`],
       verification: { checks: ["session-signature"], passed: false },
       follow_up: ["report to Human: this write cannot be signed, so it must not be recorded as a stable fact"]
     });

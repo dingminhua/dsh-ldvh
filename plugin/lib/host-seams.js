@@ -414,7 +414,7 @@ export function createHostSeams() {
           fingerprint,
           timed_out: true,
           timeout_seconds: timeoutSeconds,
-          reason: `倒计时 ${timeoutSeconds}s 到点未取得答复，按 specs/32 §3.4「未取得答复按既有路径继续」处理；未取得答复不是答复，不写入答复留痕，不记成 skip 或 review（specs/32 §9.1）。下次同内容仍会问。`,
+          reason: `倒计时 ${timeoutSeconds}s 到点未取得答复，按「未取得答复按既有路径继续」处理（载体：gate-consult-system-foundation 的 answer-means 条目；留痕见其 trace-record 条目）；未取得答复不是答复，不写入答复留痕，不记成 skip 或 review。下次同内容仍会问。`,
         };
       }
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];

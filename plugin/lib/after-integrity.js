@@ -87,14 +87,14 @@ export function buildUpdateFrontmatter({
 }
 
 export const FRONTMATTER_AFTER_DESCRIPTION =
-  "update: the fields to CHANGE (specs/02 §10.5 实现对齐). "
+  "update: the fields to CHANGE (载体：fact-model-common 的 field-channel 条目). "
   + "Declare ONLY the fields you are changing — every field you omit is INHERITED from the on-disk baseline, "
   + "not deleted (省略即保留). To delete a field, list it in `frontmatter_removals` instead — "
   + "「after 不带该键」不再表示删除（省略即删除的旧语义已反转）. "
   + "Code-managed fields (object_uid/fact_type_key/created_at/change_log) are re-stamped by Code and ignored here.";
 
 export const FRONTMATTER_REMOVALS_DESCRIPTION =
-  "update: explicit deletion declarations (显式删除通道 / specs/02 §10.5). "
+  "update: explicit deletion declarations (显式删除通道 / 载体：fact-model-common 的 field-channel 条目). "
   + "Array of field names to DELETE from the target frontmatter. Only fields this type declares as removable "
   + "are accepted — anything else is refused with zero writes (fail-closed). "
   + "A field may not appear in both `frontmatter_after` and `frontmatter_removals`.";

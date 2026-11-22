@@ -27,18 +27,18 @@ import { appendReadBody } from "./read-body-render.js";
 const OPERATIONS = {
   "friction-read-object": {
     toolName: "ldvh_friction_read",
-    summary: "Precise read of one Friction fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/23 §13)",
+    summary: "Precise read of one Friction fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (载体：fact-model-common 的 read-path-kinds 条目；friction-fact-type 的 body-sections 条目)",
     effect: "read"
   },
   "friction-list-objects": {
     toolName: "ldvh_friction_list",
-    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/attribution/attribution_ref/occurrence) for the governed project; 默认 = 默认候选状态范围 open+accepted（26 §12 召回判据表「默认候选状态」——accepted 进行动前候选面、不进待修聚合），status=open 仅待修账目、status=accepted 仅已接受账目、status=all 含 resolved/voided 全量历史（账本无 observing 状态，观察材料在 36 §8.8 缓冲侧，非事实对象）(specs/03 §8, specs/26 §12)",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/attribution/attribution_ref/occurrence) for the governed project; 默认 = 默认候选状态范围 open+accepted（载体：friction-fact-type 的 recall-candidates 条目——accepted 进行动前候选面、不进待修聚合），status=open 仅待修账目、status=accepted 仅已接受账目、status=all 含 resolved/voided 全量历史（账本无 observing 状态，观察材料在摩擦销账载体的 buffer-write 条目侧，非事实对象）",
     effect: "read"
   },
   "friction-write-object": {
     toolName: "ldvh_friction_write",
     writeShaped: true,
-    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided/accepted，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; →accepted needs disposition (non-empty), no informs, and a 处置 section (the 复审触发 inside it is an AI/Human semantic requirement — Code only checks the section is present and disposition is non-empty, 26 §15 内容项); all three terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 36 §8.8 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
+    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 载体：friction-fact-type 的 states、resolved、voided 与 accepted 条目 (closed set open/resolved/voided/accepted, 初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; →accepted needs disposition (non-empty), no informs, and a 处置 section (the 复审触发 inside it is an AI/Human semantic requirement — Code only checks the section is present and disposition is non-empty); all three terminal。relations 闭集为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在摩擦销账载体的 buffer-write 与 promotion 条目侧完成，机械通道不改变既有账目状态)",
     effect: "may_change_state"
   }
 };
@@ -259,7 +259,7 @@ async function executeWriteObject(args, exec, deps) {
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
       gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
       verification: { checks: ["frontmatter-closed-set", "body-structure", "carrier-coherence", "atomic-write", "read-back"], passed: true },
-      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
+      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (载体：controlled-commit)"]
     });
   }
 
@@ -411,7 +411,7 @@ async function executeWriteObject(args, exec, deps) {
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
     verification: { checks: ["cas-baseline", "frontmatter-closed-set", "phenomenon-single-sentence", "body-structure", "carrier-coherence", "occurrence-contract", "relations-contract", "transition-guards", "atomic-write", "read-back"], passed: true },
-    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
+    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (载体：controlled-commit)"]
   });
 }
 
@@ -547,7 +547,7 @@ function parameterSchemaFor(operationKey) {
           change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
           relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array (26 §13; every other field is inherited byte-identically unless explicitly removed). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
           frontmatter_additions: { type: "object", description: "correct ONLY (2026-11): FILL a field newly admitted to the closed set (symmetric to frontmatter_removals). Only for a MISSING field — never to change an existing value; the value must be derivable from existing carriers, never fabricated (26 §13). Currently admits occurrence only.", additionalProperties: true },
-          frontmatter_removals: { type: "array", description: `update/correct: explicit deletion declarations (specs/02 §10.5: 未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-lists (FRICTION_REMOVABLE_FIELDS for update: ${[...FRICTION_REMOVABLE_FIELDS].join("/")}; CORRECT_REMOVABLE_FIELDS for correct: ${[...CORRECT_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...new Set([...FRICTION_REMOVABLE_FIELDS, ...CORRECT_REMOVABLE_FIELDS])] } },
+          frontmatter_removals: { type: "array", description: `update/correct: explicit deletion declarations (载体：fact-model-common 的 field-channel 条目——未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-lists (FRICTION_REMOVABLE_FIELDS for update: ${[...FRICTION_REMOVABLE_FIELDS].join("/")}; CORRECT_REMOVABLE_FIELDS for correct: ${[...CORRECT_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...new Set([...FRICTION_REMOVABLE_FIELDS, ...CORRECT_REMOVABLE_FIELDS])] } },
           human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13). NOTE: this field is a self-report — its presence and content are NOT proof that Human actually consented (the same boundary as 21 §14 correct); the mechanical gate only guarantees the record was supplied." }
         },
         required: ["action"],

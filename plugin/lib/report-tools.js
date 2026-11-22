@@ -29,23 +29,23 @@ import { registerWriteShapedTool } from "./host-seams.js";
 const OPERATIONS = {
   "report-session-machine": {
     toolName: "ldvh_report_session",
-    summary: "Drive the specs/33 research session state machine: clarify the question, submit evidence rounds (three-state + citation loop), audit convergence, and finalize the evidence bundle (specs/33 §7–§10, §13)",
+    summary: "Drive the research session state machine: clarify the question, submit evidence rounds (three-state + citation loop), audit convergence, and finalize the evidence bundle (载体：research-system-foundation)",
     effect: "read"
   },
   "report-read-object": {
     toolName: "ldvh_report_read",
-    summary: "Precise read of one Report fact object by object_uid: frontmatter, body, sub-stage and file fingerprint (specs/03 §9.2, specs/24 §13)",
+    summary: "Precise read of one Report fact object by object_uid: frontmatter, body, sub-stage and file fingerprint (载体：fact-model-common 的 read-path-kinds 条目；report-fact-type 的 body-skeleton 条目)",
     effect: "read"
   },
   "report-list-objects": {
     toolName: "ldvh_report_list",
-    summary: "Enumerate Report fact objects (F0/F1 discovery): dedup-relevant projection (title/research_question/research_purpose/stopping_reason) for the governed project; active-only by default (specs/03 §8, specs/24 §12)",
+    summary: "Enumerate Report fact objects (F0/F1 discovery): dedup-relevant projection (title/research_question/research_purpose/stopping_reason) for the governed project; active-only by default (载体：fact-model-common 的 read-path-kinds 条目；report-fact-type 的 recall 条目)",
     effect: "read"
   },
   "report-write-object": {
     toolName: "ldvh_report_write",
     writeShaped: true,
-    summary: "Controlled write of Report fact objects: create (exploratory or directed) and CAS update with change_log, against the governed project's fact source (specs/03 §9.4–§9.5, specs/24 §13)",
+    summary: "Controlled write of Report fact objects: create (exploratory or directed) and CAS update with change_log, against the governed project's fact source (载体：report-fact-type 的 five-forms、carrier 与 dedup 条目；fact-model-common 的 fingerprint-baseline 与 change-log-once 条目)",
     effect: "may_change_state"
   }
 };
@@ -168,7 +168,7 @@ function executeClarify(args) {
   return Promise.resolve(envelope("report-session-machine", "completed", {
     result: analysis.value,
     scope: { requested: "clarify", completed: ["clarify"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "7. 调研入口澄清" }],
+    sources: [{ kind: "runtime-carrier", path: "plugin-specs/research-system-foundation.yaml", entry: "clarify-trigger" }],
     gaps: [],
     verification: { checks: ["ambiguity-heuristics"], passed: true },
     follow_up: analysis.value.needsClarification
@@ -217,7 +217,7 @@ function executeSessionCreate(args) {
       clarification_log_entries: clarificationLog.length,
     },
     scope: { requested: "create", completed: ["create"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "8. 三层收敛判定" }],
+    sources: [{ kind: "runtime-carrier", path: "plugin-specs/research-system-foundation.yaml", entry: "convergence" }],
     gaps: [],
     verification: { checks: ["session-created"], passed: true },
     follow_up: ["action=submit-round with findings (each: statement, state, evidence/issue/gap)"]
@@ -251,7 +251,7 @@ function executeSubmitRound(args) {
       completed: round.accepted.length > 0 ? [`round ${session.roundNumber}: ${round.accepted.length} finding(s) accepted`] : [],
       not_completed: round.rejected.length > 0 ? [`${round.rejected.length} finding(s) rejected (reshape and resubmit)`] : []
     },
-    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "9. 三态证据结构" }],
+    sources: [{ kind: "runtime-carrier", path: "plugin-specs/research-system-foundation.yaml", entry: "evidence-states" }],
     gaps: round.rejected.length > 0 ? round.rejected.map((r) => `${r.error?.code}: ${r.error?.message}`) : [],
     verification: { checks: ["evidence-shaping", "convergence-evaluation"], passed: round.rejected.length === 0 },
     follow_up: round.stop
@@ -280,7 +280,7 @@ function executeAuditCitation(args) {
   return Promise.resolve(envelope("report-session-machine", audit.ok ? "completed" : "rejected", {
     result: { ok: audit.ok, issues: audit.issues },
     scope: { requested: "audit-citation", completed: audit.ok ? CITATION_CHECKS : [], not_completed: audit.ok ? [] : CITATION_CHECKS },
-    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "10. 引用闭环" }],
+    sources: [{ kind: "runtime-carrier", path: "plugin-specs/research-system-foundation.yaml", entry: "citation" }],
     gaps: audit.issues,
     verification: { checks: CITATION_CHECKS, passed: audit.ok },
     follow_up: audit.ok ? [] : ["fix the cited issues; the report must not be delivered while the audit fails (33 §10.3)"]
@@ -301,7 +301,7 @@ function executeCheckDelivery(args) {
   return Promise.resolve(envelope("report-session-machine", check.ok ? "completed" : "rejected", {
     result: { ok: check.ok, issues: check.issues },
     scope: { requested: "check-delivery", completed: check.ok ? DELIVERY_CHECKS : [], not_completed: check.ok ? [] : DELIVERY_CHECKS },
-    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "13. 交付合同" }],
+    sources: [{ kind: "runtime-carrier", path: "plugin-specs/research-system-foundation.yaml", entry: "delivery" }],
     gaps: check.issues,
     verification: { checks: DELIVERY_CHECKS, passed: check.ok },
     follow_up: check.ok ? [] : ["fill the placeholders and re-run; fail loud, no half-finished report (33 §13.3)"]
@@ -321,10 +321,10 @@ function executeFinalize(args) {
   return Promise.resolve(envelope("report-session-machine", "completed", {
     result: { session_id: id, ...bundle.value },
     scope: { requested: "finalize", completed: ["evidence bundle"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "8. 三层收敛判定" }],
+    sources: [{ kind: "runtime-carrier", path: "plugin-specs/research-system-foundation.yaml", entry: "convergence" }],
     gaps: [],
     verification: { checks: ["three-state-invariants", "stopping-consistency", "citation-loop"], passed: true },
-    follow_up: ["report-write-object action=create to persist the Research object (specs/24 §13)"]
+    follow_up: ["report-write-object action=create to persist the Research object (载体：report-fact-type)"]
   }));
 }
 
@@ -533,7 +533,7 @@ async function executeWriteObject(args, exec, deps) {
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
       gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
       verification: { checks: ["frontmatter-closed-set", "body-structure", "index-body-coherence", "relations-contract", "atomic-write", "read-back"], passed: true },
-      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
+      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (载体：controlled-commit)"]
     });
   }
 
@@ -670,7 +670,7 @@ async function executeWriteObject(args, exec, deps) {
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
     verification: { checks: ["cas-baseline", "frontmatter-closed-set", "body-structure", "index-body-coherence", "relations-contract", "sub-stage-immutability", "atomic-write", "read-back"], passed: true },
-    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
+    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (载体：controlled-commit)"]
   });
 }
 
@@ -854,7 +854,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["clarify", "create", "submit-round", "audit-citation", "check-delivery", "finalize", "state"], description: "State-machine entry (specs/33 §7–§10, §13)" },
+          action: { type: "string", enum: ["clarify", "create", "submit-round", "audit-citation", "check-delivery", "finalize", "state"], description: "State-machine entry (载体：research-system-foundation)" },
           question: { type: "string", description: "clarify/create: the research question" },
           purpose: { type: "string", description: "clarify/create: the project judgement this research supports" },
           sub_questions: { type: "array", items: { type: "string" }, description: "create: sub-question keys for sufficient-coverage checks" },

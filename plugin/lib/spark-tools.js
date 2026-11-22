@@ -25,24 +25,24 @@ import { appendReadBody } from "./read-body-render.js";
 const OPERATIONS = {
   "spark-read-object": {
     toolName: "ldvh_spark_read",
-    summary: "Precise read of one Spark fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/20 §13)",
+    summary: "Precise read of one Spark fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (载体：fact-model-common 的 read-path-kinds 条目；spark-fact-type 的 carrier-structure 条目)",
     effect: "read"
   },
   "spark-list-objects": {
     toolName: "ldvh_spark_list",
-    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves/refs/priority) for the governed project; open-only by default; narrow with keyword / priorities / serves (specs/03 §8, specs/20 §12 — 主动查询是方向线的主要取回路径，见 specs/31 §10；按 object_uid 取单条仍用 ldvh_spark_read)",
+    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves/refs/priority) for the governed project; open-only by default; narrow with keyword / priorities / serves (载体：fact-model-common 的 read-path-kinds 条目；spark-fact-type 的 recall 条目——主动查询是方向线的主要取回路径，见 spark-record-system-foundation 的 recall-manner 条目；按 object_uid 取单条仍用 ldvh_spark_read)",
     effect: "read"
   },
   "spark-precheck-create": {
     toolName: "ldvh_spark_precheck_create",
-    summary: "只读机械预检一份 Spark 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的求值器**，并计入 create 入口对 dedup_result 的必填检查，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/20 §13 须设的只读预检入口、写入前机械预检）",
+    summary: "只读机械预检一份 Spark 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的求值器**，并计入 create 入口对 dedup_result 的必填检查，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（载体：spark-fact-type 的 create 条目；fact-model-common 的 precheck-equivalent 条目）",
     effect: "read"
   },
   "spark-write-object": {
     toolName: "ldvh_spark_write",
     writeShaped: true,
     awaitsHumanDecision: true,
-    summary: "Controlled write of Spark fact objects: create (after Human-confirmed C1 proposal incl. dedup result) and CAS update with change_log, against the governed project's fact source (specs/03 §9.4–§9.5, specs/20 §13)",
+    summary: "Controlled write of Spark fact objects: create (after Human-confirmed C1 proposal incl. dedup result) and CAS update with change_log, against the governed project's fact source (载体：spark-fact-type 的 create 与 ask-human 条目；fact-model-common 的 fingerprint-baseline 与 change-log-once 条目)",
     effect: "may_change_state"
   }
 };
@@ -476,7 +476,7 @@ async function executeWriteObject(args, exec, deps) {
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
       gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
       verification: { checks: ["frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "refs-resolution", "atomic-write", "read-back"], passed: true },
-      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
+      follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (载体：controlled-commit)"]
     });
   }
 
@@ -601,7 +601,7 @@ async function executeWriteObject(args, exec, deps) {
         },
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
     verification: { checks: ["cas-baseline", "frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "refs-resolution", "relations-contract", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
-    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
+    follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (载体：controlled-commit)"]
   });
 }
 
@@ -769,7 +769,7 @@ export function parameterSchemaFor(operationKey) {
           object_uid: { type: "string", description: "update target: canonical UUIDv4, <type>-<uuid>, <type>-<8hex>, <projectId>@…, or a bare 8-hex id resolved within this type; a cross-project prefix is rejected" },
           expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
           frontmatter_after: (() => { const { required: _r, ...rest } = sparkFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
-          frontmatter_removals: { type: "array", description: `update: explicit deletion declarations (specs/02 §10.5: 未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-list (SPARK_REMOVABLE_FIELDS for update: ${[...SPARK_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...SPARK_REMOVABLE_FIELDS] } },
+          frontmatter_removals: { type: "array", description: `update: explicit deletion declarations (载体：fact-model-common 的 field-channel 条目——未在通道内重述即继承基线；显式删除只经本通道声明). The accepted field names are NOT restated here — this enum is computed from the writer's own allow-list (SPARK_REMOVABLE_FIELDS for update: ${[...SPARK_REMOVABLE_FIELDS].join("/")}), so the schema and the writer cannot drift apart. Naming a field the writer does not accept is refused with zero writes; naming an absent field is a no-op (02 §10.5).`, items: { type: "string", enum: [...SPARK_REMOVABLE_FIELDS] } },
           body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown)" },
           change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" },
           expected_candidate_fingerprint: { type: "string", description: "create (required): the candidate_fingerprint returned by ldvh_spark_precheck_create for THIS candidate content. 20 §13 makes it a required create entry parameter — a create without it is refused with zero writes (「同一性未确认」). The write refuses when the content changed since the precheck." }
