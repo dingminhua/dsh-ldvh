@@ -10,10 +10,10 @@ ldvh_spec:
     - "norm-fact-type::10. 召回与消费"
     - "norm-fact-type::6. 对象边界/6.1 什么构成一个对象"
     - "norm-fact-type::11. 受控操作"
-    - "norm-fact-type::验证与遵从性检查    ← 定义如何检查是否遵守本规范（必填）"
+    - "norm-fact-type::14. 验证与证据边界"
     - "norm-fact-type::15. Human Gate/15.2 确认的承载与呈报"
     - "norm-fact-type::5. 类型定位与价值"
-    - "norm-fact-type::验证与遵从性检查    ← 定义如何检查是否遵守本规范（必填）/8.1 状态与生命周期"
+    - "norm-fact-type::8. 字段契约/8.1 状态与生命周期"
 
   requirements:
 
