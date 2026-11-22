@@ -968,12 +968,14 @@ test("Human-facing asks forward the caller's cancellation signal", async () => {
 });
 
 
-test("guidanceTextFor returns the governed text with the six 00 anchors", () => {
+test("guidanceTextFor returns the governed text with the anchor set", () => {
 	const text = guidanceTextFor("governed");
 	assert.ok(text.length > 0);
-	for (const anchor of ["身份块", "§1 三大核心价值", "§2 方法与构成", "§3 Human 权利", "§4 AI 责任与义务", "§4.6", "§4.7", "§4.8", "§5 价值纪律"]) {
-		assert.ok(text.includes(anchor), `governed guidance missing anchor: ${anchor}`);
+	const anchors = ["身份块", "§1 核心价值", "对齐 Vibe", "协调 Coding", "§2 方法与构成", "§3 Human 权利", "§4 AI 责任与义务", "§4.6", "§4.7", "§4.8", "§5 价值纪律"];
+	for (const anchor of anchors) {
+		assert.ok(text.includes(anchor), `governed guidance missing anchor: ${anchor}（依据：specs/01-规范源与规范模型基础规范.md §10.4 最小规则引导；锚点取自 specs/00-理念与构成.md 各级标题、§1 的两个价值面与 specs/01 §6.1 身份块）`);
 	}
+	assert.equal(text.includes("§1 三大核心价值"), false, "旧漂移锚点不得与 §1 核心价值并存（依据：specs/00-理念与构成.md §1 现行标题为「LDVH 的核心价值」，specs/attachments/01.Att.01-LDVH双语术语表.md 中「三大核心价值」已被「核心价值」取代）");
 });
 
 test("guidanceTextFor not_governed: one-line judgment notice (Human 2026-09-04 上下文注入决定)", () => {
