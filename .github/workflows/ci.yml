@@ -113,7 +113,12 @@ jobs:
           node --check lib/index.js
           node --check lib/client.js
 
+      # 发布规范门禁 3：机械测试须在有事实源的工作树执行；main 按分支纪律
+      # 第 3 条不含 ldvh-base/，全量测试会因缺语料假失败。main 的 CI 定位是
+      # 验发布产物：分支纪律检查、打包门禁、lint、语法、web 构建与
+      # install-smoke 照跑，npm test 只在 dev 与 PR 上执行。
       - name: Run tests
+        if: github.ref_name != 'main'
         run: npm test
 
   web:
