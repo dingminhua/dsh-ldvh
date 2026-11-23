@@ -8,6 +8,10 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [1.1.4-dev.1] — 2026-11-24
+
+开发迭代轮次开启：1.1.4 已封存发布，dev 线进入下一轮；本条目随轮次推进由实际已提交变更充实。
+
 ## [1.1.4] — 2026-11-24
 
 发布线与仓库基建补丁：`plugin/lib` 源码与 1.1.3 零差异，npm 包内容变化限于判据表 bundle 与文档元数据；本条目的主要修复在仓库与发布线层面，并作为 dev→main 机械同步新流程的首次发版试点。
