@@ -10,6 +10,7 @@ import {
   internalHitLines,
   internalLookup,
   researchDispatchTemplate,
+  selfResearchTemplate,
 } from "./research-consult.js";
 
 const OPERATIONS = {
@@ -79,6 +80,15 @@ function renderEnvelope(operationKey, value) {
   if (result?.need !== undefined) lines.push(`need: ${result.need}`);
   if (Array.isArray(result?.internal_hits)) {
     for (const line of internalHitLines(result.internal_hits)) lines.push(`- ${line}`);
+  }
+  for (const [field, label] of [["research_template", "research_template"], ["self_research_template", "self_research_template"]]) {
+    const template = result?.[field];
+    if (template === undefined || template === null || typeof template !== "object") continue;
+    if (typeof template.kind === "string") lines.push(`${label}.kind: ${template.kind}`);
+    if (typeof template.prompt === "string" && template.prompt.length > 0) {
+      lines.push(`${label}.prompt（模型可见的交付面，须据此执行）: |`);
+      for (const line of template.prompt.split("\n")) lines.push(`  ${line}`);
+    }
   }
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
   for (const next of env.follow_up ?? []) lines.push(`follow_up: ${typeof next === "string" ? next : JSON.stringify(next)}`);
@@ -184,7 +194,7 @@ function consultEnvelope(args, lookup, classified, outcome, escalation) {
     internal_completeness: lookup.completeness,
     asked,
     decision,
-    consult_required: decision === CONSULT_ANSWERS.RESEARCH,
+    consult_required: decision === CONSULT_ANSWERS.RESEARCH || decision === CONSULT_ANSWERS.SELF,
     ...(outcome?.custom_note === undefined ? {} : { custom_note: outcome.custom_note })
   };
   const commonFollowUp = [
@@ -215,7 +225,31 @@ function consultEnvelope(args, lookup, classified, outcome, escalation) {
         "用 `subagent` 派生一个**零上下文**调研子代理（不要用 subagent_fork——它会继承你的全部上下文），把 research_template.prompt 原样作为它的 prompt",
         "调研子代理交回三态证据后：用 ldvh_report_session 的 create → submit-round → audit-citation → check-delivery → finalize 走完 33 号机器",
         "finalize 之后用 ldvh_report_write 创建 report_form=research 的报告（urls 必填、逐字摘录须与证据条目一致）",
-        "答复只表明「被问过并给出安排／不安排」，不构成授权凭据（00 §2.5、32 §9.1）",
+        "答复只表明「被问过并给出三档中的哪一档」，不构成授权凭据（00 §2.5、32 §9.1）",
+        ...commonFollowUp
+      ]
+    });
+  }
+  if (decision === CONSULT_ANSWERS.SELF) {
+    return envelope("research-consult", outcomeKind, {
+      result: {
+        ...commonResult,
+        self_research_template: selfResearchTemplate({
+          need: args?.need,
+          purpose: args?.purpose,
+          scope: args?.scope,
+          subQuestions: args?.sub_questions,
+          keywords: args?.keywords
+        })
+      },
+      scope: { requested: "consult", completed: ["internal-lookup", "consult"], not_completed: sourceUnread ? ["internal-lookup"] : [] },
+      sources: [{ kind: "host-service", path: "userQuestions" }],
+      gaps,
+      verification: { checks: ["internal-lookup", "governance-scope", "answer-distinguishable"], passed: !sourceUnread },
+      follow_up: [
+        "Human 选择主控自调查：self_research_template 已返回，主控自己联网查一遍，不派调研子代理",
+        "硬要求：交付里写出查了什么、每条证据的来源 URL/锚点/逐字摘录、三态标注、结论与残留缺口",
+        "如实标注少了零上下文独立性：措辞用「主控自调查」，不得写成「独立调研结论」",
         ...commonFollowUp
       ]
     });

@@ -300,8 +300,8 @@ test("参数行：标签与输入框**同处一行**，且输入框不在折叠�
 
 test("两处把关询问：两个开关分属**两行**（不得并排挤成一段）", () => {
 	const tree = renderSettingsSection({});
-	const pre = rowWithTitle(tree, "行动前：询问是否安排代理审查");
-	const post = rowWithTitle(tree, "行动后：询问是否安排代理复核");
+	const pre = rowWithTitle(tree, "行动前：询问审查做不做、由谁做");
+	const post = rowWithTitle(tree, "行动后：询问复核做不做、由谁做");
 	assert.ok(pre, "须有「行动前」这一行");
 	assert.ok(post, "须有「行动后」这一行");
 	assert.notEqual(pre, post, "两处询问必须是两行，不是一行");

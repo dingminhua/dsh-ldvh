@@ -1048,6 +1048,8 @@ export function renderEnvelope(operationKey, value) {
       }
       if (r.decision === "research") {
         lines.push(`decision: research — Human 已同意开一次联网调查（安排零上下文调研子代理走 33 号机器）`);
+      } else if (r.decision === "self-review") {
+        lines.push(`decision: self-review — Human 选择主控自调查：主控自己联网查一遍，不派代理；须实做并在交付写明来源与结论，不得称独立调研结论`);
       } else if (r.decision === "skip") {
         lines.push(`decision: skip — Human 选择本次不联网，按既有路径继续`);
       } else if (r.asked === false && r.switch_enabled === false) {
@@ -1059,8 +1061,10 @@ export function renderEnvelope(operationKey, value) {
       }
     } else if (r.decision === "review") {
       lines.push(`decision: review — Human 已同意安排${r.point === "post-work" ? "复核" : "审查"}`);
+    } else if (r.decision === "self-review") {
+      lines.push(`decision: self-review — Human 选择主控自己做：主控亲自${r.point === "post-work" ? "自查" : "自审"}一遍，不派代理；须实做并在交付写明核了什么与依据，不得称独立核对结论`);
     } else if (r.decision === "skip") {
-      lines.push(`decision: skip — Human 选择不安排独立把关，直接推进（主控自查仍在）`);
+      lines.push(`decision: skip — Human 选择这次核对不做，直接推进（主控自查仍在）`);
     } else if (r.decision === "silent") {
       lines.push(`decision: silent — 静默执行：未询问，按设置直接安排${r.point === "post-work" ? "复核" : "审查"}（不是 Human 的答复，也不是 skip）`);
       if (typeof r.notice === "string" && r.notice.length > 0) {
@@ -1098,12 +1102,28 @@ export function renderEnvelope(operationKey, value) {
         for (const line of template.prompt.split("\n")) lines.push(`  ${line}`);
       }
     }
+    const selfReviewTemplate = r.self_review_template;
+    if (selfReviewTemplate !== undefined && selfReviewTemplate !== null && typeof selfReviewTemplate === "object") {
+      if (typeof selfReviewTemplate.kind === "string") lines.push(`self_review_template.kind: ${selfReviewTemplate.kind}`);
+      if (typeof selfReviewTemplate.prompt === "string" && selfReviewTemplate.prompt.length > 0) {
+        lines.push("self_review_template.prompt（主控按此实做一遍，不派代理）: |");
+        for (const line of selfReviewTemplate.prompt.split("\n")) lines.push(`  ${line}`);
+      }
+    }
     const researchTemplate = r.research_template;
     if (researchTemplate !== undefined && researchTemplate !== null && typeof researchTemplate === "object") {
       if (typeof researchTemplate.kind === "string") lines.push(`research_template.kind: ${researchTemplate.kind}`);
       if (typeof researchTemplate.prompt === "string" && researchTemplate.prompt.length > 0) {
         lines.push("research_template.prompt（须原样作为零上下文调研子代理的 prompt）: |");
         for (const line of researchTemplate.prompt.split("\n")) lines.push(`  ${line}`);
+      }
+    }
+    const selfResearch = r.self_research_template;
+    if (selfResearch !== undefined && selfResearch !== null && typeof selfResearch === "object") {
+      if (typeof selfResearch.kind === "string") lines.push(`self_research_template.kind: ${selfResearch.kind}`);
+      if (typeof selfResearch.prompt === "string" && selfResearch.prompt.length > 0) {
+        lines.push("self_research_template.prompt（主控自己联网查一遍，不派代理）: |");
+        for (const line of selfResearch.prompt.split("\n")) lines.push(`  ${line}`);
       }
     }
     for (const item of env.scope?.not_completed ?? []) lines.push(`not_completed: ${item}`);

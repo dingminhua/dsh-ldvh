@@ -83,6 +83,25 @@ test("review-ask seam: 选「安排代理」→ decision review（selected 是�
   install.dispose();
 });
 
+test("review-ask seam: 选「主控自审」→ decision self-review，并留痕", async () => {
+  const home = await freshHome();
+  const { seams, install } = installWith(answerSelecting("主控自审"), home);
+  const out = await seams.requestReviewAsk({ point: PRE, task: "重构召回", enabled: true, agent: agentOf("s1", "/p") });
+  assert.equal(out.decision, "self-review");
+  assert.equal(out.asked, true);
+  const ledger = JSON.parse(await readFile(join(home, "ldvh", "review-ask-decisions.json"), "utf8"));
+  assert.equal(ledger.decisions[0].answer, "self-review", "中间档须以 self-review 值留痕");
+  install.dispose();
+});
+
+test("review-ask seam: 选「主控自查」→ decision self-review", async () => {
+  const home = await freshHome();
+  const { seams, install } = installWith(answerSelecting("主控自查"), home);
+  const out = await seams.requestReviewAsk({ point: POST, task: "完成迁移", enabled: true, agent: agentOf("s1", "/p") });
+  assert.equal(out.decision, "self-review");
+  install.dispose();
+});
+
 test("review-ask seam: 选「跳过，直接推进」→ decision skip", async () => {
   const home = await freshHome();
   const { seams, install } = installWith(answerSelecting("跳过，直接推进"), home);
@@ -215,7 +234,7 @@ test("review-ask seam: ?signal 透传给答题器", async () => {
 });
 
 
-test("review-ask seam: 询问卡片不含判据，只写要做什么与两个选择的后果", async () => {
+test("review-ask seam: 询问卡片不含判据，只写要做什么与三个选择的后果", async () => {
   const home = await freshHome();
   let seen = null;
   const { seams, install } = installWith(async (request) => {
@@ -228,11 +247,12 @@ test("review-ask seam: 询问卡片不含判据，只写要做什么与两个选
   assert.match(q.question, /审查/);
   assert.doesNotMatch(q.question, /specs\//, "标题不得出现规范指针");
   assert.equal(q.detail, undefined, "卡片不得带 detail 块");
-  assert.equal(q.options.length, 2, "两个选项：安排 / 跳过");
+  assert.equal(q.options.length, 3, "三个选项：安排代理 / 主控自审 / 跳过");
   const descriptions = q.options.map((o) => o.description ?? "");
-  assert.ok(descriptions.every((d) => d.length > 0), "两个选项都要有说明");
+  assert.ok(descriptions.every((d) => d.length > 0), "三个选项都要有说明");
   assert.match(descriptions[0], /独立子代理/, "安排项须说明会派独立子代理");
-  assert.match(descriptions[1], /不做独立把关/, "跳过项须说明本次不做独立把关");
+  assert.match(descriptions[1], /不派代理/, "主控自审项须说明不派代理、自己再做一遍");
+  assert.match(descriptions[2], /直接推进/, "跳过项须说明本次不做、直接推进");
   for (const option of q.options) {
     assert.notEqual(option.description, option.label, `选项「${option.label}」的说明不得与标签重复`);
   }
@@ -378,7 +398,7 @@ test("review-ask seam: 倒计时请求同样带 signal 与 agent 透传（守卫
   assert.equal(seen.agent, agent, "agent 须透传给 askTimed（assertLiveRoot 需要它）");
   assert.equal(seen.request.signal, controller.signal, "signal 须透传");
   assert.equal(seen.request.questions[0].id, "ldvh-review-ask");
-  assert.equal(seen.request.questions[0].options.length, 2);
+  assert.equal(seen.request.questions[0].options.length, 3);
   const snap = seams.snapshot().find((s) => s.seam === "ctx.userQuestions.ask");
   assert.equal(snap.consumed, true, "走 askTimed 也要记 usedQuestionService，快照不得误报未使用");
   install.dispose();

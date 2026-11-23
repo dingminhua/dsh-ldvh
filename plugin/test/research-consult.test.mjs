@@ -15,8 +15,9 @@ import {
   composeResearchDispatchTemplate,
   internalLookup,
   researchDispatchTemplate,
+  selfResearchTemplate,
 } from "../lib/research-consult.js";
-import { executeResearchConsult } from "../lib/research-consult-tools.js";
+import { executeResearchConsult, toolDescriptorFor } from "../lib/research-consult-tools.js";
 import { createHostSeams } from "../lib/host-seams.js";
 import { findReviewAskDecision, recordReviewAskDecision, reviewAskFingerprint } from "../lib/review-ask.js";
 import { seedFactCorpus } from "./helpers.mjs";
@@ -99,11 +100,11 @@ test("internalLookup：只看内部事实类型（经验、报告、事实规范
 
 test("composeConsultQuestion：一行标题，长文案原样通过、不被截断不改写", () => {
   const { question } = composeConsultQuestion({ need: "Node 22 的 fetch 是否默认 keep-alive" });
-  assert.match(question, /要不要联网调查？/);
+  assert.match(question, /这次联网调查做不做、由谁查？/);
   const longNeed = "x".repeat(400);
   const longScope = "y".repeat(400);
   const long = composeConsultQuestion({ need: longNeed, scope: longScope });
-  assert.equal(long.question, `${longNeed}——要不要联网调查？（范围：${longScope}）`);
+  assert.equal(long.question, `${longNeed}——这次联网调查做不做、由谁查？（范围：${longScope}）`);
   assert.ok(long.question.length > 200);
   assert.ok(long.question.startsWith(longNeed));
   assert.ok(long.question.endsWith(`${longScope}）`));
@@ -125,6 +126,18 @@ test("composeResearchDispatchTemplate：带调研问题、硬性约束与输出�
   const template = researchDispatchTemplate({ need: "查 X" });
   assert.equal(template.point, CONSULT_POINT);
   assert.equal(template.kind, "online-research");
+});
+
+test("自调查模板与调研子代理模板共用同一份任务要求（尾部逐字相同）", () => {
+  const inputs = { need: "查 X 的行为", purpose: "支撑判断", scope: "某版本", subQuestions: ["子问题1"], keywords: ["X Y"] };
+  const agent = composeResearchDispatchTemplate(inputs);
+  const self = selfResearchTemplate(inputs).prompt;
+  const tailStart = "## 你不需要做的";
+  const selfExtra = "## 自做档追加要求";
+  const agentTail = agent.slice(agent.indexOf(tailStart));
+  const selfTail = self.slice(self.indexOf(tailStart), self.indexOf(selfExtra) >= 0 ? self.indexOf(selfExtra) : undefined).trimEnd();
+  assert.ok(agentTail.length > 0 && selfTail.length > 0, "两版都须有任务要求尾部");
+  assert.equal(agentTail.trimEnd(), selfTail, "自调查与代理取证的'你不需要做的/硬性约束/输出格式'三段须逐字相同，防漂移");
 });
 
 test("答复留痕载体接受 research 这一处请示点", async (t) => {
@@ -185,6 +198,58 @@ test("research consult seam：选「联网调查」→ decision research，并�
   assert.equal(out.asked, true);
   const ledger = JSON.parse(await readFile(join(home, "ldvh", "review-ask-decisions.json"), "utf8"));
   assert.equal(ledger.decisions[0].point, CONSULT_POINT);
+  install.dispose();
+});
+
+test("research consult 卡片：三选一（联网调查／主控自调查／先不查），选项数=3", async (t) => {
+  const home = await seamHome(t);
+  let seen = null;
+  const { seams, install } = installSeams(async (request) => {
+    seen = request;
+    return { answers: [{ id: "ldvh-research-consult", selected: ["先不查"] }] };
+  }, home);
+  await seams.requestResearchConsult({ need: "查 X", agent: agentOf("/p") });
+  const options = seen.questions[0].options.map((o) => o.label);
+  assert.equal(options.length, 3);
+  assert.deepEqual(options, ["联网调查", "主控自调查", "先不查"]);
+  install.dispose();
+});
+
+test("research consult render：self_research_template 与 research_template 的 prompt 必须进入模型可见内容", () => {
+  const prompt = "SENTINEL-PROMPT-BODY-自调查";
+  const descriptor = toolDescriptorFor("research-consult", { toolName: "ldvh_research_consult", summary: "", effect: "read" }, async () => ({}));
+  const rendered = descriptor.output.render({}, {
+    envelope: {
+      operation_key: "research-consult",
+      outcome: "completed",
+      result: { decision: "self-review", self_research_template: { kind: "self-research", prompt } },
+      gaps: [],
+      follow_up: [],
+    }
+  });
+  const text = rendered.map((b) => b.text).join("\n");
+  assert.match(text, /self_research_template\.kind: self-research/);
+  assert.ok(text.includes(prompt), "模板 prompt 正文必须出现在模型可见的 render 里，不能只放在 result 中");
+  const renderedResearch = descriptor.output.render({}, {
+    envelope: {
+      operation_key: "research-consult",
+      outcome: "completed",
+      result: { decision: "research", research_template: { kind: "online-research", prompt: "SENTINEL-AGENT-PROMPT" } },
+      gaps: [],
+      follow_up: [],
+    }
+  }).map((b) => b.text).join("\n");
+  assert.ok(renderedResearch.includes("SENTINEL-AGENT-PROMPT"));
+});
+
+test("research consult seam：选「主控自调查」→ decision self-review，并留痕", async (t) => {
+  const home = await seamHome(t);
+  const { seams, install } = installSeams(async () => ({ answers: [{ id: "ldvh-research-consult", selected: ["主控自调查"] }] }), home);
+  const out = await seams.requestResearchConsult({ need: "查 X", agent: agentOf("/p") });
+  assert.equal(out.decision, CONSULT_ANSWERS.SELF);
+  assert.equal(out.asked, true);
+  const ledger = JSON.parse(await readFile(join(home, "ldvh", "review-ask-decisions.json"), "utf8"));
+  assert.equal(ledger.decisions[0].answer, "self-review");
   install.dispose();
 });
 
@@ -294,6 +359,28 @@ test("executeResearchConsult：未取得答复 → partial，且明写不阻断�
   assert.equal(out.result.decision, null);
   assert.ok(out.gaps.some((line) => line.includes("不得据此暂停整件工作")));
   assert.ok(out.follow_up.some((line) => line.includes("如实写明")));
+});
+
+test("executeResearchConsult：Human 选主控自调查 → 返回 self_research_template，不派代理", async (t) => {
+  const root = await corpusRoot(t);
+  const home = await governedHome(t, root);
+  const out = await executeResearchConsult(
+    { need: "qqzzxxyyww", purpose: "支持判断" },
+    { agent: agentOf(root) },
+    {
+      dshHomePath: (...segments) => join(home, ...segments),
+      getReviewAskSettings: () => ({ researchConsult: true, researchConsultKnown: true }),
+      hostSeams: { requestResearchConsult: async () => ({ decision: "self-review", asked: true }) }
+    }
+  );
+  assert.equal(out.outcome, "completed");
+  assert.equal(out.result.decision, CONSULT_ANSWERS.SELF);
+  assert.equal(out.result.consult_required, true, "主控自调查同样开一次联网取证，consult_required 不得为 false");
+  assert.equal(out.result.self_research_template.kind, "self-research");
+  assert.match(out.result.self_research_template.prompt, /主控自调查/);
+  assert.match(out.result.self_research_template.prompt, /不派零上下文调研子代理/);
+  assert.ok(out.follow_up.some((line) => line.includes("自己联网查一遍")));
+  assert.ok(out.follow_up.some((line) => line.includes("不得写成「内部没有相关经验」")));
 });
 
 test("executeResearchConsult：Human 选先不查 → 不联网，且不许把未命中写成「内部没有」", async (t) => {

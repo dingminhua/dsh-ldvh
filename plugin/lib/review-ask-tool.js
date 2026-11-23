@@ -1,6 +1,6 @@
 
-import { reviewDispatchTemplate } from "./review-dispatch-template.js";
-import { REVIEW_ASK_POINTS, GATE_POINT_EXCLUSIONS, REVIEW_ASK_CARRIER_ENTRIES, askEnabledFor, carrierEntrySource, reviewAskMode, silentRunNotice } from "./review-ask.js";
+import { reviewDispatchTemplate, selfReviewDispatchTemplate } from "./review-dispatch-template.js";
+import { REVIEW_ASK_POINTS, REVIEW_ASK_ANSWERS, GATE_POINT_EXCLUSIONS, REVIEW_ASK_CARRIER_ENTRIES, askEnabledFor, carrierEntrySource, reviewAskMode, silentRunNotice } from "./review-ask.js";
 import { executeResearchConsult } from "./research-consult-tools.js";
 
 import { normalizeQuotationText } from "./quotation-text.js";
@@ -22,11 +22,11 @@ export const REVIEW_ASK_OPERATION = Object.freeze({
     + GATE_POINT_EXCLUSIONS.map((item) => `  · ${item.label}`).join("\n")
     + "\n\n两步不得混读：点位排除**不改动也不重新解释**复杂任务的判据，命中排除**不等于**「这不算复杂任务」；它只免除本文定义的两处征询，**不免除**主控自查与方案收敛自查（`ldvh-root` 的 `required-checks` 条目），**不免除**任何须人决定事项的提请（新建事实对象、改变既有对象的决策与适用范围语义），**也不免除**独立审核的适用范围（受保护内容修改、下位规范建立或实质修改、进入事实源的事实规范候选），见 `ldvh-root` 的 `proxy-review-arrangement` 条目。"
     + "\n\n命中排除时的交付义务（见 point-exclusions 条目）：在交付说明里写一行「点位排除：命中〔哪一类〕｜当次整体范围〔…〕｜判定理由〔…〕」；不写这行按未请示处理。"
-    + "\n\npoint=pre-action：**方案已形成候选、尚未产生副作用时**问「是否安排代理审查」；point=post-work：**一件复杂任务做完、尚未形成完成声明时**问「是否安排代理复核」。（静默执行开着时这两句变为**不问、直接给派发模板**，见下。）"
+    + "\n\npoint=pre-action：**方案已形成候选、尚未产生副作用时**问「安排代理审查／主控自审／不审查直接推进」三选一；point=post-work：**一件复杂任务做完、尚未形成完成声明时**问「安排代理复核／主控自查／不复核直接收口」三选一；point=research 问「联网调查／主控自调查／先不查」三选一。（静默执行开着时前两处变为**不问、直接给派发模板**，见下。）"
     + "\n\n**时点与效力（两条都别读错，2026-11-14 Human 指出后修正）**："
     + "① **没有候选就没有可核对的对象**——行动前那处只在方案已成形时发起；尚无候选时发起是空问，载体明禁「为回避判断而一律请示」（见 gate-consult-system-foundation 的 uncertain 条目）。读规则、查事实、收敛方案本身不产生副作用，都在适用面内；"
     + "② **答复不构成动手前提**——载体写明「请示不是行动放行的前提，也不使行动在取得答复前暂停」，也明禁把「未取得答复」处置为「必须暂停」（见 gate-consult-system-foundation 的 answer-means 条目）。请示未获答复时按既有路径继续并如实说明。"
-    + "\n\nRETURNS decision: \"review\"（安排代理）| \"skip\"（不安排，明确答复）| \"silent\"（静默执行开着：没问，直接给你派发模板）| null（未取得答复）。"
+    + "\n\nRETURNS decision: \"review\"（安排代理）| \"self-review\"（主控自己做：返回 self_review_template，主控按同一份任务要求实做一遍并在交付写明核了什么与依据，不得称独立核对结论）| \"skip\"（这次核对不做，直接推进）| \"silent\"（静默执行开着：没问，直接给你派发模板）| null（未取得答复）。"
     + "倒计时开关打开时，请示卡片显示 10/30/60s 倒计时；到点未选则返回 decision=null 且 result.timed_out=true，按「未取得答复、直接推进」处理——这不是 Human 的 skip/review 决定，不写答复留痕（answer-means 条目：没有答复即没有决定）。"
     + "**switch_off 时不会提问**，直接返回 decision=null 并说明原因——那是设计，不是失败。"
     + "\nsilent 是**配置决定的自动安排**，不是 Human 的答复：拿到它就去派代理，并把 result.notice 原样写进交付说明（静默不等于无痕）。"
@@ -307,7 +307,12 @@ export async function executeReviewAsk(args, exec, deps) {
       ...(outcome?.fingerprint === undefined ? {} : { fingerprint: outcome.fingerprint }),
       switch_enabled: enabled,
       ...(candidateBasis === null ? {} : { candidate_basis: candidateBasis }),
-      ...(decision === "review" ? { review_template: reviewDispatchTemplate(point, {
+      ...(decision === REVIEW_ASK_ANSWERS.REVIEW ? { review_template: reviewDispatchTemplate(point, {
+        task,
+        claims: args?.claims,
+        evidence: args?.evidence,
+      }) } : {}),
+      ...(decision === REVIEW_ASK_ANSWERS.SELF ? { self_review_template: selfReviewDispatchTemplate(point, {
         task,
         claims: args?.claims,
         evidence: args?.evidence,
@@ -325,13 +330,19 @@ export async function executeReviewAsk(args, exec, deps) {
       checks: ["point-closed-set", "switch-read", "answer-distinguishable"],
       passed: decision !== null,
     },
-    follow_up: decision === "review"
+    follow_up: decision === REVIEW_ASK_ANSWERS.REVIEW
       ? [
         "用 `subagent` 派生一个**零上下文**子代理（不要用 subagent_fork——它会继承你的全部上下文，独立性即不成立），把 review_template.prompt 填好内容后作为 prompt 传给它（受管辖隔离，见 `ldvh-root` 的 `review-modes` 条目）",
         "模板已随本结果的 review_template 返回：五块结构（对象描述／声称做到的事逐条／重点查的面／硬性约束／输出格式）。**「声称做到的事」是最关键的一块——漏写它，复核体只能猜，也就无从核对**",
         "拿到结论后先自己核一遍再采纳：复核体也可能错，但它给的是证据而非结论",
       ]
-      : decision === "skip"
+      : decision === REVIEW_ASK_ANSWERS.SELF
+        ? [
+          "Human 选择主控自己做这次核对：self_review_template 已返回（与代理那份同任务要求，措辞去掉「独立」）。主控亲自按它的重点面实做一遍，不派 subagent",
+          "这是硬要求：在交付里逐条写明核对了什么、依据落在哪个文件:行号或规范条目、结论与残留风险；不得以「已自查」一句带过",
+          "如实标注少了独立性这一层：措辞用「主控自审／自查」，不得写成「独立审查/独立复核结论」；这是用独立性换一次子代理往返的取舍",
+        ]
+        : decision === REVIEW_ASK_ANSWERS.SKIP
         ? ["Human 明确选择不安排独立把关；直接推进，主控自查仍在（`ldvh-root` 的 `required-checks` 条目）"]
         : outcome?.timed_out === true
           ? [
@@ -341,8 +352,8 @@ export async function executeReviewAsk(args, exec, deps) {
           ]
           : outcome?.custom_note !== undefined
             ? [
-              "未取得答复（answer-means 条目：答复只表明「被问过并给出安排／不安排」，没有答复即没有决定，不得读成 skip）；但 Human 在自由输入框写了字，见 result.custom_note —— 逐字读它并纳入本轮判断，不要当成跳过",
-              "该自由文本不是 review/skip 答复，不改变 decision=null；如需明确决定请重新提请",
+              "未取得答复（answer-means 条目：答复只表明「被问过并给出三档中的哪一档」，没有答复即没有决定，不得读成 skip）；但 Human 在自由输入框写了字，见 result.custom_note —— 逐字读它并纳入本轮判断，不要当成跳过",
+              "该自由文本不是 review/self-review/skip 答复，不改变 decision=null；如需明确决定请重新提请",
               "未取得答复**不放行也不暂停**（gate-consult-system-foundation 的 answer-means 条目）：按既有路径继续，并在交付说明中如实写明「未取得该处答复」；不得把沉默当作 skip，也不得据此停下整件工作",
             ]
           : ["未取得答复：按 answer-means 条目不得把沉默当作 skip（没有答复即没有决定）；也**不得据此暂停**——两处请示是须人决定事项之外的征询，答复不是行动放行的前提；按既有路径继续，并在交付说明中如实写明「未取得该处答复」"],
