@@ -64,6 +64,18 @@ app.use('/api', (_req: Request, res: Response, next: NextFunction): void => {
   next()
 })
 
+const LOCAL_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+
+app.use('/api', (req: Request, res: Response, next: NextFunction): void => {
+  const host = String(req.headers.host ?? '').toLowerCase().replace(/:\d+$/, '')
+  const secFetchSite = String(req.headers['sec-fetch-site'] ?? '').toLowerCase()
+  if (!LOCAL_HOSTS.has(host) || secFetchSite === 'cross-site') {
+    res.status(403).json({ ok: false, error: 'forbidden origin' })
+    return
+  }
+  next()
+})
+
 app.use('/api/auth', authRoutes)
 app.use('/api/objects', objectsRoutes)
 app.use('/api/changelog', changelogRoutes)

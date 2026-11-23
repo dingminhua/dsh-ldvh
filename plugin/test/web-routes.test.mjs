@@ -69,11 +69,26 @@ class MemorySystemPrompt {
 	}
 }
 
-async function createHarness(config = {}, { withWebServer = true, deferWebServer = false, dshHomePath } = {}) {
+class MemoryConnection {
+	constructor(behavior = {}) {
+		this.behavior = behavior;
+		this.seen = [];
+	}
+
+	requestRejection(req) {
+		this.seen.push(req);
+		if (typeof this.behavior.rejection === "function") return this.behavior.rejection(req);
+		return this.behavior.rejection ?? undefined;
+	}
+}
+
+async function createHarness(config = {}, { withWebServer = true, deferWebServer = false, dshHomePath, connection = {} } = {}) {
 	const root = new Context();
 	const webServer = withWebServer ? new MemoryWebServer() : void 0;
 	if (webServer !== void 0 && !deferWebServer) root.provide("webServer", webServer);
 	if (dshHomePath !== void 0) root.provide("dshHomePath", dshHomePath);
+	const memoryConnection = new MemoryConnection(connection);
+	root.provide("connection", memoryConnection);
 	const tools = new MemoryTools();
 	root.provide("tools", tools);
 	const systemPrompt = new MemorySystemPrompt();
@@ -84,7 +99,7 @@ async function createHarness(config = {}, { withWebServer = true, deferWebServer
 	const fiber = root.registry.plugin(ldvhPlugin, config);
 	await fiber;
 
-	return { root, webServer, tools, systemPrompt, fiber };
+	return { root, webServer, tools, systemPrompt, memoryConnection, fiber };
 }
 
 async function disposeHarness(harness) {
@@ -139,6 +154,35 @@ test("webEnabled false: routes stay registered but answer 404; the state route i
 		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT);
 	} finally {
 		await disposeHarness(harness);
+	}
+});
+
+test("trust fence short-circuits /ldvh/api with the connection rejection status before any handler work", async () => {
+	const harness = await createHarness({}, { connection: { rejection: 401 } });
+	try {
+		const result = await callRoute(harness.webServer, "/ldvh/api/health");
+		assert.equal(result.status, 401, "the connection trust fence must win before the health shortcut, governance, or the proxy");
+		assert.equal(harness.memoryConnection.seen.length, 1, "requestRejection must be consulted exactly once per request");
+	} finally {
+		await disposeHarness(harness);
+	}
+});
+
+test("trust fence short-circuits /ldvh/state with 403 and admits the state route when the connection returns undefined", async () => {
+	const rejectedHarness = await createHarness({}, { connection: { rejection: 403 } });
+	try {
+		const result = await callRoute(rejectedHarness.webServer, "/ldvh/state/governance", "?sessionId=anything");
+		assert.equal(result.status, 403, "the state route must honour the connection rejection status");
+	} finally {
+		await disposeHarness(rejectedHarness);
+	}
+	const admittedHarness = await createHarness({}, { connection: { rejection: undefined } });
+	try {
+		const result = await callRoute(admittedHarness.webServer, "/ldvh/state/governance", "?sessionId=not-a-known-session");
+		assert.equal(result.status, 200);
+		assert.equal(result.body.state, "unknown", "an admitted request must reach the normal handler flow");
+	} finally {
+		await disposeHarness(admittedHarness);
 	}
 });
 
@@ -257,7 +301,7 @@ async function callRoute(webServer, path, query) {
 		statusCode: 0,
 		headers: {},
 		setHeader(name, value) { this.headers[name] = value; },
-		end(text) { chunks.push(String(text)); }
+		end(text) { if (text !== undefined) chunks.push(String(text)); }
 	};
 	await route.handler({ url: url.toString(), method: "GET" }, res);
 	return { status: res.statusCode, body: chunks.length === 0 ? null : JSON.parse(chunks.join("")) };

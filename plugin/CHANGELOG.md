@@ -10,7 +10,11 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 ## [1.1.4-dev.1] — 2026-11-24
 
-开发迭代轮次开启：1.1.4 已封存发布，dev 线进入下一轮；本条目随轮次推进由实际已提交变更充实。
+开发迭代轮次开启：1.1.4 已封存发布，dev 线进入下一轮。
+
+### Fixed
+
+- Web API 访问检查：`/ldvh/api` 与 `/ldvh/state` 路由接入 DSH `connection.requestRejection` 信任栅栏，未通过信任判定的请求以 401/403 就地短路（DSH GUI 已认证 peer 照常通过）；子进程直连端口对 `/api` 全路由实施本地 Host 白名单与 `Sec-Fetch-Site: cross-site` 拒绝（DNS 重绑定与跨站 CSRF 防护）。修复 awesome-dsh-plugin 收录条目上维护者标注的「HTTP 路由无 DSH 访问检查」安全告示。
 
 ## [1.1.4] — 2026-11-24
 

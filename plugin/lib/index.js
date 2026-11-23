@@ -101,9 +101,21 @@ function json(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
-function createApiHandler(dshHomePath, webApiProxy) {
+function trustFence(requestRejection) {
+  return function rejected(req, res) {
+    const rejection = typeof requestRejection === "function" ? requestRejection(req) : 503;
+    if (rejection === undefined) return false;
+    res.statusCode = rejection;
+    res.end();
+    return true;
+  };
+}
+
+function createApiHandler(dshHomePath, webApiProxy, requestRejection) {
   const governance = createGovernanceHandler({ dshHomePath, runnerPath: GATE_RUNNER_PATH, workspaceRoot: PACKAGE_ROOT });
+  const rejected = trustFence(requestRejection);
   return async function apiHandler(req, res) {
+    if (rejected(req, res)) return;
     const url = new URL(req.url ?? "/", "http://ldvh.local");
     const rawPath = url.pathname;
     const path = rawPath === API_PREFIX ? "/" : (rawPath.startsWith(`${API_PREFIX}/`) ? rawPath.slice(API_PREFIX.length) : rawPath);
@@ -140,9 +152,9 @@ function gated(handler, config) {
   };
 }
 
-function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger, config) {
+function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger, config, requestRejection) {
   const webApiProxy = createProxyHandler(webApiProcess, logger);
-  const apiHandler = typeof dshHomePath === "function" ? createApiHandler(dshHomePath, webApiProxy) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); }, webApiProxy);
+  const apiHandler = typeof dshHomePath === "function" ? createApiHandler(dshHomePath, webApiProxy, requestRejection) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); }, webApiProxy, requestRejection);
   const apiDisposer = webServer.register({
     kind: "prefix",
     path: API_PREFIX,
@@ -159,11 +171,13 @@ function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger, config
   };
 }
 
-function registerStateRoute(webServer, sessionScopes, dshHomePath) {
+function registerStateRoute(webServer, sessionScopes, dshHomePath, requestRejection) {
+  const rejected = trustFence(requestRejection);
   return webServer.register({
     kind: "prefix",
     path: STATE_PREFIX,
     handler: async (req, res) => {
+      if (rejected(req, res)) return;
       const url = new URL(req.url ?? "/", "http://ldvh.local");
       const path = url.pathname === STATE_PREFIX ? "/" : url.pathname.slice(STATE_PREFIX.length);
       if ((path === "/governance" || path === "/governance/") && (req.method === "GET" || req.method === "HEAD")) {
@@ -248,10 +262,11 @@ export function apply(ctx, config) {
   const stopLifecycle = lifecycle.start();
 
 
-  ctx.inject(["webServer"], (webCtx) => {
+  ctx.inject(["webServer", "connection"], (webCtx) => {
     const webServer = webCtx.webServer;
     if (webServer === undefined) return;
-    const disposeStateRoute = registerStateRoute(webServer, sessionScopes, dshHomePath);
+    const requestRejection = webCtx.connection?.requestRejection?.bind(webCtx.connection);
+    const disposeStateRoute = registerStateRoute(webServer, sessionScopes, dshHomePath, requestRejection);
     webCtx.logger.info("[dsh-ldvh] governance-state route registered under %s", STATE_PREFIX);
     const webRoot = join(PACKAGE_ROOT, "web");
     const { mode, command } = resolveWebApiCommand(webRoot);
@@ -270,8 +285,8 @@ export function apply(ctx, config) {
     }).catch((error) => {
       webCtx.logger.warn("[dsh-ldvh] web api warm-up failed (will retry on first request): %s", error?.message ?? error);
     });
-    const disposeRoutes = registerWebRoutes(webServer, dshHomePath, webApiProcess, webCtx.logger, config);
-    webCtx.logger.info("[dsh-ldvh] web routes registered under %s / %s (webEnabled=%s)", SPA_PREFIX, API_PREFIX, webEnabled(config));
+    const disposeRoutes = registerWebRoutes(webServer, dshHomePath, webApiProcess, webCtx.logger, config, requestRejection);
+    webCtx.logger.info("[dsh-ldvh] web routes registered under %s / %s with connection trust fence (webEnabled=%s)", SPA_PREFIX, API_PREFIX, webEnabled(config));
     webCtx.effect(() => () => {
       try { disposeRoutes(); } catch {   }
       try { webApiProcess.dispose(); } catch {   }
