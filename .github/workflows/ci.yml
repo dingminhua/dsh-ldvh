@@ -1,0 +1,202 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # 分支纪律第 3、4 条（norm-d95bbb45）在 main 侧的机械保障。该规范本体
+      # 存于 ldvh-base/norms/，而 main 的树按第 3 条不得含该目录——故从 main
+      # 单取树工作时规则不可召回、不可读取，只能靠 CI 兑现。规范第 5 条明写：
+      # 该检查缺失时第 3、4 条在 main 侧处于无机械保障状态。本步骤即该保障。
+      # 排在 npm ci 之前：纯 git/npm 元数据判断，不依赖依赖安装，最早暴露。
+      - name: Branch discipline — main tree carries no fact objects (rules 3 & 4)
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          if [ "$ref" != "main" ]; then
+            echo "ref=$ref is not main — rules 3 & 4 do not apply to this line."
+            exit 0
+          fi
+          leaked=$(git ls-tree -r --name-only HEAD -- ldvh-base | head -5)
+          if [ -n "$leaked" ]; then
+            echo "::error::rule 3 violated — main tree must not carry ldvh-base/:"
+            echo "$leaked"
+            exit 1
+          fi
+          echo "rule 3 ok — main tree carries no ldvh-base/"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # 对齐宿主 dsh-plugin-desktop 的 engines.node（^22.19.0 || >=24.0.0）。
+          # 本插件以 Cordis 插件行跑在宿主进程内，与宿主共用 Node 运行时，故 CI
+          # 应贴近真实运行环境。代码实际下限为 22.15.0（node:zlib 的
+          # ZstdDecompress 自 v22.15.0 起提供），22.19.0 满足并留有余量。
+          node-version: '22.19'
+          cache: npm
+          cache-dependency-path: plugin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # web-routes 测试会加载真实插件并 spawn web/api 子进程；源码态用
+      # --import tsx api/server.ts，tsx 来自 plugin/web 的 pnpm 依赖，故此处
+      # pnpm install 既供 web 前端构建，也供测试期源码态子进程解析 tsx。
+      # 发布态不依赖 tsx（后端已预编译为 api-js），tsx 不在 plugin 的 npm 树。
+      # 版本与 web job 对齐（pnpm 10 / --frozen-lockfile）。
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install web dependencies
+        working-directory: plugin/web
+        run: pnpm install --frozen-lockfile
+
+      # 防回归门禁排在 Run tests 之前：plugin job 因 CI 环境 skip 基线差异
+      # 长期在 Run tests 转红，门禁若排在它之后就永远跑不到。Build SPA 先产出
+      # dist 与 api-js 编译产物，门禁才能在完整产物上校验。
+      - name: Build SPA so the pack gate sees web/dist
+        working-directory: plugin/web
+        run: pnpm build:dsh
+
+      # 发布包曾三次出问题（#1 缺 web/dist、#2 缺 web/api+运行时依赖、
+      # #3 tsx 带入 esbuild 构建脚本被 pnpm 11 审批门拒装）。prepack 会在 pack
+      # 时执行 require-web-dist.mjs；此步把同一脚本作为独立命名的预检信号显式
+      # 跑一遍，使失败归因直观指向「运行时产物未就位」。须在 Build SPA 之后。
+      - name: Verify web runtime is packaged
+        run: node scripts/require-web-dist.mjs
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      # 分支纪律第 4 条（norm-d95bbb45）的机械保障：发布产物不得含事实对象。
+      # 与上面的「main 树不含 ldvh-base」互为两道闸——树里没有、包里也不许有，
+      # 因为 pack 走的是 files 白名单与 .npmignore，两者可以独立漂移。
+      - name: Branch discipline — release artifact carries no fact objects (rule 4)
+        run: |
+          set -euo pipefail
+          if npm pack --dry-run 2>&1 | grep -q 'ldvh-base/'; then
+            echo "::error::rule 4 violated — packed artifact contains ldvh-base/ paths"
+            exit 1
+          fi
+          echo "rule 4 ok — packed artifact carries no ldvh-base/ paths"
+
+      # 06 §5「ESLint 统一配置，提交前必须通过静态分析」的不可绕过层。
+      # 本地 commit-msg Hook 可被 `git commit --no-verify` 跳过，这一层不能：
+      # 它是「绕过之后仍会被发现」的唯一保证（详 ldvh-base/sparks/
+      # spark-8e57c3d0）。判据用退出码：0 通过、非 0 一律拒绝——
+      # 不设警告阈值，也不做「工具故障」与「代码不合规」的区分，CI 侧
+      # 无需区分：两者都应红。
+      # 与门禁同理前移到 Run tests 之前：skip 基线差异使 Run tests 长期转红，
+      # 排其后的 lint 与语法检查在 CI 上从未执行。
+      - name: Lint
+        run: npm run lint
+
+      - name: Verify JavaScript syntax
+        run: |
+          node --check lib/index.js
+          node --check lib/client.js
+
+      - name: Run tests
+        run: npm test
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin/web
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # 必须显式指定版本：action-setup@v4 未指定时既不读 lockfile 也无默认值，
+          # 直接以 "No pnpm version is specified" 失败（package.json 无
+          # packageManager 字段）。
+          # 取 10：pnpm 9 拒绝本仓库的 pnpm-workspace.yaml（只设 allowBuilds、无
+          # packages 字段，报 "packages field missing or empty"）；pnpm 11 要求
+          # Node >= 22.13，在本 job 早期使用 Node 20 时曾报 ERR_UNKNOWN_BUILTIN_MODULE
+          # 而失败。pnpm 10 对 Node 无此约束，且实测可完成 --frozen-lockfile 安装，
+          # 在 Node 22.19 下同样通过。保持 10 可避免版本与 Node 的耦合。
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # 同 plugin job：对齐宿主 engines.node（^22.19.0 || >=24.0.0）。
+          node-version: '22.19'
+          cache: pnpm
+          cache-dependency-path: plugin/web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: pnpm check
+
+      # 构建先于测试：产物存在后，spa-asset-base-contract 才在真实 dist/index.html
+      # 上生效（dist/ 不入库，全新检出为空）。该用例在 dist 缺失时跳过，不误报。
+      # 不带 --base=/ldvh/ 的构建会生成 /assets/... 引用，使 /ldvh 页面白屏，
+      # 且构建本身不报错——故必须在 CI 内跑正确的 build:dsh 并由用例守住。
+      - name: Build SPA under the /ldvh base
+        run: pnpm build:dsh
+
+      - name: Run Web contract tests
+        run: pnpm test:web:api
+
+  install-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19'
+          cache: npm
+          cache-dependency-path: plugin/package-lock.json
+
+      # 用 pnpm 11 复现 issue #3 的构建脚本审批门：默认拒绝未审批的
+      # 依赖构建脚本。用 11.28.5 精确对齐 issue 报告版本。
+      - name: Set up pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+
+      - name: Install plugin dependencies
+        run: npm ci
+
+      - name: Install web dependencies and build SPA (incl. api-js)
+        working-directory: plugin/web
+        run: pnpm install --frozen-lockfile && pnpm build:dsh
+
+      - name: Pack tarball
+        run: npm pack
+
+      # 独立 job、不受 plugin job 的 skip 基线 guard 影响，直接守住 #3 的
+      # 安装期失败面。smoke-install.mjs 用有限重试探 health，不以 pid 为
+      # 就绪信号（避 pitfall-8dbcd708），子进程早退由退出码识别。
+      - name: Smoke install in clean pnpm workspace
+        run: node scripts/smoke-install.mjs

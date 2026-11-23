@@ -211,7 +211,8 @@ test("recallForAction：limit 限制每侧返回条数", async () => {
 	assert.equal(r.budget.limit, 2);
 });
 
-test("recallForAction：预算超限时如实标 truncated，不静默", async () => {
+test("recallForAction：预算超限时如实标 truncated，不静默", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({
 		action: "校验验证工具 Web 页面", root: ROOT, limit: 20, budgetBytes: 200,
 	});
@@ -257,7 +258,8 @@ test("tokenize：虚字单字也不进匹配集（曾让「的」进命中理由
 	assert.ok(tokenize("云").includes("云"), "实义单字应保留");
 });
 
-test("高文档频率过滤：全部查询词都过于普遍时退回原词，不得给零结果", async () => {
+test("高文档频率过滤：全部查询词都过于普遍时退回原词，不得给零结果", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({ action: "规范定义适用", root: ROOT, limit: 5, budgetBytes: 20000 });
 	assert.equal(r.ok, true);
 	assert.ok(r.specs.length + r.facts.length > 0, "不得因过滤过狠而返回空");
@@ -267,7 +269,8 @@ test("HIGH_DF_RATIO 是固定常量，样本过小时不丢词", () => {
 	assert.equal(HIGH_DF_RATIO, 0.6);
 });
 
-test("预算极小不得返回零结果（零结果会被读成「无相关约束」）", async () => {
+test("预算极小不得返回零结果（零结果会被读成「无相关约束」）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	for (const budgetBytes of [1, 50, 200]) {
 		const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, budgetBytes });
 		assert.equal(r.ok, true);
@@ -395,7 +398,8 @@ test("靠单字命中时须标注「仅单字…相关性弱」，不得让读�
 	}
 });
 
-test("单字兜底不得被削弱：短指令仍须能召回（第 16 轮路径）", async () => {
+test("单字兜底不得被削弱：短指令仍须能召回（第 16 轮路径）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const { buildRecallInjection } = await import("../lib/recall-injection.js");
 	for (const q of ["改一下", "删了", "加个", "建个"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
@@ -491,7 +495,8 @@ test("通用词不得单独构成命中依据（通用词只降级、不丢弃�
 	}
 });
 
-test("通用词降级不得削弱短指令路径", async () => {
+test("通用词降级不得削弱短指令路径", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const { buildRecallInjection } = await import("../lib/recall-injection.js");
 	for (const q of ["改一下", "删了", "加个"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
@@ -515,7 +520,8 @@ test("三级回退：空目录不得冒充语料来源（以根规范载体的�
 	}
 });
 
-test("02 §9.1：limit 造成的丢弃须标 partial/truncated（不只预算）", async () => {
+test("02 §9.1：limit 造成的丢弃须标 partial/truncated（不只预算）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const small = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 2 });
 	assert.equal(small.partial, true, "limit 截断时须报 partial");
 	assert.equal(small.truncated, true, "limit 截断时须报 truncated");
@@ -531,7 +537,8 @@ test("02 §9.1：limit 造成的丢弃须标 partial/truncated（不只预算）
 	assert.equal(big.truncated, reallyDropped, "truncated 同理");
 });
 
-test("02 §9.1：unchecked 须列出**具体被丢弃的候选**，不只是一个布尔", async () => {
+test("02 §9.1：unchecked 须列出**具体被丢弃的候选**，不只是一个布尔", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 2 });
 	const dropped = r.unchecked.specs.length + r.unchecked.facts.length;
 	const kept = r.specs.length + r.facts.length;
@@ -962,7 +969,8 @@ test("candidatesScanned 须反映**实际参与匹配**的候选数（防御性�
 	assert.ok(narrow.counts.candidatesExcluded > wide.counts.candidatesExcluded, "被排除数应增加");
 });
 
-test("保底不得按源各自触发（曾致总用量超预算）", async () => {
+test("保底不得按源各自触发（曾致总用量超预算）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({
 		action: "把 34 号规范改名成双源召回",
 		root: ROOT,
@@ -978,7 +986,8 @@ test("保底不得按源各自触发（曾致总用量超预算）", async () =>
 	}
 });
 
-test("保底仍须生效：极小预算下不得返回零结果", async () => {
+test("保底仍须生效：极小预算下不得返回零结果", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, budgetBytes: 1 });
 	assert.ok(r.specs.length + r.facts.length > 0, "极小预算仍须至少给一条");
 	assert.equal(r.overBudget, true, "保底导致超额须如实标注");
@@ -1198,7 +1207,8 @@ test("unavailable 与「零命中」须可区分（前者不得当作无相关�
 	}
 });
 
-test("「本次召回完整度」与「事实集合完整性」须分开表达（原名会误导）", async () => {
+test("「本次召回完整度」与「事实集合完整性」须分开表达（原名会误导）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
 
 	assert.ok(r.recallCompleteness !== undefined, "须有 recallCompleteness");

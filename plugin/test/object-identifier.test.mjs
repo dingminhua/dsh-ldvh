@@ -11,6 +11,7 @@ import {
   isRegisteredFactType,
   IDENTIFIER_ERRORS,
 } from "../lib/object-identifier.js";
+import { skipWithoutCorpus } from "./helpers.mjs";
 
 const UID = "71930c4a-f43f-439e-88bd-3aff7d07d37c";
 const FACT_ROOT = fileURLToPath(new URL("../../ldvh-base/", import.meta.url));
@@ -97,14 +98,16 @@ test("十六进制大写被归一为小写", () => {
 });
 
 
-test("短标识反查到唯一 canonical uid", async () => {
+test("短标识反查到唯一 canonical uid", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
   const r = await resolveShortId({ factSourceRoot: FACT_ROOT, shortId: "71930c4a" });
   assert.equal(r.ok, true);
   assert.equal(r.value.objectUid, UID);
   assert.equal(r.value.factTypeKey, "spark");
 });
 
-test("限定类型时只在那个类型目录内找", async () => {
+test("限定类型时只在那个类型目录内找", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
   const hit = await resolveShortId({ factSourceRoot: FACT_ROOT, shortId: "71930c4a", declaredType: "spark" });
   assert.equal(hit.ok, true);
   const miss = await resolveShortId({ factSourceRoot: FACT_ROOT, shortId: "71930c4a", declaredType: "friction" });
@@ -176,7 +179,8 @@ test("项目前缀与当前项目不符时，解析器本身不判（它不知�
   assert.equal(r.value.projectId, "other-proj");
 });
 
-test("读取入口：本项目前缀放行、他项目前缀拒绝", async () => {
+test("读取入口：本项目前缀放行、他项目前缀拒绝", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
   const { readSparkObject } = await import("../lib/spark-writer.js");
   const own = await readSparkObject({ factSourceRoot: FACT_ROOT, objectUid: `dsh-ldvh@spark-${UID}`, currentProjectId: "dsh-ldvh" });
   assert.equal(own.ok, true, "本项目前缀应放行");
@@ -186,13 +190,15 @@ test("读取入口：本项目前缀放行、他项目前缀拒绝", async () =>
   assert.match(foreign.error.message, /foreign_project/);
 });
 
-test("读取入口：调用方未提供当前项目时不因前缀拒绝（向后兼容）", async () => {
+test("读取入口：调用方未提供当前项目时不因前缀拒绝（向后兼容）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
   const { readSparkObject } = await import("../lib/spark-writer.js");
   const r = await readSparkObject({ factSourceRoot: FACT_ROOT, objectUid: `any-proj@spark-${UID}` });
   assert.equal(r.ok, true);
 });
 
-test("读取入口：四种形态读到的正文逐字节一致", async () => {
+test("读取入口：四种形态读到的正文逐字节一致", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
   const { readSparkObject } = await import("../lib/spark-writer.js");
   const forms = [UID, `spark-${UID}`, "spark-71930c4a", `dsh-ldvh@spark-${UID}`];
   const bodies = [];

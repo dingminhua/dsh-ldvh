@@ -204,7 +204,8 @@ test("buildRecallInjection：无项目路径不注入", async () => {
 	assert.equal(r.reason, "no-project");
 });
 
-test("buildRecallInjection：命中 34 §6 排除条件时不进入词法召回，但常驻索引仍可见", async () => {
+test("buildRecallInjection：命中 34 §6 排除条件时不进入词法召回，但常驻索引仍可见", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({ userText: "看看这个文件", projectRoot: ROOT });
 	assert.equal(r.inject, true, "常驻索引仍须注入（34 §8.4 末段）");
 	assert.equal(r.result?.baselineOnly, true, "须标记为「只带索引」");
@@ -240,7 +241,8 @@ test("buildRecallInjection：有命中时注入，且带回 digest 供去重", a
 	assert.match(r.text, /候选/);
 });
 
-test("buildRecallInjection：零命中不注入（避免每回合刷空候选行）", async () => {
+test("buildRecallInjection：零命中不注入（避免每回合刷空候选行）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({
 		userText: "量子纠缠的超导约瑟夫森结退相干时间",
 		projectRoot: ROOT,
@@ -313,7 +315,8 @@ test("时序：projectRoot 缺失时返回 no-project（不假装召回成功）
 });
 
 
-test("归因不得混同：取不到用户消息 ≠ 34 §6 排除", async () => {
+test("归因不得混同：取不到用户消息 ≠ 34 §6 排除", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	for (const userText of ["", "   ", null, undefined]) {
 		const r = await buildRecallInjection({ userText, projectRoot: ROOT });
 		assert.equal(r.inject, false);
@@ -339,14 +342,16 @@ test("诊断问句能召回（有主题词时）", async () => {
 	assert.equal(r.inject, true, "有主题词的诊断问句应能召回");
 });
 
-test("无主题词的问句：no_tokens 是合理结果，如实报出而非假装召回", async () => {
+test("无主题词的问句：no_tokens 是合理结果，如实报出而非假装召回", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({ userText: "为什么这里不对", projectRoot: ROOT });
 	assert.equal(r.result?.baselineOnlyCause, "recall/no_tokens", "应如实说明召回器无从下手");
 	assert.deepEqual(r.result?.facts, [], "no_tokens 时不得带入词法候选");
 	assert.match(r.text, /本轮无词法候选/, "须如实说明本回合没有词法候选");
 });
 
-test("全弱证据查询不得注入（放宽 tokenizer 后的精度护栏）", async () => {
+test("全弱证据查询不得注入（放宽 tokenizer 后的精度护栏）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	for (const q of ["为什么这里不对", "现在应该做什么", "是不是应该", "我要的是这个"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
 		assert.deepEqual(r.result?.facts, [], `「${q}」不得注入词法候选（事实源）`);
@@ -557,7 +562,8 @@ test("N-8：三态披露行须含「被过滤」类别且按非零类别分列�
 	assert.match(row, /另 2 条被类型过滤、3 条被状态过滤、1 条未登记类型不参与/, "三类非零须分列");
 });
 
-test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async () => {
+test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const normal = await buildRecallInjection({
 		userText: "把 34 号规范改名",
 		projectRoot: ROOT,
@@ -688,7 +694,8 @@ test("决策只数条数，不读排序分（排序分注入极端值，注入�
 	}
 });
 
-test("三态 gate 不因引入加权而改变（34 §6 进入判据仍是唯一决策前提）", async () => {
+test("三态 gate 不因引入加权而改变（34 §6 进入判据仍是唯一决策前提）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	for (const q of ["看看这个文件", "列出所有规范"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
 		assert.deepEqual(r.result?.facts ?? [], [], `「${q}」是纯读取，不得在事实侧给候选`);
@@ -846,7 +853,8 @@ function truncationNotes(text) {
 	return out;
 }
 
-test("截断归因：limit 已达 RECALL_LIMIT_MAX 时不得再劝「调大 limit」", async () => {
+test("截断归因：limit 已达 RECALL_LIMIT_MAX 时不得再劝「调大 limit」", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({
 		userText: "把 34 号规范改名成双源召回",
 		projectRoot: ROOT,
@@ -955,7 +963,8 @@ test("L0 全量段尾不得长于通用段尾（份额守卫）", () => {
 });
 
 
-test("L0 常驻：单纯读取回合也须带出经验按需行，且不并列事实规范段（不依赖词法命中）", async () => {
+test("L0 常驻：单纯读取回合也须带出经验按需行，且不并列事实规范段（不依赖词法命中）", async (t) => {
+  if (await skipWithoutCorpus(t)) return;
 	for (const q of ["继续", "看看这个文件"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT, budgetBytes: 10240 });
 		assert.equal(r.inject, true, `「${q}」：须注入`);

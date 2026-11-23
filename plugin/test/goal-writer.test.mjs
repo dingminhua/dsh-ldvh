@@ -199,7 +199,8 @@ test("上限按去除首尾空白后的正文段计，段内换行照常计入",
 	assert.equal(validateGoalBodyStructure(withNewline).ok, false, "段内换行不豁免长度");
 });
 
-test("存量 87 字陈述仍合规（上限不追溯改写既有内容）", async () => {
+test("存量 87 字陈述仍合规（上限不追溯改写既有内容）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const raw = await readFile(
 		join(fileURLToPath(new URL("../../", import.meta.url)), "ldvh-base", "goal.md"),
 		"utf8",
