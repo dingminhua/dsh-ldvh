@@ -8,6 +8,10 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [1.1.5-dev.1] — 2026-11-24
+
+开发迭代轮次开启：1.1.5 已封存发布，dev 线进入下一轮。
+
 ## [1.1.4-dev.1] — 2026-11-24
 
 开发迭代轮次开启：1.1.4 已封存发布，dev 线进入下一轮。
