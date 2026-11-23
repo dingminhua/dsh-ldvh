@@ -57,7 +57,7 @@
     "test": "node scripts/run-tests.mjs",
     "build:web": "cd web && pnpm build:dsh",
     "lint": "eslint .",
-    "prepack": "node scripts/specs-bundle.mjs copy && node scripts/require-web-dist.mjs",
+    "prepack": "node scripts/require-version-consistency.mjs && node scripts/specs-bundle.mjs copy && node scripts/require-web-dist.mjs",
     "postpack": "node scripts/specs-bundle.mjs clean",
     "test:affected": "node scripts/affected-tests.mjs --run",
     "test:affected:plan": "node scripts/affected-tests.mjs"
