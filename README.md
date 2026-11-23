@@ -29,8 +29,8 @@
   <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
 </p>
 
-> 版本 `1.1.3` ｜ MIT License（与 DSH 本体同协议）
-> 版本 `1.1.3` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
+> 版本 `1.1.4` ｜ MIT License（与 DSH 本体同协议）
+> 版本 `1.1.4` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
 
 ## 截图
 
@@ -77,12 +77,15 @@ LDVH（LD Vibe Harness）以 **DSH 原生插件为统一交付形态**。人与 
 
 ## 仓库结构
 
-本树为 1.1.3 发布树，只含发布所需内容（见下表）。项目专属事实源（`ldvh-base/`）与开发期文档（`docs/`、`DEVELOPMENT.md`、`RELEASING.md`）不在发布树内，其完整内容在 `dev` 分支。
+本树为 1.1.4 发布树，由开发线（`dev` 分支）经 `plugin/scripts/sync-release.mjs` 机械同步生成，仅排除项目专属事实源 `ldvh-base/`（见下表）；同步判据与操作序列见发布规范分支纪律第 7 条。
 
 | 路径 | 内容 |
 |---|---|
 | `specs/` | 规范源（LDVH 自身的元规范：根规范、模型规范、业务系统规范、事实类型规范、附件） |
 | `plugin/` | DSH 原生插件（Host 侧实现、客户端设置面与会话视图、LDVH Web SPA、测试） |
+| `plugin-specs/` | 运行时机制载体源（prepack 复制进包，19 份） |
+| `docs/` | 开发期文档与 devlog 存档（随同步来自 dev） |
+| `.github/` | CI 工作流（main 验发布产物、dev 跑全量测试） |
 | `icons/` | 插件图标（多尺寸） |
 | `plugin/docs/assets/` | 发布用截图（设置页三屏、LDVH Web、DSH 内面板） |
 | `LICENSE` | MIT 协议 |
@@ -107,7 +110,7 @@ cd plugin && npm pack --dry-run
 
 | 轨 | 语法 | 递增时机 | 当前 |
 |---|---|---|---|
-| 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | `1.1.3` |
+| 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | `1.1.4` |
 | 开发迭代版本 | 同主版本 + `-dev.N` | 发布后进入下一轮 | 见 `dev` 分支 |
 
 发布封存干净版本后，开发线在 `dev` 分支进入下一轮。
