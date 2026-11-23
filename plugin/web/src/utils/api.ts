@@ -425,9 +425,13 @@ export async function fetchObjects(
     observed_at?: string;
     collection_issues?: FactListProblem[];
     statusOptions?: ObjectStatusOption[];
+    statusDisplayTotal?: number;
     formOptions?: ObjectStatusOption[];
+    formTotal?: number;
     priorityOptions?: ObjectStatusOption[];
+    priorityTotal?: number;
     servesOptions?: ObjectStatusOption[];
+    servesTotal?: number;
     servesOrders?: Record<string, number>;
     statusTotal?: number;
   };

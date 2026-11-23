@@ -475,10 +475,14 @@ export default function ObjectList() {
   const [items, setItems] = useState<ObjectItem[]>([]);
   const [statusOptions, setStatusOptions] = useState<ObjectStatusOption[]>([]);
   const [formOptions, setFormOptions] = useState<ObjectStatusOption[]>([]);
+  const [formTotal, setFormTotal] = useState(0);
   const [priorityOptions, setPriorityOptions] = useState<ObjectStatusOption[]>([]);
+  const [priorityTotal, setPriorityTotal] = useState(0);
   const [servesOptions, setServesOptions] = useState<ObjectStatusOption[]>([]);
+  const [servesTotal, setServesTotal] = useState(0);
   const [servesOrders, setServesOrders] = useState<Record<string, number>>({});
   const [statusTotal, setStatusTotal] = useState(0);
+  const [statusDisplayTotal, setStatusDisplayTotal] = useState(0);
   const [coverageStatus, setCoverageStatus] = useState<FactCoverageStatus>('complete');
   const [coverageProblemCount, setCoverageProblemCount] = useState(0);
   const [coverageProblems, setCoverageProblems] = useState<FactListProblem[]>([]);
@@ -542,10 +546,14 @@ export default function ObjectList() {
         setItems(nextItems);
         setStatusOptions(result.data?.statusOptions ?? []);
         setFormOptions(result.data?.formOptions ?? []);
+        setFormTotal(result.data?.formTotal ?? nextItems.length);
         setPriorityOptions(result.data?.priorityOptions ?? []);
+        setPriorityTotal(result.data?.priorityTotal ?? nextItems.length);
         setServesOptions(result.data?.servesOptions ?? []);
+        setServesTotal(result.data?.servesTotal ?? nextItems.length);
         setServesOrders(result.data?.servesOrders ?? {});
         setStatusTotal(result.data?.statusTotal ?? nextItems.length);
+        setStatusDisplayTotal(result.data?.statusDisplayTotal ?? nextItems.length);
         setCoverageStatus(result.data?.coverage_status ?? 'complete');
         const nextCoverageProblems = result.data?.collection_issues ?? [];
         setCoverageProblems(nextCoverageProblems);
@@ -718,7 +726,7 @@ export default function ObjectList() {
               activeForm={activeForm}
               onChange={handleFormChange}
               options={formOptions}
-              total={statusTotal}
+              total={formTotal}
               loading={loading}
             />
           </div>
@@ -729,7 +737,7 @@ export default function ObjectList() {
               activePriority={activePriority}
               onChange={handlePriorityChange}
               options={priorityOptions}
-              totalCount={items.length}
+              totalCount={priorityTotal}
               loading={loading}
               coverageStatus={coverageStatus}
             />
@@ -742,7 +750,7 @@ export default function ObjectList() {
               onChange={handleServesChange}
               options={servesOptions}
               servesOrders={servesOrders}
-              totalCount={items.length}
+              totalCount={servesTotal}
               loading={loading}
               coverageStatus={coverageStatus}
             />
@@ -756,7 +764,7 @@ export default function ObjectList() {
               activeStatus={activeStatus}
               onChange={handleStatusChange}
               options={statusOptions}
-              total={statusTotal}
+              total={currentType === 'spark' ? statusDisplayTotal : statusTotal}
               loading={loading}
             />
           </div>

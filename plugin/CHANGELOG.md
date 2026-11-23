@@ -16,6 +16,10 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 - Web API 访问检查：`/ldvh/api` 与 `/ldvh/state` 路由接入 DSH `connection.requestRejection` 信任栅栏，未通过信任判定的请求以 401/403 就地短路（DSH GUI 已认证 peer 照常通过）；子进程直连端口对 `/api` 全路由实施本地 Host 白名单与 `Sec-Fetch-Site: cross-site` 拒绝（DNS 重绑定与跨站 CSRF 防护）。修复 awesome-dsh-plugin 收录条目上维护者标注的「HTTP 路由无 DSH 访问检查」安全告示。
 
+### Changed
+
+- Web 对象列表分面计数与状态术语：形态、优先级、serves 计数改按各自状态池独立计算（`formTotal`/`priorityTotal`/`servesTotal`/`statusDisplayTotal` 后端路由到前端列表全链路）；状态过滤 fallback 的 `research` 键修正为 `report`；状态术语统一 active=生效、retired=归档，并补 report 状态的本地化描述；宿主代理转发前剥离浏览器来源元数据头（`Sec-Fetch-*`/`Origin`/`Referer`），使子进程直连栅栏仅凭请求自身来源判定。
+
 ## [1.1.4] — 2026-11-24
 
 发布线与仓库基建补丁：`plugin/lib` 源码与 1.1.3 零差异，npm 包内容变化限于判据表 bundle 与文档元数据；本条目的主要修复在仓库与发布线层面，并作为 dev→main 机械同步新流程的首次发版试点。

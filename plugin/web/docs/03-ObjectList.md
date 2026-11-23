@@ -77,6 +77,7 @@ Spark 是“待处理信息”卡片，列表态用于快速定位每条火花�
 - `implemented` 与 `discarded` 时，卡片中部展示 `disposition_summary`。`implemented`（已关闭）使用低饱和蓝灰，`discarded`（已废弃）使用中性灰；状态徽章说明终态类别，正文说明实际处置；不在卡片中显示承接目标、额外终态时间或旧的 `resolved_to` / `resolved_at` / `discard_reason` 投影。历史 `routed` 仅保留直接只读查看，不是当前列表状态。
 - 实际存在 `relations` 时，Spark 与其它四类对象一样使用 §3.2 的通用正式关联区；它不表示链接或分流。
 - Spark 卡片内部信息区域只用于阅读，不响应主路由跳转；只有卡片标题进入 Spark 详情页，ID、状态、正文、更新时间和卡片空白区域均不触发导航。
+- **三行筛选计数联动**（Human 2026-11-24 指出）：状态、优先级、serves 三行各自的分项与「全部」按「其它两行已选、本行未选」的池子计算（`statusPool`／`priorityPool`／`servesPool`），选中任一行后其余两行随之收窄。状态行的**显示计数**用 `statusDisplayTotal`（联动池子），但空态判定仍用 `statusTotal`（未应用状态筛选的全库池子），二者分工不混。未分档或无所指的子目标本来就不计入对应分项，这是字段规则，不是筛选缺陷。
 
 ### 3.5bis DevLog 卡片（已废止，2026-11-14）
 
@@ -108,6 +109,16 @@ Norm（27 号）是**一个工程方向的成体系规则体系**：四段固定
   `DECISION_VIOLET_CODE_CHIP_HUE_CLASS`、`TYPE_DESCRIPTION_LOCALES` 全部退场（详见
   [`11-v5Web开发增量.md`](./11-v5Web开发增量.md) §4undecies）。
 - 状态筛选只认 `active / retired`；`retired` 卡为中性灰并显示退出理由。
+
+### 3.5quater 报告卡片
+
+Report（24 号）的生命周期闭集是 `active / retired`（初态 active，唯一转换 active→retired，终态不复开）；Web 只呈现，不提供状态写入入口。
+
+- 状态显示词：`active` 显示「生效」（Active），`retired` 显示「归档」（Archived）。这是**呈现文案**，不改变数据层状态闭集与权威语义——`retired` 仍表示「不再作为当前调研入口，仅在精确引用、回溯历史或追溯来源时进入」，详情面的退出理由（`retirement_reason`）与回查条件说明保持原样。
+- 状态筛选只认 `active / retired`；筛选回退表以运行时类型键 `report` 登记（不是 v4 遗留的 `research`），保证两态 tab 在计数为零时仍稳定呈现。
+- `retired`（归档）卡的状态徽章走中性收敛灰，与其它类型的终态一致；卡体 `ResearchCardContent` 仍显示退出理由。
+- 报告状态徽章带类型专属 tooltip：`active` 说明生效范围，`retired` 说明归档后的召回边界，避免把「归档」误读为删除或当前入口。
+- **两行筛选计数联动**（Human 2026-11-24 指出）：下面状态行与上面形态行是两个独立筛选维度，各自的计数只按**对方维度已选中的池子**计算，不按全库。选中状态（如「归档」）后，形态行的各形态计数与「全部」须随之收窄到该状态范围内（`formOptions` 用状态过滤后的池子，`formTotal` 为该池子条数）；反过来状态行仍按全库计数保持不变，使读者既能看到当前状态下的形态分布，也能切回其它状态。形态行的「全部」用独立的 `formTotal`，不复用状态行的 `statusTotal`（后者专用于状态行计数与空态判定）。
 
 ### 3.6 Spark 创建边界
 

@@ -427,6 +427,7 @@ export function createProxyHandler(manager, logger) {
     const proxiedAt = Date.now();
     const target = `http://127.0.0.1:${ready.port}/api${strippedPath}${search ?? ""}`;
     const headers = forwardableHeaders(req.headers);
+    for (const key of ["sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-user", "origin", "referer"]) delete headers[key];
     if (body !== null) headers["content-length"] = String(body.length);
     let upstream = null;
     try {

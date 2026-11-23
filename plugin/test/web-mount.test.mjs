@@ -124,6 +124,47 @@ test("proxy handler maps /ldvh/api paths to the child /api surface with method a
   }
 });
 
+test("proxy handler strips browser origin metadata before forwarding to the child API", async () => {
+  const seen = [];
+  const upstream = http.createServer((req, res) => {
+    seen.push({
+      "sec-fetch-site": req.headers["sec-fetch-site"],
+      "sec-fetch-mode": req.headers["sec-fetch-mode"],
+      origin: req.headers.origin,
+      referer: req.headers.referer,
+      "content-type": req.headers["content-type"],
+    });
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const manager = { ensureReady: async () => ({ port: upstream.address().port }) };
+  const proxy = createProxyHandler(manager);
+  try {
+    await withHandler((req, res) => proxy(req, res, "/objects", ""), async (base) => {
+      const res = await fetch(`${base}/anything`, {
+        headers: {
+          "sec-fetch-site": "cross-site",
+          "sec-fetch-mode": "cors",
+          origin: "null",
+          referer: "http://127.0.0.1:56248/ldvh",
+          "content-type": "application/json",
+        },
+      });
+      assert.equal(res.status, 200);
+    });
+    const forwarded = seen.at(-1);
+    assert.equal(forwarded["sec-fetch-site"], undefined, "sandbox iframe 的 cross-site 头不得透传给内部 web-api");
+    assert.equal(forwarded["sec-fetch-mode"], undefined);
+    assert.equal(forwarded.origin, undefined);
+    assert.equal(forwarded.referer, undefined);
+    assert.equal(forwarded["content-type"], "application/json", "非来源头仍须正常转发");
+  } finally {
+    upstream.closeAllConnections?.();
+    await new Promise((resolve) => upstream.close(resolve));
+  }
+});
+
 test("proxy handler answers 503 when the web api process is unavailable", async () => {
   const manager = { ensureReady: async () => null };
   const proxy = createProxyHandler(manager);
