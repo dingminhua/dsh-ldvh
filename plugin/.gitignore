@@ -20,7 +20,3 @@
 # is a build product, never hand-edited, never committed.
 /lib/operation-declarations.bundle.json
 /.operation-declarations-bundle-stamp
-
-# Local dependency tree from `npm ci` in the release worktree.
-# Must never enter the main tree (branch discipline 6).
-/node_modules/

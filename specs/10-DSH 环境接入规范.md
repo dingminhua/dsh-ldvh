@@ -197,9 +197,9 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 | README（一类，本域展开为两条路径） | `README.md`（仓库首页）与 `plugin/README.md`（插件市场页） |
 | 插件 AI 面向语义文本 | 经 `system-prompt/assemble` 注入的 `ldvh:minimal-guidance` 段，文本源为 `plugin/lib/guidance-text.js`；运行期读物为 `plugin-specs/*.yaml`（运行时机制：随插件承载的运行期规则载体，不参与开发规范的编号登记） |
 | LICENSE | `LICENSE` |
-| 版本声明点 | `plugin/CHANGELOG.md` 的最新 `## [<版本>]` 条目 + `plugin/package.json` 的 `version` + `README.md` 与 `plugin/README.md` 的版本行 |
+| 版本声明点 | `plugin/CHANGELOG.md` 的最新 `## [<版本>]` 条目 + `plugin/package.json` 的 `version` + `README.md` 与 `plugin/README.md` 的版本行 + 仓库根 `package.json` 的 `version`（裸 git 安装读取的版本源，须与发布版本同步） |
 
-下列四项规则细目（两类 README 的分工、英文衍生件地位、四处版本号一致、漂移处理）由本项目事实规范「dsh-ldvh 发布规范」引用本登记并承载发布侧规则。`plugin/README.en.md` 不属受保护文档（英文机械衍生物，可由主版重建）。上表五类的修改均须先展示现有内容与准确候选、说明差异与原因、经独立审核并取得 Human 明确同意，且形成只包含相应受保护文档的独立提交（完整流程以 00 §3.3 为准）。10 不削弱其保护地位；受保护文件清单的变更须经 Human Gate。
+下列四项规则细目（两类 README 的分工、英文衍生件地位、五处版本号一致、漂移处理）由本项目事实规范「dsh-ldvh 发布规范」引用本登记并承载发布侧规则。`plugin/README.en.md` 不属受保护文档（英文机械衍生物，可由主版重建）。上表五类的修改均须先展示现有内容与准确候选、说明差异与原因、经独立审核并取得 Human 明确同意，且形成只包含相应受保护文档的独立提交（完整流程以 00 §3.3 为准）。10 不削弱其保护地位；受保护文件清单的变更须经 Human Gate。
 
 ### 7.7 Output Envelope 宿主承载
 
