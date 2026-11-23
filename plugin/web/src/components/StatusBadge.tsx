@@ -19,6 +19,7 @@ export default function StatusBadge({ status, statusLabel, objectType = '', size
     || (objectType === 'friction' && status === 'voided')
     || (objectType === 'friction' && status === 'accepted')
     || (objectType === 'norm' && status === 'retired')
+    || (objectType === 'report' && status === 'retired')
     ? '#6b7280'
     : getStatusColor(status);
   const compact = variant === 'compact' || size === 'xs';

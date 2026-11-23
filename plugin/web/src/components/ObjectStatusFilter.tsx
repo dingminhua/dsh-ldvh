@@ -31,7 +31,7 @@ const statusOrderIndex = new Map(STATUS_FILTER_ORDER.map((status, index) => [sta
 const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   pitfall: ['active', 'discarded'],
   spark: ['open', 'implemented', 'discarded'],
-  research: ['active', 'retired'],
+  report: ['active', 'retired'],
   friction: ['open', 'resolved', 'voided', 'accepted'],
   norm: ['active', 'retired'],
   subgoal: ['active', 'achieved', 'retired'],

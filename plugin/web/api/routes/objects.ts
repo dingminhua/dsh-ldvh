@@ -249,20 +249,25 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
       : allItems
   if (isRecord(result.data)) {
     const statusItems = status ? await listObjectSummaries(type, factScope) : items
-    result.data.statusOptions = getStatusOptions(statusItems)
-    result.data.formOptions = type === 'report' ? getFormOptions(statusItems) : []
-    if (type === 'spark') {
-      const priorityPool = status
-        ? allItems.filter((item) => item.status === status)
-        : allItems
-      result.data.priorityOptions = getSparkPriorityOptions(priorityPool)
-      const servesPool = status
-        ? allItems.filter((item) => item.status === status)
-        : allItems
-      result.data.servesOptions = getSparkServesOptions(servesPool)
-      result.data.servesOrders = await readSubGoalOrderIndex(factScope)
-    }
     result.data.statusTotal = statusItems.length
+    result.data.formOptions = type === 'report' ? getFormOptions(allItems) : []
+    result.data.formTotal = allItems.length
+    if (type === 'spark') {
+      const unfilteredItems = status ? statusItems : allItems
+      const statusPool = unfilteredItems.filter((item) =>
+        (!priority || item.priority === priority) && (!serves || sparkServesUid(item) === serves))
+      const priorityPool = allItems.filter((item) => !serves || sparkServesUid(item) === serves)
+      const servesPool = allItems.filter((item) => !priority || item.priority === priority)
+      result.data.statusOptions = getStatusOptions(statusPool)
+      result.data.statusDisplayTotal = statusPool.length
+      result.data.priorityOptions = getSparkPriorityOptions(priorityPool)
+      result.data.priorityTotal = priorityPool.length
+      result.data.servesOptions = getSparkServesOptions(servesPool)
+      result.data.servesTotal = servesPool.length
+      result.data.servesOrders = await readSubGoalOrderIndex(factScope)
+    } else {
+      result.data.statusOptions = getStatusOptions(statusItems)
+    }
   }
   if (isRecord(result.data)) {
     result.data.items = sortByUpdatedDesc(items)

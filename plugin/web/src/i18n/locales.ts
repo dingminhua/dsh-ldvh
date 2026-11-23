@@ -64,8 +64,8 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     discarded: { zh: '已废弃', en: 'Discarded' },
   },
   report: {
-    active: { zh: '活跃', en: 'Active' },
-    retired: { zh: '已废弃', en: 'Retired' },
+    active: { zh: '生效', en: 'Active' },
+    retired: { zh: '归档', en: 'Archived' },
   },
   friction: {
     open: { zh: '待修', en: 'Open' },
@@ -702,6 +702,18 @@ export function getObjectStatusHint(type: string, status: string, locale: string
       return locale === 'en'
         ? 'Accepted as unpayable: real obstacle with no elimination path; recorded once and no longer reported'
         : '已接受（不可清偿）：阻碍真实但消除途径不存在或不在可动范围；记录一次，不再重复报告';
+    }
+  }
+  if (type === 'report') {
+    if (status === 'active') {
+      return locale === 'en'
+        ? 'Effective: a current research entry within its stated sources, observation time, stop and limits'
+        : '生效：在所述来源、观察时点、停止与限制范围内可作为当前调研入口';
+    }
+    if (status === 'retired') {
+      return locale === 'en'
+        ? 'Archived: no longer a current research entry; kept for recall by exact reference, history tracing or source tracing'
+        : '归档：不再作为当前调研入口，仅在精确引用、回溯历史或追溯来源时进入';
     }
   }
   if (type === 'norm') {
