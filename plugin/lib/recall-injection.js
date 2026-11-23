@@ -377,7 +377,8 @@ export function renderRecallRow(result) {
       lines.push(singleSection ? "事实源：" : `事实源 · ${labelOf(type)}：`);
       for (const fact of sectionOf.get(type)) {
         const status = typeof fact.status === "string" && fact.status !== "" ? `/${fact.status}` : "";
-        const excerpt = typeof fact.excerpt === "string" && fact.excerpt !== "" ? `\n  ↳ ${fact.excerpt}` : "";
+        const excerpt = type === "norm" ? ""
+          : (typeof fact.excerpt === "string" && fact.excerpt !== "" ? `\n  ↳ ${fact.excerpt}` : "");
         const structural = renderStructuralTag(fact.structural);
         const stableUid = typeof fact.objectUid === "string" && fact.objectUid !== ""
           ? ` · uid=${fact.objectUid}`

@@ -7,7 +7,7 @@ const LEDGER_RELATIVE_PATH = ["ldvh", "review-ask-decisions.json"];
 
 const MAX_ENTRIES = 50;
 
-export const REVIEW_ASK_ROW_SUMMARY = "把关询问 · 待你决定是否安排代理";
+export const REVIEW_ASK_ROW_SUMMARY = "把关询问 · 待你决定核对做不做、由谁做";
 
 export const REVIEW_ASK_PLACEHOLDER_TASK = "当次任务";
 
@@ -19,6 +19,7 @@ export const REVIEW_ASK_POINTS = Object.freeze({
 
 export const REVIEW_ASK_ANSWERS = Object.freeze({
   REVIEW: "review",
+  SELF: "self-review",
   SKIP: "skip",
 });
 
@@ -239,8 +240,8 @@ async function recordReviewAskDecisionInner(dshHomePath, entry) {
     return failure("review-ask/invalid_entry", "fingerprint is required to record a review-ask decision");
   }
   const answer = entry?.answer;
-  if (answer !== REVIEW_ASK_ANSWERS.REVIEW && answer !== REVIEW_ASK_ANSWERS.SKIP) {
-    return failure("review-ask/invalid_entry", `answer must be "${REVIEW_ASK_ANSWERS.REVIEW}" or "${REVIEW_ASK_ANSWERS.SKIP}", got ${JSON.stringify(answer ?? null)}`);
+  if (answer !== REVIEW_ASK_ANSWERS.REVIEW && answer !== REVIEW_ASK_ANSWERS.SELF && answer !== REVIEW_ASK_ANSWERS.SKIP) {
+    return failure("review-ask/invalid_entry", `answer must be "${REVIEW_ASK_ANSWERS.REVIEW}", "${REVIEW_ASK_ANSWERS.SELF}" or "${REVIEW_ASK_ANSWERS.SKIP}", got ${JSON.stringify(answer ?? null)}`);
   }
   const point = entry?.point;
   if (!isReviewAskPoint(point)) {
@@ -273,7 +274,7 @@ async function recordReviewAskDecisionInner(dshHomePath, entry) {
 
 export function composeReviewAsk({ point, task } = {}) {
   const isPre = point === REVIEW_ASK_POINTS.PRE_ACTION;
-  const what = isPre ? "代理审查" : "代理复核";
+  const what = isPre ? "审查" : "复核";
   const PLACEHOLDER_TASK = "当次任务";
   const rawTask = typeof task === "string" && task.trim().length > 0 ? task.trim() : PLACEHOLDER_TASK;
   const TASK_TITLE_MAX = 60;
@@ -287,7 +288,7 @@ export function composeReviewAsk({ point, task } = {}) {
   };
   const taskTitle = rawTask.length > TASK_TITLE_MAX ? `${cutAt(rawTask, TASK_TITLE_MAX)}…` : rawTask;
 
-  const head = `${taskTitle}——要不要安排${what}？`;
+  const head = `${taskTitle}——这次${what}做不做、由谁做？`;
 
   return { question: head };
 }

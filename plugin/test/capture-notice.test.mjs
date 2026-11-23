@@ -41,18 +41,32 @@ test("buildCaptureNotice：只开摩擦时只含摩擦判据，不含经验动�
   assert.doesNotMatch(text, /context-supply/);
 });
 
-test("buildCaptureNotice：只摆判据，不触发记录、不派发、不设周期或静置检查点", () => {
+test("buildCaptureNotice：每轮固定自查、有材料就派、不预判成立、失败分两类", () => {
   const text = buildCaptureNotice({ experienceEnabled: true, frictionEnabled: true });
-  assert.match(text, /本行只把/);
-  assert.match(text, /不触发记录/);
-  assert.match(text, /不派发代理/);
-  assert.match(text, /不设周期或静置检查点/);
-  assert.match(text, /自行判定/);
+  assert.match(text, /固定自查/);
+  assert.match(text, /不预判/);
+  assert.match(text, /有可回指材料/);
+  assert.match(text, /不靠计时器、周期调度或静置检查点驱动/);
   assert.match(text, /fail-closed/);
+  assert.match(text, /意外损耗/);
+  assert.match(text, /系统性故障/);
+  assert.match(text, /bug/);
   const entryIds = Object.values(CAPTURE_ENTRY_POINTS).flatMap((ref) =>
     ref.split("、").map((part) => part.trim().split(/\s*的\s*/).pop()),
   );
   for (const id of entryIds) assert.ok(text.includes(id), `正文须点到 ${id}`);
+});
+
+test("buildCaptureNotice：自带标题与完整判据，可独立成行、不依赖开发引导大段", () => {
+  const text = buildCaptureNotice({ experienceEnabled: true, frictionEnabled: true });
+  assert.match(text, /^【经验与摩擦 · 当场判据】/, "须自带独立标题，作为单独注入行");
+  assert.match(text, /固定自查/);
+  assert.match(text, /不预判/);
+  assert.match(text, /意外损耗/);
+  assert.match(text, /系统性故障/);
+  assert.match(text, /bug/);
+  assert.match(text, /discovery-trigger/);
+  assert.match(text, /context-supply/);
 });
 
 test("resolveCaptureSwitches：总开关关时两项都关；缺省 tasks 未开不注入", () => {

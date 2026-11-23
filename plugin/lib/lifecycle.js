@@ -5,7 +5,7 @@ import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { recallLimitForBudget } from "./source-recall.js";
-import { noticeTextFor, noticeSummaryFor, resolveGuidanceMode, GUIDANCE_MODE_DEV } from "./guidance-text.js";
+import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { buildCaptureNotice, captureNoticeDigest, resolveCaptureSwitches, CAPTURE_NOTICE_SUMMARY } from "./capture-notice.js";
 import { createTurnTriggers } from "./triggers.js";
 import { recordRun } from "./idle-runlog.js";
@@ -18,12 +18,12 @@ export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown
     .map((item, index) => `  ${index + 1}. ${item.label}（${item.source}）`)
     .join("\n");
   const lines = [
-    "各处提请的开关状态（行动前与收口前为「要不要安排代理」两问，Human 2026-11-13 决定；第三处为「遇难题：联网调查提请」，Human 2026-11-19 决定增设）",
+    "各处提请的开关状态（行动前与收口前为「那次核对做不做、由谁做」两问——安排代理／主控自己做／跳过三选一，Human 2026-11-13 决定设两问、2026-11-23 决定加主控自做档；第三处为「遇难题：联网调查提请」，三选一为联网调查／主控自调查／先不查，Human 2026-11-19 决定增设）",
   ];
   const stateOf = (on, known) => (on ? "**已开启**" : (known ? "关闭" : "关闭（未设置，按关处理）"));
   lines.push(`- 行动前审查：${stateOf(preOn, preKnown)} ｜ 行动后复核：${stateOf(postOn, postKnown)}`);
   const consultStateOf = (on, known) => (on ? "**已开启**" : (known ? "关闭" : "关闭（未设置——该处按不可用报告，不当作已关闭）"));
-  lines.push(`- 遇难题：联网调查提请：${consultStateOf(consultOn, consultKnown)}｜开时，主控自查遇到依赖外部信息、且自己不掌握的事，会先查内部经验／报告／事实规范，未命中才来问你要不要联网调查一次（见 research-entry 条目）；关时只交还内部读数、不来打扰。`);
+  lines.push(`- 遇难题：联网调查提请：${consultStateOf(consultOn, consultKnown)}｜开时，主控自查遇到依赖外部信息、且自己不掌握的事，会先查内部经验／报告／事实规范，未命中才来问你三选一「联网调查／主控自调查／先不查」（见 research-entry 条目）；关时只交还内部读数、不来打扰。`);
   if (silentOn) {
     lines.push("- 静默执行：**已开启** —— 判为复杂任务且**未命中点位排除**时**不问**，直接自动安排那次代理核对；每次须在交付里原样引用该次结果的 notice 一行（静默不等于无痕）。命中点位排除时该处不问**也不派发**——排除管的是那一次核对要不要发生，它优先于档位（见 exclusion-beats-mode 条目）。");
   }
@@ -42,12 +42,12 @@ export function buildReviewAskNotice({ preOn, postOn, preKnown = true, postKnown
   if (preOn && silentOn) {
     lines.push("① 行动前（方案已有候选、尚未产生副作用时，见 before-action-entry 条目）：按上面判据判定本次是否「复杂任务」，再看是否命中点位排除。判为复杂**且未命中排除**时，**不要问**——调 `ldvh_review_ask` 会直接返回派发模板，按它派零上下文子代理核对候选，结论回来后再落地。**尚无候选方案时不得发起该处请示**（没有对象可核对，见 uncertain 条目）；该处核对免的是征询，不是核对本身。");
   } else if (preOn) {
-    lines.push("① 行动前（方案已有候选、尚未产生副作用时，见 before-action-entry 条目）：按上面判据判定本次是否「复杂任务」，再看是否命中点位排除。判为复杂**且未命中排除**时，询问 Human「是否安排代理审查」。**尚无候选方案时不得发起该处请示**——没有对象可核对，此时发问是空问（见 uncertain 条目）。**答复不构成动手前提**：请示不使行动暂停，未取得答复时按既有路径继续（见 answer-means 条目）。");
+    lines.push("① 行动前（方案已有候选、尚未产生副作用时，见 before-action-entry 条目）：按上面判据判定本次是否「复杂任务」，再看是否命中点位排除。判为复杂**且未命中排除**时，询问 Human「这次审查做不做、由谁做」（三选一：安排代理审查／主控自审／跳过直接推进）。**尚无候选方案时不得发起该处请示**——没有对象可核对，此时发问是空问（见 uncertain 条目）。**答复不构成动手前提**：请示不使行动暂停，未取得答复时按既有路径继续（见 answer-means 条目）。");
   }
   if (postOn && silentOn) {
     lines.push("② 收口前（一件复杂任务做完、尚未形成完成声明时，见 before-closing-entry 条目）：先看是否命中点位排除；**未命中**则**不要问**——调 `ldvh_review_ask` 直接取派发模板，派零上下文子代理逐条核对后再收口。");
   } else if (postOn) {
-    lines.push("② 收口前（一件复杂任务做完、尚未形成完成声明时，见 before-closing-entry 条目）：先看是否命中点位排除；**未命中**则询问 Human「是否安排代理复核」。**答复不构成收口前提**：请示不使收口暂停，未取得答复时按既有路径继续并如实说明（见 answer-means 条目）。");
+    lines.push("② 收口前（一件复杂任务做完、尚未形成完成声明时，见 before-closing-entry 条目）：先看是否命中点位排除；**未命中**则询问 Human「这次复核做不做、由谁做」（三选一：安排代理复核／主控自查／跳过直接收口）。**答复不构成收口前提**：请示不使收口暂停，未取得答复时按既有路径继续并如实说明（见 answer-means 条目）。");
   }
   lines.push("");
   lines.push("提请入口：`ldvh_review_ask`（读开关、记录答复、同一内容不重复提问）。");
@@ -488,10 +488,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               }
             }
             if (lifecycle.scopeState !== "governed") return { inject: false, reason: "not-governed" };
-            const projectPath = lifecycle.lastScope?.project?.path ?? agent?.session?.header?.cwd;
-            if (typeof projectPath !== "string" || projectPath === "") return { inject: false, reason: "no-project" };
-            const mode = await resolveGuidanceMode(projectPath);
-            if (mode === GUIDANCE_MODE_DEV) return { inject: false, reason: "dev-guidance-covers" };
             const idle = typeof getIdleSettings === "function" ? getIdleSettings() : null;
             if (idle === null) return { inject: false, reason: "settings-unavailable" };
             const { experienceEnabled, frictionEnabled } = resolveCaptureSwitches(idle);

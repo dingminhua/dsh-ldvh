@@ -1378,7 +1378,7 @@ test("pre-step: 不传 suppressUngovernedRow 时行为不变（向后兼容）",
 
 test("pre-step: 把关行按 digest 只注一次（真实批次形状，连跑三回合）", async () => {
 	const agent = makeAgent("s-ask-dedup", "/cwd");
-	const ASK_SUMMARY = "把关询问 · 待你决定是否安排代理";
+	const ASK_SUMMARY = "把关询问 · 待你决定核对做不做、由谁做";
 	const channel = { primePending: true, lastDigest: null, lastReviewAskDigest: null };
 	const handler = createPreStepHandler(agent, {
 		isGoverned: () => true,
@@ -1403,7 +1403,7 @@ test("pre-step: 把关行按 digest 只注一次（真实批次形状，连跑�
 test("pre-step: 把关行在不受辖时 inject:false（真实 handler，不是源码 grep）", async () => {
 	const agent = makeAgent("s-gate", "/cwd");
 	const base = () => [{ id: "u1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }];
-	const ASK_SUMMARY = "把关询问 · 待你决定是否安排代理";
+	const ASK_SUMMARY = "把关询问 · 待你决定核对做不做、由谁做";
 
 	{
 		const channel = { primePending: true, lastDigest: null, lastReviewAskDigest: null };
@@ -1453,7 +1453,7 @@ test("把关提示行：静默执行开着时，两处由「须询问」改为�
 	assert.match(silent, /② 收口前[\s\S]*?不要问/, "收口前那一支须改为「不要问」");
 	const asked = buildReviewAskNotice({ preOn: true, postOn: true, silentOn: false });
 	assert.doesNotMatch(asked, /不要问/, "静默关着时仍须照旧询问");
-	assert.match(asked, /询问 Human「是否安排代理审查」/);
+	assert.match(asked, /询问 Human「这次审查做不做、由谁做」/);
 	const noSubject = buildReviewAskNotice({ preOn: false, postOn: false, silentOn: true });
 	assert.doesNotMatch(noSubject, /不要问/);
 });

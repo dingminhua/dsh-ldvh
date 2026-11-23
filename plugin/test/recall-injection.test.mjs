@@ -477,7 +477,25 @@ test("渲染行须显示候选摘录（数据层有而渲染不显示 = 读者�
 	assert.ok(excerptLine.trim().length > 5, "摘录不得为空");
 });
 
-test("N-5：partial/unavailable 时注入行须呈现三态与未读取源；complete 保持安静", () => {
+test("Norm 候选不重复定位：召回里的 norm 不带 ↳ 摘录，其他类型照带", () => {
+ 	const row = renderRecallRow({
+ 		specs: [],
+ 		facts: [
+ 			{ type: "norm", status: "active", title: "规范甲", hitReason: "命中", excerpt: "管什么／何时查阅的定位摘录", path: "ldvh-base/norms/a.md", objectUid: "u1" },
+ 			{ type: "pitfall", status: "active", title: "经验乙", hitReason: "命中", excerpt: "症状与根因摘录", path: "ldvh-base/pitfalls/b.md", objectUid: "u2" },
+ 		],
+ 		recallCompleteness: "complete",
+ 	});
+ 	const lines = row.split("\n");
+ 	const normIdx = lines.findIndex((l) => l.includes("规范甲"));
+ 	const pitfallIdx = lines.findIndex((l) => l.includes("经验乙"));
+ 	assert.ok(normIdx >= 0, "norm 候选行须在场");
+ 	assert.ok(pitfallIdx >= 0, "pitfall 候选行须在场");
+ 	assert.ok(!(lines[normIdx + 1] ?? "").includes("↳"), "norm 的标题＋定位已由独立「事实规范目录」行常驻，召回不得重复带 ↳ 摘录");
+ 	assert.ok((lines[pitfallIdx + 1] ?? "").includes("↳"), "非 norm 类型的摘录照旧渲染在下一行");
+ });
+
+ test("N-5：partial/unavailable 时注入行须呈现三态与未读取源；complete 保持安静", () => {
 	const partialRow = renderRecallRow({
 		specs: [{ title: "双源召回系统规范", path: "specs/34-双源召回系统规范.md", hitReason: "命中", excerpt: "……", source: {} }],
 		facts: [],

@@ -18,6 +18,7 @@ import {
   reviewAskMode,
   silentRunNotice,
 } from "../lib/review-ask.js";
+import { selfReviewDispatchTemplate } from "../lib/review-dispatch-template.js";
 
 test("resolveReviewAskSettings：两代宿主取值形态都认，缺省按关", () => {
   const both = resolveReviewAskSettings({ preActionReviewAskEnabled: true, postWorkReviewAskEnabled: false });
@@ -183,7 +184,7 @@ test("设置页 hint 与工具参数说明：须写明行动前那处的时点�
   const zh = client.slice(zhStart, zhEnd);
   if (!/第一次给出方案后/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未写「第一次给出方案后」这个时点条件");
   if (!/候选方案/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未写「候选方案」这个前提");
-  if (!/审核/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未说明问的是独立子代理审核");
+  if (!/审核|审查/.test(zh)) failures.push("row.reviewAskPreHint 中文侧未说明问的是独立子代理审核/审查");
   if (/取得明确答复后才/.test(zh)) failures.push("row.reviewAskPreHint 中文侧出现了「取得明确答复后才」（00 §2.5 明禁）");
 
   const enStart = client.indexOf('"row.reviewAskPreHint": "', zhEnd);
@@ -286,7 +287,7 @@ test("reviewAskFingerprint：同输入同指纹、异输入异指纹、位置参
   assert.match(reviewAskFingerprint(base), /^[a-f0-9]{64}$/);
 });
 
-test("composeReviewAsk：只写「要做什么」与「要不要审」，不产出 detail 且不出现判据", () => {
+test("composeReviewAsk：只写「要做什么」与三选一问句，不产出 detail 且不出现判据", () => {
   const pre = composeReviewAsk({ point: REVIEW_ASK_POINTS.PRE_ACTION, task: "重构召回注入" });
   assert.match(pre.question, /重构召回注入/, "标题须写明要做什么");
   assert.match(pre.question, /审查/);
@@ -303,6 +304,8 @@ test("composeReviewAsk：只写「要做什么」与「要不要审」，不产�
   assert.match(composeReviewAsk({ point: REVIEW_ASK_POINTS.PRE_ACTION }).question, /当次任务/);
   assert.match(composeReviewAsk({ point: REVIEW_ASK_POINTS.PRE_ACTION }).question, /审查/);
   assert.match(composeReviewAsk({ point: REVIEW_ASK_POINTS.POST_WORK }).question, /复核/);
+  assert.match(pre.question, /做不做、由谁做/, "题面须问三选一（做不做、由谁做），不得退回「要不要安排代理」的二值框架");
+  assert.doesNotMatch(pre.question, /要不要安排/);
 });
 
 test("composeReviewAsk：任务描述过长时截断，不让标题挤成多行", () => {
@@ -357,6 +360,30 @@ test("载体：ENOENT 是合法初态（未问过），写入后可按指纹读�
     assert.equal(after.value.answer, "skip", "skip 是明确答复，不是未决策");
     assert.equal(after.value.point, "pre-action");
   });
+});
+
+test("载体：self-review 是合法答复值，按点位留痕", async () => {
+  await withHome(async (home) => {
+    const fp = reviewAskFingerprint({ point: "pre-action", task: "z" });
+    const rec = await recordReviewAskDecision(home, { fingerprint: fp, point: "pre-action", answer: REVIEW_ASK_ANSWERS.SELF, task: "z" });
+    assert.equal(rec.ok, true);
+    assert.equal(rec.value.answer, "self-review");
+    const found = await findReviewAskDecision(home, fp);
+    assert.equal(found.value.answer, "self-review");
+  });
+});
+
+test("selfReviewDispatchTemplate：自审/自查不称「独立」，带实做与交付硬要求", () => {
+  const pre = selfReviewDispatchTemplate(REVIEW_ASK_POINTS.PRE_ACTION, { task: "重构召回" });
+  assert.equal(pre.kind, "pre-action-self-review");
+  assert.match(pre.prompt, /主控自审/);
+  assert.doesNotMatch(pre.prompt, /你是一位独立审查者/);
+  assert.match(pre.prompt, /实做一遍/);
+  assert.match(pre.prompt, /逐条写出核对了什么/);
+  const post = selfReviewDispatchTemplate(REVIEW_ASK_POINTS.POST_WORK, { task: "迁移" });
+  assert.equal(post.kind, "post-work-self-review");
+  assert.match(post.prompt, /主控自查/);
+  assert.match(post.prompt, /不得称为「独立审查结论」或「独立复核结论」/);
 });
 
 test("载体：空答复与非法闭集一律拒绝写入（未决策不得写成决定）", async () => {
@@ -631,6 +658,29 @@ test("工具：决定「安排」时返回对应模板，「跳过」时不返�
   assert.equal(skipped.result.review_template, undefined, "跳过时给模板是噪声，还可能诱导照派");
 });
 
+test("工具：决定「主控自己做」时返回 self_review_template 且不给代理模板", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const deps = {
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+    hostSeams: { requestReviewAsk: async () => ({ decision: "self-review", asked: true }) },
+  };
+  for (const point of ["pre-action", "post-work"]) {
+    const out = await executeReviewAsk(
+      { point, task: "改开关", claims: ["测试全过"] },
+      { agent: null }, deps);
+    assert.equal(out.result.decision, "self-review");
+    assert.equal(out.result.review_template, undefined, "主控自做时不该给代理派发模板");
+    assert.ok(out.result.self_review_template, `point=${point} 必须有自做模板`);
+    assert.match(out.result.self_review_template.kind, /self-review/);
+    assert.match(out.result.self_review_template.prompt, /主控自审|主控自查/);
+    assert.match(out.result.self_review_template.prompt, /硬性约束/);
+    assert.match(out.result.self_review_template.prompt, /输出格式/);
+    assert.match(out.result.self_review_template.prompt, /1\. 测试全过/);
+    assert.ok(out.follow_up.some((f) => /不派 subagent/.test(f)));
+    assert.ok(out.follow_up.some((f) => /如实标注/.test(f)));
+  }
+});
+
 test("工具：pre-action 与 post-work 各自返回自己的模板", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   const deps = {
@@ -681,6 +731,42 @@ test("renderEnvelope 必须把答复与模板渲染给模型（BLOCKER：原实�
   assert.match(reviewed, /# 独立复核/, "模板正文须逐字渲染");
   assert.match(reviewed, /请逐条核对。/, "模板尾部不得被截断");
   assert.doesNotMatch(skipped, /review_template/);
+
+  const selfEnv = {
+    envelope: {
+      operation_key: "review-ask",
+      outcome: "completed",
+      result: {
+        point: "pre-action",
+        decision: "self-review",
+        asked: true,
+        self_review_template: { kind: "pre-action-self-review", prompt: "# 主控自审\n逐面核对。" },
+      },
+      gaps: [], scope: { not_completed: [] }, follow_up: [],
+    },
+  };
+  const selfText = renderEnvelope("review-ask", selfEnv)[0].text;
+  assert.match(selfText, /decision: self-review/);
+  assert.match(selfText, /self_review_template\.kind: pre-action-self-review/);
+  assert.match(selfText, /# 主控自审/, "自做模板正文须逐字渲染给模型");
+
+  const selfResearchEnv = {
+    envelope: {
+      operation_key: "review-ask",
+      outcome: "completed",
+      result: {
+        point: "research",
+        decision: "self-review",
+        asked: true,
+        self_research_template: { kind: "self-research", prompt: "# 主控自调查\n逐条记录来源。" },
+      },
+      gaps: [], scope: { not_completed: [] }, follow_up: [],
+    },
+  };
+  const selfResearchText = renderEnvelope("review-ask", selfResearchEnv)[0].text;
+  assert.match(selfResearchText, /decision: self-review/);
+  assert.match(selfResearchText, /self_research_template\.kind: self-research/);
+  assert.match(selfResearchText, /# 主控自调查/);
 });
 
 test("renderEnvelope 必须把 silent 与 notice 渲染给模型（独立复核 BLOCKER）", async () => {

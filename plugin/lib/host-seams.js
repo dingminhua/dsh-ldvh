@@ -13,10 +13,13 @@ import { composeConsultQuestion } from "./research-consult.js";
 
 const REVIEW_ASK_QUESTION_ID = "ldvh-review-ask";
 const REVIEW_ASK_REVIEW_LABEL = "安排代理";
+const REVIEW_ASK_SELF_LABEL_PRE = "主控自审";
+const REVIEW_ASK_SELF_LABEL_POST = "主控自查";
 const REVIEW_ASK_SKIP_LABEL = "跳过，直接推进";
 
 const RESEARCH_CONSULT_QUESTION_ID = "ldvh-research-consult";
 const RESEARCH_CONSULT_RESEARCH_LABEL = "联网调查";
+const RESEARCH_CONSULT_SELF_LABEL = "主控自调查";
 const RESEARCH_CONSULT_SKIP_LABEL = "先不查";
 
 const CONSENT_QUESTION_ID = "ldvh-registration-consent";
@@ -388,7 +391,13 @@ export function createHostSeams() {
               ? "派独立子代理先对这个方案挑错，结论回来后再动手"
               : "派独立子代理逐条核对这次已做的工作，结论回来后再收口",
           },
-          { label: REVIEW_ASK_SKIP_LABEL, description: "本次不做独立把关，主控自查仍在" }
+          {
+            label: point === REVIEW_ASK_POINTS.PRE_ACTION ? REVIEW_ASK_SELF_LABEL_PRE : REVIEW_ASK_SELF_LABEL_POST,
+            description: point === REVIEW_ASK_POINTS.PRE_ACTION
+              ? "不派代理，主控自己按那份要求把方案再审一遍，交付里写明查了什么"
+              : "不派代理，主控自己按那份要求把已做工作再核一遍，交付里写明查了什么",
+          },
+          { label: REVIEW_ASK_SKIP_LABEL, description: "这次核对不做，直接推进" }
         ]
       }],
       ...(signal === undefined ? {} : { signal })
@@ -421,7 +430,9 @@ export function createHostSeams() {
       const entry = answers.find((a) => a?.id === REVIEW_ASK_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
       const customNote = customTextOf(entry);
-      if (selected !== REVIEW_ASK_REVIEW_LABEL && selected !== REVIEW_ASK_SKIP_LABEL) {
+      const selfLabel = point === REVIEW_ASK_POINTS.PRE_ACTION ? REVIEW_ASK_SELF_LABEL_PRE : REVIEW_ASK_SELF_LABEL_POST;
+      const isKnown = selected === REVIEW_ASK_REVIEW_LABEL || selected === selfLabel || selected === REVIEW_ASK_SKIP_LABEL;
+      if (!isKnown) {
         const shape = customNote !== null
           ? `free-text answer submitted (no option selected): ${JSON.stringify(customNote)}`
           : `skipped / no option chosen (answer: ${JSON.stringify(selected ?? null)})`;
@@ -433,7 +444,9 @@ export function createHostSeams() {
           reason: `human did not choose an option — ${shape} — 未决策不是答复，下次仍会问；自由文本作为补充信息回传，不冒充 review/skip`,
         };
       }
-      const decision = selected === REVIEW_ASK_REVIEW_LABEL ? REVIEW_ASK_ANSWERS.REVIEW : REVIEW_ASK_ANSWERS.SKIP;
+      const decision = selected === REVIEW_ASK_REVIEW_LABEL
+        ? REVIEW_ASK_ANSWERS.REVIEW
+        : (selected === selfLabel ? REVIEW_ASK_ANSWERS.SELF : REVIEW_ASK_ANSWERS.SKIP);
       const recorded = await recordReviewAskDecision(seams.dshHomePath, {
         fingerprint,
         point,
@@ -476,7 +489,9 @@ export function createHostSeams() {
         && !priorIsPlaceholder;
       if (reusable) {
         return {
-          decision: prior.value.answer === REVIEW_ASK_ANSWERS.REVIEW ? "research" : "skip",
+          decision: prior.value.answer === REVIEW_ASK_ANSWERS.REVIEW
+            ? "research"
+            : (prior.value.answer === REVIEW_ASK_ANSWERS.SELF ? REVIEW_ASK_ANSWERS.SELF : "skip"),
           asked: false,
           reused: true,
           fingerprint,
@@ -492,6 +507,7 @@ export function createHostSeams() {
         question: composed.question,
         options: [
           { label: RESEARCH_CONSULT_RESEARCH_LABEL, description: "开一次联网取证：派零上下文调研子代理走 33 号调研会话" },
+          { label: RESEARCH_CONSULT_SELF_LABEL, description: "不派代理，主控自己联网查一遍，交付里写明查了什么与来源" },
           { label: RESEARCH_CONSULT_SKIP_LABEL, description: "本次不联网，按既有路径继续" }
         ]
       }],
@@ -503,7 +519,7 @@ export function createHostSeams() {
       const entry = answers.find((a) => a?.id === RESEARCH_CONSULT_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
       const customNote = customTextOf(entry);
-      if (selected !== RESEARCH_CONSULT_RESEARCH_LABEL && selected !== RESEARCH_CONSULT_SKIP_LABEL) {
+      if (selected !== RESEARCH_CONSULT_RESEARCH_LABEL && selected !== RESEARCH_CONSULT_SELF_LABEL && selected !== RESEARCH_CONSULT_SKIP_LABEL) {
         const shape = customNote !== null
           ? `free-text answer submitted (no option selected): ${JSON.stringify(customNote)}`
           : `skipped / no option chosen (answer: ${JSON.stringify(selected ?? null)})`;
@@ -512,14 +528,16 @@ export function createHostSeams() {
           asked: true,
           fingerprint,
           ...(customNote === null ? {} : { custom_note: customNote }),
-          reason: `human did not choose an option — ${shape} — 未决策不是答复，下次仍会问；自由文本作为补充信息回传，不冒充安排／不安排`,
+          reason: `human did not choose an option — ${shape} — 未决策不是答复，下次仍会问；自由文本作为补充信息回传，不冒充三档中的任一档`,
         };
       }
-      const decision = selected === RESEARCH_CONSULT_RESEARCH_LABEL ? "research" : "skip";
+      const decision = selected === RESEARCH_CONSULT_RESEARCH_LABEL
+        ? "research"
+        : (selected === RESEARCH_CONSULT_SELF_LABEL ? REVIEW_ASK_ANSWERS.SELF : "skip");
       const recorded = await recordReviewAskDecision(seams.dshHomePath, {
         fingerprint,
         point: REVIEW_ASK_POINTS.RESEARCH,
-        answer: decision === "research" ? REVIEW_ASK_ANSWERS.REVIEW : REVIEW_ASK_ANSWERS.SKIP,
+        answer: decision === "research" ? REVIEW_ASK_ANSWERS.REVIEW : decision,
         task: typeof fingerprintTask === "string" && fingerprintTask.trim() === REVIEW_ASK_PLACEHOLDER_TASK ? null : fingerprintTask,
       });
       if (!recorded.ok) {
