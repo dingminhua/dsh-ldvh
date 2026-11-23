@@ -29,8 +29,8 @@
   <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
 </p>
 
-> 版本 `1.1.4` ｜ MIT License（与 DSH 本体同协议）
-> 版本 `1.1.4` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
+> 版本 `1.1.5` ｜ MIT License（与 DSH 本体同协议）
+> 版本 `1.1.5` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
 
 ## 截图
 
@@ -77,7 +77,7 @@ LDVH（LD Vibe Harness）以 **DSH 原生插件为统一交付形态**。人与 
 
 ## 仓库结构
 
-本树为 1.1.4 发布树，由开发线（`dev` 分支）经 `plugin/scripts/sync-release.mjs` 机械同步生成，仅排除项目专属事实源 `ldvh-base/`（见下表）；同步判据与操作序列见发布规范分支纪律第 7 条。
+本树为 1.1.5 发布树，由开发线（`dev` 分支）经 `plugin/scripts/sync-release.mjs` 机械同步生成，仅排除项目专属事实源 `ldvh-base/`（见下表）；同步判据与操作序列见发布规范分支纪律第 7 条。
 
 | 路径 | 内容 |
 |---|---|
@@ -110,7 +110,7 @@ cd plugin && npm pack --dry-run
 
 | 轨 | 语法 | 递增时机 | 当前 |
 |---|---|---|---|
-| 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | `1.1.4` |
+| 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | `1.1.5` |
 | 开发迭代版本 | 同主版本 + `-dev.N` | 发布后进入下一轮 | 见 `dev` 分支 |
 
 发布封存干净版本后，开发线在 `dev` 分支进入下一轮。
