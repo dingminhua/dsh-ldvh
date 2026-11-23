@@ -5,7 +5,7 @@ question: "`parseWorkCaseResultDraft` 的 advice 段退出条件应如何收严�
 scope_boundary: 给出「退出条件应满足什么、现有实现为何不满足、改后对存量与新增正文各有什么影响」的可执行结论即可停；不在本议题内落实现改动，也不在本议题内决定纳入哪次行动。
 intent: 已定位的实现缺陷（含可复现失败信号与已知后果），且当前会影响 web 用例与投影口径。收敛为 Spark 以便跨行动修复：先定退出条件的判据，再决定落实现与影响面。
 summary: "`workcase-364df30e`（WorkCase 呈现保真与设计语言收敛）的残留与去向里记着一处已定位的实现缺陷：`parseWorkCaseResultDraft` 的 `advice` 段退出条件不严——在 `advice` 模式下遇到后续顶层 bullet 时未退出，会把本不属于该段的条目吞为建议条目。载体原话：『修 `parseWorkCaseResultDraft` 的 advice 段退出条件——advice 模式下遇到后续顶层 bullet 应退出，不得吞为建议条目（2026-09-27 双基线复核发现，当前由 workcase-63700bd2 的未提交正文改动暴露为 fidelity L547 失败）。』后果是投影失真：去向条目数被少算/多算，直接影响关闭卡的「去向分区」呈现与条数口径。"
-serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
+serves: af93e218-e9d9-4234-b436-33dc0c7c37dc
 disposition: 并入 spark-b0e805d1「插件呈现层三处已定位缺陷」：缺陷本体、可复现失败信号与后果判断已由该对象承载；本议题未落地任何修复
 relations:
   - relation_key: split-into
@@ -31,8 +31,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-refs:
-  - object_uid: 364df30e-ce3d-4cca-9463-c57a1fad399a
+  - at: 2026-11-23T20:51:51.349Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal c8a2a574-b17f-47c1-b5fb-fe9bca88c97b，按内容语义改指 active SubGoal af93e218-e9d9-4234-b436-33dc0c7c37dc（AI任务高效准确）。 同时清除悬空 refs（指向已删除对象，原值 [{"object_uid":"364df30e-ce3d-4cca-9463-c57a1fad399a"}] 记于此）。终态与正文不变。
 ---
 
 # advice 段解析吞条目缺陷

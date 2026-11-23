@@ -5,7 +5,7 @@ question: WorkCase 事实类型的承载层应如何建成，attempt 令牌缺�
 scope_boundary: WorkCase 可完成出生→Gate 1→执行→Gate 2 一轮，且 attempt 的宿主实现归属已定案时停止。不含 Norm 承载层（另有独立对象承载）；不含 21 号自身的规范修订——若定案路径选择修订 21（如降级 attempt），该修订本身另走 Human Gate，不在本对象的执行范围内。
 intent: 保留理由——21 号规范已定稿且字段契约完整，但 WorkCase 承载层零实现，且 `attempt` 被 §10.4 推给 10/06 而创建时点实测该两份规范对该词零命中；§9.1 又把 `attempt` 定为 `open` 状态的必要条件，故 WorkCase 能创建却永远走不出 draft，SG-2 因之推不动。与 Norm 拆开的理由——这条的真实卡点在**规范间接缝**而非实现量，合并承载会把「待定案」误呈现为「待补写」。后续方向——先定案 attempt 归属（补 10/06 定义，或改 21 §9.1 降级该字段，二者均需 Human Gate），再实现承载层，最后以真实一轮验证。
 summary: 2026-11-05 收口：21 §15.2 attempt 承重声明行已删（独立复核 pass、无残留）；身份不可用改为 Gate 1／takeover／reallocate 拒绝分配（fail-closed），10 §5.9／06 §6 同步。第一半 51 份 closed 已证，第二半已闭合。本条实质完成。
-serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
+serves: af93e218-e9d9-4234-b436-33dc0c7c37dc
 disposition: 两半均已闭合：writer 全通道建成、ldvh-base/workcases 下载体全部 closed，出生→Gate 1→执行→Gate 2 闭环成立；10 §5.9／06 §6 承接条文经独立复核 pass，21 §15.2 承重声明行已删、身份不可用定案为拒绝分配。无 scope 内残留。
 object_uid: 27a9dbfc-35ca-485e-83f8-182fd8f0f1c9
 fact_type_key: spark
@@ -39,6 +39,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-23T20:51:51.288Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal befe1735-1187-4d60-ba53-e55eb0cb7de2，按内容语义改指 active SubGoal af93e218-e9d9-4234-b436-33dc0c7c37dc（AI任务高效准确）。终态与正文不变。
 ---
 
 # WorkCase 承载层与 attempt 接缝

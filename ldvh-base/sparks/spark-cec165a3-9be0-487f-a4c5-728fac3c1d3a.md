@@ -43,7 +43,7 @@ summary: |-
 evolution:
   - at: 2026-10-19T17:15:13Z
     summary: 从并存到闭环：判据从分类精确性升级为每条记录的下一跳、债与知识共变、规则自身可被循环修订；链接不是闭环，转换义务才是。
-serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
+serves: a415bbd4-ee4b-43e1-9bb0-0c4e8761c188
 disposition: 判别边界＝两问角色锚（26 §4.3／23 §6.1）；查重锚统一为归因落点＋机制模式（26 §6.2／23 §6.2／36 §8.2／35 §8.3）；跨类型同源＝单侧存储的 paired-with ＋机械反查（26 §11／§12／§15、23 §11）；转换义务互补（26/23 §9.4）。存量首条真实配对已补建并跑通。批 A／C 经 2026-10-28 判定撤销，理由见「演变」。
 object_uid: cec165a3-9be0-487f-a4c5-728fac3c1d3a
 fact_type_key: spark
@@ -77,11 +77,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-refs:
-  - object_uid: 981e5bf5-229a-4e04-af2d-4c32b795d27d
-  - object_uid: 56a5ed45-a7cb-4c2f-b2ad-e766a49338d3
-  - object_uid: b8cd2268-91ba-4585-bb39-ec674d64c097
-  - object_uid: 5eec3197-a92e-46fb-a5ac-a7f00c9d2319
+  - at: 2026-11-23T20:51:51.523Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal c8a2a574-b17f-47c1-b5fb-fe9bca88c97b，按内容语义改指 active SubGoal a415bbd4-ee4b-43e1-9bb0-0c4e8761c188（经验积累与摩擦发现）。 同时清除悬空 refs（指向已删除对象，原值 [{"object_uid":"981e5bf5-229a-4e04-af2d-4c32b795d27d"},{"object_uid":"56a5ed45-a7cb-4c2f-b2ad-e766a49338d3"},{"object_uid":"b8cd2268-91ba-4585-bb39-ec674d64c097"},{"object_uid":"5eec3197-a92e-46fb-a5ac-a7f00c9d2319"}] 记于此）。终态与正文不变。
 ---
 
 # 摩擦与经验的分诊边界与重复治理

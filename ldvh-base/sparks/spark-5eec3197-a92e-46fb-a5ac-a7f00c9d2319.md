@@ -29,7 +29,7 @@ evolution:
     summary: 第三轮重测（n=67）：≥80% 降至 3%、中位 31%；发现短 summary 重复度反低于长 summary（22% vs 34%），真变量是 summary 长度而非正文长度——原「短对象冗余」判断方向已反。
   - at: 2026-11-04
     summary: 取舍落地（实质转折）：Human 定乙案 + B1——Spark.summary 设 200 字符上限（20 §8），仅索引层生效，WorkCase/DevLog 不设（靠 §8 分块保可读）；只校验新增或改动的 summary，存量 66 条放行。实现 summary-limit.js、spark-writer.js 接入、9 条用例；全量 3044/3046 绿，三次变异各转红。本议题转 implemented。
-serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
+serves: 3ab9c84c-0ebd-45d5-983d-cec515ef623a
 disposition: 选乙（削 frontmatter）：Spark.summary 设 200 字符上限（20 §8），仅索引层生效，WorkCase/DevLog 靠 §8 分块规则不设上限；B1 只校验新增或改动的 summary，存量 66 条放行以免冻结事实源。实现 summary-limit.js + spark-writer 接入 + 9 条用例，全量 3044/3046 绿，三次变异各转红。
 object_uid: 5eec3197-a92e-46fb-a5ac-a7f00c9d2319
 fact_type_key: spark
@@ -59,6 +59,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-23T20:51:51.388Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal befe1735-1187-4d60-ba53-e55eb0cb7de2，按内容语义改指 active SubGoal 3ab9c84c-0ebd-45d5-983d-cec515ef623a（项目可厘清）。终态与正文不变。
 ---
 
 # Spark 内聚的冗余与取舍

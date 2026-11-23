@@ -12,7 +12,7 @@ summary: |-
   **议题 2 · 「人能看」承诺与规范类文档**：两类新内容冲击「事实源人能看」承诺——① code/web 设计文档（人不看，消费对象是 AI）；② 规范类文档（审计/测试/发布规范，人要看且「像规范又像 ADR」）。**建议（未定案，准入属 Human Gate）**：① 设计文档**不对象化**，保持 docs/ 现状，立纪律「**设计文档禁止藏规则**」，约束性内容必须上浮为 ADR 或规范（docs/ 是解释不是约束）；② **规范类文档立新类型（暂名 Practice/实践规范）**，与 ADR 按行业「决定与规则分离」共识分工——ADR 记「为什么」（决定+理由+适用范围，决策时刻快照，改决策=新 ADR 替代），Practice 记「怎么做」（检查清单/步骤/标准，长期演化，change_log 承载修订）；互引（ADR consequences 指向 Practice；Practice change_log 首条回指 ADR）。**行业对照**：ADR 运动决定/规则分离、IETF BCP 系列、Diátaxis 四象限、Policy-as-Code、开源根目录惯例。
 
   **注意**：`specs/27-Norm-事实规范.md` 已存在（Norm 类型已立项并定稿），与本文档 2026-09-03 提出的 Practice 候选**是否同一物的不同命名或不同设计**，须核对——这是本 Spark 的首要查重点。**讨论原则（Human 定）**：以「满足什么问题」为准入唯一依据；mnemon 的形态是参照不是模板；任何新类型在 20–24 重建之后按同节奏起草规范（编号待分配，可能 25+）。
-serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
+serves: 3ab9c84c-0ebd-45d5-983d-cec515ef623a
 disposition: 已落实：Practice 候选经 02 §6.2 六问逐项判定不立新类型（第 3 问 Norm 可无损承载、第 5 问净价值不成立），职责由 27 号 Norm 承接，fact_type_key 九值闭集不增 practice；mnemon 三层记忆已定案不进事实对象体系（归 b8cd2268）。两项停止条件均达成。
 object_uid: 56a5ed45-a7cb-4c2f-b2ad-e766a49338d3
 fact_type_key: spark
@@ -46,6 +46,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-23T20:51:51.370Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal befe1735-1187-4d60-ba53-e55eb0cb7de2，按内容语义改指 active SubGoal 3ab9c84c-0ebd-45d5-983d-cec515ef623a（项目可厘清）。终态与正文不变。
 ---
 
 # 新事实类型候选准入

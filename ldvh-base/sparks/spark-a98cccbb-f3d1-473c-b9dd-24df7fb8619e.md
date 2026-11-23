@@ -5,7 +5,7 @@ question: 候选交付后事实对象发生改动时，陈旧候选应以什么�
 scope_boundary: 检出判据、检出时机与 stale 处置方式三者确定，或经 Human 判定该场景在实践中不构成须处置的问题并给出理由时停止；不含排序算法与注入决策（已由 spark-7f5b8acc 的①②落地）、不含向量/embedding 路线、不含记忆系统两层架构（归 spark-b8cd2268）。
 intent: 保留理由：这是「召回交付的候选可能与载体不一致」这一正确性问题的唯一承载，且它的未落地曾把 spark-7f5b8acc 的完成度拖成部分完成——不单独承载就永远混在排序质量议题里。后续方向：先定 stale 判据（复用现有内容指纹还是另建），再定检出侧（召回/注入/呈现），最后定处置（标 stale 还是撤回）；判据以能否机械复算为准。
 summary: 经 Human 判定撤销（2026-11-04）：候选交付后的陈旧检测不属欠债，而是 02 §9.1 F2 行已明写的设计取舍——该层「不能单独证明」列即含「现时适用、结论当前」，规范在设计上就把「候选不是当前结论」交给读者按 F3 复核承担。故不做机械陈旧检测，本议题不再跟踪。
-serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
+serves: a7accc55-10bc-424e-a195-3a5369bee2c6
 disposition: 经 Human 2026-11-04 判定为设计取舍而非欠债：02 §9.1 F2 行「不能单独证明」列已含「现时适用、结论当前」，陈旧判断由读者按 F3 复核承担，撤销本议题。
 object_uid: a98cccbb-f3d1-473c-b9dd-24df7fb8619e
 fact_type_key: spark
@@ -23,8 +23,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-refs:
-  - object_uid: 7f5b8acc-02a1-4cc7-8b2b-60d2433fbd67
+  - at: 2026-11-23T20:51:51.458Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal c8a2a574-b17f-47c1-b5fb-fe9bca88c97b，按内容语义改指 active SubGoal a7accc55-10bc-424e-a195-3a5369bee2c6（召回保障当前工作）。 同时清除悬空 refs（指向已删除对象，原值 [{"object_uid":"7f5b8acc-02a1-4cc7-8b2b-60d2433fbd67"}] 记于此）。终态与正文不变。
 ---
 
 # 召回候选的陈旧检测

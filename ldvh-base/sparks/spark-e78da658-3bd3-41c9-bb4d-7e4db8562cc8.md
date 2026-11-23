@@ -18,7 +18,7 @@ summary: |-
   **边界**：不含 Goal 类型语义/字段契约/状态翻转（25 号已定）与蓝图呈现形态（归「蓝图功能的最终形态」Spark）。
 
   （来源：specs/25-Goal-项目目标.md §3.2/§10/§11、specs/03、实读确认全仓无初始化流程规范）
-serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
+serves: 3ab9c84c-0ebd-45d5-983d-cec515ef623a
 disposition: 已落实：scope_boundary 三项停止条件逐字达成——承载落点定为 30 号（goal-planning-system-foundation，01 §8.2 已登记）、收敛步骤见 30 §8.3（四步单向，Human 逐条确认不可代）、可判定性校验见 30 §8.1 四项判据且明文不由机械保障。第五项「与 08 §5.4 的先后关系」不在本条边界内，未答不构成本条未完成。
 object_uid: e78da658-3bd3-41c9-bb4d-7e4db8562cc8
 fact_type_key: spark
@@ -44,6 +44,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-23T20:51:51.550Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal befe1735-1187-4d60-ba53-e55eb0cb7de2，按内容语义改指 active SubGoal 3ab9c84c-0ebd-45d5-983d-cec515ef623a（项目可厘清）。终态与正文不变。
 ---
 
 # 项目目标与 sub-goal 的引导创建

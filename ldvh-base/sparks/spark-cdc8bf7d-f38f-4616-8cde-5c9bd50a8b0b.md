@@ -12,7 +12,7 @@ evolution:
     summary: 批次 G 号位对照注记：正文全部为 2026-09-12～09-15 的时点记录，照录不改；追加现行号位对照（03 §7.2→02 §8.2、03 §8→02 §9、时点 02 号→现行 03/04、33 号→35 草案），并以现行承载为准。非实质内容变更。
   - at: 2026-11-05
     summary: 两项定案并落地（be00f01）：证据定位改为类型层补登记（26 §11，仅 informs、闭集仅 commit）并收紧写入侧采用面；消费召回并入 02 §9.1 F2 关系命中与 §12.4 判据表一跳展开，24 §244 两个无实现操作名删除。正文收束为结论，历史版本保留在 Git。
-serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
+serves: a7accc55-10bc-424e-a195-3a5369bee2c6
 disposition: 关系机制两项定案并落地（be00f01）：证据定位在 Friction 侧补登记采用面（26 §11，仅 informs、闭集 commit）并收紧写入侧；消费召回并入 02 §9.1 F2 关系命中与判据表一跳展开，24 §244 两个无实现操作名已删。范围到此为止。
 object_uid: cdc8bf7d-f38f-4616-8cde-5c9bd50a8b0b
 fact_type_key: spark
@@ -50,6 +50,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
+  - at: 2026-11-23T20:51:51.512Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal befe1735-1187-4d60-ba53-e55eb0cb7de2，按内容语义改指 active SubGoal a7accc55-10bc-424e-a195-3a5369bee2c6（召回保障当前工作）。终态与正文不变。
 ---
 
 # 关系机制剩余未决：证据与消费召回

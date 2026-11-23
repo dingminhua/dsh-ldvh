@@ -19,7 +19,7 @@ summary: |-
 evolution:
   - at: 2026-09-28
     summary: Human 裁决「A 收缩为二词」后，本对象由「提案待裁」转为「已落地」：去向改为二词闭集、指向由 refs 改为 relations.routed-to、新增四档机械门禁与 CREATE-FIRST 次序，落为 21 §7/§8/§9.1/§10.2/§12/§13/§14/§15.1/§15.3/§15.4/§16 修订及实现与呈现层同步（commit 3a32e63）。同时更正本对象两处事实瑕疵：v2 第 9 条「用 refs 绕过 open 约束」的设计已被否弃；裂缝①的「open Spark 2916e3d5」限定词更正为其真实状态 discarded。
-serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
+serves: af93e218-e9d9-4234-b436-33dc0c7c37dc
 disposition: 已实现：残留与去向机制按 Human 裁决（2026-09-28「A 收缩为二词」）落地——去向闭集二词、routed-to 承载指向、四档机械门禁，见 commit 3a32e63（21 §7/§8/§9.1/§10.2/§12/§13/§14/§15.1/§15.3/§15.4/§16 与实现、呈现层）；存量 22 份不溯及。
 object_uid: ce1db936-2ddc-4ed1-b059-f95def66e8ca
 fact_type_key: spark
@@ -41,14 +41,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补 recall_digest：为召回提供高密度关键词面（02 §7.1）
-refs:
-  - object_uid: 35afd456-10cc-4d3b-b7fc-8a088946b183
-  - object_uid: 71930c4a-f43f-439e-88bd-3aff7d07d37c
-  - object_uid: 2916e3d5-cfdf-459b-90fb-e39b2523137f
-  - object_uid: 46bf4c66-cd2a-4e45-ac88-53f9065ed876
-  - object_uid: 4005b67b-8e06-4dc1-872e-04ab626de295
-  - object_uid: bb033829-c28f-449e-915e-8656423900a8
-  - object_uid: 63700bd2-f688-464b-b490-fc0c6ed78f25
+  - at: 2026-11-23T20:51:51.518Z
+    provider: workbuddy
+    model: hy4flash-free
+    summary: serves 更正：原指向已退役 SubGoal befe1735-1187-4d60-ba53-e55eb0cb7de2，按内容语义改指 active SubGoal af93e218-e9d9-4234-b436-33dc0c7c37dc（AI任务高效准确）。 同时清除悬空 refs（指向已删除对象，原值 [{"object_uid":"35afd456-10cc-4d3b-b7fc-8a088946b183"},{"object_uid":"71930c4a-f43f-439e-88bd-3aff7d07d37c"},{"object_uid":"2916e3d5-cfdf-459b-90fb-e39b2523137f"},{"object_uid":"46bf4c66-cd2a-4e45-ac88-53f9065ed876"},{"object_uid":"4005b67b-8e06-4dc1-872e-04ab626de295"},{"object_uid":"bb033829-c28f-449e-915e-8656423900a8"},{"object_uid":"63700bd2-f688-464b-b490-fc0c6ed78f25"}] 记于此）。终态与正文不变。
 ---
 
 # WorkCase 残留与去向承载改法
