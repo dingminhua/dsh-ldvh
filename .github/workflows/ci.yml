@@ -19,6 +19,27 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # 分支纪律第 3、4 条（norm-d95bbb45）在 main 侧的机械保障。该规范本体
+      # 存于 ldvh-base/norms/，而 main 的树按第 3 条不得含该目录——故从 main
+      # 单取树工作时规则不可召回、不可读取，只能靠 CI 兑现。规范第 5 条明写：
+      # 该检查缺失时第 3、4 条在 main 侧处于无机械保障状态。本步骤即该保障。
+      # 排在 npm ci 之前：纯 git/npm 元数据判断，不依赖依赖安装，最早暴露。
+      - name: Branch discipline — main tree carries no fact objects (rules 3 & 4)
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          if [ "$ref" != "main" ]; then
+            echo "ref=$ref is not main — rules 3 & 4 do not apply to this line."
+            exit 0
+          fi
+          leaked=$(git ls-tree -r --name-only HEAD -- ldvh-base | head -5)
+          if [ -n "$leaked" ]; then
+            echo "::error::rule 3 violated — main tree must not carry ldvh-base/:"
+            echo "$leaked"
+            exit 1
+          fi
+          echo "rule 3 ok — main tree carries no ldvh-base/"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -63,6 +84,18 @@ jobs:
 
       - name: Verify package contents
         run: npm pack --dry-run
+
+      # 分支纪律第 4 条（norm-d95bbb45）的机械保障：发布产物不得含事实对象。
+      # 与上面的「main 树不含 ldvh-base」互为两道闸——树里没有、包里也不许有，
+      # 因为 pack 走的是 files 白名单与 .npmignore，两者可以独立漂移。
+      - name: Branch discipline — release artifact carries no fact objects (rule 4)
+        run: |
+          set -euo pipefail
+          if npm pack --dry-run 2>&1 | grep -q 'ldvh-base/'; then
+            echo "::error::rule 4 violated — packed artifact contains ldvh-base/ paths"
+            exit 1
+          fi
+          echo "rule 4 ok — packed artifact carries no ldvh-base/ paths"
 
       # 06 §5「ESLint 统一配置，提交前必须通过静态分析」的不可绕过层。
       # 本地 commit-msg Hook 可被 `git commit --no-verify` 跳过，这一层不能：
