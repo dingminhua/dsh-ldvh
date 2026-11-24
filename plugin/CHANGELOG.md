@@ -8,6 +8,24 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [1.2.0-dev.1] — 2026-11-25
+
+开发迭代轮次开启：1.2.0 已封存发布，dev 线进入下一轮。
+
+## [1.2.0] — 2026-11-25
+
+次版本发布：Web 界面导航与项目范围选择改进。
+
+### Added
+
+- 聚焦页新增项目/分支两级选择条（`ProjectScopeBar`）：在受辖多项目间直接切换项目与分支，不必回设置页。
+- 全站统一页头顶栏（`PageHeader`）：各页（Changelog、Changes、CognitionCenter、Diagnostics、GoalDetail、Help、ObjectDetail、ObjectList、ProjectFiles、FederationObjects）顶栏布局一致。
+- 根 README 新增「与 AI 配合的主线」使用引导（目标 → 火花 → 调研的主线说明）与完整指南入口。
+
+### Changed
+
+- 项目选择条去掉选中项打勾图标（视觉收敛）；契约测试随布局统一同步更新（help-presentation、navigation-layout）。
+
 ## [1.1.6-dev.1] — 2026-11-24
 
 开发迭代轮次开启：1.1.6 已封存发布，dev 线进入下一轮。
