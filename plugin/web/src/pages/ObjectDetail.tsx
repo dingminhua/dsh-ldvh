@@ -180,7 +180,7 @@ export default function ObjectDetail() {
           </div>
         )}
         <div className={`mx-auto max-w-4xl p-6 transition-opacity duration-150 ${isStale ? 'opacity-60' : 'opacity-100'}`}>
-          <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-6 border-b border-ldvh-border bg-ldvh-bg/95 px-6 pb-4 pt-4 backdrop-blur">
+          <div className="ldvh-page-topbar mb-6">
           { }
           <div>
             <button

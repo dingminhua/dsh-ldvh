@@ -2,7 +2,6 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
-import PageHeader from '@/components/PageHeader';
 import { HELP_ICONS, HELP_TAB_ICONS, NAV_ICONS, ObjectTypeIcon, SYSTEM_ICONS } from '@/components/SemanticIcon';
 import { getTypeLabel, type LocaleKey } from '@/i18n/locales';
 import { getCategoryColor } from '@/utils/categoryColors';
@@ -294,17 +293,7 @@ export default function Help() {
 
   return (
     <div className="ldvh-page-frame">
-      <div className="ldvh-help-column">
-        <div className="ldvh-page-toolbar min-w-0 shrink-0">
-          <PageHeader title={t('help.title')} subtitle={t('help.subtitle')} compact />
-        </div>
-
-        <div className="mt-3">
-          <Notice>{t('help.disclaimer')}</Notice>
-        </div>
-      </div>
-
-      <div ref={barRef} className="sticky top-0 z-20 -mx-6 mt-4 border-b border-ldvh-border bg-ldvh-bg/95 px-6 py-2 backdrop-blur">
+      <div ref={barRef} className="ldvh-page-topbar">
         <div className="ldvh-help-column ldvh-help-index">
           <div className="ldvh-tab-list" aria-label={t('help.tabLabel')}>
             {TABS.map((entry) => {
@@ -328,7 +317,7 @@ export default function Help() {
 
       <article ref={panelRef} className="ldvh-help-column min-w-0 pb-8">
         {}
-        <header className="ldvh-help-opener mt-5">
+        <header className="ldvh-help-opener mt-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-ldvh-accent text-white dark:text-ldvh-bg">
               <ChapterIcon size={14} aria-hidden="true" />
@@ -368,17 +357,6 @@ function ChapterFooter({ tab, onJump }: { tab: TabId; onJump: (id: TabId) => voi
         <span className="truncate">{t(next.label)}</span>
         <ArrowRight size={14} className="shrink-0" aria-hidden="true" />
       </button>
-    </div>
-  );
-}
-
-function Notice({ children }: { children: ReactNode }) {
-  return (
-    <div data-presentation="notice" className="ldvh-help-scope">
-      <span className="flex h-6 w-4 shrink-0 items-center justify-center text-ldvh-accent">
-        <HELP_ICONS.info size={15} aria-hidden="true" />
-      </span>
-      <p className="ldvh-body min-w-0">{children}</p>
     </div>
   );
 }

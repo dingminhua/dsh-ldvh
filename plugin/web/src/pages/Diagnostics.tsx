@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronRight } from 'lucide-react';
-import PageHeader from '@/components/PageHeader';
 import { useI18n } from '@/i18n/context';
 import {
   fetchCleanupPreview,
@@ -594,22 +593,20 @@ export default function Diagnostics() {
 
   return (
     <div className="ldvh-page-frame">
-      <PageHeader title={t('diagnostics.title')} subtitle={t('diagnostics.subtitle')}>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="ldvh-tab-list">
-            {tabs.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setTab(item.key)}
-                className={`ldvh-tab-button ${tab === item.key ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+      <div className="ldvh-page-topbar mb-4 flex flex-wrap items-center gap-2">
+        <div className="ldvh-tab-list">
+          {tabs.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setTab(item.key)}
+              className={`ldvh-tab-button ${tab === item.key ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
-      </PageHeader>
+      </div>
 
       {error ? (
         <div className="rounded-lg border border-dashed border-ldvh-border bg-ldvh-panel px-4 py-8 text-center">
