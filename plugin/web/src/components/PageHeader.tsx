@@ -1,18 +1,13 @@
 import type { ReactNode } from 'react';
 
 interface PageHeaderProps {
-  title: string;
+  title?: string;
   subtitle?: string;
   children?: ReactNode;
   compact?: boolean;
 }
 
-export default function PageHeader({ title, subtitle, children, compact = false }: PageHeaderProps) {
-  return (
-    <div className={compact ? 'min-w-0' : 'mb-6'}>
-      <h1 className="ldvh-page-title">{title}</h1>
-      {subtitle && <p className="ldvh-page-subtitle mt-1">{subtitle}</p>}
-      {children && <div className="mt-3">{children}</div>}
-    </div>
-  );
+export default function PageHeader({ children }: PageHeaderProps) {
+  if (!children) return null;
+  return <div className="min-w-0">{children}</div>;
 }

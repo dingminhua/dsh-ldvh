@@ -10,7 +10,6 @@ import {
   Loader2,
   Rows3,
 } from 'lucide-react';
-import PageHeader from '@/components/PageHeader';
 import { useI18n } from '@/i18n/context';
 import {
   getDiffLineClass,
@@ -165,9 +164,6 @@ export default function Changes() {
   if (projects.length === 0) {
     return (
       <div className="ldvh-page-frame">
-        <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
-          <PageHeader title={t('changes.title')} compact />
-        </div>
         <EmptyState text={t('changes.noProjects')} />
       </div>
     );
@@ -176,9 +172,6 @@ export default function Changes() {
   if (!projectId) {
     return (
       <div className="ldvh-page-frame">
-        <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
-          <PageHeader title={t('changes.title')} compact />
-        </div>
         <EmptyState text={t('changes.noProject')} />
       </div>
     );
@@ -186,10 +179,6 @@ export default function Changes() {
 
   return (
     <div className="ldvh-page-frame flex min-h-full min-w-0 flex-col overflow-x-hidden xl:h-full">
-      <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
-        <PageHeader title={t('changes.title')} compact />
-      </div>
-
       <div className="grid min-w-0 gap-6 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(18rem,28rem)_minmax(0,1fr)]">
         <section className="ldvh-pane">
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-ldvh-border px-4 py-3">

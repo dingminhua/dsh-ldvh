@@ -55,7 +55,7 @@ test('帮助页不得退回营销式英雄区：面板 + 语义排版类，不�
   );
 
   assert.match(help, /ldvh-page-frame/, '帮助页须走 ldvh-page-frame 页面框架');
-  assert.match(help, /ldvh-page-toolbar/, '帮助页须走 ldvh-page-toolbar 工具条');
+  assert.match(help, /ldvh-page-topbar/, '帮助页须走 sticky tab 工具条');
   assert.match(help, /ldvh-section-grid/, '帮助页的卡片网格须走 ldvh-section-grid（容器宽度驱动列数）');
   assert.match(help, /ldvh-tab-list/, '帮助页的分区切换须走 ldvh-tab-list');
   assert.match(help, /ldvh-tab-button-active/, '帮助页的分区切换须区分选中态与闲置态');
@@ -193,7 +193,6 @@ test('帮助页的中英文案必须一一对应，且旧流程词条不得复�
     'help.panel.gates.title',
     'help.panel.entries.title',
     'help.panel.trust.title',
-    'help.disclaimer',
   ]) {
     assert.ok(zhKeys.includes(key), `帮助页须有词条 ${key}`);
     assert.ok(enKeys.includes(key), `帮助页须有词条 ${key}（英文侧）`);
@@ -251,8 +250,8 @@ test('帮助页不得硬编码中文文案，且不发起任何数据请求', ()
   );
 });
 
-test('帮助页必须是单一 tab 容器：概览不得常显，声明必须在切换区之上', () => {
-  const stickyCount = [...helpCode.matchAll(/sticky top-0/g)].length;
+test('帮助页必须是单一 tab 容器：概览不得常显，切换区之前无内容块', () => {
+  const stickyCount = [...helpCode.matchAll(/ldvh-page-topbar/g)].length;
   assert.equal(stickyCount, 1, `帮助页只允许一处 sticky 切换区，发现 ${stickyCount} 处`);
 
   const tabMapCount = [...helpCode.matchAll(/TABS\.map\(/g)].length;
@@ -261,7 +260,7 @@ test('帮助页必须是单一 tab 容器：概览不得常显，声明必须在
   const branchCount = [...helpCode.matchAll(/tab === '/g)].length;
   assert.equal(branchCount, 7, `帮助页须有七个分区条件渲染分支，发现 ${branchCount} 个`);
 
-  const barIndex = helpCode.indexOf('sticky top-0');
+  const barIndex = helpCode.indexOf('ldvh-page-topbar');
   assert.ok(barIndex >= 0, '帮助页须有 sticky 切换区');
   const beforeBar = helpCode.slice(0, barIndex);
   assert.doesNotMatch(
@@ -269,18 +268,10 @@ test('帮助页必须是单一 tab 容器：概览不得常显，声明必须在
     /<article\b|ldvh-section-grid|overflow-hidden rounded-xl/,
     '切换区之前不得有常显内容区块——概览必须收进分区之内，否则两套组织范式挤在同一页',
   );
-
-  const disclaimer = helpCode.indexOf("t('help.disclaimer')");
-  assert.ok(disclaimer >= 0, '帮助页须渲染页脚声明');
-  assert.ok(
-    disclaimer < barIndex,
-    '声明必须在切换区之上——它是页面级限定，与分区内容无关',
-  );
 });
 
 test('帮助页的呈现件必须按类型登记，每类只有一种壳', () => {
   const PRESENTATION_REGISTRY: Record<string, string> = {
-    notice: 'div',
     compare: 'div',
     stage: 'article',
     'entry-card': 'article',

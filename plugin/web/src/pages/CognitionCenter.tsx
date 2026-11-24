@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, HeartPulse, History, Inbox } from 'lucide-react';
-import PageHeader from '@/components/PageHeader';
+import ProjectScopeBar from '@/components/ProjectScopeBar';
 import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
@@ -433,8 +433,8 @@ export default function CognitionCenter({ embedded = false }: { embedded?: boole
     : '';
   return (
     <div className={`flex min-h-full flex-col${embedded ? '' : ' p-6'}`}>
-      <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
-        <PageHeader title={t('cognition.title')} compact />
+      <div className="ldvh-page-topbar mb-4 min-w-0 shrink-0">
+        <ProjectScopeBar />
       </div>
 
       { }

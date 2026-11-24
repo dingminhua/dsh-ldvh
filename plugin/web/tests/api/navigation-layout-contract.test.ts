@@ -118,19 +118,16 @@ test('project files is a focused browser without nested Git views or eager Git r
   assert.doesNotMatch(controller, /fetchProjectGit(Status|Diff|Commits|CommitDetail|CommitFileDiff)/);
 });
 
-test('files and changes share a compact divided page toolbar without application refresh controls', () => {
+test('files and changes have no page-header title and no application refresh controls', () => {
   const filesPage = fs.readFileSync(path.resolve('src/pages/ProjectFiles.tsx'), 'utf8');
   const changesPage = fs.readFileSync(path.resolve('src/pages/Changes.tsx'), 'utf8');
-  const styles = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
 
   for (const page of [filesPage, changesPage]) {
-    assert.match(page, /ldvh-page-toolbar mb-4/);
-    assert.match(page, /<PageHeader[^>]* compact \/>/);
+    assert.doesNotMatch(page, /<PageHeader\b/);
     assert.doesNotMatch(page, /ldvh-page-toolbar-badge/);
     assert.doesNotMatch(page, /subtitle=/);
     assert.doesNotMatch(page, /ldvh-page-toolbar-action|RefreshCcw|changes\.reload|projectFiles\.reload/);
   }
-  assert.match(styles, /\.ldvh-page-toolbar \{\s*@apply[^;]*border-b[^;]*pb-4;/s);
   assert.doesNotMatch(changesPage, /changes\.(activeProject|activeProjectHint|projectScopeHint)/);
 });
 

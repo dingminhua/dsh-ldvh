@@ -83,7 +83,7 @@ export default function GoalDetail() {
 
   return (
     <div className="ldvh-page-frame">
-      <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-6 border-b border-ldvh-border bg-ldvh-bg/95 px-6 pb-4 pt-4 backdrop-blur">
+      <div className="ldvh-page-topbar mb-6">
         <ObjectIdentityHeader
           title={title}
           id="goal"

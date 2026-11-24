@@ -121,9 +121,7 @@ export default function FederationObjects() {
 
   if (!currentType) {
     return (
-      <div>
-        <PageHeader title={t('federation.objectsTitle')} subtitle={t('federation.unsupportedType')} />
-      </div>
+      <div className="ldvh-body-muted p-6">{t('federation.unsupportedType')}</div>
     );
   }
 

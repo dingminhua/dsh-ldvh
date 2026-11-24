@@ -175,7 +175,7 @@ export default function Changelog() {
 
   return (
     <div className="ldvh-page-frame">
-      <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-4 flex flex-col gap-2 border-b border-ldvh-border bg-ldvh-bg/95 px-6 py-3 backdrop-blur">
+      <div className="ldvh-page-topbar mb-4 flex flex-col gap-2">
         <CommitCountGroup
           activeValue={logCount}
           onChange={(value) => {
