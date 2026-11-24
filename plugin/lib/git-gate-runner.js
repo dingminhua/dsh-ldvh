@@ -400,11 +400,11 @@ async function writeLintCache(workspaceRoot, key) {
 }
 
 async function checkLint(workspaceRoot, files) {
+  if (files.length === 0) return { ok: true, issues: [], skipped: "no-lint-files" };
   const eslint = await resolveEslint(workspaceRoot);
   if (eslint === null) {
-    return { ok: false, issues: [newFinding("validation/lint_failed", `eslint is not installed in ${workspaceRoot}/node_modules — run npm ci there before committing (the gate refuses rather than skipping lint)`, null)] };
+    return { ok: false, issues: [newFinding("validation/lint_failed", `lint is required for staged files but eslint is not installed in ${workspaceRoot}/node_modules — the gate refuses rather than skipping lint; with a bundle install (no lockfile in the plugin directory) use an executable install command such as npm install --no-save --no-audit --no-fund --legacy-peer-deps eslint @eslint/js globals acorn`, null)] };
   }
-  if (files.length === 0) return { ok: true, issues: [], skipped: "no-lint-files" };
   const cacheKey = await lintCacheKey(workspaceRoot, eslint, files);
   if (await readLintCache(workspaceRoot, cacheKey)) return { ok: true, issues: [], cached: true };
   let code = 0;
