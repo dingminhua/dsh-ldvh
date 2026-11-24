@@ -14,6 +14,7 @@
   <a href="plugin/README.en.md">English（插件页）</a> ·
   <a href="#截图">截图</a> ·
   <a href="#这是什么">这是什么</a> ·
+  <a href="USAGE.md">如何使用</a> ·
   <a href="#快速开始开发">快速开始（开发）</a> ·
   <a href="#版本号双轨">版本</a> ·
   <a href="plugin/CHANGELOG.md">更新日志</a> ·
@@ -29,8 +30,8 @@
   <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
 </p>
 
-> 版本 `1.1.5` ｜ MIT License（与 DSH 本体同协议）
-> 版本 `1.1.5` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
+> 版本 `1.1.6` ｜ MIT License（与 DSH 本体同协议）
+> 版本 `1.1.6` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
 
 ## 截图
 
@@ -75,9 +76,13 @@ LDVH（LD Vibe Harness）以 **DSH 原生插件为统一交付形态**。人与 
 
 **规范定义 ≠ 已落地能力**：以上是机制设计，插件已实现的能力以 [`plugin/README.md`](plugin/README.md) 为准；Web 帮助页（`/ldvh/help`）按对象、系统、入口分章，可作为快速导览；权威表述仍以 [`specs/`](specs/) 与事实源为准。
 
+## 如何使用
+
+面向使用者，[LDVH 使用指南](USAGE.md)按四个问题展开：LDVH 是什么、怎么开始、什么时候轮到你、怎么判断它说完了——从选定管辖项目、立起目标，到五类交互入口与「已证实／未证实／残留风险」三层声明。运行中的插件另提供 Web 帮助页（`/ldvh/help`），内容更完整且随版本更新；两者不一致时以 Web 帮助页为准。安装与配置见[插件 README](plugin/README.md)。
+
 ## 仓库结构
 
-本树为 1.1.5 发布树，由开发线（`dev` 分支）经 `plugin/scripts/sync-release.mjs` 机械同步生成，仅排除项目专属事实源 `ldvh-base/`（见下表）；同步判据与操作序列见发布规范分支纪律第 7 条。
+本树为 1.1.6 发布树，由开发线（`dev` 分支）经 `plugin/scripts/sync-release.mjs` 机械同步生成，仅排除项目专属事实源 `ldvh-base/`（见下表）；同步判据与操作序列见发布规范分支纪律第 7 条。
 
 | 路径 | 内容 |
 |---|---|
@@ -85,6 +90,7 @@ LDVH（LD Vibe Harness）以 **DSH 原生插件为统一交付形态**。人与 
 | `plugin/` | DSH 原生插件（Host 侧实现、客户端设置面与会话视图、LDVH Web SPA、测试） |
 | `plugin-specs/` | 运行时机制载体源（prepack 复制进包，19 份） |
 | `docs/` | 开发期文档与 devlog 存档（随同步来自 dev） |
+| `USAGE.md` | 使用指南（静态快照；运行中的 Web 帮助页 `/ldvh/help` 为实时权威） |
 | `.github/` | CI 工作流（main 验发布产物、dev 跑全量测试） |
 | `icons/` | 插件图标（多尺寸） |
 | `plugin/docs/assets/` | 发布用截图（设置页三屏、LDVH Web、DSH 内面板） |
@@ -110,7 +116,7 @@ cd plugin && npm pack --dry-run
 
 | 轨 | 语法 | 递增时机 | 当前 |
 |---|---|---|---|
-| 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | `1.1.5` |
+| 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | `1.1.6` |
 | 开发迭代版本 | 同主版本 + `-dev.N` | 发布后进入下一轮 | 见 `dev` 分支 |
 
 发布封存干净版本后，开发线在 `dev` 分支进入下一轮。

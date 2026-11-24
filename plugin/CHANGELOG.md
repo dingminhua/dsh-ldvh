@@ -8,17 +8,25 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
-## [1.1.5] — 2026-11-24
+## [1.1.6] — 2026-11-24
 
-安全补丁与 Web 对象列表体验批次。
+补丁发布：bundle 安装死锁修复与使用指南。
 
 ### Fixed
 
-- Web API 访问检查：`/ldvh/api` 与 `/ldvh/state` 路由接入 DSH `connection.requestRejection` 信任栅栏，未通过信任判定的请求以 401/403 就地短路（DSH GUI 已认证 peer 照常通过）；子进程直连端口对 `/api` 全路由实施本地 Host 白名单与 `Sec-Fetch-Site: cross-site` 拒绝（DNS 重绑定与跨站 CSRF 防护）。修复 awesome-dsh-plugin 收录条目上维护者标注的「HTTP 路由无 DSH 访问检查」安全告示。
+- **bundle 安装的 Git Hook preflight 死锁（issue #7）**：`lib/git-gate-runner.js` 的 `checkLint` 原先在 eslint 缺失时返回阻塞判定、之后才判断零 lint 文件，导致 bundle 安装（插件目录无 `node_modules`、eslint 仅在 devDependencies）下 preflight 合成 index 无 lint 文件也必被拒，Hook 装不上。现把零 lint 文件跳过提前到工具检查之前——preflight 与无 lint 面文件的提交直接放行；有 lint 文件而缺 eslint 仍拒绝，保留 refuses-rather-than-skipping 决策。错误提示同步去掉无 lockfile 时不可执行的 `npm ci`，给出可执行的补齐依赖命令。
 
-### Changed
+### Added
 
-- Web 对象列表分面计数与状态术语：形态、优先级、serves 计数改按各自状态池独立计算（`formTotal`/`priorityTotal`/`servesTotal`/`statusDisplayTotal` 后端路由到前端列表全链路）；状态过滤 fallback 的 `research` 键修正为 `report`；状态术语统一 active=生效、retired=归档，并补 report 状态的本地化描述；宿主代理转发前剥离浏览器来源元数据头（`Sec-Fetch-*`/`Origin`/`Referer`），使子进程直连栅栏仅凭请求自身来源判定。
+- `USAGE.md` 使用指南：Web 帮助页（`/ldvh/help`）主要内容的静态快照，按四个问题展开；仓库根 README 加使用指南入口。两者不一致时以 Web 帮助页为准。
+
+## [1.1.5-dev.1] — 2026-11-24
+
+开发迭代轮次开启：1.1.5 已封存发布，dev 线进入下一轮。
+
+## [1.1.5] — 2026-11-24
+
+正式发布版本：对外发布线封存于 `1.1.5`（已发布至 npm，`dist-tags.latest = 1.1.5`）。该版本随 dev→main 机械同步流程推进，发布线内容与 `1.1.4` 一致（逐条变更见 `1.1.4` 条目与 git 历史）；本条目据现有发布记录与 npm 实测补记，不新增未提交内容。
 
 ## [1.1.4-dev.1] — 2026-11-24
 

@@ -528,6 +528,52 @@ test("删除一个 lint 面内文件不得被读成 lint 工具故障（lint 面
 	});
 });
 
+async function repoWithoutEslint(base, { stageJs = false } = {}) {
+	const root = await initRepo(base, { name: "lintrepo-noeslint" });
+	const lintRoot = join(root, "plugin");
+	await mkdir(join(lintRoot, "lib"), { recursive: true });
+	await writeFile(join(lintRoot, "eslint.config.js"), "export default [];\n");
+	if (stageJs) {
+		await writeFile(join(lintRoot, "lib", "sample.js"), "export const ok = 1;\n");
+		await gitOk(root, ["add", "plugin/lib/sample.js"]);
+	} else {
+		await writeFile(join(root, "notes.md"), "# 只是文档\n");
+		await gitOk(root, ["add", "notes.md"]);
+	}
+	return { root, lintRoot };
+}
+
+test("无 eslint 且本次无 lint 面文件时放行——bundle 安装 preflight 不再死锁（issue #7 / 空清单先于工具检查）", async () => {
+	await withTemp("ldvh-ggr-lint-noeslint-empty.", async (base) => {
+		const { root, lintRoot } = await repoWithoutEslint(base);
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(pre-commit\) passed/);
+		assert.doesNotMatch(result.stderr, /validation\/lint_failed/);
+		assert.doesNotMatch(result.stderr, /npm ci/);
+	});
+});
+
+test("无 eslint 但本次有 lint 面文件时仍拒绝——不削弱 refuses-rather-than-skipping 决策（issue #7 / 有文件须 lint）", async () => {
+	await withTemp("ldvh-ggr-lint-noeslint-staged.", async (base) => {
+		const { root, lintRoot } = await repoWithoutEslint(base, { stageJs: true });
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/lint_failed/);
+		assert.match(result.stderr, /refuses rather than skipping lint/);
+		assert.doesNotMatch(result.stderr, /npm ci/);
+		assert.match(result.stderr, /npm install --no-save/);
+	});
+});
+
 
 
 
