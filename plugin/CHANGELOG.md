@@ -6,7 +6,9 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 ## [Unreleased]
 
-（尚未封存新的发布版本；本节留空占位。）
+### Fixed
+
+- **bundle 安装的 Git Hook preflight 死锁（issue #7）**：`lib/git-gate-runner.js` 的 `checkLint` 原先在 eslint 缺失时返回阻塞判定、之后才判断零 lint 文件，导致 bundle 安装（插件目录无 `node_modules`、eslint 仅在 devDependencies）下 preflight 合成 index 无 lint 文件也必被拒，Hook 装不上。现把零 lint 文件跳过提前到工具检查之前——preflight 与无 lint 面文件的提交直接放行；有 lint 文件而缺 eslint 仍拒绝，保留 refuses-rather-than-skipping 决策。错误提示同步去掉无 lockfile 时不可执行的 `npm ci`，给出可执行的补齐依赖命令。
 
 ## [1.1.5-dev.1] — 2026-11-24
 
