@@ -12,6 +12,10 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 开发迭代轮次开启：1.1.5 已封存发布，dev 线进入下一轮。
 
+## [1.1.5] — 2026-11-24
+
+正式发布版本：对外发布线封存于 `1.1.5`（已发布至 npm，`dist-tags.latest = 1.1.5`）。该版本随 dev→main 机械同步流程推进，发布线内容与 `1.1.4` 一致（逐条变更见 `1.1.4` 条目与 git 历史）；本条目据现有发布记录与 npm 实测补记，不新增未提交内容。
+
 ## [1.1.4-dev.1] — 2026-11-24
 
 开发迭代轮次开启：1.1.4 已封存发布，dev 线进入下一轮。

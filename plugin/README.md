@@ -3,7 +3,7 @@
 [English](README.en.md) | 简体中文
 
 > 版本 `1.1.5-dev.1`（开发预览）· MIT License · 面向 DSH Desktop `0.2.2-rc.5`
-> **当前为开发预览**：插件尚未发布正式版本，发布门禁仍在收口，暂不建议普通用户安装。
+> **当前为开发预览**：正式版本已发布至 `1.1.5`，本页随开发迭代版本 `1.1.5-dev.1` 滚动。
 
 **LD Vibe Harness（LDVH）** 是一个深度绑定 DSH 的 AI 协作与治理框架，核心价值：**对齐 Vibe、协调 Coding。**
 
@@ -34,7 +34,7 @@
 
 ### 插件市场
 
-正式版本发布后可用：
+从插件市场安装（正式版本已发布）：
 
 ```bash
 dsh plugin add dsh-ldvh
@@ -50,7 +50,7 @@ dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 
 ### npm 包
 
-正式版本发布后可用：
+正式版本已发布，可用：
 
 ```bash
 npm install -g dsh-ldvh
@@ -68,6 +68,7 @@ dsh-ldvh governed-project <list|inspect|install|uninstall-hook|register|unregist
 1. **登记管辖项目**——在 `设置 → LDVH → 管辖项目配置` 中填写项目 ID（唯一、创建后不可修改）与 Git 根目录，点「安装」。安装后该项目即启用事实源与 Git Gate。
 2. **打开信息呈现**——侧边栏或对话 Tab 中的 LDVH 入口（可分别开关），或在浏览器打开 `http://<dsh-host>/ldvh`。
 3. **在 DSH 里干活**——AI 会按随包的运行期规则约束行动，通过 `ldvh_*` 工具读需求文档、受控读写事实；受控提交由 Git Gate 把关。
+4. **完整使用引导**——见 [LDVH 使用指南](https://github.com/dingminhua/dsh-ldvh/blob/main/USAGE.md)：怎么开始、什么时候轮到你、怎么判断它说完了。运行中的插件还提供 Web 帮助页（`/ldvh/help`），以它为准。
 
 ## 配置项
 

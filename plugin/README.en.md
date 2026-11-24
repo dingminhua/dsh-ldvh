@@ -3,7 +3,7 @@
 English | [简体中文](README.md)
 
 > Version `1.1.5-dev.1` (development preview) · MIT License · for DSH Desktop `0.2.2-rc.5`
-> **Development preview**: no release version has been published yet and the release gate is still being closed, so installation by ordinary users is not recommended yet.
+> **Development preview**: formal releases are published up to `1.1.5`; this page tracks the development iteration `1.1.5-dev.1`.
 
 **LD Vibe Harness (LDVH)** is an AI collaboration and governance framework deeply bound to DSH. Its core value is **Align Vibe, Coordinate Coding**.
 
@@ -33,7 +33,7 @@ English | [简体中文](README.md)
 
 ### Plugin marketplace
 
-Available once a release version is published:
+Available now (a formal release has been published):
 
 ```bash
 dsh plugin add dsh-ldvh
@@ -49,7 +49,7 @@ Restart **DSH Desktop** after installing or changing Host / Client / bundle-patc
 
 ### npm package
 
-Available once a release version is published:
+Available now (a formal release has been published):
 
 ```bash
 npm install -g dsh-ldvh
@@ -67,6 +67,7 @@ dsh-ldvh governed-project <list|inspect|install|uninstall-hook|register|unregist
 1. **Register a governed project** — in `Settings → LDVH → Governed project configuration`, enter the project ID (unique, immutable after creation) and the Git root, then press "Install". The fact source and the Git Gate are enabled for that project afterwards.
 2. **Open the presentation** — through the LDVH entry in the sidebar or the conversation tab (each can be switched on or off separately), or in a browser at `http://<dsh-host>/ldvh`.
 3. **Work inside DSH** — the AI reads and writes specifications and facts through the `ldvh_*` tools; controlled commits are guarded by the Git Gate.
+4. **Full usage guide** — see the [LDVH Usage Guide](https://github.com/dingminhua/dsh-ldvh/blob/main/USAGE.md): how to start, when it comes to you, and how to judge it is done. The running plugin also provides a Web help page (`/ldvh/help`), which takes precedence.
 
 ## Configuration
 
