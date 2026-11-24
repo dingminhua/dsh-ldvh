@@ -1,4 +1,3 @@
-import { Check } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 import { useProjectScope } from '@/utils/projectContext';
@@ -44,7 +43,6 @@ export default function ProjectScopeBar() {
               >
                 {branchCount}
               </span>
-              {selected && <Check aria-hidden="true" size={12} strokeWidth={3} className="shrink-0" style={{ color }} />}
             </button>
           );
         })}
