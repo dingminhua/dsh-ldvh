@@ -108,6 +108,8 @@ function createHarness(fetchImpl, sessionIdRef, delivered) {
 		fetch: fetchImpl,
 		console: { error() {} },
 		encodeURIComponent,
+		setTimeout,
+		clearTimeout,
 	}, { filename: "client.js" });
 
 	plugin.apply({
@@ -325,4 +327,80 @@ test("会话标识缺失时不去问管辖判定", async () => {
 		assert.ok(!/ldvhProject=/.test(src), `无会话标识不得带项目参数：${src}`);
 		assert.deepEqual(stateCalls, [], "sessionId 为空不得请求管辖判定端点");
 	});
+});
+
+test("health 迟到也能让桌面 iframe 落在真实端口，不永久停在 3299", async () => {
+	const delivered = new Map();
+	let webPort = 0;
+	const server = http.createServer((req, res) => {
+		const url = new URL(req.url, "http://127.0.0.1");
+		if (url.pathname === "/ldvh/api/health") {
+			setTimeout(() => {
+				res.setHeader("content-type", "application/json; charset=utf-8");
+				res.end(JSON.stringify({ ok: true, service: "dsh-ldvh", status: "ok", prefix: "/ldvh/api", webPort }));
+			}, 120);
+			return;
+		}
+		if (url.pathname === "/ldvh/state/governance") {
+			const sessionId = url.searchParams.get("sessionId") ?? "";
+			delivered.set(sessionId, (delivered.get(sessionId) ?? 0) + 1);
+			res.setHeader("content-type", "application/json; charset=utf-8");
+			res.end(JSON.stringify({ ok: true, state: "governed", project: { id: "alpha", name: "Alpha" } }));
+			return;
+		}
+		res.setHeader("content-type", "text/html");
+		res.end("<html>ok</html>");
+	});
+	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+	webPort = server.address().port;
+	const hostBase = `http://127.0.0.1:${webPort}`;
+	try {
+		assert.notEqual(webPort, 3299, "夹具端口须不同于默认 3299，才能验出端口回落");
+		const sessionId = { current: "s-late" };
+		const harness = createHarness(originFetch(hostBase), sessionId, delivered);
+		const src = await harness.switchAndSettle(() => {}, "s-late");
+		assert.ok(src !== null, "迟到的 health 也不该让 iframe 空白");
+		assert.ok(src.includes(`127.0.0.1:${webPort}/`), `src 须落在 health 回报的真实端口，不得停在 3299：${src}`);
+		assert.ok(!src.includes("127.0.0.1:3299/"), `src 不得残留默认 3299：${src}`);
+	} finally {
+		server.closeAllConnections?.();
+		await new Promise((resolve) => server.close(resolve));
+	}
+});
+
+test("health 先报端口 0 后给真实端口：重试链耗尽前能拿到，不缓存失败态", async () => {
+	const delivered = new Map();
+	let webPort = 0;
+	const startedAt = Date.now();
+	const server = http.createServer((req, res) => {
+		const url = new URL(req.url, "http://127.0.0.1");
+		if (url.pathname === "/ldvh/api/health") {
+			const reported = Date.now() - startedAt < 500 ? 0 : webPort;
+			res.setHeader("content-type", "application/json; charset=utf-8");
+			res.end(JSON.stringify({ ok: true, service: "dsh-ldvh", status: "ok", prefix: "/ldvh/api", webPort: reported }));
+			return;
+		}
+		if (url.pathname === "/ldvh/state/governance") {
+			const sessionId = url.searchParams.get("sessionId") ?? "";
+			delivered.set(sessionId, (delivered.get(sessionId) ?? 0) + 1);
+			res.setHeader("content-type", "application/json; charset=utf-8");
+			res.end(JSON.stringify({ ok: true, state: "governed", project: { id: "alpha", name: "Alpha" } }));
+			return;
+		}
+		res.setHeader("content-type", "text/html");
+		res.end("<html>ok</html>");
+	});
+	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+	webPort = server.address().port;
+	const hostBase = `http://127.0.0.1:${webPort}`;
+	try {
+		const sessionId = { current: "s-zero" };
+		const harness = createHarness(originFetch(hostBase), sessionId, delivered);
+		const src = await harness.switchAndSettle(() => {}, "s-zero", 600);
+		assert.ok(src !== null, "端口 0 窗口过后仍须渲染出 iframe");
+		assert.ok(src.includes(`127.0.0.1:${webPort}/`), `重试链须在耗尽前拿到真实端口，不得停在默认：${src}`);
+	} finally {
+		server.closeAllConnections?.();
+		await new Promise((resolve) => server.close(resolve));
+	}
 });

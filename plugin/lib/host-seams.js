@@ -339,7 +339,7 @@ export function createHostSeams() {
     return { scope: parts.length === 0 ? undefined : parts.join("|"), sessionIdentified };
   }
 
-  async function requestReviewAsk({ point, task, candidate_summary, enabled, agent, signal, callId, timeoutEnabled, timeoutSeconds }) {
+  async function requestReviewAsk({ point, task, candidate_summary, conclusion_summary, enabled, agent, signal, callId, timeoutEnabled, timeoutSeconds }) {
     if (enabled !== true) {
       return { decision: null, asked: false, reason: "the review-ask switch is off for this point — no prompt is issued (2026-11-13 Human decision: 打开才有)" };
     }
@@ -354,7 +354,7 @@ export function createHostSeams() {
     }
     const scopeInfo = reviewAskScopeKey(agent);
     const scopeKey = scopeInfo.scope;
-    const fingerprint = reviewAskFingerprint({ point, task, scope: scopeKey, candidate_summary });
+    const fingerprint = reviewAskFingerprint({ point, task, scope: scopeKey, candidate_summary, conclusion_summary });
     const reuseAllowed = scopeInfo.sessionIdentified;
     const prior = await findReviewAskDecision(seams.dshHomePath, fingerprint);
     if (!prior.ok) {
@@ -378,7 +378,7 @@ export function createHostSeams() {
         };
       }
     }
-    const composed = composeReviewAsk({ point, task, candidate_summary });
+    const composed = composeReviewAsk({ point, task, candidate_summary, conclusion_summary });
     const request = {
       questions: [{
         id: REVIEW_ASK_QUESTION_ID,

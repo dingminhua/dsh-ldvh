@@ -448,13 +448,40 @@ window.__ModuleLoader__.load({
     var ldvhWebPort = LDVH_WEB_PORT_DEFAULT;
     var ldvhWebOrigin = webFrameOrigin(ldvhWebPort);
     var ldvhFrameLocation = ldvhWebOrigin + "/ldvh/";
+    var portApplied = false;
     function applyWebPort(port) {
       if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) return;
+      portApplied = true;
       if (port === ldvhWebPort) return;
       ldvhWebPort = port;
       ldvhWebOrigin = webFrameOrigin(ldvhWebPort);
       var tail = ldvhFrameLocation.indexOf("/ldvh") >= 0 ? ldvhFrameLocation.slice(ldvhFrameLocation.indexOf("/ldvh")) : "/ldvh/";
       ldvhFrameLocation = ldvhWebOrigin + tail;
+    }
+
+    function portRelevant() {
+      return typeof window === "undefined" || !window.location || window.location.protocol === LDVH_APP_PROTOCOL;
+    }
+
+    var portDiscovery = null;
+    function ensurePortDiscovered() {
+      if (portDiscovery === null) {
+        portDiscovery = (function attempt(remaining) {
+          return discoverWebPort().then(function (ok) {
+            if (!ok && remaining > 0) {
+              return new Promise(function (done) { setTimeout(done, 250); })
+                .then(function () { return attempt(remaining - 1); });
+            }
+            if (!ok) portDiscovery = null;
+            return ok;
+          });
+        })(8);
+      }
+      return portDiscovery;
+    }
+    function resetPortDiscovery() {
+      portDiscovery = null;
+      portApplied = false;
     }
 
     function probeLoopback(path, then) {
@@ -494,13 +521,14 @@ window.__ModuleLoader__.load({
         .then(function (r) { return r.json(); })
         .then(function (body) {
           if (body && body.ok === true && body.webPort !== undefined) applyWebPort(body.webPort);
-          return !!(body && body.ok === true);
+          if (!(body && body.ok === true)) return false;
+          return !portRelevant() || portApplied;
         })
         .catch(function () { return false; });
     }
 
     function checkHealth(then) {
-      discoverWebPort()
+      ensurePortDiscovered()
         .catch(function () { return false; })
         .then(function () {
           return new Promise(function (done) {
@@ -1337,19 +1365,21 @@ window.__ModuleLoader__.load({
       var frameState = React.useState(null);
       React.useEffect(function () {
         var cancelled = false;
-        resolveSessionProject(sessionId, cwd).then(function (projectId) {
+        ensurePortDiscovered().catch(function () { return null; }).then(function () {
+          return resolveSessionProject(sessionId, cwd);
+        }).catch(function () { return null; }).then(function (projectId) {
           if (cancelled) return;
           frameState[1](function (previous) {
             if (previous !== null && previous.projectId === projectId) return previous;
             if (previous !== null && projectId === null) return previous;
-            return { projectId: projectId, src: composeFollowedLocation(projectId) };
+            return { projectId: projectId };
           });
         });
         return function () { cancelled = true; };
       }, [sessionId, cwd]);
       var resolved = frameState[0];
       if (resolved === null) return { following: false, src: ldvhFrameLocation };
-      return { following: true, src: resolved.src };
+      return { following: true, src: composeFollowedLocation(resolved.projectId) };
     }
 
     function LdvhSidebarTab(props) {
@@ -1368,6 +1398,7 @@ window.__ModuleLoader__.load({
         return function () { cancelled = true; };
       }, []);
       function retry() {
+        resetPortDiscovery();
         viewState[1]({ checking: true, ready: false, failed: false });
         checkHealth(function (ok) {
           viewState[1](ok ? { checking: false, ready: true, failed: false } : { checking: false, ready: false, failed: true });
@@ -1408,6 +1439,7 @@ window.__ModuleLoader__.load({
         return function () { cancelled = true; };
       }, []);
       function retry() {
+        resetPortDiscovery();
         viewState[1]({ checking: true, ready: false, failed: false });
         checkHealth(function (ok) {
           viewState[1](ok ? { checking: false, ready: true, failed: false } : { checking: false, ready: false, failed: true });

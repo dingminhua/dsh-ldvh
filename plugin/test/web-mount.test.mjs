@@ -465,6 +465,65 @@ test("web api child reports its bound port via stdout and the manager adopts it 
   }
 });
 
+test("port report split across stdout chunks is parsed as one line, never a truncated prefix", async () => {
+  const manager = createWebApiProcess({
+    webRoot: process.cwd(),
+    port: 0,
+    env: {},
+    command: {
+      exec: process.execPath,
+      argv: ["-e", [
+        "const s=require('http').createServer((q,r)=>r.end('{}'));",
+        "s.listen(0,'127.0.0.1',()=>{",
+        "const p=s.address().port;",
+        "const line='LDVH_WEB_PORT='+p;",
+        "const cut=line.length-2;",
+        "process.stdout.write(line.slice(0,cut));",
+        "setTimeout(()=>process.stdout.write(line.slice(cut)+'\\n'),5);",
+        "});",
+      ].join("")],
+    },
+    readinessPath: "/api/health",
+    readinessTimeoutMs: 10_000,
+    watchSource: false,
+  });
+  try {
+    const ready = await manager.ensureReady();
+    assert.ok(ready.port > 0, "被切碎的端口行仍须解析出完整端口");
+    const body = await (await fetch(`http://127.0.0.1:${ready.port}/api/health`)).text();
+    assert.equal(body.trim(), "{}", "探针须命中完整端口，而非被截断的前缀端口");
+  } finally {
+    manager.dispose();
+  }
+});
+
+test("reported port is cleared when the live child exits", async () => {
+  const manager = createWebApiProcess({
+    webRoot: process.cwd(),
+    port: 0,
+    env: {},
+    command: {
+      exec: process.execPath,
+      argv: ["-e", "const s=require('http').createServer((q,r)=>r.end('{}'));s.listen(0,'127.0.0.1',()=>{console.log('LDVH_WEB_PORT='+s.address().port);setTimeout(()=>s.close(()=>process.exit(0)),300)})"],
+    },
+    readinessPath: "/api/health",
+    readinessTimeoutMs: 10_000,
+    watchSource: false,
+    rewarmDelayMs: 100_000,
+  });
+  try {
+    const ready = await manager.ensureReady();
+    const livePort = ready.port;
+    assert.ok(livePort > 0, "子进程存活时报出非零端口");
+    assert.equal(manager.currentPort(), livePort);
+    await new Promise((done) => setTimeout(done, 900));
+    assert.equal(manager.currentPort(), 0, "子进程退出后须清零回报端口，不再对外播死端口");
+    assert.equal(manager.isRunning(), false, "长重暖延迟下不得已拉起新子进程，断言才只测退出清零");
+  } finally {
+    manager.dispose();
+  }
+});
+
 test("two dynamic-port instances bind distinct ports and each stays reachable", async () => {
   const command = {
     exec: process.execPath,

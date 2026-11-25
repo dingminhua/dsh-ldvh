@@ -17,6 +17,10 @@ export function assertWebApi(root) {
   if (!existsSync(server)) {
     throw new Error(`pack gate: ${server} 不存在——web-api 子进程改为直接执行编译产物，缺此入口则面板不可用`);
   }
+  const serverSource = readFileSync(server, "utf8");
+  if (!/LDVH_WEB_PORT=\$\{actualPort\}/.test(serverSource)) {
+    throw new Error(`pack gate: ${server} 未上报实际端口——编译产物与 web/api/server.ts 不同步，先运行 npm run build:web 重新生成 api-js/server.js；否则动态端口下探活与面板将不可用`);
+  }
   const shared = join(root, "web", "shared-js");
   if (!existsSync(shared)) {
     throw new Error(`pack gate: ${shared} 不存在——web/api 运行时从 ../shared-js 读取通用实现`);

@@ -24,15 +24,30 @@ export const REVIEW_ASK_ANSWERS = Object.freeze({
 });
 
 export const CANDIDATE_SUMMARY_MAX_CHARS = 200;
+export const CONCLUSION_SUMMARY_MAX_CHARS = 200;
+
+function checkSummary(value, max) {
+  if (typeof value !== "string") return { ok: false, code: "not-string" };
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return { ok: false, code: "empty" };
+  if (trimmed.length > max) return { ok: false, code: "too-long", length: trimmed.length };
+  return { ok: true, value: trimmed };
+}
 
 export function validateCandidateSummary(value) {
-  if (typeof value !== "string") return { ok: false, reason: "candidate_summary 必须是字符串（行动前那处须交付候选摘要）" };
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return { ok: false, reason: "candidate_summary 不得为空（没有候选摘要就没有可核对的对象）" };
-  if (trimmed.length > CANDIDATE_SUMMARY_MAX_CHARS) {
-    return { ok: false, reason: `candidate_summary 去除首尾空白后不得超过 ${CANDIDATE_SUMMARY_MAX_CHARS} 个字符（按字符串长度计，实际 ${trimmed.length} 个字符）；请压缩摘要，不要把完整方案塞进 ask` };
-  }
-  return { ok: true, value: trimmed };
+  const checked = checkSummary(value, CANDIDATE_SUMMARY_MAX_CHARS);
+  if (checked.ok) return checked;
+  if (checked.code === "not-string") return { ok: false, reason: "candidate_summary 必须是字符串（行动前那处须交付候选摘要）" };
+  if (checked.code === "empty") return { ok: false, reason: "candidate_summary 不得为空（没有候选摘要就没有可核对的对象）" };
+  return { ok: false, reason: `candidate_summary 去除首尾空白后不得超过 ${CANDIDATE_SUMMARY_MAX_CHARS} 个字符（按字符串长度计，实际 ${checked.length} 个字符）；请压缩摘要，不要把完整方案塞进 ask` };
+}
+
+export function validateConclusionSummary(value) {
+  const checked = checkSummary(value, CONCLUSION_SUMMARY_MAX_CHARS);
+  if (checked.ok) return checked;
+  if (checked.code === "not-string") return { ok: false, reason: "conclusion_summary 必须是字符串（收口前那处须交付结论摘要）" };
+  if (checked.code === "empty") return { ok: false, reason: "conclusion_summary 不得为空（没有结论摘要就没有可复核的对象）" };
+  return { ok: false, reason: `conclusion_summary 去除首尾空白后不得超过 ${CONCLUSION_SUMMARY_MAX_CHARS} 个字符（按字符串长度计，实际 ${checked.length} 个字符）；请压缩摘要，不要把完整结论塞进 ask` };
 }
 
 export const REVIEW_ASK_CARRIER = "gate-consult-system-foundation";
@@ -165,12 +180,13 @@ export function isReviewAskPoint(point) {
     || point === REVIEW_ASK_POINTS.RESEARCH;
 }
 
-export function reviewAskFingerprint({ point, task, scope, candidate_summary }) {
+export function reviewAskFingerprint({ point, task, scope, candidate_summary, conclusion_summary }) {
   const payload = [
     point === undefined ? "" : String(point),
     task === undefined ? "" : String(task),
     scope === undefined ? "" : String(scope),
     candidate_summary === undefined ? "" : String(candidate_summary),
+    conclusion_summary === undefined ? "" : String(conclusion_summary),
   ].join("\u0000");
   return createHash("sha256").update(payload, "utf8").digest("hex");
 }
@@ -285,7 +301,7 @@ async function recordReviewAskDecisionInner(dshHomePath, entry) {
   });
 }
 
-export function composeReviewAsk({ point, task, candidate_summary } = {}) {
+export function composeReviewAsk({ point, task, candidate_summary, conclusion_summary } = {}) {
   const isPre = point === REVIEW_ASK_POINTS.PRE_ACTION;
   const what = isPre ? "审查" : "复核";
   const PLACEHOLDER_TASK = "当次任务";
@@ -307,5 +323,7 @@ export function composeReviewAsk({ point, task, candidate_summary } = {}) {
     const summaryText = summary.ok ? summary.value : "（未提供候选摘要）";
     return { question: `${head}\n候选摘要：${summaryText}` };
   }
-  return { question: head };
+  const summary = validateConclusionSummary(conclusion_summary);
+  const summaryText = summary.ok ? summary.value : "（未提供结论摘要）";
+  return { question: `${head}\n结论摘要：${summaryText}` };
 }

@@ -76,7 +76,7 @@ const MUTATIONS = [
 	[HM, "preflight 少跑一次探针（有效消息不验）", "      const allowed = invokeHook(hook, [valid], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: preflightIndex });", "      const allowed = Promise.resolve({ code: 0, stdout: \"\", stderr: \"\" });"],
 	[GGR, "git 只读查询不去重（一次门禁内重复 spawn）", "  const memo = GIT_READ_CACHE.get(cacheKey);", "  const memo = undefined;"],
 	[WM, "内容指纹混入 mtime（一次 touch 就回收）", "          hash.update(`${file}\\0${content.length}\\0`);", "          hash.update(`${file}\\0${content.length}\\0${(await fs.promises.stat(file)).mtimeMs}\\0`);"],
-	[WM, "回收后不自愈（kill 完不重拉）", "      await ensureReady();\n      if (logger) logger.info(\"[dsh-ldvh web-api] replacement child ready on port %s\", port);", "      if (logger) logger.info(\"[dsh-ldvh web-api] replacement child ready on port %s\", port);"],
+	[WM, "回收后不自愈（kill 完不重拉）", "      await ensureReady();\n      if (logger) logger.info(\"[dsh-ldvh web-api] replacement child ready on port %s\", effectivePort());", "      if (logger) logger.info(\"[dsh-ldvh web-api] replacement child ready on port %s\", effectivePort());"],
 	[GB, "超预算不再拒绝（引导可无限增长）", "  if (length > budget) {", "  if (false && length > budget) {"],
 	[GB, "预警带判据恒真（逼近上限无人知）", "  return length <= budget * GUIDANCE_EARLY_WARNING_RATIO;", "  return true;"],
 	[GB, "漂移判据恒不漂移（记录值形同虚设）", "  return { drifted: delta !== 0, measured, recorded, delta };", "  return { drifted: false, measured, recorded, delta };"],

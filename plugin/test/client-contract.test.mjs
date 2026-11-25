@@ -716,3 +716,31 @@ test("静默开关：颜色不是唯一载体（07 §12 第 8 条），且不改
 	assert.match(source, /ldv-silent-badge/, "须有文字药丸，颜色不得单独承载语义");
 	assert.match(source, /--ldv-silent:/, "静默色须是具名 token，不散落字面值");
 });
+
+test("dynamic port discovery: failure is not cached, src recomputed per render, retry re-discovers", () => {
+	assert.match(
+		source,
+		/return !portRelevant\(\) \|\| portApplied;/,
+		"health 答而未给可用端口（webPort 0）时不得当作发现成功，否则缓存冻结、重试失效",
+	);
+	assert.match(
+		source,
+		/if \(!ok\) portDiscovery = null;/,
+		"重试预算耗尽仍未拿到端口时须清缓存，让下一次（含重试按钮）重新发现",
+	);
+	assert.match(
+		source,
+		/return \{ following: true, src: composeFollowedLocation\(resolved\.projectId\) \};/,
+		"iframe src 须在渲染时按当前端口现算，不得冻结在 state 里（子进程重启换端口后要能跟进）",
+	);
+	assert.ok(
+		!/return \{ following: true, src: resolved\.src \}/.test(source),
+		"回归：src 冻结在 resolved.src 会让端口变化后永久指向旧端口",
+	);
+	assert.match(
+		source,
+		/function resetPortDiscovery\(\) \{\s*portDiscovery = null;\s*portApplied = false;/,
+		"重试须能重置发现状态，否则重启前的旧端口会被一直沿用",
+	);
+	assert.match(source, /resetPortDiscovery\(\);/, "两个 iframe 视图的重试按钮都须调用重置");
+});

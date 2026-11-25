@@ -184,7 +184,7 @@ export function createWebApiProcess(options) {
     if (disposed) { recycling = false; return false; }
     try {
       await ensureReady();
-      if (logger) logger.info("[dsh-ldvh web-api] replacement child ready on port %s", port);
+      if (logger) logger.info("[dsh-ldvh web-api] replacement child ready on port %s", effectivePort());
     } catch (error) {
       if (logger) logger.warn("[dsh-ldvh web-api] replacement warm-up failed: %s", error?.message ?? error);
     } finally {
@@ -322,6 +322,7 @@ export function createWebApiProcess(options) {
         if (spawned !== proc) return;
         exited = true;
         if (spawned === proc) spawned = null;
+        reportedPort = null;
         if (disposed) return;
         if (logger) logger.warn("[dsh-ldvh web-api] child exited with code %s", code ?? "unknown");
         if (recycling) return;
@@ -332,14 +333,23 @@ export function createWebApiProcess(options) {
           });
         }, rewarmDelayMs).unref?.();
       });
+      let stdoutBuffer = "";
+      const portLine = /^LDVH_WEB_PORT=(\d{2,5})$/;
       proc.stdout.on("data", (chunk) => {
-        const text = String(chunk).trim();
-        const match = text.match(/^LDVH_WEB_PORT=(\d{2,5})$/m);
-        if (match !== null) {
-          const value = Number(match[1]);
-          if (Number.isInteger(value) && value > 0 && value <= 65535) reportedPort = value;
+        const text = String(chunk);
+        stdoutBuffer += text;
+        let newline = stdoutBuffer.indexOf("\n");
+        while (newline >= 0) {
+          const line = stdoutBuffer.slice(0, newline).trim();
+          stdoutBuffer = stdoutBuffer.slice(newline + 1);
+          const match = line.match(portLine);
+          if (match !== null) {
+            const value = Number(match[1]);
+            if (Number.isInteger(value) && value > 0 && value <= 65535) reportedPort = value;
+          }
+          newline = stdoutBuffer.indexOf("\n");
         }
-        if (text && logger) logger.info("[dsh-ldvh web-api] %s", text);
+        if (text.trim() && logger) logger.info("[dsh-ldvh web-api] %s", text.trim());
       });
       reportedPort = null;
       proc.stderr.on("data", (chunk) => { const text = String(chunk).trim(); if (text && logger) logger.warn("[dsh-ldvh web-api] %s", text); });
