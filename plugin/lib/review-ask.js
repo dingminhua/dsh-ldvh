@@ -23,6 +23,18 @@ export const REVIEW_ASK_ANSWERS = Object.freeze({
   SKIP: "skip",
 });
 
+export const CANDIDATE_SUMMARY_MAX_CHARS = 200;
+
+export function validateCandidateSummary(value) {
+  if (typeof value !== "string") return { ok: false, reason: "candidate_summary 必须是字符串（行动前那处须交付候选摘要）" };
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return { ok: false, reason: "candidate_summary 不得为空（没有候选摘要就没有可核对的对象）" };
+  if (trimmed.length > CANDIDATE_SUMMARY_MAX_CHARS) {
+    return { ok: false, reason: `candidate_summary 去除首尾空白后不得超过 ${CANDIDATE_SUMMARY_MAX_CHARS} 个字符（按字符串长度计，实际 ${trimmed.length} 个字符）；请压缩摘要，不要把完整方案塞进 ask` };
+  }
+  return { ok: true, value: trimmed };
+}
+
 export const REVIEW_ASK_CARRIER = "gate-consult-system-foundation";
 
 export const REVIEW_ASK_CARRIER_ENTRIES = Object.freeze({
@@ -153,11 +165,12 @@ export function isReviewAskPoint(point) {
     || point === REVIEW_ASK_POINTS.RESEARCH;
 }
 
-export function reviewAskFingerprint({ point, task, scope }) {
+export function reviewAskFingerprint({ point, task, scope, candidate_summary }) {
   const payload = [
     point === undefined ? "" : String(point),
     task === undefined ? "" : String(task),
     scope === undefined ? "" : String(scope),
+    candidate_summary === undefined ? "" : String(candidate_summary),
   ].join("\u0000");
   return createHash("sha256").update(payload, "utf8").digest("hex");
 }
@@ -272,7 +285,7 @@ async function recordReviewAskDecisionInner(dshHomePath, entry) {
   });
 }
 
-export function composeReviewAsk({ point, task } = {}) {
+export function composeReviewAsk({ point, task, candidate_summary } = {}) {
   const isPre = point === REVIEW_ASK_POINTS.PRE_ACTION;
   const what = isPre ? "审查" : "复核";
   const PLACEHOLDER_TASK = "当次任务";
@@ -289,6 +302,10 @@ export function composeReviewAsk({ point, task } = {}) {
   const taskTitle = rawTask.length > TASK_TITLE_MAX ? `${cutAt(rawTask, TASK_TITLE_MAX)}…` : rawTask;
 
   const head = `${taskTitle}——这次${what}做不做、由谁做？`;
-
+  if (isPre) {
+    const summary = validateCandidateSummary(candidate_summary);
+    const summaryText = summary.ok ? summary.value : "（未提供候选摘要）";
+    return { question: `${head}\n候选摘要：${summaryText}` };
+  }
   return { question: head };
 }

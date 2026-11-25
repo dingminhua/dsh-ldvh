@@ -1082,7 +1082,9 @@ export function renderEnvelope(operationKey, value) {
     const basis = r.candidate_basis;
     if (basis !== undefined && basis !== null && typeof basis === "object") {
       if (basis.available === true) {
-        lines.push(`candidate_basis（判断依据，不构成裁决；是否已有候选由你判断）: 本轮正文 ${basis.turn_text_chars} 字${basis.turn_text_empty === true ? "（**一个字都没写**）" : ""}${basis.truncated === true ? "（已截断，只读到前一段）" : ""}`);
+        const statusText = typeof basis.candidate_status === "string" ? basis.candidate_status : (basis.claims_in_turn_text_count > 0 ? "evidence-present" : "no-evidence");
+        lines.push(`candidate_basis（判断依据，不构成裁决；是否已有候选由你判断）: candidate_status=${statusText}；本轮正文 ${basis.turn_text_chars} 字${basis.turn_text_empty === true ? "（**一个字都没写**）" : ""}${basis.truncated === true ? "（已截断，只读到前一段）" : ""}`);
+        if (typeof basis.warning === "string" && basis.warning.length > 0) lines.push(`candidate_basis.warning: ${basis.warning}`);
         lines.push(`candidate_basis.claims: ${basis.claims_present === true ? `带了 ${basis.claims_count} 条，其中 ${basis.claims_in_turn_text_count} 条出现在本轮正文里` : "未带 claims"}`);
         if (basis.claims_present === true && Array.isArray(basis.claims_in_turn_text)) {
           basis.claims_in_turn_text.forEach((hit, index) => {

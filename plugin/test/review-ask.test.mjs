@@ -20,6 +20,8 @@ import {
 } from "../lib/review-ask.js";
 import { selfReviewDispatchTemplate } from "../lib/review-dispatch-template.js";
 
+const SUMMARY = "候选摘要：先改 A 再改 B，验证回归后收口";
+
 test("resolveReviewAskSettings：两代宿主取值形态都认，缺省按关", () => {
   const both = resolveReviewAskSettings({ preActionReviewAskEnabled: true, postWorkReviewAskEnabled: false });
   assert.equal(both.preAction, true);
@@ -279,11 +281,12 @@ test("设置页中英文 hint：同 key 双侧须都提到点位排除（MINOR-2
 });
 
 test("reviewAskFingerprint：同输入同指纹、异输入异指纹、位置参与指纹", () => {
-  const base = { point: "pre-action", task: "改开关", scope: "plugin/lib" };
+  const base = { point: "pre-action", candidate_summary: SUMMARY, task: "改开关", scope: "plugin/lib" };
   assert.equal(reviewAskFingerprint(base), reviewAskFingerprint({ ...base }), "同一件事重试须得到同一指纹（否则重试必重问）");
   assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ ...base, task: "改开关2" }), "描述变了就是另一件事");
   assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ ...base, point: "post-work" }), "审查与复核不得共用一个指纹");
   assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ point: "pre-action" }), "缺字段不得与有字段撞指纹");
+  assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ ...base, candidate_summary: "换成另一份候选摘要" }), "摘要变了就是另一件事，须重新请示");
   assert.match(reviewAskFingerprint(base), /^[a-f0-9]{64}$/);
 });
 
@@ -342,14 +345,14 @@ async function withHome(fn) {
 
 test("载体：ENOENT 是合法初态（未问过），写入后可按指纹读回", async () => {
   await withHome(async (home) => {
-    const fp = reviewAskFingerprint({ point: "pre-action", task: "x" });
+    const fp = reviewAskFingerprint({ point: "pre-action", candidate_summary: SUMMARY, task: "x" });
     const before = await findReviewAskDecision(home, fp);
     assert.equal(before.ok, true);
     assert.equal(before.value, null, "从未问过 → null（调用方据此才提请）");
 
     const wrote = await recordReviewAskDecision(home, {
       fingerprint: fp,
-      point: "pre-action",
+      point: "pre-action", candidate_summary: SUMMARY,
       answer: REVIEW_ASK_ANSWERS.SKIP,
       task: "x",
     });
@@ -364,8 +367,8 @@ test("载体：ENOENT 是合法初态（未问过），写入后可按指纹读�
 
 test("载体：self-review 是合法答复值，按点位留痕", async () => {
   await withHome(async (home) => {
-    const fp = reviewAskFingerprint({ point: "pre-action", task: "z" });
-    const rec = await recordReviewAskDecision(home, { fingerprint: fp, point: "pre-action", answer: REVIEW_ASK_ANSWERS.SELF, task: "z" });
+    const fp = reviewAskFingerprint({ point: "pre-action", candidate_summary: SUMMARY, task: "z" });
+    const rec = await recordReviewAskDecision(home, { fingerprint: fp, point: "pre-action", candidate_summary: SUMMARY, answer: REVIEW_ASK_ANSWERS.SELF, task: "z" });
     assert.equal(rec.ok, true);
     assert.equal(rec.value.answer, "self-review");
     const found = await findReviewAskDecision(home, fp);
@@ -407,9 +410,9 @@ test("载体：空答复与非法闭集一律拒绝写入（未决策不得写�
 
 test("载体：同指纹重复记录以最近一次为准（不累加多条）", async () => {
   await withHome(async (home) => {
-    const fp = reviewAskFingerprint({ point: "pre-action", task: "z" });
-    await recordReviewAskDecision(home, { fingerprint: fp, point: "pre-action", answer: "review", task: "z" });
-    await recordReviewAskDecision(home, { fingerprint: fp, point: "pre-action", answer: "skip", task: "z" });
+    const fp = reviewAskFingerprint({ point: "pre-action", candidate_summary: SUMMARY, task: "z" });
+    await recordReviewAskDecision(home, { fingerprint: fp, point: "pre-action", candidate_summary: SUMMARY, answer: "review", task: "z" });
+    await recordReviewAskDecision(home, { fingerprint: fp, point: "pre-action", candidate_summary: SUMMARY, answer: "skip", task: "z" });
     const found = await findReviewAskDecision(home, fp);
     assert.equal(found.value.answer, "skip", "同一件事的最近答复才是 Human 最新的意思");
   });
@@ -438,7 +441,7 @@ test("executeReviewAsk：开关关闭时**不得**提问，且如实标注这是
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   let asked = 0;
   const env = await executeReviewAsk(
-    { point: "pre-action", task: "某任务" },
+    { point: "pre-action", candidate_summary: SUMMARY, task: "某任务" },
     { agent: null },
     {
       getReviewAskSettings: () => ({ preAction: false, postWork: false }),
@@ -449,6 +452,35 @@ test("executeReviewAsk：开关关闭时**不得**提问，且如实标注这是
   assert.equal(env.result.decision, null);
   assert.equal(env.result.switch_enabled, false);
   assert.ok(env.gaps.some((g) => /switch_off/.test(g)), "须说明「未安排」是配置行为，不是失败");
+});
+
+test("机械闸：pre-action 缺候选摘要/超 200 字一律 rejected，不询问不派发；边界 200 字通过", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const mkDeps = () => {
+    const state = { asks: 0, seen: null };
+    return { state, deps: {
+      getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+      hostSeams: { requestReviewAsk: async (req) => { state.asks += 1; state.seen = req; return { decision: "skip", asked: true }; } },
+    } };
+  };
+  for (const bad of [undefined, "", "   ", 42, "x".repeat(201)]) {
+    const { state, deps } = mkDeps();
+    const env = await executeReviewAsk({ point: "pre-action", task: "t", candidate_summary: bad }, { agent: null }, deps);
+    assert.equal(env.outcome, "rejected", `候选摘要 ${String(JSON.stringify(bad)).slice(0, 30)} 应被机械闸拒绝`);
+    assert.equal(state.asks, 0, "被拒时不得发起询问");
+    assert.equal(env.result.decision, null);
+    assert.equal(env.verification.passed, false);
+    assert.ok(env.gaps.some((g) => /机械闸/.test(g)));
+  }
+  const { state, deps } = mkDeps();
+  const env = await executeReviewAsk({ point: "pre-action", task: "t", candidate_summary: "x".repeat(200) }, { agent: null }, deps);
+  assert.equal(env.outcome, "completed", "恰好 200 字须通过");
+  assert.equal(state.asks, 1);
+  assert.equal(state.seen.candidate_summary.length, 200, "摘要须透传给宿主询问接缝（由接缝写入 ask 题面）");
+  const { composeReviewAsk } = await import("../lib/review-ask.js");
+  const composed = composeReviewAsk({ point: "pre-action", task: "t", candidate_summary: "x".repeat(200) });
+  assert.match(composed.question, /候选摘要：/, "摘要须进 ask 题面");
+  assert.match(composed.question, /x{200}/);
 });
 
 test("executeReviewAsk：非法 point 一律拒绝（闭集）", async () => {
@@ -477,7 +509,7 @@ test("executeReviewAsk：seam 不可用时 fail-closed，不假装已安排", as
 test("executeReviewAsk：skip 是合法答复（不得当成拒绝/失败）", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   const env = await executeReviewAsk(
-    { point: "pre-action", task: "某任务" },
+    { point: "pre-action", candidate_summary: SUMMARY, task: "某任务" },
     { agent: null },
     {
       getReviewAskSettings: () => ({ preAction: true, postWork: false }),
@@ -502,7 +534,7 @@ test("executeReviewAsk：静默开着时**不问**，直接给派发模板与痕
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   let asked = 0;
   const env = await executeReviewAsk(
-    { point: "pre-action", task: "重构召回注入" },
+    { point: "pre-action", candidate_summary: SUMMARY, task: "重构召回注入" },
     { agent: null },
     {
       getReviewAskSettings: () => ({ preAction: true, postWork: true, silentRun: true }),
@@ -542,7 +574,7 @@ test("executeReviewAsk：静默不得越过询问开关（关着时既不问也�
 test("executeReviewAsk：静默不依赖询问通道（宿主无 userQuestions 也能静默）", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   const env = await executeReviewAsk(
-    { point: "pre-action", task: "某任务" },
+    { point: "pre-action", candidate_summary: SUMMARY, task: "某任务" },
     { agent: null },
     { getReviewAskSettings: () => ({ preAction: true, silentRun: true }), hostSeams: {} },
   );
@@ -554,7 +586,7 @@ test("executeReviewAsk：静默开关取不到时保守退回询问，并如实�
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   let asked = 0;
   const env = await executeReviewAsk(
-    { point: "pre-action", task: "某任务" },
+    { point: "pre-action", candidate_summary: SUMMARY, task: "某任务" },
     { agent: null },
     {
       getReviewAskSettings: () => ({ preAction: true, silentRun: false, silentRunKnown: false }),
@@ -666,7 +698,7 @@ test("工具：决定「主控自己做」时返回 self_review_template 且不�
   };
   for (const point of ["pre-action", "post-work"]) {
     const out = await executeReviewAsk(
-      { point, task: "改开关", claims: ["测试全过"] },
+      { point, task: "改开关", claims: ["测试全过"], candidate_summary: SUMMARY },
       { agent: null }, deps);
     assert.equal(out.result.decision, "self-review");
     assert.equal(out.result.review_template, undefined, "主控自做时不该给代理派发模板");
@@ -687,7 +719,7 @@ test("工具：pre-action 与 post-work 各自返回自己的模板", async () =
     getReviewAskSettings: () => ({ preAction: true, postWork: true }),
     hostSeams: { requestReviewAsk: async () => ({ decision: "review", asked: true }) },
   };
-  const pre = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: null }, deps);
+  const pre = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, { agent: null }, deps);
   const post = await executeReviewAsk({ point: "post-work", task: "t" }, { agent: null }, deps);
   assert.equal(pre.result.review_template.kind, "pre-action-review");
   assert.equal(post.result.review_template.kind, "post-work-review");
@@ -737,7 +769,7 @@ test("renderEnvelope 必须把答复与模板渲染给模型（BLOCKER：原实�
       operation_key: "review-ask",
       outcome: "completed",
       result: {
-        point: "pre-action",
+        point: "pre-action", candidate_summary: SUMMARY,
         decision: "self-review",
         asked: true,
         self_review_template: { kind: "pre-action-self-review", prompt: "# 主控自审\n逐面核对。" },
@@ -772,13 +804,13 @@ test("renderEnvelope 必须把答复与模板渲染给模型（BLOCKER：原实�
 test("renderEnvelope 必须把 silent 与 notice 渲染给模型（独立复核 BLOCKER）", async () => {
   const { renderEnvelope } = await import("../lib/ldvh-tools.js");
   const { silentRunNotice } = await import("../lib/review-ask.js");
-  const notice = silentRunNotice({ point: "pre-action", task: "改开关" });
+  const notice = silentRunNotice({ point: "pre-action", candidate_summary: SUMMARY, task: "改开关" });
   const env = {
     envelope: {
       operation_key: "review-ask",
       outcome: "completed",
       result: {
-        point: "pre-action",
+        point: "pre-action", candidate_summary: SUMMARY,
         task: "改开关",
         decision: "silent",
         asked: false,
@@ -803,18 +835,18 @@ test("renderEnvelope 必须把 silent 与 notice 渲染给模型（独立复核 
 test("开关状态读不到时不得报成「开关关闭」（MAJOR #3）", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   const exec = { agent: null, signal: undefined };
-  const missing = await executeReviewAsk({ point: "pre-action" }, exec, { hostSeams: {}, getReviewAskSettings: undefined });
+  const missing = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY }, exec, { hostSeams: {}, getReviewAskSettings: undefined });
   assert.equal(missing.outcome, "unavailable", "取不到开关状态须报 unavailable，不得报 completed");
   assert.equal(missing.result.switch_enabled, null, "不得声称开关是关的");
   assert.equal(missing.verification.passed, false);
   assert.match(missing.gaps.join(" "), /unavailable|not wired/i);
-  const boom = await executeReviewAsk({ point: "pre-action" }, exec, {
+  const boom = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY }, exec, {
     hostSeams: {}, getReviewAskSettings: () => { throw new Error("config boom"); },
   });
   assert.equal(boom.outcome, "unavailable");
   assert.match(boom.gaps.join(" "), /config boom/);
   let asks = 0;
-  const off = await executeReviewAsk({ point: "pre-action" }, exec, {
+  const off = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY }, exec, {
     hostSeams: { requestReviewAsk: async () => { asks += 1; return { decision: null, asked: false }; } },
     getReviewAskSettings: () => ({ preAction: false, postWork: false }),
   });
@@ -824,11 +856,11 @@ test("开关状态读不到时不得报成「开关关闭」（MAJOR #3）", asy
 });
 
 test("指纹须含会话/项目范围，否则跨项目静默复用（MAJOR #2）", () => {
-  const a = reviewAskFingerprint({ point: "pre-action", task: null, scope: "session:s1|cwd:/p/a" });
-  const b = reviewAskFingerprint({ point: "pre-action", task: null, scope: "session:s2|cwd:/p/b" });
+  const a = reviewAskFingerprint({ point: "pre-action", candidate_summary: SUMMARY, task: null, scope: "session:s1|cwd:/p/a" });
+  const b = reviewAskFingerprint({ point: "pre-action", candidate_summary: SUMMARY, task: null, scope: "session:s2|cwd:/p/b" });
   assert.notEqual(a, b, "不同会话/项目不得共用指纹");
-  const c = reviewAskFingerprint({ point: "pre-action", task: "修复登录bug", scope: "session:s1|cwd:/p/a" });
-  const d = reviewAskFingerprint({ point: "pre-action", task: "修复登录bug", scope: "session:s1|cwd:/p/a" });
+  const c = reviewAskFingerprint({ point: "pre-action", candidate_summary: SUMMARY, task: "修复登录bug", scope: "session:s1|cwd:/p/a" });
+  const d = reviewAskFingerprint({ point: "pre-action", candidate_summary: SUMMARY, task: "修复登录bug", scope: "session:s1|cwd:/p/a" });
   assert.equal(c, d, "同一会话同一任务应复用（不重复提问）");
 });
 
@@ -869,7 +901,7 @@ test("弱约束：行动前交还判断依据，且它不改变 decision/outcome
     readCurrentTurnText: () => ({ ok: true, turn: 3, assistant: "我打算先改 A，再改 B。", truncated: false }),
   };
   const res = await executeReviewAsk(
-    { point: "pre-action", task: "改 A", claims: ["先改 A", "再改 B"] },
+    { point: "pre-action", candidate_summary: SUMMARY, task: "改 A", claims: ["先改 A", "再改 B"] },
     exec, deps,
   );
   assert.ok(res.result.candidate_basis, "行动前必须交还判断依据");
@@ -882,8 +914,46 @@ test("弱约束：行动前交还判断依据，且它不改变 decision/outcome
   assert.equal(basis.claims_in_turn_text_count, 2);
   assert.doesNotMatch(JSON.stringify(basis), /"decision"/, "依据不是裁决，不得带 decision");
   assert.match(basis.note, /不说明它是合格候选/);
+  assert.match(basis.note, /candidate_summary 为准/);
   assert.equal(res.result.decision, "skip");
   assert.equal(res.outcome, "completed");
+});
+
+test("弱约束：candidate_status 三态——命中给 evidence-present，未命中给 no-evidence 告警，取不到给 unavailable", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const exec = { agent: { id: "a1" } };
+  const base = {
+    hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+  };
+  const run = async (reader, extra = {}) => (await executeReviewAsk(
+    { point: "pre-action", candidate_summary: SUMMARY, task: "t", ...extra }, exec,
+    { ...base, readCurrentTurnText: reader },
+  )).result.candidate_basis;
+
+  const present = await run(() => ({ ok: true, turn: 1, assistant: "我打算先改 A，再改 B。", truncated: false }), { claims: ["先改 A", "再改 B"] });
+  assert.equal(present.candidate_status, "evidence-present");
+  assert.equal(present.warning, undefined, "有可定位候选时不得误报空问告警");
+
+  const none = await run(() => ({ ok: true, turn: 1, assistant: "让我先查清规范原文，方案尚未成形。", truncated: false }), { claims: ["候选：按 A 做"] });
+  assert.equal(none.candidate_status, "no-evidence");
+  assert.match(none.warning, /参考提示（非权威）/);
+  assert.match(none.warning, /candidate_summary/);
+
+  const noClaims = await run(() => ({ ok: true, turn: 1, assistant: "我还没写方案。", truncated: false }));
+  assert.equal(noClaims.candidate_status, "no-evidence");
+  assert.match(noClaims.warning, /未带 claims/);
+
+  const unavailable = await run(() => ({ ok: false, reason: "no live turn accumulator" }), { claims: ["先改 A"] });
+  assert.equal(unavailable.candidate_status, "unavailable");
+  assert.match(unavailable.note, /不说明候选摘要是否存在/);
+
+  const presentButUnasked = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, exec, {
+    getReviewAskSettings: () => ({ preAction: false, postWork: false }),
+    readCurrentTurnText: () => ({ ok: true, turn: 1, assistant: "", truncated: false }),
+    hostSeams: { requestReviewAsk: async () => ({ decision: null, asked: false }) },
+  });
+  assert.equal(presentButUnasked.result.candidate_basis.candidate_status, "no-evidence", "开关关闭分支也要交还状态");
 });
 
 test("弱约束：正文里找不到 claims 时如实报 false，且**不拦**这次询问", async () => {
@@ -895,7 +965,7 @@ test("弱约束：正文里找不到 claims 时如实报 false，且**不拦**�
     readCurrentTurnText: () => ({ ok: true, turn: 2, assistant: "让我先把规范原文查清楚。", truncated: false }),
   };
   const res = await executeReviewAsk(
-    { point: "pre-action", task: "改 A", claims: ["方案是先把 A 换成 B"] },
+    { point: "pre-action", candidate_summary: SUMMARY, task: "改 A", claims: ["方案是先把 A 换成 B"] },
     { agent: { id: "a1" } }, deps,
   );
   assert.equal(res.result.candidate_basis.claims_in_turn_text_count, 0);
@@ -913,7 +983,7 @@ test("弱约束：本轮一个字都没写时 turn_text_empty 为真（依据仍
     getReviewAskSettings: () => ({ preAction: true, postWork: true }),
     readCurrentTurnText: () => ({ ok: true, turn: 1, assistant: "", truncated: false }),
   };
-  const res = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: { id: "a1" } }, deps);
+  const res = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, { agent: { id: "a1" } }, deps);
   assert.equal(res.result.candidate_basis.turn_text_empty, true);
   assert.equal(res.result.candidate_basis.turn_text_chars, 0);
   assert.equal(asks, 1, "空正文同样不阻断（本层只交还依据，不判定对错）");
@@ -927,17 +997,17 @@ test("弱约束：读取器缺失/抛错/取不到时如实报 available:false�
     hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
     getReviewAskSettings: () => ({ preAction: true, postWork: true }),
   };
-  const missing = await executeReviewAsk({ point: "pre-action", task: "t" }, exec, base);
+  const missing = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, exec, base);
   assert.equal(missing.result.candidate_basis.available, false);
   assert.match(missing.result.candidate_basis.reason, /not wired/);
   assert.equal(missing.result.candidate_basis.turn_text_chars, undefined, "取不到时不得给出一个长度值——那会被读成「正文是空的」");
-  const boom = await executeReviewAsk({ point: "pre-action", task: "t" }, exec, {
+  const boom = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, exec, {
     ...base, readCurrentTurnText: () => { throw new Error("live stream gone"); },
   });
   assert.equal(boom.result.candidate_basis.available, false);
   assert.match(boom.result.candidate_basis.reason, /live stream gone/);
   assert.match(boom.result.candidate_basis.reason, /do not read this as/);
-  const notArmed = await executeReviewAsk({ point: "pre-action", task: "t" }, exec, {
+  const notArmed = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, exec, {
     ...base, readCurrentTurnText: () => ({ ok: false, reason: "no live turn accumulator in this process" }),
   });
   assert.equal(notArmed.result.candidate_basis.available, false);
@@ -956,14 +1026,14 @@ test("弱约束：post-work 不交还 candidate_basis（那里没有「候选是
   };
   const res = await executeReviewAsk({ point: "post-work", task: "t", claims: ["做完了"] }, { agent: { id: "a1" } }, deps);
   assert.equal(res.result.candidate_basis, undefined, "post-work 不得出现 candidate_basis");
-  const pre = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: { id: "a1" } }, deps);
+  const pre = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, { agent: { id: "a1" } }, deps);
   assert.ok(pre.result.candidate_basis);
 });
 
 test("弱约束：静默档与开关关闭时也交还依据（32 §6.2 第 2 项：免掉的是询问，不是核对）", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   const reader = () => ({ ok: true, turn: 4, assistant: "候选：按 A 做。", truncated: false });
-  const silent = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: { id: "a1" } }, {
+  const silent = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, { agent: { id: "a1" } }, {
     hostSeams: { requestReviewAsk: async () => ({ decision: "silent", asked: false }) },
     getReviewAskSettings: () => ({ preAction: true, postWork: true, silentRun: true, silentRunKnown: true }),
     readCurrentTurnText: reader,
@@ -972,7 +1042,7 @@ test("弱约束：静默档与开关关闭时也交还依据（32 §6.2 第 2 �
   assert.equal(silent.result.decision, "silent");
   assert.ok(silent.result.candidate_basis, "静默档同样可能无候选可核对，须交还依据");
   assert.equal(silent.result.candidate_basis.available, true);
-  const off = await executeReviewAsk({ point: "pre-action", task: "t" }, { agent: { id: "a1" } }, {
+  const off = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, { agent: { id: "a1" } }, {
     hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
     getReviewAskSettings: () => ({ preAction: false, postWork: false }),
     readCurrentTurnText: reader,
@@ -988,7 +1058,7 @@ test("弱约束：归一化口径对形状差异宽容、对内容差异严格�
     getReviewAskSettings: () => ({ preAction: true, postWork: true }),
   };
   const run = async (assistant) => (await executeReviewAsk(
-    { point: "pre-action", task: "t", claims: ["先改 A 再改 B"] },
+    { point: "pre-action", candidate_summary: SUMMARY, task: "t", claims: ["先改 A 再改 B"] },
     { agent: { id: "a1" } },
     { ...deps, readCurrentTurnText: () => ({ ok: true, turn: 1, assistant, truncated: false }) },
   )).result.candidate_basis.claims_in_turn_text[0];
@@ -1003,7 +1073,7 @@ test("renderEnvelope 必须把 candidate_basis 渲染给模型（信封里写了
     envelope: {
       operation_key: "review-ask",
       outcome: "completed",
-      result: { point: "pre-action", decision: "skip", asked: true, switch_enabled: true, candidate_basis: basis },
+      result: { point: "pre-action", candidate_summary: SUMMARY, decision: "skip", asked: true, switch_enabled: true, candidate_basis: basis },
       gaps: [], scope: { not_completed: [] }, follow_up: [],
     },
   });
@@ -1027,10 +1097,18 @@ test("renderEnvelope 必须把 candidate_basis 渲染给模型（信封里写了
   assert.match(empty, /未带 claims/);
 
   const unavailable = renderEnvelope("review-ask", mk({
-    available: false, reason: "the live turn accumulator is not wired", claims_present: false, claims_count: 0,
+    available: false, candidate_status: "unavailable", reason: "the live turn accumulator is not wired", claims_present: false, claims_count: 0,
   }))[0].text;
   assert.match(unavailable, /candidate_basis: unavailable/);
   assert.match(unavailable, /not wired/);
+
+  const noEvidence = renderEnvelope("review-ask", mk({
+    available: true, candidate_status: "no-evidence", turn_text_chars: 20, turn_text_empty: false, truncated: false,
+    claims_present: true, claims_count: 1, claims_in_turn_text: [false], claims_in_turn_text_count: 0,
+    warning: "**空问告警：本轮正文没有任何可定位的候选主张**。请先写候选再发问。",
+  }))[0].text;
+  assert.match(noEvidence, /candidate_status=no-evidence/, "状态须渲染，让主控一眼看出这是空问");
+  assert.match(noEvidence, /candidate_basis\.warning: \*\*空问告警/, "告警须逐字渲染，不得只留在信封里");
 
   const noBasis = renderEnvelope("review-ask", {
     envelope: { operation_key: "review-ask", outcome: "completed", result: { point: "post-work", decision: "skip", asked: true, switch_enabled: true }, gaps: [], scope: { not_completed: [] }, follow_up: [] },

@@ -1523,7 +1523,9 @@ test("把关提示行：行动前那处须带「方案已有候选」这个时�
 	for (const silentOn of [false, true]) {
 		const text = buildReviewAskNotice({ preOn: true, postOn: true, silentOn });
 		assert.match(text, /① 行动前（方案已有候选/, "行动前指令须在标题处写明时点条件");
-		assert.match(text, /尚无候选方案时不得发起该处请示/, "须明说无候选时不发起（否则空问仍会发生）");
+		assert.match(text, /candidate_summary/, "须写明候选摘要必填（Human 2026-11-25 改裁的机械闸）");
+		assert.match(text, /无候选摘要时不得发起该处请示|缺候选摘要或超限会被机械拒绝/, "须明说无候选摘要时不发起/会被拒（否则空问仍会发生）");
+		assert.match(text, /候选内容是否合格仍由主控与 Human 判断/, "须如实写明机械层只查摘要存在与长度，不判候选质量");
 		assert.match(text, /尚未产生副作用/, "须写明 32 §6.1 的进入信号是「尚未产生副作用」而非「尚未做任何事」");
 	}
 });

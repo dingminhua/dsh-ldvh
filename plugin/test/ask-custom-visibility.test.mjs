@@ -26,6 +26,7 @@ function installWith(answer) {
 function reviewCall(extra = {}) {
   return {
     point: "pre-action",
+    candidate_summary: "候选摘要：修复提请框自由输入丢失的回传路径",
     task: "修复提请框自由输入丢失",
     enabled: true,
     preAction: true,
