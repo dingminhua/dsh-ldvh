@@ -21,7 +21,7 @@ import { registerLdvhRpc, registerLdvhCommands } from "./rpc.js";
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.meta.url));
 const WEB_DIST_DIR = join(PACKAGE_ROOT, "web", "dist");
-const WEB_API_PORT = Number(process.env.LDVH_WEB_API_PORT ?? 3299);
+const WEB_API_PORT = Number(process.env.LDVH_WEB_API_PORT ?? 0);
 function webApiBridgeEnv(dshHomePath) {
   const env = {
     LDVH_WORKSPACE_ROOT: dirname(PACKAGE_ROOT),
@@ -111,7 +111,7 @@ function trustFence(requestRejection) {
   };
 }
 
-function createApiHandler(dshHomePath, webApiProxy, requestRejection) {
+function createApiHandler(dshHomePath, webApiProxy, requestRejection, getWebPort) {
   const governance = createGovernanceHandler({ dshHomePath, runnerPath: GATE_RUNNER_PATH, workspaceRoot: PACKAGE_ROOT });
   const rejected = trustFence(requestRejection);
   return async function apiHandler(req, res) {
@@ -120,7 +120,9 @@ function createApiHandler(dshHomePath, webApiProxy, requestRejection) {
     const rawPath = url.pathname;
     const path = rawPath === API_PREFIX ? "/" : (rawPath.startsWith(`${API_PREFIX}/`) ? rawPath.slice(API_PREFIX.length) : rawPath);
     if ((path === "/health" || path === "/health/") && (req.method === "GET" || req.method === "HEAD")) {
-      json(res, 200, { ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX, webPort: WEB_API_PORT });
+      const reported = typeof getWebPort === "function" ? getWebPort() : WEB_API_PORT;
+      const webPort = Number.isInteger(reported) && reported > 0 ? reported : (WEB_API_PORT > 0 ? WEB_API_PORT : 3299);
+      json(res, 200, { ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX, webPort });
       return;
     }
     const handled = await governance(req, res);
@@ -154,7 +156,8 @@ function gated(handler, config) {
 
 function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger, config, requestRejection) {
   const webApiProxy = createProxyHandler(webApiProcess, logger);
-  const apiHandler = typeof dshHomePath === "function" ? createApiHandler(dshHomePath, webApiProxy, requestRejection) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); }, webApiProxy, requestRejection);
+  const getWebPort = typeof webApiProcess?.currentPort === "function" ? () => webApiProcess.currentPort() : () => WEB_API_PORT;
+  const apiHandler = typeof dshHomePath === "function" ? createApiHandler(dshHomePath, webApiProxy, requestRejection, getWebPort) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); }, webApiProxy, requestRejection, getWebPort);
   const apiDisposer = webServer.register({
     kind: "prefix",
     path: API_PREFIX,
@@ -273,15 +276,16 @@ export function apply(ctx, config) {
     if (mode === "source" && existsSync(join(webRoot, "api-js", "server.js"))) {
       webCtx.logger.info("[dsh-ldvh] 源码态与编译产物并存，按源码态运行（tsx 可用，保留后端热重载）");
     }
+    const requestedPort = Number.isInteger(WEB_API_PORT) && WEB_API_PORT > 0 ? WEB_API_PORT : 0;
     const webApiProcess = createWebApiProcess({
       webRoot,
-      port: WEB_API_PORT,
+      port: requestedPort,
       env: webApiBridgeEnv(dshHomePath),
       logger: webCtx.logger,
       command,
     });
     void webApiProcess.ensureReady().then(() => {
-      webCtx.logger.info("[dsh-ldvh] web api child warmed up on port %s", WEB_API_PORT);
+      webCtx.logger.info("[dsh-ldvh] web api child warmed up on port %s", webApiProcess.currentPort());
     }).catch((error) => {
       webCtx.logger.warn("[dsh-ldvh] web api warm-up failed (will retry on first request): %s", error?.message ?? error);
     });
