@@ -1530,6 +1530,17 @@ test("把关提示行：行动前那处须带「方案已有候选」这个时�
 	}
 });
 
+test("把关提示行：收口前那处须带 conclusion_summary 结论摘要机械闸（与行动前对称）", async () => {
+	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
+	for (const silentOn of [false, true]) {
+		const text = buildReviewAskNotice({ preOn: true, postOn: true, silentOn });
+		assert.match(text, /② 收口前（一件复杂任务做完/, "收口前指令须写明时点条件");
+		assert.match(text, /conclusion_summary/, "须写明结论摘要必填（与候选摘要对称的机械闸）");
+		assert.match(text, /缺结论摘要或超限会被机械拒绝|无结论摘要时不得发起该处请示|无结论摘要时不得发起/, "须明说无结论摘要时不发起/会被拒");
+		assert.match(text, /结论内容是否合格仍由主控与 Human 判断/, "须如实写明机械层只查摘要存在与长度");
+	}
+});
+
 test("把关提示行：答复不构成动手／收口前提（不得把请示写成暂停）", async () => {
 	const { buildReviewAskNotice } = await import("../lib/lifecycle.js");
 	for (const silentOn of [false, true]) {

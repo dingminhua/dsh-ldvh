@@ -21,6 +21,7 @@ import {
 import { selfReviewDispatchTemplate } from "../lib/review-dispatch-template.js";
 
 const SUMMARY = "候选摘要：先改 A 再改 B，验证回归后收口";
+const CONCLUSION = "结论摘要：A 与 B 均已改完，全量测试通过";
 
 test("resolveReviewAskSettings：两代宿主取值形态都认，缺省按关", () => {
   const both = resolveReviewAskSettings({ preActionReviewAskEnabled: true, postWorkReviewAskEnabled: false });
@@ -159,6 +160,21 @@ test("GATE_POINT_EXCLUSIONS：类别名与承接条目须能在载体原文逐�
   assert.deepEqual(drifted, [], `点位排除常量与载体原文漂移（禁第二规则源）：\n${drifted.join("\n")}`);
 });
 
+test("载体对称：before-closing-entry 须写明结论摘要机械闸，题面须带「结论摘要：」", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const carrier = await readFile(join(import.meta.dirname, "..", "..", "plugin-specs", "gate-consult-system-foundation.yaml"), "utf8");
+  const beforeClosing = carrier.slice(
+    carrier.indexOf("- id: before-closing-entry"),
+    carrier.indexOf("- id: research-entry"),
+  );
+  assert.ok(beforeClosing.includes("结论摘要"), "收口前条目须写明结论摘要闸");
+  assert.match(beforeClosing, /200\s*(?:字符|字)/, "须写明 200 字上限");
+  assert.match(beforeClosing, /拒绝/, "缺/超长须被机械拒绝");
+  const questionForm = carrier.slice(carrier.indexOf("- id: question-form"), carrier.indexOf("- id: not-in-question"));
+  assert.match(questionForm, /结论摘要：/, "题面措辞须在 question-form 条目钉住");
+});
+
 test("工具描述：点位排除的每个 label **全文**须出现在 ldvh_review_ask 的 summary 里", async () => {
   const { REVIEW_ASK_OPERATION } = await import("../lib/review-ask-tool.js");
   const summary = REVIEW_ASK_OPERATION.summary;
@@ -287,7 +303,9 @@ test("reviewAskFingerprint：同输入同指纹、异输入异指纹、位置参
   assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ ...base, point: "post-work" }), "审查与复核不得共用一个指纹");
   assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ point: "pre-action" }), "缺字段不得与有字段撞指纹");
   assert.notEqual(reviewAskFingerprint(base), reviewAskFingerprint({ ...base, candidate_summary: "换成另一份候选摘要" }), "摘要变了就是另一件事，须重新请示");
-  assert.match(reviewAskFingerprint(base), /^[a-f0-9]{64}$/);
+  const post = { point: "post-work", conclusion_summary: CONCLUSION, task: "收口", scope: "plugin/lib" };
+  assert.notEqual(reviewAskFingerprint(post), reviewAskFingerprint({ ...post, conclusion_summary: "换了结论" }), "收口前结论摘要变了也须重新请示");
+  assert.match(reviewAskFingerprint(post), /^[a-f0-9]{64}$/);
 });
 
 test("composeReviewAsk：只写「要做什么」与三选一问句，不产出 detail 且不出现判据", () => {
@@ -301,8 +319,9 @@ test("composeReviewAsk：只写「要做什么」与三选一问句，不产出 
   assert.equal(pre.detail, undefined, "卡片不得带 detail 块——选项已说明后果");
   assert.ok(!("detail" in pre), "detail 键须整个不存在，不得传空串");
 
-  const post = composeReviewAsk({ point: REVIEW_ASK_POINTS.POST_WORK, task: "重构召回注入" });
+  const post = composeReviewAsk({ point: REVIEW_ASK_POINTS.POST_WORK, task: "重构召回注入", conclusion_summary: CONCLUSION });
   assert.match(post.question, /复核/);
+  assert.match(post.question, /结论摘要：/, "收口前题面须带结论摘要，否则 Human 看不到被复核的结论");
   assert.notEqual(pre.question, post.question, "两处询问的问句须可区分");
   assert.match(composeReviewAsk({ point: REVIEW_ASK_POINTS.PRE_ACTION }).question, /当次任务/);
   assert.match(composeReviewAsk({ point: REVIEW_ASK_POINTS.PRE_ACTION }).question, /审查/);
@@ -483,6 +502,52 @@ test("机械闸：pre-action 缺候选摘要/超 200 字一律 rejected，不询
   assert.match(composed.question, /x{200}/);
 });
 
+test("机械闸：post-work 缺结论摘要/超 200 字一律 rejected，不询问不派发；边界 200 字通过（与候选摘要对称）", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const mkDeps = () => {
+    const state = { asks: 0, seen: null };
+    return { state, deps: {
+      getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+      hostSeams: { requestReviewAsk: async (req) => { state.asks += 1; state.seen = req; return { decision: "skip", asked: true }; } },
+    } };
+  };
+  for (const bad of [undefined, "", "   ", 42, "x".repeat(201)]) {
+    const { state, deps } = mkDeps();
+    const env = await executeReviewAsk({ point: "post-work", task: "t", conclusion_summary: bad }, { agent: null }, deps);
+    assert.equal(env.outcome, "rejected", `结论摘要 ${String(JSON.stringify(bad)).slice(0, 30)} 应被机械闸拒绝`);
+    assert.equal(state.asks, 0, "被拒时不得发起询问");
+    assert.equal(env.result.decision, null);
+    assert.equal(env.result.conclusion_summary_valid, false);
+    assert.equal(env.verification.passed, false);
+    assert.ok(env.gaps.some((g) => /机械闸/.test(g)));
+    assert.ok(env.gaps.some((g) => /结论摘要/.test(g)), "拒绝理由须点名是结论摘要，便于补正");
+  }
+  const { state, deps } = mkDeps();
+  const env = await executeReviewAsk({ point: "post-work", task: "t", conclusion_summary: "x".repeat(200) }, { agent: null }, deps);
+  assert.equal(env.outcome, "completed", "恰好 200 字须通过");
+  assert.equal(state.asks, 1);
+  assert.equal(state.seen.conclusion_summary.length, 200, "结论摘要须透传给宿主询问接缝");
+  const composed = composeReviewAsk({ point: "post-work", task: "t", conclusion_summary: "x".repeat(200) });
+  assert.match(composed.question, /结论摘要：/, "结论摘要须进 ask 题面");
+  assert.match(composed.question, /x{200}/);
+});
+
+test("两处摘要闸对称：pre-action 不吃 conclusion_summary，post-work 不吃 candidate_summary", async () => {
+  const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
+  const deps = {
+    getReviewAskSettings: () => ({ preAction: true, postWork: true }),
+    hostSeams: { requestReviewAsk: async () => ({ decision: "skip", asked: true }) },
+  };
+  const pre = await executeReviewAsk({ point: "pre-action", task: "t", candidate_summary: SUMMARY }, { agent: null }, deps);
+  assert.equal(pre.outcome, "completed", "行动前只给候选摘要即可，不被结论摘要要求挡住");
+  const post = await executeReviewAsk({ point: "post-work", task: "t", conclusion_summary: CONCLUSION }, { agent: null }, deps);
+  assert.equal(post.outcome, "completed", "收口前只给结论摘要即可，不被候选摘要要求挡住");
+  const preOnlyConclusion = await executeReviewAsk({ point: "pre-action", task: "t", conclusion_summary: CONCLUSION }, { agent: null }, deps);
+  assert.equal(preOnlyConclusion.outcome, "rejected", "行动前缺候选摘要，不得用结论摘要顶替");
+  const postOnlyCandidate = await executeReviewAsk({ point: "post-work", task: "t", candidate_summary: SUMMARY }, { agent: null }, deps);
+  assert.equal(postOnlyCandidate.outcome, "rejected", "收口前缺结论摘要，不得用候选摘要顶替");
+});
+
 test("executeReviewAsk：非法 point 一律拒绝（闭集）", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   let asked = 0;
@@ -498,7 +563,7 @@ test("executeReviewAsk：非法 point 一律拒绝（闭集）", async () => {
 test("executeReviewAsk：seam 不可用时 fail-closed，不假装已安排", async () => {
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   const env = await executeReviewAsk(
-    { point: "post-work", task: "某任务" },
+    { point: "post-work", task: "某任务", conclusion_summary: CONCLUSION },
     { agent: null },
     { getReviewAskSettings: () => ({ preAction: true, postWork: true }), hostSeams: {} },
   );
@@ -558,7 +623,7 @@ test("executeReviewAsk：静默不得越过询问开关（关着时既不问也�
   const { executeReviewAsk } = await import("../lib/review-ask-tool.js");
   let asked = 0;
   const env = await executeReviewAsk(
-    { point: "post-work", task: "某任务" },
+    { point: "post-work", task: "某任务", conclusion_summary: CONCLUSION },
     { agent: null },
     {
       getReviewAskSettings: () => ({ preAction: true, postWork: false, silentRun: true }),
@@ -674,7 +739,7 @@ test("工具：决定「安排」时返回对应模板，「跳过」时不返�
   });
 
   const reviewed = await executeReviewAsk(
-    { point: "post-work", task: "改开关", claims: ["测试全过"], evidence: "cd plugin && node --test" },
+    { point: "post-work", task: "改开关", conclusion_summary: CONCLUSION, claims: ["测试全过"], evidence: "cd plugin && node --test" },
     { agent: null }, mk("review"));
   assert.equal(reviewed.result.decision, "review");
   assert.ok(reviewed.result.review_template, "给「安排」才给模板");
@@ -685,7 +750,7 @@ test("工具：决定「安排」时返回对应模板，「跳过」时不返�
   assert.ok(reviewed.follow_up.some((f) => /不要用 subagent_fork/.test(f)));
 
   const skipped = await executeReviewAsk(
-    { point: "post-work", task: "改开关" }, { agent: null }, mk("skip"));
+    { point: "post-work", task: "改开关", conclusion_summary: CONCLUSION }, { agent: null }, mk("skip"));
   assert.equal(skipped.result.decision, "skip");
   assert.equal(skipped.result.review_template, undefined, "跳过时给模板是噪声，还可能诱导照派");
 });
@@ -698,7 +763,7 @@ test("工具：决定「主控自己做」时返回 self_review_template 且不�
   };
   for (const point of ["pre-action", "post-work"]) {
     const out = await executeReviewAsk(
-      { point, task: "改开关", claims: ["测试全过"], candidate_summary: SUMMARY },
+      { point, task: "改开关", claims: ["测试全过"], candidate_summary: SUMMARY, conclusion_summary: CONCLUSION },
       { agent: null }, deps);
     assert.equal(out.result.decision, "self-review");
     assert.equal(out.result.review_template, undefined, "主控自做时不该给代理派发模板");
@@ -720,7 +785,7 @@ test("工具：pre-action 与 post-work 各自返回自己的模板", async () =
     hostSeams: { requestReviewAsk: async () => ({ decision: "review", asked: true }) },
   };
   const pre = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, { agent: null }, deps);
-  const post = await executeReviewAsk({ point: "post-work", task: "t" }, { agent: null }, deps);
+  const post = await executeReviewAsk({ point: "post-work", task: "t", conclusion_summary: CONCLUSION }, { agent: null }, deps);
   assert.equal(pre.result.review_template.kind, "pre-action-review");
   assert.equal(post.result.review_template.kind, "post-work-review");
   assert.notEqual(pre.result.review_template.prompt, post.result.review_template.prompt);
@@ -1024,7 +1089,7 @@ test("弱约束：post-work 不交还 candidate_basis（那里没有「候选是
     getReviewAskSettings: () => ({ preAction: true, postWork: true }),
     readCurrentTurnText: () => ({ ok: true, turn: 5, assistant: "做完了。", truncated: false }),
   };
-  const res = await executeReviewAsk({ point: "post-work", task: "t", claims: ["做完了"] }, { agent: { id: "a1" } }, deps);
+  const res = await executeReviewAsk({ point: "post-work", task: "t", conclusion_summary: CONCLUSION, claims: ["做完了"] }, { agent: { id: "a1" } }, deps);
   assert.equal(res.result.candidate_basis, undefined, "post-work 不得出现 candidate_basis");
   const pre = await executeReviewAsk({ point: "pre-action", candidate_summary: SUMMARY, task: "t" }, { agent: { id: "a1" } }, deps);
   assert.ok(pre.result.candidate_basis);

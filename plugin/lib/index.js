@@ -121,7 +121,7 @@ function createApiHandler(dshHomePath, webApiProxy, requestRejection, getWebPort
     const path = rawPath === API_PREFIX ? "/" : (rawPath.startsWith(`${API_PREFIX}/`) ? rawPath.slice(API_PREFIX.length) : rawPath);
     if ((path === "/health" || path === "/health/") && (req.method === "GET" || req.method === "HEAD")) {
       const reported = typeof getWebPort === "function" ? getWebPort() : WEB_API_PORT;
-      const webPort = Number.isInteger(reported) && reported > 0 ? reported : (WEB_API_PORT > 0 ? WEB_API_PORT : 3299);
+      const webPort = Number.isInteger(reported) && reported > 0 ? reported : (WEB_API_PORT > 0 ? WEB_API_PORT : 0);
       json(res, 200, { ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX, webPort });
       return;
     }

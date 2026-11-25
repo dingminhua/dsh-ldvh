@@ -8,6 +8,32 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [2.0.2] — 2026-11-26
+
+收口前复核补结论摘要机械闸，并收尾动态端口发现与 pack 门禁。
+
+**版本档位说明（如实登记）**：本次含一处**破坏性契约变更**——`ldvh_review_ask` 的收口前（post-work）入口新增必填参数 `conclusion_summary`，缺失或超限（1–200 字符）的旧调用自此被 rejected，与 2.0.0 把 `candidate_summary` 改为必填属同构变更，按纯 SemVer 口径本应升主版本。Human 2026-11-26 决定以 `2.0.2`（PATCH）发布，特此登记档位与变更性质不符，不作掩饰。
+
+### Added
+
+- `ldvh_review_ask` 收口前入口新增结论摘要机械闸：`conclusion_summary` 必填、去除首尾空白后 1–200 字符，缺或超限即 rejected（不发问、不派代理、不进静默模板）；摘要写入 ask 题面（「结论摘要：…」）并参与内容指纹。与行动前 `candidate_summary` 对称，`review-ask.js` 抽出通用 `checkSummary` 供两处共用。
+- `gate-consult-system-foundation` 载体补结论摘要机械闸的对称规则（含静默档口径），注入文案与工具说明同步。
+- pack 门禁新增编译产物端口上报校验（`require-web-dist.mjs`），防陈旧构建产物进包。
+
+### Fixed
+
+- 动态端口发现改为失败不缓存、按次重试，探活确认端口已应用；跟随会话的 `src` 改为每次渲染重算，重试时重置发现状态。
+- `health` 默认端口无有效值时返回 `0` 而非 `3299`，避免误报固定端口。
+- 子进程端口上报改为按行缓冲解析，避免跨 chunk 截断；日志与进程退出时清理上报端口。
+
+### Breaking
+
+- `ldvh_review_ask` 收口前入口的 `conclusion_summary` 为**必填**——此前不带该字段的合法调用自此失败。
+
+## [2.0.1-dev.1] — 2026-11-26
+
+开发迭代轮次开启：2.0.1 已封存发布，dev 线进入下一轮。
+
 ## [2.0.1] — 2026-11-26
 
 补丁发布：web-api 动态端口隔离，修复多实例端口争抢。

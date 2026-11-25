@@ -7,13 +7,14 @@ import { assertWebDist, assertWebApi } from "../scripts/require-web-dist.mjs";
 
 const DEPS = { express: "*", cors: "*", compression: "*", dotenv: "*", "js-yaml": "*" };
 
-function makeFixture({ api = true, shared = true, deps = true, files = true, npmignore = true, tsx = false } = {}) {
+function makeFixture({ api = true, shared = true, deps = true, files = true, npmignore = true, tsx = false, portMarker = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), "ldvh-pack-gate-"));
   mkdirSync(join(root, "web", "dist"), { recursive: true });
   writeFileSync(join(root, "web", "dist", "index.html"), "<!doctype html>");
   if (api) {
     mkdirSync(join(root, "web", "api-js"), { recursive: true });
-    writeFileSync(join(root, "web", "api-js", "server.js"), "// server");
+    const serverBody = portMarker ? "console.log(`LDVH_WEB_PORT=${actualPort}`)" : "// server";
+    writeFileSync(join(root, "web", "api-js", "server.js"), serverBody);
   }
   if (shared) mkdirSync(join(root, "web", "shared-js"), { recursive: true });
   if (npmignore) writeFileSync(join(root, "web", ".npmignore"), "node_modules\n");
@@ -40,6 +41,10 @@ test("pack gate passes when web/dist/index.html is present", () => {
 
 test("pack gate refuses when compiled web/api-js/server.js is absent", () => {
   assert.throws(() => assertWebApi(makeFixture({ api: false })), /api-js\/server\.js/);
+});
+
+test("pack gate refuses when compiled server.js does not report its port (stale build artifact)", () => {
+  assert.throws(() => assertWebApi(makeFixture({ portMarker: false })), /未上报实际端口|build:web/);
 });
 
 test("pack gate refuses when web/shared-js is absent", () => {
