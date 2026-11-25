@@ -73,6 +73,25 @@ test("review-ask seam: no answerer installed → no prompt, no decision, no ledg
 });
 
 
+test("review-ask seam: 候选摘要写入 ask 题面、参与指纹；摘要变了重新问、不复用旧答复", async () => {
+  const home = await freshHome();
+  let seen = null;
+  const { seams, install } = installWith(async (req) => { seen = req; return { answers: [{ id: "ldvh-review-ask", selected: "安排代理" }] }; }, home);
+  const agent = agentOf("s1", "/p");
+  const a = await seams.requestReviewAsk({ point: PRE, task: "同一任务", candidate_summary: "候选摘要 A", enabled: true, agent });
+  assert.equal(a.decision, "review");
+  assert.match(seen.questions[0].question, /候选摘要：候选摘要 A/);
+  const fpA = a.fingerprint;
+  const b = await seams.requestReviewAsk({ point: PRE, task: "同一任务", candidate_summary: "候选摘要 A", enabled: true, agent });
+  assert.equal(b.reused, true, "同一摘要才复用答复");
+  assert.equal(b.fingerprint, fpA);
+  const c = await seams.requestReviewAsk({ point: PRE, task: "同一任务", candidate_summary: "候选摘要 B", enabled: true, agent });
+  assert.equal(c.reused, undefined, "摘要变了须重新请示");
+  assert.notEqual(c.fingerprint, fpA);
+  assert.match(seen.questions[0].question, /候选摘要：候选摘要 B/);
+  install.dispose();
+});
+
 test("review-ask seam: 选「安排代理」→ decision review（selected 是数组，这是真实的宿主形状）", async () => {
   const home = await freshHome();
   const { seams, install } = installWith(answerSelecting("安排代理"), home);

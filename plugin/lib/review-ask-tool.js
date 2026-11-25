@@ -1,6 +1,6 @@
 
 import { reviewDispatchTemplate, selfReviewDispatchTemplate } from "./review-dispatch-template.js";
-import { REVIEW_ASK_POINTS, REVIEW_ASK_ANSWERS, GATE_POINT_EXCLUSIONS, REVIEW_ASK_CARRIER_ENTRIES, askEnabledFor, carrierEntrySource, reviewAskMode, silentRunNotice } from "./review-ask.js";
+import { REVIEW_ASK_POINTS, REVIEW_ASK_ANSWERS, GATE_POINT_EXCLUSIONS, REVIEW_ASK_CARRIER_ENTRIES, CANDIDATE_SUMMARY_MAX_CHARS, validateCandidateSummary, askEnabledFor, carrierEntrySource, reviewAskMode, silentRunNotice } from "./review-ask.js";
 import { executeResearchConsult } from "./research-consult-tools.js";
 
 import { normalizeQuotationText } from "./quotation-text.js";
@@ -24,7 +24,7 @@ export const REVIEW_ASK_OPERATION = Object.freeze({
     + "\n\n命中排除时的交付义务（见 point-exclusions 条目）：在交付说明里写一行「点位排除：命中〔哪一类〕｜当次整体范围〔…〕｜判定理由〔…〕」；不写这行按未请示处理。"
     + "\n\npoint=pre-action：**方案已形成候选、尚未产生副作用时**问「安排代理审查／主控自审／不审查直接推进」三选一；point=post-work：**一件复杂任务做完、尚未形成完成声明时**问「安排代理复核／主控自查／不复核直接收口」三选一；point=research 问「联网调查／主控自调查／先不查」三选一。（静默执行开着时前两处变为**不问、直接给派发模板**，见下。）"
     + "\n\n**时点与效力（两条都别读错，2026-11-14 Human 指出后修正）**："
-    + "① **没有候选就没有可核对的对象**——行动前那处只在方案已成形时发起；尚无候选时发起是空问，载体明禁「为回避判断而一律请示」（见 gate-consult-system-foundation 的 uncertain 条目）。读规则、查事实、收敛方案本身不产生副作用，都在适用面内；"
+    + "① **没有候选就没有可核对的对象**——行动前那处只在方案已成形时发起；尚无候选时发起是空问，载体明禁「为回避判断而一律请示」（见 gate-consult-system-foundation 的 uncertain 条目）。读规则、查事实、收敛方案本身不产生副作用，都在适用面内。**调用须带去除首尾空白后 1–200 个字符的 `candidate_summary`（方案摘要，计数按字符串长度，段内换行与空白照常计入）；它会写入 ask 题面供人自足作答，并参与答复复用指纹。缺摘要或超限会被机械拒绝（rejected），不发问、不派代理、不进静默模板——这是 Human 2026-11-25 改裁。先把方案压缩成摘要，不要先发问再让代理或主控凑方案。**机械层只判断摘要存在与字符数，不判候选内容是否合格；"
     + "② **答复不构成动手前提**——载体写明「请示不是行动放行的前提，也不使行动在取得答复前暂停」，也明禁把「未取得答复」处置为「必须暂停」（见 gate-consult-system-foundation 的 answer-means 条目）。请示未获答复时按既有路径继续并如实说明。"
     + "\n\nRETURNS decision: \"review\"（安排代理）| \"self-review\"（主控自己做：返回 self_review_template，主控按同一份任务要求实做一遍并在交付写明核了什么与依据，不得称独立核对结论）| \"skip\"（这次核对不做，直接推进）| \"silent\"（静默执行开着：没问，直接给你派发模板）| null（未取得答复）。"
     + "倒计时开关打开时，请示卡片显示 10/30/60s 倒计时；到点未选则返回 decision=null 且 result.timed_out=true，按「未取得答复、直接推进」处理——这不是 Human 的 skip/review 决定，不写答复留痕（answer-means 条目：没有答复即没有决定）。"
@@ -32,7 +32,7 @@ export const REVIEW_ASK_OPERATION = Object.freeze({
     + "\nsilent 是**配置决定的自动安排**，不是 Human 的答复：拿到它就去派代理，并把 result.notice 原样写进交付说明（静默不等于无痕）。"
     + "\n\nNOT A GATE: skip 是合法答复，不阻断任何后续动作；本工具不返回 granted。"
     + "\n\nBOUNDARY: 它不判定「算不算复杂」，也不检查你是否真的调用了它——故这不构成机械保障；须据实声明（见 `ldvh-root` 的 `claim-bound` 条目）。"
-    + "它同样**不判定「方案是否已有候选」**：那个条件在形式上不可分（敷衍的「候选：按 A 做」与真候选字形相同），机械层不得强制判定，故只在发问时点把判断依据（result.candidate_basis）交还给你，**不拦你、也不替你判**。因此本工具对「空问」没有拦截力，过去没有、现在也没有——不要因为看到了 candidate_basis 就认为这一步已被机制保证。",
+    + "**关于「候选」的机械边界（2026-11-25 Human 改裁）**：pre-action 现在有机械闸——`candidate_summary` 必填、去除首尾空白后 1–200 个字符（按字符串长度计，段内换行与空白照常计入），缺或超限直接 rejected，不发问、不派代理、不进静默模板；摘要写入 ask 题面并参与指纹（变了重新请示）。但机械层**只判断摘要存在与字符数**，仍**不判定候选内容是否真是方案或是否合格**（形式不可分）。`candidate_basis` 交还的正文逐字命中只作参考，不再是「有无候选」的权威判据——不要因为看到候选摘要字段就认为候选质量已被机制保证。",
   effect: "may_change_state",
   awaitsHumanDecision: true,
 });
@@ -80,10 +80,14 @@ export function reviewAskParameterSchema() {
         type: "string",
         description: "一句话说明当次任务是什么（供 Human 认出「问的是哪件事」；参与内容指纹，同一任务重试不重问）",
       },
+      candidate_summary: {
+        type: "string",
+        description: `行动前（point=pre-action）必填：候选方案的摘要，去除首尾空白后 1–${CANDIDATE_SUMMARY_MAX_CHARS} 个字符（按字符串长度计，段内换行与空白照常计入）。摘要会写入 ask 题面供 Human 自足作答，并参与内容指纹（摘要变了即重新请示）。机械层只判断「摘要存在与字符数」，不判定方案是否合格。post-work／research 不得传。`,
+      },
       claims: {
         type: "array",
         items: { type: "string" },
-        description: "决定「安排代理」时要交给代理核对的对象描述：post-work 传「这项工作声称做到的事」逐条列出（最容易被漏、也最决定复核质量的一块）；pre-action 传「方案打算怎么做」的关键主张。不给则模板里明确说缺，不虚构。\n\n**pre-action 的额外用途（弱约束）**：本工具会把「你这一轮正文里是否已经写出候选」作为判断依据一并交还（见返回的 candidate_basis）。它**不拦你**——形式不可分，机械层无法判断一段文字是不是合格候选；拦与不拦由你自己判。",
+        description: "决定「安排代理」时要交给代理核对的对象描述：post-work 传「这项工作声称做到的事」逐条列出（最容易被漏、也最决定复核质量的一块）；pre-action 传「方案打算怎么做」的关键主张。不给则模板里明确说缺，不虚构。注意这与必填的 candidate_summary 不同：candidate_summary 是去除首尾空白后不超过 200 个字符（按字符串长度计）、进 ask 题面的候选摘要；claims 是进派发模板、供代理逐条核对的主张。",
       },
       evidence: {
         type: "string",
@@ -95,45 +99,52 @@ export function reviewAskParameterSchema() {
   };
 }
 
+const CANDIDATE_STATUS = Object.freeze({
+  EVIDENCE: "evidence-present",
+  NONE: "no-evidence",
+  UNAVAILABLE: "unavailable",
+});
+
+const CANDIDATE_NO_EVIDENCE_NOTE = "**参考提示（非权威）：本轮正文里没有逐字定位到 claims**。行动前是否有候选，现以必填的 `candidate_summary`（去除首尾空白后 1–200 个字符，按字符串长度计，进 ask 题面）为准（Human 2026-11-25 改裁）；本提示只反映 claims 与正文的逐字命中情况，不判定候选存在与否、也不判定其内容是否合格。若 claims 写了却没落在正文里，代理派发模板会缺可核对的逐条主张，建议补齐。";
+
+function unavailableBasis(reason, claims) {
+  return {
+    available: false,
+    candidate_status: CANDIDATE_STATUS.UNAVAILABLE,
+    reason,
+    claims_present: claims.length > 0,
+    claims_count: claims.length,
+    note: "取不到本轮正文只影响「claims 是否落在正文里」这一参考读数，**不说明候选摘要是否存在**；候选有无以必填的 candidate_summary 为准（Human 2026-11-25 改裁）。",
+  };
+}
+
 function buildCandidateBasis(args, exec, deps) {
   const claims = Array.isArray(args?.claims)
     ? args.claims.filter((item) => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
     : [];
   const reader = deps?.readCurrentTurnText;
   if (typeof reader !== "function") {
-    return {
-      available: false,
-      reason: "the live turn-text reader is not wired in this composition, so whether a candidate was already written cannot be read back here — judge it yourself from what you wrote before this call (the implementation owes you the basis and is reporting that it cannot supply it, rather than implying the basis is empty)",
-      claims_present: claims.length > 0,
-      claims_count: claims.length,
-    };
+    return unavailableBasis("the live turn-text reader is not wired in this composition, so whether a candidate was already written cannot be read back here — judge it yourself from what you wrote before this call (the implementation owes you the basis and is reporting that it cannot supply it, rather than implying the basis is empty)", claims);
   }
   let turn = null;
   try {
     turn = reader(exec?.agent);
   } catch (error) {
-    return {
-      available: false,
-      reason: `the live turn-text reader threw (${String(error?.message ?? error)}), so the basis is unavailable — do not read this as "no candidate was written"`,
-      claims_present: claims.length > 0,
-      claims_count: claims.length,
-    };
+    return unavailableBasis(`the live turn-text reader threw (${String(error?.message ?? error)}), so the basis is unavailable — do not read this as "no candidate was written"`, claims);
   }
   if (turn === null || turn === undefined || turn.ok !== true) {
-    return {
-      available: false,
-      reason: typeof turn?.reason === "string" && turn.reason.length > 0
-        ? turn.reason
-        : "the current turn's text is not readable in this composition",
-      claims_present: claims.length > 0,
-      claims_count: claims.length,
-    };
+    return unavailableBasis(typeof turn?.reason === "string" && turn.reason.length > 0
+      ? turn.reason
+      : "the current turn's text is not readable in this composition", claims);
   }
   const turnText = typeof turn.assistant === "string" ? turn.assistant : "";
   const normalizedTurn = normalizeQuotationText(turnText);
   const inText = claims.map((claim) => normalizedTurn.includes(normalizeQuotationText(claim)));
-  return {
+  const matched = inText.filter(Boolean).length;
+  const status = matched > 0 ? CANDIDATE_STATUS.EVIDENCE : CANDIDATE_STATUS.NONE;
+  const basis = {
     available: true,
+    candidate_status: status,
     turn: turn.turn ?? null,
     turn_text_chars: normalizedTurn.length,
     turn_text_empty: normalizedTurn.length === 0,
@@ -141,9 +152,17 @@ function buildCandidateBasis(args, exec, deps) {
     claims_present: claims.length > 0,
     claims_count: claims.length,
     claims_in_turn_text: inText,
-    claims_in_turn_text_count: inText.filter(Boolean).length,
-    note: "claims_in_turn_text 只说明「你写下的主张在你本轮正文里也能找到」，**不说明它是合格候选**——一份敷衍的「候选：按 A 做」照样能让它为真。判断「是否已有候选」由你做（形式不可分，故本层不判定对错）。",
+    claims_in_turn_text_count: matched,
+    note: "claims_in_turn_text 只说明「你写下的主张在你本轮正文里也能找到」，**不说明它是合格候选，也不是「有无候选」的判据**（候选以必填的 candidate_summary 为准，Human 2026-11-25 改裁）；它只影响派发模板里 claims 是否有正文支撑。",
   };
+  if (status === CANDIDATE_STATUS.NONE) {
+    basis.warning = normalizedTurn.length === 0
+      ? `${CANDIDATE_NO_EVIDENCE_NOTE}（本轮正文一个字都没写。）`
+      : (claims.length === 0
+        ? `${CANDIDATE_NO_EVIDENCE_NOTE}（本轮未带 claims，机器无法定位候选主张。）`
+        : `${CANDIDATE_NO_EVIDENCE_NOTE}（带了 ${claims.length} 条 claims，但没有一条逐字出现在本轮正文；若它们是候选，请把原文写进正文后再发问。）`);
+  }
+  return basis;
 }
 
 export async function executeReviewAsk(args, exec, deps) {
@@ -164,6 +183,22 @@ export async function executeReviewAsk(args, exec, deps) {
   if (point === REVIEW_ASK_POINTS.RESEARCH) {
     const research = await executeResearchConsult(args, exec, deps);
     return { ...research, operation_key: "review-ask" };
+  }
+
+  let candidateSummary = null;
+  if (point === REVIEW_ASK_POINTS.PRE_ACTION) {
+    const checked = validateCandidateSummary(args?.candidate_summary);
+    if (!checked.ok) {
+      return envelope("review-ask", "rejected", {
+        result: { point, task, decision: null, asked: false, candidate_summary_valid: false },
+        scope: { requested: point, completed: [], not_completed: [point] },
+        sources: [],
+        gaps: [checked.reason, "机械闸：缺候选摘要或超限时**不发起询问、不派代理、不进静默模板**（Human 2026-11-25 决定：候选摘要写入 ask，机械判断存在与字符数）。候选内容是否合格仍由主控与 Human 判断。"],
+        verification: { checks: ["point-closed-set", "candidate-summary-required"], passed: false },
+        follow_up: ["先把候选方案压缩成一段去除首尾空白后不超过 200 个字符的摘要（按字符串长度计），再以 candidate_summary 传入本工具；不要把完整方案塞进 ask"],
+      });
+    }
+    candidateSummary = checked.value;
   }
 
   const candidateBasis = point === "pre-action" ? buildCandidateBasis(args, exec, deps) : null;
@@ -277,6 +312,7 @@ export async function executeReviewAsk(args, exec, deps) {
   const outcome = await seam.requestReviewAsk({
     point,
     task,
+    candidate_summary: candidateSummary,
     enabled,
     agent: exec?.agent,
     signal: exec?.signal,
