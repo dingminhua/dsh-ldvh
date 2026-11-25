@@ -435,6 +435,80 @@ test("web api process manager spawns a custom command, becomes ready, and dispos
   assert.equal(await manager.ensureReady(), null);
 });
 
+test("web api child reports its bound port via stdout and the manager adopts it for readiness/proxy", async () => {
+  const manager = createWebApiProcess({
+    webRoot: process.cwd(),
+    port: 0,
+    env: {},
+    command: {
+      exec: process.execPath,
+      argv: ["-e", "require('http').createServer((req,res)=>{res.setHeader('content-type','application/json');res.end('{\"ok\":true}')}).listen(0,'127.0.0.1',function(){console.log('LDVH_WEB_PORT='+this.address().port)})"],
+    },
+    readinessPath: "/api/health",
+    readinessTimeoutMs: 10_000,
+    watchSource: false,
+  });
+  try {
+    const ready = await manager.ensureReady();
+    assert.equal(ready.port, manager.currentPort(), "ready 端口须与管理器当前端口一致");
+    assert.ok(ready.port > 0, "0 号端口须解析为子进程实际绑定的非零端口");
+    const response = await fetch(`http://127.0.0.1:${ready.port}/api/health`);
+    assert.equal(response.status, 200, "探活须走子进程回报的实际端口");
+    const proxy = createProxyHandler(manager, null);
+    await withHandler((req, res) => proxy(req, res, "/health", ""), async (base) => {
+      const proxied = await fetch(`${base}/anything`);
+      assert.equal(proxied.status, 200, "代理须转发到子进程回报的实际端口");
+      assert.deepEqual(await proxied.json(), { ok: true });
+    });
+  } finally {
+    manager.dispose();
+  }
+});
+
+test("two dynamic-port instances bind distinct ports and each stays reachable", async () => {
+  const command = {
+    exec: process.execPath,
+    argv: ["-e", "require('http').createServer((q,s)=>{s.setHeader('content-type','application/json');s.end('{}')}).listen(Number(process.env.PORT),'127.0.0.1',function(){console.log('LDVH_WEB_PORT='+this.address().port)})"],
+  };
+  const make = () => createWebApiProcess({ webRoot: process.cwd(), port: 0, env: {}, command, readinessPath: "/api/health", watchSource: false });
+  const a = make();
+  const b = make();
+  try {
+    const ra = await a.ensureReady();
+    const rb = await b.ensureReady();
+    assert.ok(ra.port > 0 && rb.port > 0);
+    assert.notEqual(ra.port, rb.port, "两实例须绑不同端口，消除固定端口争抢");
+    assert.equal((await fetch(`http://127.0.0.1:${ra.port}/api/health`)).status, 200);
+    assert.equal((await fetch(`http://127.0.0.1:${rb.port}/api/health`)).status, 200);
+  } finally {
+    a.dispose();
+    b.dispose();
+  }
+});
+
+test("dynamic port falls back to the configured port when the child reports nothing", async () => {
+  const port = 34000 + Math.floor(Math.random() * 8000);
+  const manager = createWebApiProcess({
+    webRoot: process.cwd(),
+    port,
+    env: {},
+    command: {
+      exec: process.execPath,
+      argv: ["-e", "require('http').createServer((q,s)=>s.end('{}')).listen(Number(process.env.PORT),'127.0.0.1')"],
+    },
+    readinessPath: "/api/health",
+    readinessTimeoutMs: 10_000,
+    watchSource: false,
+  });
+  try {
+    const ready = await manager.ensureReady();
+    assert.equal(ready.port, port, "子进程不回报时须回退到配置的端口");
+    assert.equal(manager.currentPort(), port);
+  } finally {
+    manager.dispose();
+  }
+});
+
 test("dispose() racing the async watcher import does not keep the process alive", async () => {
   const webRoot = await mkdtemp(join(longTempDir(), "ldvh-watch-race-"));
   await mkdir(join(webRoot, "api"), { recursive: true });

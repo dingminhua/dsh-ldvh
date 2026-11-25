@@ -156,6 +156,7 @@ export function createWebApiProcess(options) {
   let exited = true;
   let starting = null;
   let disposed = false;
+  let reportedPort = null;
   let watchTimer = null;
   let watcher = null;
   let watchTargetPath = null;
@@ -290,12 +291,16 @@ export function createWebApiProcess(options) {
     }).catch(() => {   });
   }
 
+  function effectivePort() {
+    return reportedPort !== null ? reportedPort : port;
+  }
+
   async function pollReadiness() {
     const deadline = Date.now() + readinessTimeoutMs;
     while (Date.now() < deadline) {
       if (disposed || exited) throw new Error("web api child exited during startup");
       try {
-        const response = await fetch(`http://127.0.0.1:${port}${readinessPath}`, { signal: AbortSignal.timeout(1500) });
+        const response = await fetch(`http://127.0.0.1:${effectivePort()}${readinessPath}`, { signal: AbortSignal.timeout(1500) });
         if (response.ok) return;
       } catch {   }
       await new Promise((done) => setTimeout(done, 250));
@@ -327,7 +332,16 @@ export function createWebApiProcess(options) {
           });
         }, rewarmDelayMs).unref?.();
       });
-      proc.stdout.on("data", (chunk) => { const text = String(chunk).trim(); if (text && logger) logger.info("[dsh-ldvh web-api] %s", text); });
+      proc.stdout.on("data", (chunk) => {
+        const text = String(chunk).trim();
+        const match = text.match(/^LDVH_WEB_PORT=(\d{2,5})$/m);
+        if (match !== null) {
+          const value = Number(match[1]);
+          if (Number.isInteger(value) && value > 0 && value <= 65535) reportedPort = value;
+        }
+        if (text && logger) logger.info("[dsh-ldvh web-api] %s", text);
+      });
+      reportedPort = null;
       proc.stderr.on("data", (chunk) => { const text = String(chunk).trim(); if (text && logger) logger.warn("[dsh-ldvh web-api] %s", text); });
       proc.on("error", (error) => {
         if (spawned !== proc) return;
@@ -336,7 +350,7 @@ export function createWebApiProcess(options) {
       });
       try {
         await pollReadiness();
-        return { port };
+        return { port: effectivePort() };
       } catch (error) {
         try { proc.kill("SIGKILL"); } catch {   }
         throw error;
@@ -350,12 +364,15 @@ export function createWebApiProcess(options) {
   async function ensureReady() {
     if (disposed) return null;
     if (starting !== null) return starting;
-    if (spawned !== null && !exited) return { port };
+    if (spawned !== null && !exited) return { port: effectivePort() };
     return spawnOnce();
   }
 
   return {
     ensureReady,
+    currentPort() {
+      return effectivePort();
+    },
     isRunning() {
       return !disposed && spawned !== null && !exited;
     },
