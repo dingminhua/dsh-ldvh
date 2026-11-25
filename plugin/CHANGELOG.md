@@ -8,6 +8,18 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [2.0.1-dev.1] — 2026-11-26
+
+开发迭代轮次开启：2.0.1 已封存发布，dev 线进入下一轮。
+
+## [2.0.1] — 2026-11-26
+
+补丁发布：web-api 动态端口隔离，修复多实例端口争抢。
+
+### Fixed
+
+- `web/api/server.ts` 子进程改绑 OS 分配端口并经 stdout 上报实际端口，默认不再固定 3299；`web-mount.js` 解析上报端口、探活与代理改用真实端口，`ensureReady` 返回真实端口并新增 `currentPort`；`lib/index.js` 默认端口改动态、`health` 返回子进程真实端口，保留 `LDVH_WEB_API_PORT` 可强制固定端口的回退路径。新增端口回报、双实例隔离、无回报回退三例测试（测试基线 2644→2647）。
+
 ## [2.0.0-dev.1] — 2026-11-25
 
 开发迭代轮次开启：2.0.0 已封存发布，dev 线进入下一轮。
