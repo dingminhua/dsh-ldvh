@@ -133,3 +133,17 @@ test("pre-step：captureRow inject:false 时不注入，开关全关由调用方
   }));
   assert.equal(out.messages.filter((m) => (m?.source?.summary ?? "") === CAPTURE_NOTICE_SUMMARY).length, 0);
 });
+
+test("摩擦派发文案须说清执行体工具面：只记观察、没有写账工具、晋升由机制内部完成", () => {
+  const text = buildCaptureNotice({ frictionEnabled: true });
+  assert.match(text, /ldvh_friction_record_observation/, "须点名执行体实际持有的工具");
+  assert.match(text, /没有 `ldvh_friction_write`/, "须明确它没有写账工具");
+  assert.match(text, /不得要求它「登记\/创建摩擦账目」/, "须禁止把任务描述成建账");
+  assert.match(text, /promotion/, "须说明晋升结果经返回值的 promotion 字段交回");
+  assert.match(text, /晋升未发生.*不是执行体的失败/s, "须说明未晋升不等于失败");
+});
+
+test("只开经验时不出现摩擦工具面说明（不串台）", () => {
+  const text = buildCaptureNotice({ experienceEnabled: true });
+  assert.doesNotMatch(text, /ldvh_friction_record_observation/);
+});

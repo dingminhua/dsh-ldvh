@@ -23,6 +23,7 @@ export function buildCaptureNotice({ experienceEnabled = false, frictionEnabled 
     lines.push(
       "",
       "- 摩擦：每轮自查发现可回指材料（阻碍现象的原文＋定位）时，即由主控当场整理有界材料、派隔离子代理跑发现动作（discovery-trigger / discovery-context / discovery-closed-set），不预判它是否满足三条件、不因「判不准」而跳过——同源查重与成立判定是执行体的事。缺了材料原文与定位就不许跑那套动作；不靠计时器、周期调度或静置检查点驱动，不向别的会话投递。",
+      "  **派发时须把执行体的工具面说清**：该执行体只被授予 `ldvh_friction_record_observation`（记一条观察条目），**没有 `ldvh_friction_write`**——建账不是它的动作。载体要求的三件事（写观察、达阈值晋升新账、补充级更新）全在同一次 `record_observation` 调用内部完成：记完观察后由机制自行尝试晋升，结果经返回值的 `promotion` 字段交回（`promoted`／`skipped`／`failed` 及 `residual`）。故派发文案只能要求它「记录这条阻碍的观察材料」，**不得要求它「登记/创建摩擦账目」**——那样它会因手里没有写账工具而停下，把一次可完成的观察记成失败。晋升未发生（未达阈值或 `residual` 报错）不是执行体的失败，如实回执即可。",
     );
   }
   lines.push(
