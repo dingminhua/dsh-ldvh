@@ -2,8 +2,8 @@
 
 English | [简体中文](README.md)
 
-> Version `2.0.2-dev.1` (development preview) · MIT License · for DSH Desktop `0.2.2-rc.5`
-> **Development preview**: formal releases are published up to `1.1.5`; this page tracks the development iteration `2.0.2-dev.1`.
+> Version `2.0.3-dev.1` (development preview) · MIT License · for DSH Desktop `0.2.2-rc.5`
+> **Development preview**: formal releases are published up to `1.1.5`; this page tracks the development iteration `2.0.3-dev.1`.
 
 **LD Vibe Harness (LDVH)** is an AI collaboration and governance framework deeply bound to DSH. Its core value is **Align Vibe, Coordinate Coding**.
 
@@ -102,7 +102,7 @@ Platform verification status (implementation and acceptance are recorded separat
 
 ## Known limitations
 
-- Formal releases are published up to `2.0.2` (see CHANGELOG); this README tracks the development iteration `2.0.2-dev.1`.
+- Formal releases are published up to `2.0.3` (see CHANGELOG); this README tracks the development iteration `2.0.3-dev.1`.
 - The uncovered Windows scenarios are listed above — they must not be read as "Windows fully accepted"; the code has changed since the 2026-11-10 run and that conclusion has not been re-verified against the current code.
 - Linux is outside the support declaration (CI coverage only).
 - Test baseline: a run of `npm --prefix plugin test` on the current working tree reported no failures (0 failed; 19 skipped, within the registered skip baseline of 27). The skipped cases still have to be checked one by one — the release gate does not accept skips in place of a passing result.
