@@ -142,7 +142,12 @@ function GatePanel({ report, t }: { report: GateReport; t: Translation }) {
           tone="warning"
           wrap
         />
-        <MetricCard label={t('diagnostics.gate.sessions')} value={String(report.scope.sessionsScanned ?? 0)} />
+        <MetricCard
+          label={t('diagnostics.gate.sessions')}
+          value={String(report.scope.sessionsScanned ?? 0)}
+          hint={report.scope.sessionsLimited ? t('diagnostics.gate.sessionsLimited') : undefined}
+          tone={report.scope.sessionsLimited ? 'warning' : undefined}
+        />
       </div>
 
       <ScopeNotice

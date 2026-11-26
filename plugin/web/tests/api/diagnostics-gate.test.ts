@@ -267,3 +267,46 @@ test('目标事件行粗筛不改统计口径：无关行跳过、不同写法�
   assert.equal(byTool.get('ldvh_spark_read')?.completed, 1, '标准写法的调用仍统计');
   assert.equal(byTool.get('ldvh_adr_write')?.failed, 1, '带空格 type 写法的调用仍统计（粗筛按字面保留）');
 });
+
+test('会话数超上限时只扫最近 100 个，且如实标注覆盖范围', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'ldvh-diag-limit-'));
+  const workspaceRoot = path.join(home, 'project');
+  const call = (id: string) => [
+    eventLine({ type: 'tool/call', time: 1_700_000_000_000, data: { name: 'ldvh_spark_read', callId: id } }),
+    eventLine({
+      type: 'tool/result', time: 1_700_000_001_000,
+      data: { toolCallId: id, message: { content: [{ type: 'text', text: 'LDVH spark-read-object: completed\n' }] } },
+    }),
+  ].join('');
+
+  for (let i = 0; i < 105; i += 1) {
+    await writeSession(home, workspaceRoot, `session-${String(i).padStart(3, '0')}`, call(`c${i}`));
+  }
+
+  const report = await buildGateReport({ workspaceRoot, dshHome: home, noCache: true });
+
+  assert.equal(report.scope.sessionsScanned, 105, 'sessionsScanned 仍报目录总数，不因限流改口径');
+  assert.equal(report.scope.sessionsLimited, true, '超上限须标记为已限流');
+  assert.equal(report.totals.calls, 100, '统计只来自被扫的 100 个会话');
+  assert.ok(
+    report.scope.limits.some((line) => line.includes('最近 100 个会话')),
+    `超上限须在 scope 里如实标注，实际 limits=${JSON.stringify(report.scope.limits)}`,
+  );
+});
+
+test('会话数未超上限时不标注截断（避免虚报覆盖不足）', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'ldvh-diag-nolimit-'));
+  const workspaceRoot = path.join(home, 'project');
+  for (let i = 0; i < 3; i += 1) {
+    await writeSession(home, workspaceRoot, `session-${i}`, eventLine({ type: 'session', version: 4, id: `s${i}` }));
+  }
+
+  const report = await buildGateReport({ workspaceRoot, dshHome: home, noCache: true });
+
+  assert.equal(report.scope.sessionsScanned, 3);
+  assert.equal(report.scope.sessionsLimited, false, '未超上限不得标记限流');
+  assert.ok(
+    !report.scope.limits.some((line) => line.includes('最近 100 个会话')),
+    '未超上限时不得出现截断说明',
+  );
+});
