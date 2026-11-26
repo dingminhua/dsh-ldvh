@@ -31,8 +31,8 @@
   <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
 </p>
 
-> **开发预览** ｜ 版本 `2.0.1-dev.1` ｜ MIT License（与 DSH 本体同协议）
-> 本仓库是 DSH 原生插件 `dsh-ldvh` 的源码仓库：`specs/` 记录 LDVH 要做什么、按什么标准开发（不随插件发布），`plugin-specs/` 是随插件发布的**运行期规则**，`ldvh-base/` 是本项目的事实源。正式版本已发布至 `1.1.6`，当前开发迭代版本为 `2.0.1-dev.1`。
+> **开发预览** ｜ 版本 `2.0.2-dev.1` ｜ MIT License（与 DSH 本体同协议）
+> 本仓库是 DSH 原生插件 `dsh-ldvh` 的源码仓库：`specs/` 记录 LDVH 要做什么、按什么标准开发（不随插件发布），`plugin-specs/` 是随插件发布的**运行期规则**，`ldvh-base/` 是本项目的事实源。正式版本已发布至 `1.1.6`，当前开发迭代版本为 `2.0.2-dev.1`。
 
 ## 截图
 
@@ -145,7 +145,7 @@ cd plugin && npm pack --dry-run
 | 轨 | 语法 | 递增时机 | 当前 |
 |---|---|---|---|
 | 对外发布版本 | `MAJOR.MINOR.PATCH` | 仅正式发布时 | 已发布至 `1.1.6` |
-| 开发迭代版本 | 同主版本 + `-dev.N` | 已在上一轮开发版本之后继续迭代时 | `2.0.1-dev.1` |
+| 开发迭代版本 | 同主版本 + `-dev.N` | 已在上一轮开发版本之后继续迭代时 | `2.0.2-dev.1` |
 
 首次正式发布之前 `-dev.N` 恒为 `1`（没有可区分的上一轮）；发布封存干净版本后，dev 进入下一轮。
 
