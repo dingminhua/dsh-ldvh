@@ -1008,3 +1008,34 @@ test("carrier identity: identity comparison is case-insensitive (uppercase decla
 
 const SPEC00 = readFileSync(new URL("../../specs/00-理念与构成.md", import.meta.url), "utf8");
 
+
+test("大二进制不撑爆 diff 读取：无 --binary 时体积恒定且快照仍按 blob hash 区分内容", async () => {
+	const { execFileSync } = await import("node:child_process");
+	const { mkdtempSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+
+	const repo = mkdtempSync(join(tmpdir(), "ldvh-bindiff-"));
+	const gitRun = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+	gitRun("init", "-q");
+	gitRun("config", "user.email", "t@example.com");
+	gitRun("config", "user.name", "t");
+
+	const { randomBytes } = await import("node:crypto");
+	const blob = randomBytes(10 * 1024 * 1024);
+	writeFileSync(join(repo, "big.pdf"), blob);
+	gitRun("add", "big.pdf");
+
+	const withBinary = gitRun("diff", "--cached", "--binary", "--no-ext-diff");
+	const withoutBinary = gitRun("diff", "--cached", "--no-ext-diff");
+
+	assert.ok(withBinary.length > 8 * 1024 * 1024, "带 --binary 时确实超过旧 8MiB 上限（这正是 issue #5 的成因）");
+	assert.ok(withoutBinary.length < 64 * 1024, `去掉 --binary 后只余路径与 blob hash 行，实际 ${withoutBinary.length} 字节`);
+	assert.match(withoutBinary, /^index [0-9a-f]+\.\.[0-9a-f]+/m, "仍保留 blob hash 行——快照的区分力不因去掉 --binary 而损失");
+
+	const first = snapshotIdentity(withoutBinary, "msg");
+	writeFileSync(join(repo, "big.pdf"), randomBytes(10 * 1024 * 1024));
+	gitRun("add", "big.pdf");
+	const second = snapshotIdentity(gitRun("diff", "--cached", "--no-ext-diff"), "msg");
+	assert.notEqual(first, second, "二进制内容变了，快照必须跟着变");
+});

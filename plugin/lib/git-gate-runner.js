@@ -26,7 +26,7 @@ async function git(worktree, args, indexFile) {
   const memo = GIT_READ_CACHE.get(cacheKey);
   if (memo !== undefined) return memo;
   const env = cleanGitEnvironment(indexFile === void 0 ? {} : { GIT_INDEX_FILE: indexFile });
-  const result = await execFileAsync("git", ["-C", worktree, ...args], { env, encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+  const result = await execFileAsync("git", ["-C", worktree, ...args], { env, encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 });
   GIT_READ_CACHE.set(cacheKey, result.stdout);
   return result.stdout;
 }
@@ -151,7 +151,7 @@ async function runSharedChecks(root, indexFile, message) {
   const issues = [];
   const tracked = (await git(root, ["ls-files", "--cached", "-z"], indexFile)).split("\0").filter(Boolean);
   if (tracked.length === 0) issues.push(newFinding("git/index_empty", "candidate Index is empty"));
-  const diff = await git(root, ["diff", "--cached", "--binary", "--no-ext-diff"], indexFile);
+  const diff = await git(root, ["diff", "--cached", "--no-ext-diff"], indexFile);
   const changedPaths = extractDiffPaths(diff);
   const correspondence = { changedPaths };
 

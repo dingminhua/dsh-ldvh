@@ -435,7 +435,7 @@ function makeExecute(deps) {
     }
     let diff;
     try {
-      const result = await execFileAsync("git", ["-C", governed.project.path, "diff", "--cached", "--binary", "--no-ext-diff"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
+      const result = await execFileAsync("git", ["-C", governed.project.path, "diff", "--cached", "--no-ext-diff"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024, env: cleanGitEnvironment() });
       diff = result.stdout;
     } catch (error) {
       return envelope("precheck-git-commit", "unavailable", {
