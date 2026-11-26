@@ -8,6 +8,23 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [2.0.5-dev.1] — 2026-11-27
+
+开发迭代轮次开启：2.0.5 已封存发布，dev 线进入下一轮。
+
+## [2.0.5] — 2026-11-27
+
+署名校验披露取值来源与规则，新增只读查询口（issue #9）。
+
+### Added
+
+- 新增只读查询口 `ldvh_session_signature`：回报当前权威署名、来源事件类型与 `seq`、取值规则，并同时报出宿主通道与 shell 通道的取值及两者是否一致（`channels_agree`）——中途切换过模型的会话可直接取到权威值，不再靠试错。
+
+### Fixed
+
+- 署名校验不匹配时的报错补出**来源**：印出取值事件的 `eventType` 与 `seq`、以及「取会话日志中最后一条路由事件」的规则；`signature_trailer_missing` 也指向该规则与查询口，不再只说「does not match」而不给出处。代码与载体共用同一份规则文本（`ROUTE_SELECTION_RULE`）。
+- 载体 `controlled-commit` 的 `message-trailer` 条目补写取值规则与查询口，与代码同步。
+
 ## [2.0.4-dev.1] — 2026-11-26
 
 开发迭代轮次开启：2.0.4 已封存发布，dev 线进入下一轮。
