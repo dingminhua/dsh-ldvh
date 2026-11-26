@@ -12,6 +12,7 @@ import {
 } from '../../shared/factChangeLog.js'
 import { normalizeSignature } from '../../shared/signature.js'
 import { ProjectScopeError, requestProject } from '../services/requestScope.js'
+import { WebGovernanceError } from '../services/governanceScope.js'
 import { compareTimestamps, getRelativeTime, parseTimestamp } from '../services/time.js'
 import { getTypeColor } from '../services/typeColors.js'
 import { readFile, readdir } from 'node:fs/promises'
@@ -599,6 +600,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       res.status(400).json({ ok: false, error: err.message })
       return
     }
+    if (err instanceof WebGovernanceError) {
+      res.status(503).json({ ok: false, error: err.message, exitCode: 'governance_unavailable' })
+      return
+    }
     console.error('Cognition aggregation failed', err)
     res.status(500).json({ ok: false, error: 'Cognition aggregation failed' })
   }
@@ -832,6 +837,10 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
   } catch (err) {
     if (err instanceof ProjectScopeError) {
       res.status(400).json({ ok: false, error: err.message })
+      return
+    }
+    if (err instanceof WebGovernanceError) {
+      res.status(503).json({ ok: false, error: err.message, exitCode: 'governance_unavailable' })
       return
     }
     console.error('Goal read failed', err)
