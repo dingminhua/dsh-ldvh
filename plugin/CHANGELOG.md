@@ -8,6 +8,24 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [2.0.3] — 2026-11-26
+
+诊断页收敛与写入关卡性能优化。
+
+### Changed
+
+- 移除诊断页「运行痕迹」tab（`QueuePanel` 与 `queue` tab），Tab 闭集收为 gate／observations／cleanup，同步移除 `fetchQueueReport` 与 `QueueReport` 引用及失效 i18n 键（`diagnostics.tab.runs`、`diagnostics.queue.*`）。
+- 日志清理清单收敛：运行痕迹（`checkpoint-runs`）退出可清理目标，只剩摩擦观察一项；随之不可达的 ring 清理分支与未使用导入一并删除。
+- 摩擦观察面板的明细时间与分组时间改走 `formatTime` 本地化（跨年补年份、同年只出 `MM-DD HH:mm`），不再直出 ISO 串。
+
+### Performance
+
+- 写入关卡只扫描最近 **100** 个会话（按会话日志 mtime 取最新后解压解析），冷启动由 **5.8 秒降到 1.2 秒**。目录总数与已扫描数分开记账，新增 `sessionsLimited` 标记：超限时在 `scope.limits` 追加覆盖范围说明，诊断页相应卡片带提示并以警告色呈现——扫描范围有界且对使用者透明。
+
+## [2.0.2-dev.1] — 2026-11-26
+
+开发迭代轮次开启：2.0.2 已封存发布，dev 线进入下一轮。
+
 ## [2.0.2] — 2026-11-26
 
 收口前复核补结论摘要机械闸，并收尾动态端口发现与 pack 门禁。

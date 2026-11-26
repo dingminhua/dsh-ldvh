@@ -2,8 +2,8 @@
 
 [English](README.en.md) | 简体中文
 
-> 版本 `2.0.2` · MIT License · 面向 DSH Desktop `0.2.2-rc.5`
-> 正式发布版 2.0.2。
+> 版本 `2.0.3` · MIT License · 面向 DSH Desktop `0.2.2-rc.5`
+> 正式发布版 2.0.3。
 
 **LD Vibe Harness（LDVH）** 是一个深度绑定 DSH 的 AI 协作与治理框架，核心价值：**对齐 Vibe、协调 Coding。**
 
@@ -111,7 +111,7 @@ dsh-ldvh governed-project <list|inspect|install|uninstall-hook|register|unregist
 
 ## 已知限制
 
-- 正式发布版 2.0.2。
+- 正式发布版 2.0.3。
 - Windows 上未覆盖的场景如上表所列，不得据此认为 Windows 已完整验收通过；2026-11-10 的验收结论此后代码有变动，未在当前代码上重验。
 - Linux 不在支持声明内（仅 CI 覆盖）。
 - 测试基线：本次在当前工作树实测 `npm --prefix plugin test` 无失败项（0 失败；19 条跳过，在登记基线 27 以内）。跳过项仍须逐项核对——发布门禁不接受以跳过替代通过结论。

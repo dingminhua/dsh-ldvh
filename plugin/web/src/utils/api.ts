@@ -809,6 +809,7 @@ export interface DiagnosticsScope {
   sessionDir?: string;
   sessionDirExists?: boolean;
   sessionsScanned?: number;
+  sessionsLimited?: boolean;
   zstdAvailable?: boolean;
   ldvhHome?: string;
   runsFileExists?: boolean;

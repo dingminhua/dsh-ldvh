@@ -5,17 +5,15 @@ import {
   fetchCleanupPreview,
   fetchFrictionObservationReport,
   fetchGateReport,
-  fetchQueueReport,
   runCleanup,
   type CleanupPlan,
   type FrictionObservationReport,
   type GateReport,
-  type QueueReport,
 } from '@/utils/api';
 import { LDVH_ERROR_TEXT_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 import type { LocaleKey } from '@/i18n/locales';
 
-type Tab = 'gate' | 'queue' | 'observations' | 'cleanup';
+type Tab = 'gate' | 'observations' | 'cleanup';
 
 type Translation = (key: LocaleKey, params?: Record<string, string>) => string;
 
@@ -66,7 +64,11 @@ function formatTime(value: string | null | undefined): string {
   if (Number.isNaN(parsed)) return '—';
   const date = new Date(parsed);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const day = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return sameYear ? `${day} ${time}` : `${date.getFullYear()}-${day} ${time}`;
 }
 
 function ShareBar({ value, total }: { value: number; total: number }) {
@@ -140,7 +142,12 @@ function GatePanel({ report, t }: { report: GateReport; t: Translation }) {
           tone="warning"
           wrap
         />
-        <MetricCard label={t('diagnostics.gate.sessions')} value={String(report.scope.sessionsScanned ?? 0)} />
+        <MetricCard
+          label={t('diagnostics.gate.sessions')}
+          value={String(report.scope.sessionsScanned ?? 0)}
+          hint={report.scope.sessionsLimited ? t('diagnostics.gate.sessionsLimited') : undefined}
+          tone={report.scope.sessionsLimited ? 'warning' : undefined}
+        />
       </div>
 
       <ScopeNotice
@@ -230,47 +237,6 @@ function GatePanel({ report, t }: { report: GateReport; t: Translation }) {
   );
 }
 
-function QueuePanel({ report, t }: { report: QueueReport; t: Translation }) {
-  const stopped = report.runs.byStage.find((row) => row.stage === 'stopped');
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="ldvh-metric-grid">
-        <MetricCard label={t('diagnostics.queue.runs')} value={String(report.runs.total)} />
-        <MetricCard
-          label={t('diagnostics.queue.stopped')}
-          value={String(stopped?.count ?? 0)}
-          hint={stopped ? t('diagnostics.queue.stoppedHint') : undefined}
-        />
-      </div>
-
-      <ScopeNotice limits={report.scope.limits ?? []} />
-
-      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
-        <h2 className="ldvh-card-title">{t('diagnostics.queue.recentRuns')}</h2>
-        <div className="mt-2 flex flex-col">
-          {report.runs.recent.length === 0 ? (
-            <p className="ldvh-body-muted py-2">{t('diagnostics.queue.empty')}</p>
-          ) : report.runs.recent.map((run, index) => (
-            <details key={`${run.at ?? 'na'}-${index}`} className="border-b border-ldvh-border/50 py-1.5 last:border-0">
-              <summary className="flex cursor-pointer list-none items-center gap-2">
-                <ChevronRight size={12} className="shrink-0 text-ldvh-text-secondary" />
-                <span className="font-mono w-[5.5rem] shrink-0 text-[11px] text-ldvh-text-secondary">{formatTime(run.at)}</span>
-                <span className={`ldvh-chip-sm shrink-0 ${run.stage === 'stopped' ? LDVH_ERROR_TEXT_CLASS : ''}`}>{run.stage}</span>
-                <span className="ldvh-meta min-w-0 flex-1 truncate text-ldvh-text-secondary">{run.task ?? run.code ?? '—'}</span>
-              </summary>
-              {run.note ? (
-                <pre className="font-mono mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-ldvh-bg p-2 text-[11px] text-ldvh-text-secondary">
-                  {run.note}
-                </pre>
-              ) : null}
-            </details>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function ObservationPanel({ report, t }: { report: FrictionObservationReport; t: Translation }) {
   const ready = report.groups.filter((group) => group.promotionReady).length;
   return (
@@ -325,7 +291,7 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
                 </p>
                 <p className="ldvh-meta truncate font-mono text-[11px] text-ldvh-text-secondary">
                   {group.group}
-                  {group.lastAt ? ` · ${group.lastAt}` : ''}
+                  {group.lastAt ? ` · ${formatTime(group.lastAt)}` : ''}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -360,7 +326,7 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
               className="grid grid-cols-[9.5rem_minmax(0,1fr)_5.5rem] items-start gap-2 border-b border-ldvh-border/40 py-1.5 last:border-0"
             >
               <span className="ldvh-meta font-mono text-[11px] text-ldvh-text-secondary">
-                {row.at ?? '—'}
+                {formatTime(row.at)}
               </span>
               <div className="min-w-0">
                 <p className="ldvh-meta truncate text-ldvh-text-primary">{row.phenomenon ?? '—'}</p>
@@ -390,7 +356,6 @@ function CleanupPanel({
 }) {
   const [days, setDays] = useState<number>(3);
   const [selected, setSelected] = useState<Record<string, boolean>>({
-    'checkpoint-runs': true,
     'friction-observations': false,
   });
   const [busy, setBusy] = useState(false);
@@ -453,7 +418,6 @@ function CleanupPanel({
           {(report?.targets ?? []).length === 0 && !report ? (
             <div className="flex flex-col gap-2">
               {[
-                { id: 'checkpoint-runs', label: t('diagnostics.cleanup.t.checkpointRuns'), note: t('diagnostics.cleanup.n.checkpointRuns') },
                 { id: 'friction-observations', label: t('diagnostics.cleanup.t.frictionObservations'), note: t('diagnostics.cleanup.n.frictionObservations') },
               ].map((row) => (
                 <label key={row.id} className="flex items-start gap-2">
@@ -543,7 +507,6 @@ export default function Diagnostics() {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('gate');
   const [gate, setGate] = useState<GateReport | null>(null);
-  const [queue, setQueue] = useState<QueueReport | null>(null);
   const [observations, setObservations] = useState<FrictionObservationReport | null>(null);
   const [cleanup, setCleanup] = useState<CleanupPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -564,15 +527,10 @@ export default function Diagnostics() {
         });
       return () => { cancelled = true; };
     }
-    const load =
-      tab === 'gate'
-        ? fetchGateReport()
-        : fetchQueueReport();
-    load
+    fetchGateReport()
       .then((result) => {
         if (cancelled) return;
-        if (tab === 'gate') setGate(result as GateReport);
-        else setQueue(result as QueueReport);
+        setGate(result as GateReport);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -583,10 +541,9 @@ export default function Diagnostics() {
     };
   }, [tab]);
 
-  const current = tab === 'gate' ? gate : tab === 'queue' ? queue : tab === 'observations' ? observations : (cleanup ?? true);
+  const current = tab === 'gate' ? gate : tab === 'observations' ? observations : (cleanup ?? true);
   const tabs = useMemo(() => ([
     { key: 'gate' as Tab, label: t('diagnostics.tab.gate') },
-    { key: 'queue' as Tab, label: t('diagnostics.tab.runs') },
     { key: 'observations' as Tab, label: t('diagnostics.tab.observations') },
     { key: 'cleanup' as Tab, label: t('diagnostics.tab.cleanup') },
   ]), [t]);
@@ -619,8 +576,6 @@ export default function Diagnostics() {
         </div>
       ) : tab === 'gate' && gate ? (
         <GatePanel report={gate} t={t} />
-      ) : tab === 'queue' && queue ? (
-        <QueuePanel report={queue} t={t} />
       ) : tab === 'observations' && observations ? (
         <ObservationPanel report={observations} t={t} />
       ) : tab === 'cleanup' ? (

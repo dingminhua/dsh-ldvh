@@ -1,17 +1,9 @@
 import { existsSync, statSync } from 'node:fs'
-import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { dshHomeFromEnvironment } from './runtimeDiagnostics.js'
 
 export const LOGGABLE_TARGETS = [
-  {
-    id: 'checkpoint-runs',
-    label: '运行痕迹',
-    relativePath: ['ldvh', 'idle-checkpoint-runs.json'],
-    kind: 'ring' as const,
-    timeField: 'at',
-    note: '每次检查点的结局（环形，本就只保留最近 50 条）。',
-  },
   {
     id: 'friction-observations',
     label: '摩擦观察',
@@ -190,53 +182,7 @@ export async function planCleanup(options: {
       }
       continue
     }
-
-    if (target.kind === 'ring') {
-      let removing = 0
-      let keeping = 0
-      let unparsable = 0
-      let bytes = 0
-      let keep: unknown[] = []
-      const exists = existsSync(abs)
-      if (exists) {
-        bytes = statSync(abs).size
-        try {
-          const doc = JSON.parse(await readFile(abs, 'utf8')) as { runs?: unknown[] }
-          const runs = Array.isArray(doc.runs) ? doc.runs : []
-          for (const run of runs) {
-            const at = recordTime(run, target.timeField)
-            if (at === null) {
-              keep.push(run)
-              unparsable += 1
-            } else if (at >= cutoffMs) {
-              keep.push(run)
-            }
-          }
-          removing = runs.length - keep.length
-          keeping = keep.length
-        } catch {
-          unparsable += 1
-          keep = []
-        }
-      }
-      targets.push({
-        id: target.id, label: target.label, note: target.note,
-        exists, removing, keeping, unparsable, bytes,
-      })
-      if (apply && exists && backupDir) {
-        try {
-          await backupFile(abs, backupDir)
-          await writeFile(abs, JSON.stringify({ runs: keep }, null, 2) + '\n', 'utf8')
-          applied.push({ id: target.id, removed: removing, kept: keeping })
-        } catch (error) {
-          applied.push({ id: target.id, removed: 0, kept: 0, error: String((error as Error)?.message ?? error) })
-        }
-      }
-      continue
-    }
-
   }
-
   return {
     ok: true,
     cutoff: cutoff.toISOString(),

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -33,6 +33,7 @@ export type DiagnosticsScope = {
   sessionDir: string
   sessionDirExists: boolean
   sessionsScanned: number
+  sessionsLimited: boolean
   zstdAvailable: boolean
   limits: string[]
   cachedAt?: string
@@ -316,6 +317,7 @@ export function invalidateGateReportCache(): void {
 }
 
 const SESSION_SCAN_CONCURRENCY = 8
+const SESSION_SCAN_LIMIT = 100
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -382,11 +384,31 @@ export async function buildGateReport(options: {
   if (!hasZstd) limits.push('未找到 zstd 可执行文件，压缩的会话日志无法读取——本页数据为空不代表没有调用。')
 
   const outcomes: ToolCallOutcome[] = []
+  let scannedCount = 0
   if (hasZstd && sessionDirExists) {
-    const sessionsWithLog = sessions.filter((session) => {
+    const withLog: { session: string; mtime: number }[] = []
+    for (const session of sessions) {
       const dir = path.join(sessionDir, session)
-      return SESSION_LOG_CANDIDATES.some((name) => existsSync(path.join(dir, name)))
-    })
+      for (const name of SESSION_LOG_CANDIDATES) {
+        const candidate = path.join(dir, name)
+        if (!existsSync(candidate)) continue
+        try {
+          withLog.push({ session, mtime: statSync(candidate).mtimeMs })
+        } catch {
+          withLog.push({ session, mtime: 0 })
+        }
+        break
+      }
+    }
+    withLog.sort((a, b) => b.mtime - a.mtime)
+    const scanned = withLog.slice(0, SESSION_SCAN_LIMIT)
+    if (withLog.length > scanned.length) {
+      limits.push(
+        `会话数超过 ${SESSION_SCAN_LIMIT}：只扫描最近 ${SESSION_SCAN_LIMIT} 个会话（按日志修改时间取最新），更早的调用不在本页。`,
+      )
+    }
+    const sessionsWithLog = scanned.map((entry) => entry.session)
+    scannedCount = sessionsWithLog.length
     const collected = await mapWithConcurrency(sessionsWithLog, SESSION_SCAN_CONCURRENCY, async (session) => {
       const dir = path.join(sessionDir, session)
       try {
@@ -440,6 +462,7 @@ export async function buildGateReport(options: {
       sessionDir,
       sessionDirExists,
       sessionsScanned: sessions.length,
+      sessionsLimited: scannedCount < sessions.length,
       zstdAvailable: hasZstd,
       limits,
     },

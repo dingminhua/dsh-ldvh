@@ -1,6 +1,6 @@
 {
   "name": "dsh-ldvh",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "LD Vibe Harness（LDVH） 是一个深度绑定 DSH 的 AI 协作与治理框架，核心价值：对齐 Vibe、协调 Coding。\n\n对齐 Vibe：让人与 AI 对项目的由来、现状、去向形成一致的认识。\n协调 Coding：借助宿主调度资源，明晰权责、记录火花、确立规范、构建报告、积累经验、发现摩擦，让项目进展更稳定、执行更顺利。",
   "keywords": [
     "deepseek-harness",
