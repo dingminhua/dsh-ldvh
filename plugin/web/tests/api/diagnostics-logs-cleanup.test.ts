@@ -31,7 +31,7 @@ test('历史水位与已退役队列都不在可清理清单里', () => {
     !ids.some((id) => id.includes('watermark')),
     `任何水位类载体都不得出现在可清理清单；实际=${JSON.stringify(ids)}`,
   )
-  assert.ok(ids.length >= 2, `可清理目标应有若干项；实际=${ids.length}`)
+  assert.deepEqual(ids, ['friction-observations'], `可清理清单须只剩摩擦观察一项；实际=${JSON.stringify(ids)}`)
   assert.ok(!ids.includes('pending-queue'), '待处置队列已退役（2026-11-17），存量文件不进常规清理清单')
 })
 
@@ -128,23 +128,22 @@ test('文件不存在时不是错误——合法初态，删除数为 0', async 
   assert.equal(preview.targets[0].keeping, 0)
 })
 
-test('运行痕迹（ring 形态）按 runs 数组内的 at 清理，且保持 JSON 结构', async () => {
+test('运行痕迹清理项已删除（2026-11-26：环形自限 50 条，且清理会删掉淘汰登记致查重失效）', async () => {
+  const target = LOGGABLE_TARGETS.find((item) => String(item.id) === 'checkpoint-runs')
+  assert.equal(target, undefined, '运行账不得再进清理清单')
+
   const home = await makeHome()
   const file = path.join(home, 'ldvh', 'idle-checkpoint-runs.json')
   const runs = [
-    { at: stamp(20), stage: 'landed' },
-    { at: stamp(10), stage: 'stopped' },
+    { at: stamp(20), stage: 'eviction-registration' },
     { at: stamp(1), stage: 'landed' },
   ]
   await writeFile(file, JSON.stringify({ runs }, null, 2) + '\n', 'utf8')
+  const before = await readFile(file, 'utf8')
 
-  const applied = await planCleanup({ dshHome: home, retentionDays: 3, targetIds: ['checkpoint-runs'], apply: true })
-  assert.equal(applied.applied[0].removed, 2)
-
-  const doc = JSON.parse(await readFile(file, 'utf8')) as { runs: { stage: string }[] }
-  assert.ok(Array.isArray(doc.runs), '结构须仍是 { runs: [...] }')
-  assert.equal(doc.runs.length, 1)
-  assert.equal(doc.runs[0].stage, 'landed')
+  const plan = await planCleanup({ dshHome: home, retentionDays: 3, targetIds: ['checkpoint-runs'], apply: true })
+  assert.equal(plan.targets.length, 0, '运行账不在可选目标内，选它也预览不到')
+  assert.equal(await readFile(file, 'utf8'), before, '运行账须逐字未动——含未销账的淘汰登记')
 })
 
 test('摩擦观察按项目文件逐个清理，保留未过期的条目', async () => {

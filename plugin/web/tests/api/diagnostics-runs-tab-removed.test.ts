@@ -24,11 +24,13 @@ test('诊断页不再渲染运行痕迹面板与其数据来源', () => {
   assert.doesNotMatch(src, /diagnostics\.queue\./, '不得再引用运行痕迹面板文案键');
 });
 
-test('运行账采集与清理清单不受界面移除影响（数据仍被依赖）', () => {
-  const logsCleanup = readFileSync(path.resolve('api/services/logsCleanup.ts'), 'utf8');
-  assert.match(logsCleanup, /idle-checkpoint-runs\.json/, '清理清单仍须覆盖运行账载体');
+test('运行账采集仍在，但不进清理清单（清理会删掉淘汰登记致查重失效）', () => {
   const runlog = readFileSync(path.resolve(import.meta.dirname, '../../../lib/idle-runlog.js'), 'utf8');
   assert.match(runlog, /idle-checkpoint-runs\.json/, '运行账采集不得随界面移除而删除');
+
+  const logsCleanup = readFileSync(path.resolve('api/services/logsCleanup.ts'), 'utf8');
+  assert.doesNotMatch(logsCleanup, /idle-checkpoint-runs\.json/, '运行账不得进清理清单');
+  assert.doesNotMatch(logsCleanup, /checkpoint-runs/, '不得残留 checkpoint-runs 清理目标');
 });
 
 test('失效的界面文案键已从 locales 移除，中英两语一致', () => {

@@ -351,7 +351,6 @@ function CleanupPanel({
 }) {
   const [days, setDays] = useState<number>(3);
   const [selected, setSelected] = useState<Record<string, boolean>>({
-    'checkpoint-runs': true,
     'friction-observations': false,
   });
   const [busy, setBusy] = useState(false);
@@ -414,7 +413,6 @@ function CleanupPanel({
           {(report?.targets ?? []).length === 0 && !report ? (
             <div className="flex flex-col gap-2">
               {[
-                { id: 'checkpoint-runs', label: t('diagnostics.cleanup.t.checkpointRuns'), note: t('diagnostics.cleanup.n.checkpointRuns') },
                 { id: 'friction-observations', label: t('diagnostics.cleanup.t.frictionObservations'), note: t('diagnostics.cleanup.n.frictionObservations') },
               ].map((row) => (
                 <label key={row.id} className="flex items-start gap-2">
