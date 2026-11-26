@@ -66,6 +66,11 @@ const OPERATIONS = {
     effect: "may_change_state",
     awaitsHumanDecision: true
   },
+  "session-signature": {
+    toolName: "ldvh_session_signature",
+    summary: "Read-only query for THIS session's authoritative provider/model and the exact routing event it came from (event type + seq), plus the selection rule. Exists so a controlled commit's LDVH-Provider/LDVH-Model trailers can be filled by reading rather than by trial and error: the authoritative route is the LAST routing event in the session log, so a mid-session model switch makes earlier values stale",
+    effect: "read"
+  },
   "probe-host-automation": {
     toolName: "ldvh_probe_host_automation",
     summary: "Probe whether the host automation capabilities (schedule / sessionController) are available: schedule.create with a `timing: { kind: 'every' }` selector and an explicit `target`, sessionController.create/list, and whether a session title is readable from projections. LDVH no longer depends on periodic tasks for friction discovery, so this probe is diagnostic only. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters (0.2.2-rc.1 has no schedule.delete — removal is edit({action:'delete'}))",
@@ -266,6 +271,48 @@ function makeExecute(deps) {
       gaps: [],
       verification: { checks: ["registration-read", "cwd-realpath", "root-containment"], passed: true },
       follow_up: scope.state === "governed" ? ["discover-ldvh-capabilities"] : []
+    });
+  }
+
+  async function executeSessionSignature(_args, exec) {
+    const { currentRouteValuesFromShellEnvironment, ROUTE_SELECTION_RULE, authoritativeSignature } = await import("./session-signature.js");
+    const viaHost = await currentRouteValues(deps.sessionPersistence?.() ?? null, exec?.agent);
+    const viaShell = await currentRouteValuesFromShellEnvironment();
+    const describe = (route) => route?.ok === true
+      ? {
+        provider: route.value.provider,
+        model: route.value.model,
+        event_type: route.value.eventType ?? null,
+        seq: route.value.seq ?? null,
+        trailers: [
+          `LDVH-Provider: ${route.value.provider}`,
+          `LDVH-Model: ${route.value.model}`,
+        ],
+      }
+      : { unavailable: route?.reason ?? "unknown" };
+    const host = describe(viaHost);
+    const shell = describe(viaShell);
+    const agreement = viaHost?.ok === true && viaShell?.ok === true
+      ? (viaHost.value.provider === viaShell.value.provider && viaHost.value.model === viaShell.value.model
+        ? "same"
+        : "DIFFERENT — the Hook and this session are reading different routes; the commit-msg gate uses the shell channel, so use `shell` for the trailers")
+      : "not-comparable";
+    return envelope("session-signature", "completed", {
+      result: {
+        rule: ROUTE_SELECTION_RULE,
+        authoritative: shell.ok === true || host.ok === true
+          ? authoritativeSignature((viaShell?.ok === true ? viaShell : viaHost).value)
+          : null,
+        host_channel: host,
+        shell_channel: shell,
+        channels_agree: agreement,
+        usage: "Fill the commit message footer with exactly the two trailer lines from the channel the gate reads (shell_channel when the gate runs as a Git Hook); do not guess from the top of the session log.",
+      },
+      scope: { requested: null, completed: ["session-route"], not_completed: [] },
+      sources: [],
+      gaps: [],
+      verification: { checks: ["route-from-host", "route-from-shell"], passed: shell.ok === true || host.ok === true },
+      follow_up: [],
     });
   }
 
@@ -827,6 +874,7 @@ function makeExecute(deps) {
     "resolve-governance-scope": executeResolveGovernanceScope,
     "discover-ldvh-capabilities": executeDiscoverCapabilities,
     "inspect-loaded-modules": executeInspectLoadedModules,
+    "session-signature": executeSessionSignature,
     "precheck-git-commit": executePrecheckGitCommit,
     "register-governed-project": executeRegisterGovernedProject,
     "unregister-governed-project": executeUnregisterGovernedProject,
@@ -1007,6 +1055,8 @@ function parameterSchemaFor(operationKey) {
         additionalProperties: false
       };
     case "inspect-loaded-modules":
+      return { type: "object", properties: {}, additionalProperties: false };
+    case "session-signature":
       return { type: "object", properties: {}, additionalProperties: false };
     case "precheck-git-commit":
       return {

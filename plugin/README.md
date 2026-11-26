@@ -2,7 +2,7 @@
 
 [English](README.en.md) | 简体中文
 
-> 版本 `2.0.4` · MIT License · 面向 DSH Desktop `0.2.2-rc.5`
+> 版本 `2.0.5` · MIT License · 面向 DSH Desktop `0.2.2-rc.5`
 > 正式发布版 2.0.4。
 
 **LD Vibe Harness（LDVH）** 是一个深度绑定 DSH 的 AI 协作与治理框架，核心价值：**对齐 Vibe、协调 Coding。**

@@ -8,6 +8,7 @@ import {
 	SIGNATURES,
 	SOURCE_FINGERPRINT,
 	checkKeyChangesAgainstDiff,
+	checkSignatureAgainstRoute,
 	snapshotIdentity,
 	validateMessage,
 	GATE_RULES,
@@ -1038,4 +1039,58 @@ test("大二进制不撑爆 diff 读取：无 --binary 时体积恒定且快照�
 	gitRun("add", "big.pdf");
 	const second = snapshotIdentity(gitRun("diff", "--cached", "--no-ext-diff"), "msg");
 	assert.notEqual(first, second, "二进制内容变了，快照必须跟着变");
+});
+
+test("署名 mismatch 报错须带出处：eventType、seq 与取值规则（issue #9 第 1 点）", () => {
+	const route = { ok: true, value: { provider: "workbuddy", model: "hy4flash-free", eventType: "request/context", seq: 4166 } };
+	const msg = "fix: 测试\n\n关键变更:\n- plugin/lib/x.js\n\nLDVH-Provider: openai-codex\nLDVH-Model: gpt-6.2-sol";
+	const issues = checkSignatureAgainstRoute(msg, route).issues;
+
+	assert.equal(issues.length, 2);
+	const provider = issues.find((issue) => issue.rule === "validation/signature_provider_mismatch");
+	assert.ok(provider, "须报 provider mismatch");
+	assert.match(provider.message, /event type request\/context/, "须印出来源事件类型——否则 AI 无法自查取自哪条");
+	assert.match(provider.message, /seq 4166/, "须印出事件 seq");
+	assert.match(provider.message, /LAST routing event/, "须印出取值规则");
+});
+
+test("署名 mismatch 在缺少 eventType/seq 时不虚构出处", () => {
+	const route = { ok: true, value: { provider: "workbuddy", model: "hy4flash-free" } };
+	const msg = "fix: 测试\n\n关键变更:\n- a\n\nLDVH-Provider: x\nLDVH-Model: y";
+	const provider = checkSignatureAgainstRoute(msg, route).issues.find((i) => i.rule === "validation/signature_provider_mismatch");
+	assert.ok(provider);
+	assert.doesNotMatch(provider.message, /taken from/, "无出处数据时不得编造 taken from 片段");
+	assert.match(provider.message, /LAST routing event/, "规则仍须印出");
+});
+
+test("trailer_missing 须给出期望值来源与查询口，不再只说 requires exactly one（issue #9 第 1 点后半）", () => {
+	const issues = validateMessage("fix: 测试\n\n关键变更:\n- a");
+	const missing = issues.filter((issue) => issue.rule === "validation/signature_trailer_missing");
+	assert.equal(missing.length, 2);
+	for (const issue of missing) {
+		assert.match(issue.message, /ldvh_session_signature/, "须指向只读查询口，而不是让 AI 试错");
+		assert.match(issue.message, /LAST routing event/, "须印出取值规则");
+	}
+});
+
+test("extractRouteValuesFromEvents 须带出 seq（issue #9：事件里有 seq 但未被采集）", async () => {
+	const { extractRouteValuesFromEvents } = await import("../lib/session-signature.js");
+	const events = [{ type: "request/context", seq: 4166, data: { provider: "workbuddy", model: "hy4flash-free" } }];
+	const result = extractRouteValuesFromEvents(events);
+	assert.equal(result.ok, true);
+	assert.equal(result.value.seq, 4166, "seq 须随取值一并带出");
+	assert.equal(result.value.eventType, "request/context");
+});
+
+test("倒序遍历日志取最后一条路由事件——模型切换后旧值不得胜出（issue #9 根因）", async () => {
+	const { extractRouteValuesFromLines } = await import("../lib/session-signature.js");
+	const lines = [
+		JSON.stringify({ type: "model/selection", seq: 4, data: { provider: "openai-codex", model: "gpt-6.2-sol" } }),
+		JSON.stringify({ type: "request/context", seq: 23, data: { provider: "openai-codex", model: "gpt-6.2-sol" } }),
+		JSON.stringify({ type: "model/selection", seq: 4159, data: { provider: "workbuddy", model: "hy4flash-free" } }),
+		JSON.stringify({ type: "request/context", seq: 4166, data: { provider: "workbuddy", model: "hy4flash-free" } }),
+	];
+	const result = extractRouteValuesFromLines(lines);
+	assert.equal(result.value.provider, "workbuddy", "须取日志中最后一条，而非开头那条");
+	assert.equal(result.value.seq, 4166, "且须报出它来自哪一条");
 });

@@ -31,8 +31,8 @@
   <a href="https://dshfind.com/plugins/dingminhua/dsh-ldvh"><img src="https://dshfind.com/api/badge/dingminhua/dsh-ldvh" alt="dshfind plugin"></a>
 </p>
 
-> 版本 `2.0.4` ｜ MIT License（与 DSH 本体同协议）
-> 版本 `2.0.4` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
+> 版本 `2.0.5` ｜ MIT License（与 DSH 本体同协议）
+> 版本 `2.0.5` 的发布树：与开发线（`dev` 分支）结构一致，不含项目专属事实源目录。
 
 ## 截图
 
