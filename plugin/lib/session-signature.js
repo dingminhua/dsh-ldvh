@@ -49,6 +49,8 @@ export async function currentSessionIdentity(sessionPersistence, agent) {
   return extractSessionIdentityFromLines(splitJsonlLines(text));
 }
 
+export const ROUTE_SELECTION_RULE = "the LAST routing event in the session log wins (model switches mid-session overwrite earlier values); the log is walked back-to-front so the most recent model/selection or request/context is authoritative";
+
 export function extractRouteValuesFromLines(lines) {
   const events = [];
   for (let index = lines.length - 1; index >= 0; index -= 1) {
@@ -60,7 +62,8 @@ export function extractRouteValuesFromLines(lines) {
       continue;
     }
   }
-  return extractRouteValuesFromEvents(events);
+  const result = extractRouteValuesFromEvents(events);
+  return result;
 }
 
 export function extractRouteValuesFromEvents(events) {
@@ -75,7 +78,7 @@ export function extractRouteValuesFromEvents(events) {
     if (typeof provider !== "string" || provider.length === 0 || typeof model !== "string" || model.length === 0) {
       return { ok: false, reason: `routing event "${type}" lacks a provider/model pair` };
     }
-    return { ok: true, value: { provider, model, eventType: type } };
+    return { ok: true, value: { provider, model, eventType: type, seq: Number.isInteger(event.seq) ? event.seq : null } };
   }
   return { ok: false, reason: "session has no model/selection or request/context routing events" };
 }

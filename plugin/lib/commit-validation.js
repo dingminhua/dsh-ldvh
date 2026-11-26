@@ -18,6 +18,9 @@ export const HEADER_LANGUAGE_EXEMPTIONS = Object.freeze([
 	"fix(client): ctx.get→ctx.inject for betterSidebar tab registration",
 ]);
 export const SIGNATURES = ["LDVH-Provider", "LDVH-Model"];
+
+export const ROUTE_SOURCE_RULE = "the authoritative route is the LAST routing event (model/selection or request/context) in the session log — a mid-session model switch makes the later event win, so values read from the top of the log are stale";
+
 export const SOURCE_FINGERPRINT = createHash("sha256").update("dsh-ldvh-git-gate-v1", "utf8").digest("hex");
 
 export const GATE_RULES = Object.freeze({
@@ -74,7 +77,12 @@ export function validateMessage(message) {
   }
   for (const name of SIGNATURES) {
     const matches = lines.filter((line) => line.startsWith(`${name}:`) && line.slice(name.length + 1).trim().length > 0);
-    if (matches.length !== 1) issues.push(newFinding("validation/signature_trailer_missing", `footer requires exactly one ${name}:`, null));
+    if (matches.length !== 1) {
+      const hint = name === "LDVH-Provider"
+        ? "the expected value is the provider of the authoritative route — read it with ldvh_session_signature rather than guessing"
+        : "the expected value is the model of the authoritative route — read it with ldvh_session_signature rather than guessing";
+      issues.push(newFinding("validation/signature_trailer_missing", `footer requires exactly one ${name}: (${hint}; rule: ${ROUTE_SOURCE_RULE})`, null));
+    }
   }
   return issues;
 }
@@ -84,17 +92,26 @@ export function snapshotIdentity(diff, message) {
   return createHash("sha256").update(diff, "utf8").update("\0").update(normalized, "utf8").digest("hex");
 }
 
+function routeProvenance(route) {
+  const value = route?.value ?? {};
+  const parts = [];
+  if (typeof value.eventType === "string" && value.eventType.length > 0) parts.push(`event type ${value.eventType}`);
+  if (Number.isInteger(value.seq)) parts.push(`seq ${value.seq}`);
+  return parts.length > 0 ? ` (taken from ${parts.join(", ")})` : "";
+}
+
 export function checkSignatureAgainstRoute(message, route) {
   const lines = message.replace(/\r\n/g, "\n").split("\n");
   const providerLine = lines.find((line) => line.startsWith("LDVH-Provider:"));
   const modelLine = lines.find((line) => line.startsWith("LDVH-Model:"));
   if (!route.ok) return { ok: false, hardFail: false, issues: [] };
   const issues = [];
+  const provenance = routeProvenance(route);
   if (providerLine !== undefined && providerLine.slice("LDVH-Provider:".length).trim() !== route.value.provider) {
-    issues.push(newFinding("validation/signature_provider_mismatch", `trailer LDVH-Provider does not match the authoritative session record (${route.value.provider})`));
+    issues.push(newFinding("validation/signature_provider_mismatch", `trailer LDVH-Provider does not match the authoritative session record (${route.value.provider})${provenance}; rule: ${ROUTE_SOURCE_RULE}`));
   }
   if (modelLine !== undefined && modelLine.slice("LDVH-Model:".length).trim() !== route.value.model) {
-    issues.push(newFinding("validation/signature_model_mismatch", `trailer LDVH-Model does not match the authoritative session record (${route.value.model})`));
+    issues.push(newFinding("validation/signature_model_mismatch", `trailer LDVH-Model does not match the authoritative session record (${route.value.model})${provenance}; rule: ${ROUTE_SOURCE_RULE}`));
   }
   return { ok: issues.length === 0, hardFail: issues.length > 0, issues };
 }
