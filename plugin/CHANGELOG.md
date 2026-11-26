@@ -8,6 +8,20 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [2.0.4] — 2026-11-26
+
+三处修复：Git Gate 二进制正文、cognition 治理错误表达、摩擦派发文案。
+
+### Fixed
+
+- **Git Gate 不再读取二进制正文（issue #5）**：staged diff 去掉 `--binary`——二进制正文以 base64 进 diff，10MB PDF 即撑出 12.9MB，超过 `maxBuffer` 致 pre-commit 与 commit-msg 双双失败；`git()` 的 `maxBuffer` 由 8MiB 提到 64MiB 兜住大文本文件。precheck 侧同一处 `git diff --cached` 同步修复（此前含大文件的 precheck 必报 unverifiable）。已论证 `snapshotIdentity` 区分力不受损：二进制内容虽不进 diff，git 保留的 `index <old>..<new>` 行已含 blob hash，且有端到端回归测试钉住（10MB 随机二进制、改动后快照仍变化）。
+- **cognition 无管辖项目时透出可判定错误**：聚合与目标读取两处 catch 捕获 `WebGovernanceError`，返回 503 并带 `exitCode=governance_unavailable` 与底层治理原因，不再统一吞成泛化 500「Cognition aggregation failed」。
+- **摩擦派发文案说清执行体工具面**：判据补「派发时须把执行体的工具面说清」——执行体只持有 `ldvh_friction_record_observation`、无 `ldvh_friction_write`，写观察／达阈值晋升／补充级更新均在同一次调用内由机制完成，结果经返回值 `promotion` 字段交回；派发文案不得要求它「登记/创建摩擦账目」，未晋升不等于执行体失败。
+
+## [2.0.3-dev.1] — 2026-11-26
+
+开发迭代轮次开启：2.0.3 已封存发布，dev 线进入下一轮。
+
 ## [2.0.3] — 2026-11-26
 
 诊断页收敛与写入关卡性能优化。
