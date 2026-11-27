@@ -1141,8 +1141,8 @@ test("session-signature envelope exposes an unbranded authoritative provider/mod
 			assert.equal(env.result.model, "hy4flash-free");
 			assert.equal(env.result.source_channel, "host_channel");
 			assert.deepEqual(env.result.trailers, ["LDVH-Provider: workbuddy", "LDVH-Model: hy4flash-free"]);
-			assert.equal(typeof env.result.authoritative, "object");
-			assert.equal(env.result.authoritative.provider, undefined, "the branded carrier must not be mistaken for the readable value");
+			assert.equal("authoritative" in env.result, false, "the Symbol-branded signature carrier must never enter the envelope: the host requires lossless JSON");
+			assert.deepEqual(JSON.parse(JSON.stringify(env)).result.provider, "workbuddy", "the whole envelope must survive a JSON roundtrip");
 			assert.equal(env.verification.passed, true);
 		});
 	});

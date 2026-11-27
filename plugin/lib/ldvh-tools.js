@@ -311,7 +311,6 @@ function makeExecute(deps) {
     return envelope("session-signature", outcome, {
       result: {
         rule: ROUTE_SELECTION_RULE,
-        authoritative,
         provider: plain?.provider ?? null,
         model: plain?.model ?? null,
         event_type: preferred?.value.eventType ?? null,
