@@ -10,6 +10,7 @@ import {
 	cleanGitEnvironment,
 	inspectHook,
 	installHook,
+	parseHookPaths,
 	parseManagedHook,
 	renderHook,
 	resolveIdentity,
@@ -448,5 +449,67 @@ test("a content-matching Hook without the executable bit is outdated, not manage
 		assert.equal(after.state, "outdated");
 		assert.match(after.detail, /not executable/);
 		assert.equal((await installHook({ projectRoot: root, runnerPath, workspaceRoot: base })).value.state, "managed");
+	});
+});
+
+test("parseHookPaths extracts runner/workspace from current and legacy hook bodies", () => {
+	const current = renderHook({ runnerPath, workspaceRoot: pluginRoot }).split("\n").slice(2).join("\n");
+	assert.deepEqual(parseHookPaths(current), { runnerPath, workspaceRoot: pluginRoot });
+
+	const legacyRunner = "/old/profile/node_modules/dsh-ldvh/lib/git-gate-runner.js";
+	const legacyWorkspace = "/old/profile/node_modules/dsh-ldvh";
+	const legacy = ["# ldvh-hook-bundle-version: 1.0.0-dev.3", "set -eu", `set -- git-commit-msg --workspace-root '${legacyWorkspace}' --worktree "$worktree"`, `exec node '${legacyRunner}' "$@"`, ""].join("\n");
+	assert.deepEqual(parseHookPaths(legacy), { runnerPath: legacyRunner, workspaceRoot: legacyWorkspace });
+});
+
+test("a digest-matching hook with a dead runner path is outdated, not managed (issue #10 fake-managed)", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		const deadRunner = join(base, "gone", "git-gate-runner.js");
+		const hook = renderHook({ runnerPath: deadRunner, workspaceRoot: base });
+		await writeFile(join(root, ".git", "hooks", "commit-msg"), hook, { mode: 0o755 });
+		await writeFile(join(root, ".git", "hooks", "pre-commit"), renderHook({ runnerPath: deadRunner, workspaceRoot: base, hookName: "pre-commit" }), { mode: 0o755 });
+
+		const status = await inspectHook(root);
+		assert.equal(status.state, "outdated", "dead runner must break the managed state");
+		assert.equal(status.hookBundleVersion, HOOK_BUNDLE_VERSION, "bundle version still matches");
+		for (const hookStatus of status.hooks) {
+			assert.equal(hookStatus.state, "outdated");
+			assert.match(hookStatus.detail, /runner no longer exists/);
+			assert.ok(hookStatus.detail.includes(deadRunner));
+		}
+		assert.deepEqual(parseManagedHook(hook).version, HOOK_BUNDLE_VERSION, "marker digest is still valid");
+	});
+});
+
+test("a digest-matching hook with a dead workspace root is outdated", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		const deadWorkspace = join(base, "gone-workspace");
+		const hook = renderHook({ runnerPath, workspaceRoot: deadWorkspace });
+		await writeFile(join(root, ".git", "hooks", "commit-msg"), hook, { mode: 0o755 });
+		const status = await inspectHook(root, { hookName: "commit-msg" });
+		assert.equal(status.state, "outdated");
+		assert.match(status.detail, /workspace root no longer exists/);
+	});
+});
+
+test("installHook rewrites a fake-managed hook so both hooks become real managed (issue #10 repair)", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		const deadRunner = join(base, "gone", "git-gate-runner.js");
+		await writeFile(join(root, ".git", "hooks", "commit-msg"), renderHook({ runnerPath: deadRunner, workspaceRoot: base }), { mode: 0o755 });
+		await writeFile(join(root, ".git", "hooks", "pre-commit"), renderHook({ runnerPath: deadRunner, workspaceRoot: base, hookName: "pre-commit" }), { mode: 0o755 });
+		assert.equal((await inspectHook(root)).state, "outdated");
+
+		const result = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
+		assert.equal(result.ok, true, result.error?.message);
+		assert.equal(result.value.state, "managed");
+		assert.equal(result.value.rewritten, 2, "both fake-managed hooks must be rewritten");
+		for (const name of ["commit-msg", "pre-commit"]) {
+			const content = await readFile(join(root, ".git", "hooks", name), "utf8");
+			assert.ok(content.includes(runnerPath), `${name} must point at the live runner`);
+			assert.doesNotMatch(content, /gone\/git-gate-runner\.js/);
+		}
 	});
 });

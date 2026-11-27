@@ -1,5 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { access, chmod, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
@@ -97,6 +97,55 @@ function parseManagedHook(content) {
   return { owned: true, valid, version, body };
 }
 
+function parseShellSingleQuoted(text, startIndex) {
+  if (text[startIndex] !== "'") return null;
+  let value = "";
+  for (let index = startIndex + 1; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === "'") return { value, end: index + 1 };
+    if (character === "\\" && text[index + 1] === "'") {
+      value += "'";
+      index += 1;
+    } else {
+      value += character;
+    }
+  }
+  return null;
+}
+
+export function parseHookPaths(body) {
+  const runnerExec = [...body.matchAll(/exec\s+(?:node|"\$node_bin"|'\$node_bin')\s+/g)];
+  let runnerPath = null;
+  if (runnerExec.length > 0) {
+    const last = runnerExec[runnerExec.length - 1];
+    const quoteIndex = body.indexOf("'", last.index + last[0].length);
+    if (quoteIndex !== -1) {
+      const parsed = parseShellSingleQuoted(body, quoteIndex);
+      if (parsed !== null) runnerPath = parsed.value;
+    }
+  }
+  const workspaceMatch = body.match(/--workspace-root\s+/);
+  let workspaceRoot = null;
+  if (workspaceMatch !== null) {
+    const quoteIndex = body.indexOf("'", workspaceMatch.index + workspaceMatch[0].length);
+    if (quoteIndex !== -1) {
+      const parsed = parseShellSingleQuoted(body, quoteIndex);
+      if (parsed !== null) workspaceRoot = parsed.value;
+    }
+  }
+  return { runnerPath, workspaceRoot };
+}
+
+async function pathExists(target) {
+  if (typeof target !== "string" || target.length === 0) return false;
+  try {
+    await stat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUNDLE_VERSION, interpreterCandidates = defaultInterpreterCandidates(), hookName = DEFAULT_HOOK_NAME }) {
   const spec = MANAGED_HOOKS.find((hook) => hook.name === hookName);
   if (spec === undefined) throw new Error(`unmanaged Git Hook: ${hookName}`);
@@ -159,6 +208,13 @@ async function inspectOneHook(identity, spec) {
   if (!parsed.valid) return { name: spec.name, hookPath, state: "conflict", detail: "the LDVH Hook marker digest does not match its body", hookBundleVersion: parsed.version };
   if (!(await isExecutable(hookPath))) {
     return { name: spec.name, hookPath, state: "outdated", detail: "LDVH Git Hook is not executable (git will ignore it)", hookBundleVersion: parsed.version };
+  }
+  const hookPaths = parseHookPaths(parsed.body);
+  if (hookPaths.runnerPath !== null && !(await pathExists(hookPaths.runnerPath))) {
+    return { name: spec.name, hookPath, state: "outdated", detail: `LDVH Git Hook runner no longer exists: ${hookPaths.runnerPath}`, hookBundleVersion: parsed.version };
+  }
+  if (hookPaths.workspaceRoot !== null && !(await pathExists(hookPaths.workspaceRoot))) {
+    return { name: spec.name, hookPath, state: "outdated", detail: `LDVH Git Hook workspace root no longer exists: ${hookPaths.workspaceRoot}`, hookBundleVersion: parsed.version };
   }
   return parsed.version === HOOK_BUNDLE_VERSION
     ? { name: spec.name, hookPath, state: "managed", detail: "LDVH Git Hook is current", hookBundleVersion: parsed.version }
