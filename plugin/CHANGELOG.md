@@ -8,6 +8,28 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [2.0.6-dev.1] — 2026-11-27
+
+开发迭代轮次开启：2.0.6 已封存发布，dev 线进入下一轮。
+
+## [2.0.6] — 2026-11-27
+
+两处修复与一处流程工具改进。
+
+### Fixed
+
+- **宿主换代后旧 Git Hook 因「假 managed」逃过自动修复**：`hook-manager.js` 的 `inspectOneHook` 在 digest 与版本校验之后，新增 hook 正文中 runner／workspace 路径的存在性校验——宿主升级或迁目录后，正文里的路径已失效但内容摘要未变，旧实现据此判为 `managed` 且不修复，Hook 实际已不可用。现判为 `outdated` 并附具体原因，由既有修复流程重写。新增 `parseHookPaths`（兼容新旧两代 hook 正文的 shell 单引号路径解析）与 `pathExists`。
+- `client.js` 的 `notReadyDetail` 经 `detailText` 兜底为字符串或 `null`——`detail` 可能是对象或非字符串，直接进渲染会产出异常内容。
+
+### Changed
+
+- `scripts/sync-release.mjs` 退出码区分成功与中止（`0` 一致／apply 成功、`1` 检出差异、`2` 参数错误、`3` dev 已跟踪目标线专有清单、`4` target 脏且 apply 已中止）。此前 apply 成功写入与脏树中止共用 `1`，调用方无法区分「写入成功」与「什么都没做就中止」。
+
+### Added
+
+- `plugin/test/sync-release.test.mjs`（5 例）：检出差异、apply 成功、apply 后提交归零、脏树中止且不写入、未知参数——此前该脚本无任何测试覆盖。
+- `hook-manager.test.mjs` 补 `parseHookPaths`、假 managed 判定、workspace 失效与 `installHook` 重写 4 例；`hook-repair.test.mjs` 补启动修复重写失效 runner hook 的回归测试（测试基线 2671→2676）。
+
 ## [2.0.5-dev.1] — 2026-11-27
 
 开发迭代轮次开启：2.0.5 已封存发布，dev 线进入下一轮。
