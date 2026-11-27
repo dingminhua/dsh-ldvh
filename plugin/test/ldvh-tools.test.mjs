@@ -3,12 +3,13 @@ import test from "node:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { guidanceTextFor, GUIDANCE_SECTION_NAME, GUIDANCE_SECTION_ORDER } from "../lib/guidance-text.js";
 import { makeExecute, OPERATIONS, renderEnvelope, toolDescriptor } from "../lib/ldvh-tools.js";
 import { registerProject } from "../lib/governed-projects.js";
 import { snapshotIdentity, SOURCE_FINGERPRINT } from "../lib/commit-validation.js";
-import { execFileAsync, git, initRepo, withTemp } from "./helpers.mjs";
+import { execFileAsync, git, initRepo, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
@@ -1106,3 +1107,101 @@ test("渲染可见性：预检身份只在 passed 时显示，其余状态不得
 	});
 });
 
+
+async function withShellSignatureEnv(overrides, fn) {
+	const keys = ["DSH_SESSION_JSONL", "DSH_HOME", "DSH_SESSION_ID"];
+	const saved = {};
+	for (const key of keys) {
+		saved[key] = process.env[key];
+		delete process.env[key];
+	}
+	for (const [key, value] of Object.entries(overrides)) process.env[key] = value;
+	try {
+		return await fn();
+	} finally {
+		for (const key of keys) {
+			if (saved[key] === undefined) delete process.env[key];
+			else process.env[key] = saved[key];
+		}
+	}
+}
+
+test("session-signature envelope exposes an unbranded authoritative provider/model and copy-paste trailers", async () => {
+	await withTemp("ldvh-sig.", async (base) => {
+		await withShellSignatureEnv({}, async () => {
+			const { handlers } = makeExec({
+				dshHomePath: dshHome("/nope"),
+				workspaceRoot: base,
+				sessionPersistence: sessionPersistenceWithRoutingLog(base, { provider: "workbuddy", model: "hy4flash-free" }),
+			});
+			const exec = { agent: { session: { header: {} } }, env: {} };
+			const env = await handlers["session-signature"]({}, exec);
+			assert.equal(env.outcome, "completed");
+			assert.equal(env.result.provider, "workbuddy");
+			assert.equal(env.result.model, "hy4flash-free");
+			assert.equal(env.result.source_channel, "host_channel");
+			assert.deepEqual(env.result.trailers, ["LDVH-Provider: workbuddy", "LDVH-Model: hy4flash-free"]);
+			assert.equal(typeof env.result.authoritative, "object");
+			assert.equal(env.result.authoritative.provider, undefined, "the branded carrier must not be mistaken for the readable value");
+			assert.equal(env.verification.passed, true);
+		});
+	});
+});
+
+test("session-signature renderEnvelope shows provider/model, trailers and 'how to get' guidance", async () => {
+	await withTemp("ldvh-sig.", async (base) => {
+		await withShellSignatureEnv({}, async () => {
+			const { handlers } = makeExec({
+				dshHomePath: dshHome("/nope"),
+				workspaceRoot: base,
+				sessionPersistence: sessionPersistenceWithRoutingLog(base, { provider: "workbuddy", model: "hy4flash-free" }),
+			});
+			const exec = { agent: { session: { header: {} } }, env: {} };
+			const env = await handlers["session-signature"]({}, exec);
+			const text = renderEnvelope("session-signature", { envelope: env })[0].text;
+			assert.match(text, /authoritative provider: workbuddy/);
+			assert.match(text, /authoritative model: hy4flash-free/);
+			assert.match(text, /LDVH-Provider: workbuddy/);
+			assert.match(text, /LDVH-Model: hy4flash-free/);
+			assert.match(text, /usage（如何拿署名）:/);
+			assert.match(text, /Copy these two lines verbatim/);
+			assert.match(text, /verification\.passed: true/);
+			assert.ok(text.split("\n").length > 5, "rendered output must carry the result fields, not just the first line");
+		});
+	});
+});
+
+test("session-signature outcome is unavailable when both channels fail, with no trailers", async () => {
+	await withShellSignatureEnv({}, async () => {
+		const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
+		const env = await handlers["session-signature"]({}, {});
+		assert.equal(env.outcome, "unavailable");
+		assert.equal(env.result.provider ?? null, null);
+		assert.deepEqual(env.result.trailers, []);
+		assert.equal(env.verification.passed, false);
+		assert.ok(env.gaps.some((gap) => /do NOT fill commit trailers by guessing/.test(gap)));
+		const text = renderEnvelope("session-signature", { envelope: env })[0].text;
+		assert.match(text, /authoritative provider: \(unavailable\)/);
+		assert.match(text, /禁止猜值填 trailer/);
+	});
+});
+
+test("session-signature 在随包声明文件生成后可被定位且锚点可解析", async () => {
+	await withTemp("ldvh-sig-decl.", async (base) => {
+		const { copyBundles, cleanBundles } = await import("../scripts/specs-bundle.mjs");
+		const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+		const packageRoot = join(base, "pkg");
+		await copyBundles({ repoRoot, packageRoot });
+		try {
+			const { loadOperationDeclarationsBundle } = await import("../lib/spec-registry.js");
+			const bundlePath = join(packageRoot, "lib", "operation-declarations.bundle.json");
+			const table = await loadOperationDeclarationsBundle(bundlePath);
+			assert.equal(table.ok, true, JSON.stringify(table.reason));
+			const row = table.declarations.get("session-signature");
+			assert.ok(row, "session-signature 须在随包声明文件中");
+			assert.equal(row.anchor_errors.length, 0, "声明锚点须可解析");
+		} finally {
+			await cleanBundles({ packageRoot });
+		}
+	});
+});

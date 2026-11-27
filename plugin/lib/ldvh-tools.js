@@ -9,6 +9,7 @@ import { parseSpecDocument, resolveHeadingPath, contentFingerprint, parseOperati
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
 import { currentRouteValues } from "./session-signature.js";
+import { authoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
 import { isFrictionPromotionRunning } from "./friction-promotion-lock.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, isFrictionCarrierPath, checkFrictionCommitTargets, checkFactCarrierIdentity, factCarrierType, checkSignatureAgainstRoute } from "./commit-validation.js";
@@ -68,7 +69,7 @@ const OPERATIONS = {
   },
   "session-signature": {
     toolName: "ldvh_session_signature",
-    summary: "Read-only query for THIS session's authoritative provider/model and the exact routing event it came from (event type + seq), plus the selection rule. Exists so a controlled commit's LDVH-Provider/LDVH-Model trailers can be filled by reading rather than by trial and error: the authoritative route is the LAST routing event in the session log, so a mid-session model switch makes earlier values stale",
+    summary: "Read-only query for THIS session's authoritative provider/model and the exact routing event it came from (event type + seq), plus the selection rule. Its rendered output carries the two trailer lines to copy verbatim and the exact channel the Git Gate reads; use them to fill a controlled commit's LDVH-Provider/LDVH-Model instead of guessing. The authoritative route is the LAST routing event in the session log, so a mid-session model switch makes earlier values stale",
     effect: "read"
   },
   "probe-host-automation": {
@@ -275,7 +276,7 @@ function makeExecute(deps) {
   }
 
   async function executeSessionSignature(_args, exec) {
-    const { currentRouteValuesFromShellEnvironment, ROUTE_SELECTION_RULE, authoritativeSignature } = await import("./session-signature.js");
+    const { currentRouteValuesFromShellEnvironment, ROUTE_SELECTION_RULE } = await import("./session-signature.js");
     const viaHost = await currentRouteValues(deps.sessionPersistence?.() ?? null, exec?.agent);
     const viaShell = await currentRouteValuesFromShellEnvironment();
     const describe = (route) => route?.ok === true
@@ -295,23 +296,39 @@ function makeExecute(deps) {
     const agreement = viaHost?.ok === true && viaShell?.ok === true
       ? (viaHost.value.provider === viaShell.value.provider && viaHost.value.model === viaShell.value.model
         ? "same"
-        : "DIFFERENT — the Hook and this session are reading different routes; the commit-msg gate uses the shell channel, so use `shell` for the trailers")
+        : "DIFFERENT — the Hook and this session are reading different routes; the commit-msg gate uses the shell channel, so use `shell_channel` for the trailers")
       : "not-comparable";
-    return envelope("session-signature", "completed", {
+    const preferred = viaShell?.ok === true ? viaShell : (viaHost?.ok === true ? viaHost : null);
+    const authoritative = preferred !== null ? authoritativeSignature(preferred.value) : null;
+    const plain = preferred !== null ? resolveAuthoritativeSignature(authoritative) : null;
+    const trailers = plain !== null ? [`LDVH-Provider: ${plain.provider}`, `LDVH-Model: ${plain.model}`] : [];
+    const bothUnavailable = viaShell?.ok !== true && viaHost?.ok !== true;
+    const outcome = bothUnavailable ? "unavailable" : (agreement === "DIFFERENT" ? "partial" : "completed");
+    const gaps = [];
+    if (viaHost?.ok !== true) gaps.push(`host_channel unavailable: ${host.unavailable}`);
+    if (viaShell?.ok !== true) gaps.push(`shell_channel unavailable: ${shell.unavailable}`);
+    if (bothUnavailable) gaps.push("no authoritative provider/model could be obtained; do NOT fill commit trailers by guessing");
+    return envelope("session-signature", outcome, {
       result: {
         rule: ROUTE_SELECTION_RULE,
-        authoritative: shell.ok === true || host.ok === true
-          ? authoritativeSignature((viaShell?.ok === true ? viaShell : viaHost).value)
-          : null,
+        authoritative,
+        provider: plain?.provider ?? null,
+        model: plain?.model ?? null,
+        event_type: preferred?.value.eventType ?? null,
+        seq: preferred?.value.seq ?? null,
+        source_channel: preferred === viaShell ? "shell_channel" : (preferred !== null ? "host_channel" : null),
         host_channel: host,
         shell_channel: shell,
         channels_agree: agreement,
-        usage: "Fill the commit message footer with exactly the two trailer lines from the channel the gate reads (shell_channel when the gate runs as a Git Hook); do not guess from the top of the session log.",
+        trailers,
+        usage: trailers.length > 0
+          ? `Copy these two lines verbatim into the commit message footer (from ${preferred === viaShell ? "shell_channel — the channel the Git Gate reads" : "host_channel"}):\n${trailers.join("\n")}\nDo not guess from the top of the session log; the authoritative route is the LAST routing event.`
+          : "No authoritative signature is available from either channel; do not fill the commit trailers by guessing.",
       },
-      scope: { requested: null, completed: ["session-route"], not_completed: [] },
+      scope: { requested: null, completed: bothUnavailable ? [] : ["session-route"], not_completed: bothUnavailable ? ["session-route"] : [] },
       sources: [],
-      gaps: [],
-      verification: { checks: ["route-from-host", "route-from-shell"], passed: shell.ok === true || host.ok === true },
+      gaps,
+      verification: { checks: ["route-from-host", "route-from-shell"], passed: preferred !== null && agreement !== "DIFFERENT" },
       follow_up: [],
     });
   }
@@ -1182,6 +1199,34 @@ export function renderEnvelope(operationKey, value) {
     for (const item of env.follow_up ?? []) lines.push(`follow_up: ${item}`);
     for (const gap of env.gaps ?? []) lines.push(`gap: ${gap}`);
     return [{ type: "text", text: lines.join("\n") }];
+  }
+  if (operationKey === "session-signature" || env.operation_key === "session-signature") {
+    const r = env.result ?? {};
+    lines.push(`rule: ${r.rule ?? ""}`);
+    lines.push(`authoritative provider: ${r.provider ?? "(unavailable)"}`);
+    lines.push(`authoritative model: ${r.model ?? "(unavailable)"}`);
+    lines.push(`source_channel: ${r.source_channel ?? "(none)"}`);
+    lines.push(`event_type: ${r.event_type ?? "(none)"} seq: ${r.seq ?? "(none)"}`);
+    if (r.host_channel !== undefined) {
+      const c = r.host_channel;
+      lines.push(`host_channel: ${c.unavailable !== undefined ? `unavailable — ${c.unavailable}` : `${c.provider} / ${c.model} (${c.event_type} seq ${c.seq})`}`);
+    }
+    if (r.shell_channel !== undefined) {
+      const c = r.shell_channel;
+      lines.push(`shell_channel: ${c.unavailable !== undefined ? `unavailable — ${c.unavailable}` : `${c.provider} / ${c.model} (${c.event_type} seq ${c.seq})`}`);
+    }
+    lines.push(`channels_agree: ${r.channels_agree ?? "not-comparable"}`);
+    if (Array.isArray(r.trailers) && r.trailers.length > 0) {
+      lines.push("trailers（逐字抄进提交 message 末两行）:");
+      for (const trailer of r.trailers) lines.push(`  ${trailer}`);
+    } else {
+      lines.push("trailers: (none — 两个通道都取不到权威签名，禁止猜值填 trailer)");
+    }
+    if (typeof r.usage === "string" && r.usage.length > 0) {
+      lines.push("usage（如何拿署名）:");
+      for (const line of r.usage.split("\n")) lines.push(`  ${line}`);
+    }
+    if (env.verification !== undefined) lines.push(`verification.passed: ${env.verification.passed === true}`);
   }
   if (operationKey === "precheck-git-commit") {
     if (env.result?.mechanical_outcome === "passed") {
