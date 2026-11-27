@@ -176,16 +176,20 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 		"notReadyDetail must be computed per project card",
 	);
 	assert.ok(
-		source.includes('(factSource && factSource.state !== "ready" && factSource.detail)'),
-		"notReadyDetail chain must start with factSource.detail",
+		source.includes('detailText(factSource && factSource.state !== "ready" && factSource.detail)'),
+		"notReadyDetail chain must start with factSource.detail (string-guarded)",
 	);
 	assert.ok(
-		source.includes('(hook && hook.state !== "managed" && hook.detail)'),
-		"notReadyDetail chain must fall back to hook.detail",
+		source.includes('detailText(hook && hook.state !== "managed" && hook.detail)'),
+		"notReadyDetail chain must fall back to hook.detail (string-guarded)",
 	);
 	assert.ok(
-		source.includes("(project.status && project.status.error && project.status.error.message)"),
-		"notReadyDetail chain must fall back to status.error.message",
+		source.includes("detailText(project.status && project.status.error)"),
+		"notReadyDetail chain must fall back to status.error (string-guarded)",
+	);
+	assert.ok(
+		source.includes('return typeof value === "string" ? value : (value && typeof value.message === "string" ? value.message : null);'),
+		"detailText must coerce non-string details to a safe string or null",
 	);
 	assert.ok(
 		source.includes('notReadyDetail ? React.createElement("span", { className: "ldv-settings-hint" }, notReadyDetail) : null'),

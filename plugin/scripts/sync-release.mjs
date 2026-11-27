@@ -4,6 +4,14 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const EXIT = Object.freeze({
+	OK: 0,
+	DRIFT: 1,
+	BAD_ARGS: 2,
+	KEEP_CONFLICT: 3,
+	DIRTY_TARGET: 4,
+});
+
 const EXCLUDED = ["ldvh-base/"];
 const TARGET_KEEP = ["package.json"];
 const APPLY_SKIP = [
@@ -25,7 +33,7 @@ function parseArgs(argv) {
 		else if (argv[i] === "--target") out.target = argv[(i += 1)];
 		else {
 			process.stderr.write(`sync-release: unknown argument ${argv[i]}\n`);
-			process.exit(2);
+			process.exit(EXIT.BAD_ARGS);
 		}
 	}
 	return out;
@@ -65,7 +73,7 @@ for (const [path, oid] of srcAll) {
 const keepConflict = TARGET_KEEP.filter((p) => src.has(p));
 if (keepConflict.length > 0) {
 	process.stderr.write(`sync-release: dev 已开始跟踪 ${keepConflict.join("、")}，TARGET_KEEP 语义须复核后再同步\n`);
-	process.exit(1);
+	process.exit(EXIT.KEEP_CONFLICT);
 }
 
 const tgt = trackedTree(targetRoot, "HEAD");
@@ -86,7 +94,7 @@ const changelogCarry =
 const dirty = git(targetRoot, ["status", "--porcelain"]).trim();
 if (dirty) {
 	process.stderr.write("sync-release: target 有未提交改动，对比基于 HEAD；apply 前须先处理\n");
-	if (args.mode === "apply") process.exit(1);
+	if (args.mode === "apply") process.exit(EXIT.DIRTY_TARGET);
 }
 
 process.stdout.write(`sync-release ${args.mode}: source=${args.source} target=${targetRoot}\n`);
@@ -119,4 +127,5 @@ if (args.mode === "apply") {
 	process.stdout.write("主控核对后受控提交；版本声明点由版本翻号步骤维护，本脚本不覆写\n");
 }
 
-process.exitCode = missing.length + extra.length + differs.length > 0 ? 1 : 0;
+process.exitCode =
+	args.mode === "apply" ? EXIT.OK : missing.length + extra.length + differs.length > 0 ? EXIT.DRIFT : EXIT.OK;

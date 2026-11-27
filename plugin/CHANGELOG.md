@@ -8,21 +8,40 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
-## [2.0.5] — 2026-11-27
+## [2.0.6] — 2026-11-27
 
-署名校验披露取值来源与规则，并新增只读查询口（issue #9）。
+两处修复与一处流程工具改进。
 
 ### Fixed
 
-- **commit-msg 署名校验不再让 AI 只能试错或问人（issue #9）**：会话中途切换过模型时，日志里会留下多组路由值，而闸门取的是**日志中最后一条**路由事件——此前这条规则零披露，报错也只印 provider/model。现 `signature_provider_mismatch` / `signature_model_mismatch` 补印来源事件类型与 `seq`（该字段事件里本就有、此前完全未采集）及取值规则；`signature_trailer_missing` 不再只说 `requires exactly one`，改为指向查询口并印出规则。取值规则同时写进 `plugin-specs/controlled-commit.yaml` 的 `message-trailer` 条目，代码与文档共用同一份措辞。
-
-### Added
-
-- **`ldvh_session_signature` 只读查询口**：返回本会话权威 provider/model、可直接抄进页脚的两行 trailer、来源事件类型与 `seq`、取值规则，以及**宿主通道与 shell 通道各自的取值及两者是否一致**——后一项让「两条通道可能指向不同日志」这一已知风险直接可见（闸门读的是 shell 通道）。
+- **宿主换代后旧 Git Hook 因「假 managed」逃过自动修复**：`hook-manager.js` 的 `inspectOneHook` 在 digest 与版本校验之后，新增 hook 正文中 runner／workspace 路径的存在性校验——宿主升级或迁目录后，正文里的路径已失效但内容摘要未变，旧实现据此判为 `managed` 且不修复，Hook 实际已不可用。现判为 `outdated` 并附具体原因，由既有修复流程重写。新增 `parseHookPaths`（兼容新旧两代 hook 正文的 shell 单引号路径解析）与 `pathExists`。
+- `client.js` 的 `notReadyDetail` 经 `detailText` 兜底为字符串或 `null`——`detail` 可能是对象或非字符串，直接进渲染会产出异常内容。
 
 ### Changed
 
-- README 版本表述修正：根 README 此前写「正式版本已发布至 `1.1.6`」，与实际的 `2.0.4` 不符，已随本次发布更正。
+- `scripts/sync-release.mjs` 退出码区分成功与中止（`0` 一致／apply 成功、`1` 检出差异、`2` 参数错误、`3` dev 已跟踪目标线专有清单、`4` target 脏且 apply 已中止）。此前 apply 成功写入与脏树中止共用 `1`，调用方无法区分「写入成功」与「什么都没做就中止」。
+
+### Added
+
+- `plugin/test/sync-release.test.mjs`（5 例）：检出差异、apply 成功、apply 后提交归零、脏树中止且不写入、未知参数——此前该脚本无任何测试覆盖。
+- `hook-manager.test.mjs` 补 `parseHookPaths`、假 managed 判定、workspace 失效与 `installHook` 重写 4 例；`hook-repair.test.mjs` 补启动修复重写失效 runner hook 的回归测试（测试基线 2671→2676）。
+
+## [2.0.5-dev.1] — 2026-11-27
+
+开发迭代轮次开启：2.0.5 已封存发布，dev 线进入下一轮。
+
+## [2.0.5] — 2026-11-27
+
+署名校验披露取值来源与规则，新增只读查询口（issue #9）。
+
+### Added
+
+- 新增只读查询口 `ldvh_session_signature`：回报当前权威署名、来源事件类型与 `seq`、取值规则，并同时报出宿主通道与 shell 通道的取值及两者是否一致（`channels_agree`）——中途切换过模型的会话可直接取到权威值，不再靠试错。
+
+### Fixed
+
+- 署名校验不匹配时的报错补出**来源**：印出取值事件的 `eventType` 与 `seq`、以及「取会话日志中最后一条路由事件」的规则；`signature_trailer_missing` 也指向该规则与查询口，不再只说「does not match」而不给出处。代码与载体共用同一份规则文本（`ROUTE_SELECTION_RULE`）。
+- 载体 `controlled-commit` 的 `message-trailer` 条目补写取值规则与查询口，与代码同步。
 
 ## [2.0.4-dev.1] — 2026-11-26
 

@@ -952,10 +952,11 @@ window.__ModuleLoader__.load({
               var factSource = project.status && project.status.factSource;
               var ready = factSource && factSource.state === "ready" && hook && hook.state === "managed";
               var repairable = (hook && ["absent", "outdated"].includes(hook.state)) || (factSource && ["absent", "incomplete"].includes(factSource.state));
+              var detailText = function (value) { return typeof value === "string" ? value : (value && typeof value.message === "string" ? value.message : null); };
               var notReadyDetail = ready ? null
-                : ((factSource && factSource.state !== "ready" && factSource.detail)
-                  || (hook && hook.state !== "managed" && hook.detail)
-                  || (project.status && project.status.error && project.status.error.message)
+                : (detailText(factSource && factSource.state !== "ready" && factSource.detail)
+                  || detailText(hook && hook.state !== "managed" && hook.detail)
+                  || detailText(project.status && project.status.error)
                   || null);
               return React.createElement("article", { className: "ldv-project-card", key: project.id },
                 React.createElement("div", { className: "ldv-project-head" },

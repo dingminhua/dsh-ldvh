@@ -152,6 +152,25 @@ test("the bundle owns exactly the two Hooks the repair iterates", () => {
   assert.equal(HOOK_BUNDLE_VERSION, "1.0.0-dev.3");
 });
 
+test("startup repair rewrites a digest-matching hook whose runner path is dead (issue #10)", async () => {
+  await withTemp("ldvh-hr.", async (base) => {
+    const { home, repo, canonical } = await governedProject(base);
+    const deadRunner = join(base, "old-profile", "git-gate-runner.js");
+    await writeFile(join(repo, ".git", "hooks", "commit-msg"), renderHook({ runnerPath: deadRunner, workspaceRoot: pluginRoot }), { mode: 0o755 });
+    await writeFile(join(repo, ".git", "hooks", "pre-commit"), renderHook({ runnerPath: deadRunner, workspaceRoot: pluginRoot, hookName: "pre-commit" }), { mode: 0o755 });
+    assert.equal((await inspectHook(repo)).state, "outdated");
+
+    const summary = await repairHooksOnStartup({ dshHomePath: dshHome(home), runnerPath, workspaceRoot: pluginRoot });
+
+    assert.deepEqual(summary.repaired, [canonical]);
+    assert.equal(summary.failed.length, 0);
+    assert.equal((await inspectHook(repo)).state, "managed");
+    const body = await readFile(join(repo, ".git", "hooks", "commit-msg"), "utf8");
+    assert.ok(body.includes(runnerPath), "repaired hook must point at the live runner");
+    assert.doesNotMatch(body, /old-profile/);
+  });
+});
+
 test("a repaired Hook set passes the real Git Gate for its stage", async () => {
   await withTemp("ldvh-hr.", async (base) => {
     const { home, repo } = await governedProject(base);
