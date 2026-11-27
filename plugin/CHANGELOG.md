@@ -8,6 +8,24 @@ The format follows Keep a Changelog. This changelog records only implemented and
 
 （尚未封存新的发布版本；本节留空占位。）
 
+## [2.0.7] — 2026-11-28
+
+修复 `ldvh_session_signature` 两处坏路径，并把该操作列入公开声明。
+
+### Fixed
+
+- **查询结果被渲染层丢弃、且未登记进公开操作声明**：`ldvh-tools.js` 修正 `authoritativeSignature` 的 import 来源，补齐解品牌后的可读署名、trailer、两通道取值与来源事件，`outcome` 按通道可用性取 `completed`／`partial`／`unavailable`；`renderEnvelope` 新增 `session-signature` 分支，输出权威署名、两通道、可逐字抄写的 trailer 与取值指引。此前结果被渲染丢弃，调用方既看不到署名值也看不到取值说明。
+- **返回值含带 Symbol 键的品牌对象，宿主无法无损 JSON 序列化而拒绝**：从 `result` 移除 `authoritative` 品牌对象，只保留可读署名与 trailer。
+
+### Added
+
+- `specs/09` 新增 §5.8「session-signature 公开操作」并在公开操作声明表补一行——该操作此前未登记，能力发现会报不可用。声明表为此前既有操作的补登记，不是新增能力。
+- 测试补 envelope 字段、渲染可见性、`unavailable` 语义、声明文件覆盖、随包声明登记与锚点可解析、JSON 往返无损（基线 2676→2681）。
+
+## [2.0.6-dev.1] — 2026-11-27
+
+开发迭代轮次开启：2.0.6 已封存发布，dev 线进入下一轮。
+
 ## [2.0.6] — 2026-11-27
 
 两处修复与一处流程工具改进。

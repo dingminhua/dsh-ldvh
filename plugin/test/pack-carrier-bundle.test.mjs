@@ -372,3 +372,17 @@ test("the real repository declaration data file matches the runtime parse of spe
     assert.deepEqual(row, { ...generated.declarations[key], anchor_errors: [] }, `生成物与规范源逐值不符：${key}`);
   }
 });
+
+test("the packaged declaration bundle registers session-signature with resolvable contracts", async () => {
+  const repoRoot = dirname(pluginRoot);
+  const packageRoot = mkdtempSync(join(tmpdir(), "ldvh-sig-declaration-bundle-"));
+  await copyBundles({ repoRoot, packageRoot });
+  const bundleFile = join(packageRoot, "lib", "operation-declarations.bundle.json");
+  const loaded = await loadOperationDeclarationsBundle(bundleFile);
+  assert.equal(loaded.ok, true, JSON.stringify(loaded.reason));
+  const row = loaded.declarations.get("session-signature");
+  assert.ok(row, "session-signature must be present in the packaged declaration file");
+  assert.equal(row.effect, "read");
+  assert.match(row.arguments_contract, /source-of-truth-traceability::5\. 受控提交契约\/5\.8 session-signature 公开操作/);
+  assert.equal(row.anchor_errors.length, 0);
+});
